@@ -71,10 +71,25 @@ def test_draft_opens_only_for_the_owner_and_the_project(corpus, corpus_rows, tes
     publish(aid)
     assert share(test_client, corpus, aid, "public").status_code == 200
     want = dict.fromkeys(READERS, 404)
-    want.update({"owner": 200, "anonymous": 401})
+    # The organization's admin reads the draft too (not the conversation), as
+    # main's /r shows an admin every conversation's dashboard (#1400): after
+    # the data migration a private conversation's dashboard is a draft.
+    want.update({"owner": 200, "admin": 200, "anonymous": 401})
     if in_project:
         want.update(dict.fromkeys(PROJECT_READERS, 200))
     assert _codes(test_client, corpus, f"/api/d/{aid}/draft") == want
+    # The page shows the editing controls (Edit) to its editors only: the
+    # admin reads it -- unless it is in a project, which the admin can view
+    # (a project's viewers are its dashboards' editors, phase 4).
+    for reader in [r for r, code in want.items() if code == 200]:
+        meta = test_client.get(f"/api/d/{aid}/draft", headers=as_(corpus, reader)).json()
+        assert meta["can_edit"] is (reader != "admin" or in_project), reader
+        # Whose rows the page shows: only the owner's are the shared ones;
+        # anyone else runs it for their own (as /r let them on main).
+        assert meta["is_owner"] is (reader == "owner"), reader
+        if reader != "owner":
+            assert test_client.post(f"/api/r/{meta['report_id']}/run",
+                                    headers=as_(corpus, reader)).status_code != 404, reader
 
 
 @pytest.mark.e2e
@@ -88,6 +103,14 @@ def test_an_unpublished_dashboard_tells_only_its_editors_that_it_is_unpublished(
             assert code == "dashboard.not_published", reader
         else:
             assert code == "artifact.not_found", reader
+    # Outside any project: the organization's admin is told too, so the page
+    # takes them to the draft they may read (an old /r link of a private
+    # conversation shows the admin its dashboard on main, #1400).
+    outside = own(corpus_rows, corpus, "conv_three_dash/dash_stock")
+    for reader, want in (("owner", "dashboard.not_published"), ("admin", "dashboard.not_published"),
+                         ("member", "artifact.not_found")):
+        resp = test_client.get(f"/api/d/{outside}", headers=as_(corpus, reader))
+        assert resp.status_code == 404 and resp.json()["error_code"] == want, (reader, resp.text)
 
 
 @pytest.mark.e2e

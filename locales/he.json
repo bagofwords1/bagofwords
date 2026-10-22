@@ -823,7 +823,8 @@
     "sharedEmpty": "אין דוחות משותפים",
     "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן.",
     "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
-    "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}"
+    "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}",
+    "deleteLosesUnpublishedChanges": "שינויים שלא פורסמו בדשבורדים האלה יאבדו (הגרסה המפורסמת נשארת): {names}"
   },
   "projects": {
     "title": "פרויקטים",
@@ -4149,6 +4150,7 @@
     "artifact.not_found": "הפריט לא נמצא",
     "dashboard.not_published": "הדשבורד הזה עוד לא פורסם.",
     "dashboard.share_requires_publish": "יש לפרסם את הדשבורד לפני שמשתפים אותו.",
+    "dashboard.conversation_moved": "השיתוף והתזמון של השיחה הזו נמצאים בדשבורד שלה.",
     "dashboard.rls_requires_viewer": "הדשבורד הזה משתמש באבטחה ברמת השורה, ולכן צופים תמיד מריצים בזהות שלהם. \"הרצה בשמי\" לא זמינה.",
     "dashboard.export_withheld": "הדשבורד הזה מציג לכל צופה את הנתונים שלו, ולכן אי אפשר לייצא אותו.",
     "dashboard.export_needs_run": "צריך להריץ קודם את הדשבורד כדי לייצא את הנתונים שלך.",

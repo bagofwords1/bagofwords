@@ -108,9 +108,7 @@ def register_job(artifact_id: str, cron: str | None, timezone: str | None) -> No
                       replace_existing=True, **fields)
 
 
-async def register_all_jobs() -> None:
-    """At startup, on the leader: one job per scheduled dashboard, published
-    or not, and no other dashboard job. The same on every call."""
+async def _scheduled_dashboards() -> list:
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:
@@ -122,11 +120,44 @@ async def register_all_jobs() -> None:
             )
         )).all()
         zones = {org: await org_timezone(db, org) for org in {str(r[1]) for r in rows}}
-    wanted = set()
-    for artifact_id, organization_id, cron in rows:
+    return [(str(a), cron, zones.get(str(o))) for a, o, cron in rows]
+
+
+async def restore_missing_jobs() -> None:
+    """On the leader, every few minutes: puts back a scheduled dashboard's
+    job that is missing -- a server still on an older version, during a
+    rolling upgrade, deletes jobs it cannot load (APScheduler drops what it
+    cannot restore). Jobs that are there are left as they are, so a fire
+    that is due is not moved."""
+    for artifact_id, cron, zone in await _scheduled_dashboards():
+        if scheduler.get_job(job_id(artifact_id)) is None:
+            try:
+                register_job(artifact_id, cron, zone)
+                logger.info("Dashboard %s: missing schedule job restored", artifact_id)
+            except Exception:
+                logger.warning("Dashboard %s: schedule %r not restored", artifact_id, cron, exc_info=True)
+
+
+async def keep_jobs(interval_seconds: int = 300) -> None:
+    """The leader's loop around restore_missing_jobs (an asyncio task, not a
+    stored job: a server that cannot load it would drop that too)."""
+    while True:
+        await asyncio.sleep(interval_seconds)
         try:
-            register_job(str(artifact_id), cron, zones.get(str(organization_id)))
-            wanted.add(job_id(str(artifact_id)))
+            await restore_missing_jobs()
+        except Exception:
+            logger.warning("Dashboard schedules were not checked", exc_info=True)
+
+
+async def register_all_jobs() -> None:
+    """At startup, on the leader: one job per scheduled dashboard, published
+    or not, and no other dashboard job. The same on every call."""
+    rows = await _scheduled_dashboards()
+    wanted = set()
+    for artifact_id, cron, zone in rows:
+        try:
+            register_job(artifact_id, cron, zone)
+            wanted.add(job_id(artifact_id))
         except Exception:
             logger.warning("Dashboard %s: schedule %r not registered", artifact_id, cron, exc_info=True)
     for job in scheduler.get_jobs():
@@ -237,7 +268,7 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
     step_ids = [str(step.id) for step, _, _ in results]
     if step_ids:
         # The shared rows changed: readers' own results on them are stale,
-        # as a conversation refresh drops them.
+        # as main's rerun_step drops them on a conversation refresh.
         await db.execute(delete(StepUserResult).where(StepUserResult.step_id.in_(step_ids)))
     now = datetime.utcnow()
     live.last_run_at, live.last_run_status, live.last_run_error = now, "success", None
@@ -316,7 +347,7 @@ async def scheduled_refresh(artifact_id: str) -> None:
             await _record_failure(db, str(artifact_id), None,
                                   "The dashboard's owner is no longer a member of the organization")
             return
-        title, subscribers = artifact.title or "Untitled", artifact.notification_subscribers
+        title, subscribers = await _schedule_title(db, artifact), artifact.notification_subscribers
         owner_id, organization_id = str(owner.id), str(organization.id)
         if not artifact.published_release_id:
             await _refresh_draft(db, artifact, owner, organization, title, subscribers)
@@ -327,7 +358,7 @@ async def scheduled_refresh(artifact_id: str) -> None:
         if result["status"] == "success" and subscribers:
             await _tell_subscribers(db, str(artifact_id), title, subscribers, organization)
         elif result["status"] == "failed":
-            await _tell_owner(db, str(artifact_id), title, owner, organization, result["error"])
+            await _tell_failure(db, str(artifact_id), title, owner, organization, subscribers, result["error"])
 
 
 async def _refresh_draft(db, artifact: Artifact, owner: User, organization, title: str, subscribers) -> None:
@@ -341,6 +372,11 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
 
     artifact_id, link = str(artifact.id), f"/d/{artifact.id}/draft"
     report = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    if report is not None and await _moved_from_its_conversation(db, artifact, report):
+        # The schedule the data migration moved here (its link shows a deck):
+        # the conversation's old link, as main's emails had -- it leads to
+        # what it showed; a draft's link opens for its editors only.
+        link = f"/r/{report.id}"
     version = await draft_version(db, artifact)
     if report is None or report.deleted_at is not None or report.status == "archived" or version is None:
         return  # nothing to refresh: no live conversation, or no finished version
@@ -360,8 +396,35 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
         if subscribers:
             await _tell_subscribers(db, artifact_id, title, subscribers, organization, link=link)
     elif run.get("steps_total"):
-        await _tell_owner(db, artifact_id, title, owner, organization,
-                          run.get("error") or run.get("message") or "The draft's queries failed", link=link)
+        await _tell_failure(db, artifact_id, title, owner, organization, subscribers,
+                            run.get("error") or run.get("message") or "The draft's queries failed", link=link)
+
+
+async def _schedule_title(db, artifact: Artifact) -> str:
+    """The name the schedule's emails carry: a migrated dashboard's -- the one
+    its old link leads to, or the one its conversation's schedule moved to --
+    is its conversation's, as main named them and as the dashboards list and
+    the project's automations still do (2026-10-21); any other its own."""
+    from app.models.report import Report
+
+    report = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    if report is not None and report.title and (
+            str(artifact.legacy_report_id or "") == str(report.id)
+            or await _moved_from_its_conversation(db, artifact, report)):
+        return report.title
+    return artifact.title or "Untitled"
+
+
+async def _moved_from_its_conversation(db, artifact: Artifact, report) -> bool:
+    """This dashboard's schedule is the one the data migration moved from its
+    conversation: a dashboard took the conversation's link over, and the
+    schedule and subscribers are still those the conversation kept (its
+    columns are the migration's backup, never written since)."""
+    from app.services.dashboard_legacy import is_link_taken_over
+
+    return ((report.cron_schedule or "").strip() == (artifact.cron_schedule or "").strip() != ""
+            and (report.notification_subscribers or None) == (artifact.notification_subscribers or None)
+            and await is_link_taken_over(db, report.id))
 
 
 async def _tell_subscribers(db, artifact_id: str, title: str, subscribers: list, organization,
@@ -397,15 +460,43 @@ async def _tell_subscribers(db, artifact_id: str, title: str, subscribers: list,
         logger.warning("Dashboard %s: scheduled-run email failed", artifact_id, exc_info=True)
 
 
-async def _tell_owner(db, artifact_id: str, title: str, owner: User, organization, error: str,
-                      *, link: str | None = None) -> None:
+async def _tell_failure(db, artifact_id: str, title: str, owner: User, organization, subscribers,
+                        error: str, *, link: str | None = None) -> None:
+    """A scheduled run that failed (decided 2026-10-21): emailed to the
+    schedule's subscribers only -- the same list a run that worked emails,
+    so nobody who did not ask gets mail; none for the owner, as main's
+    conversation schedule sent none. They are told it failed, not why (they
+    may be outside the organization); the owner's Notifications row holds
+    the error."""
+    from app.dependencies import _locale_from_org
+    from app.models.user import User as UserModel
     from app.services import automation_alerts
+    from app.services.notification_service import notification_service
+    from app.settings.config import settings
 
+    link = link or f"/d/{artifact_id}"
     try:
         await automation_alerts.notify_owner_of_failure(
             db, kind="dashboard", automation_id=artifact_id, automation_name=title, owner=owner,
             organization=organization, outcome=automation_alerts.RunOutcome(ok=False, error_message=error),
-            link=link or f"/d/{artifact_id}",
+            link=link, email=False,
         )
     except Exception:
         logger.warning("Dashboard %s: failure alert not sent", artifact_id, exc_info=True)
+    addresses = []
+    for sub in subscribers or []:
+        if sub.get("type") == "email" and sub.get("address"):
+            addresses.append(sub["address"])
+        elif sub.get("type") == "user" and sub.get("id"):
+            user = await db.get(UserModel, str(sub["id"]))
+            if user is not None and user.email:
+                addresses.append(user.email)
+    for address in dict.fromkeys(addresses):
+        try:
+            await notification_service.send_automation_failure(
+                recipient_email=address, automation_name=title, error_message="",
+                link=f"{settings.bow_config.base_url.rstrip('/')}{link}",
+                organization_id=str(organization.id), locale=_locale_from_org(organization),
+            )
+        except Exception:
+            logger.warning("Dashboard %s: failure email not sent", artifact_id, exc_info=True)

@@ -13,6 +13,7 @@ from sqlalchemy.types import JSON
 
 from tests.fixtures.dashboard_corpus.alembic_at import (
     MAIN_BASE_REVISION,
+    PRE_MIGRATION_REVISION,
     alembic_pointed_at,
     current_revisions,
     scratch_database,
@@ -323,7 +324,8 @@ def _schema(url):
         i = inspect(engine)
         out = {}
         for t in sorted(i.get_table_names()):
-            if t == "alembic_version":
+            # alembic's own table; APScheduler's, which it creates at runtime.
+            if t in ("alembic_version", "apscheduler_jobs"):
                 continue
             pk = i.get_pk_constraint(t)
             out[t] = {
@@ -397,8 +399,9 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
     down_counts = _counts(url)
     assert {t: n for t, n in head_counts.items() if t in down_counts} == down_counts
 
+    # Back to where the corpus stands (before the data migration, dashfc08).
     with alembic_pointed_at(url) as cfg:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, PRE_MIGRATION_REVISION)
     assert _schema(url) == head_schema
     assert _counts(url) == head_counts
 

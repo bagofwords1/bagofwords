@@ -848,10 +848,14 @@ const toggleAllVisible = () => {
     selectedIds.value = s
 }
 
-// The confirmation names the never-published dashboards that go too (phase 7).
+// The confirmation names the never-published dashboards that go too, and the
+// published ones whose changes not yet published are lost (phase 7).
 async function withUnpublishedNote(message: string, reportIds: string[]) {
-    const names = await unpublishedDashboardsDeletedWith(reportIds)
-    return names.length ? `${message}\n\n${t('reports.deleteUnpublishedDashboards', { names: names.join(', ') })}` : message
+    const notes = await dashboardsDeleteNotes(reportIds)
+    const lines = [message]
+    if (notes.deleted.length) lines.push(t('reports.deleteUnpublishedDashboards', { names: notes.deleted.join(', ') }))
+    if (notes.losesChanges.length) lines.push(t('reports.deleteLosesUnpublishedChanges', { names: notes.losesChanges.join(', ') }))
+    return lines.join('\n\n')
 }
 
 async function confirmDelete(reportId: string) {

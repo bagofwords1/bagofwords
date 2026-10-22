@@ -9,7 +9,7 @@ exists.
 import pytest
 from sqlalchemy import create_engine, inspect, text
 
-from tests.fixtures.dashboard_corpus.alembic_at import alembic_pointed_at, current_revisions, script_directory
+from tests.fixtures.dashboard_corpus.alembic_at import PRE_MIGRATION_REVISION, alembic_pointed_at, current_revisions, script_directory
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
 
@@ -47,14 +47,14 @@ def test_round_trip_restores_required_widgets_and_keeps_every_row(corpus):
     from alembic import command
 
     url = sync_test_url()
-    head = script_directory().get_current_head()
+    head = PRE_MIGRATION_REVISION  # the corpus stops before the data migration (dashfc08)
     queries, steps = _count(url, "queries"), _count(url, "steps")
     with alembic_pointed_at(url) as cfg:
         command.downgrade(cfg, "dashfc01")
     assert current_revisions(url) == ("dashfc01",)
     assert _nullable(url, "queries", "widget_id") is False
     with alembic_pointed_at(url) as cfg:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, PRE_MIGRATION_REVISION)
     assert current_revisions(url) == (head,)
     assert _nullable(url, "queries", "widget_id") is True
     assert (_count(url, "queries"), _count(url, "steps")) == (queries, steps)

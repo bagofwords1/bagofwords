@@ -332,12 +332,15 @@ const reportLoaded = ref(false);
 const dataReady = ref(false);
 
 // Check if current user is the report owner. A dashboard says so itself
-// (its owner, while still in its organization); its draft is open to its
-// editors only.
+// (its owner, while still in its organization); its draft says whether the
+// reader edits it (the organization's admin only reads it).
 const dashboardOwner = ref(false);
+// Whose rows the page shows: the owner sees the shared ones; anyone else
+// (an editor who is not the owner, the organization's admin) runs it for
+// their own. On a dashboard the same as isOwner; on a draft its own flag.
+const draftDataOwner = ref(false);
 const isOwner = computed(() => {
-    if (props.source === 'draft') return true;
-    if (props.source === 'dashboard') return dashboardOwner.value;
+    if (props.source === 'draft' || props.source === 'dashboard') return dashboardOwner.value;
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
     return userId && report.value?.user?.id === userId;
 });
@@ -439,7 +442,8 @@ const autoRunTried = ref(false);
 
 const canRun = computed(() => {
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
-    return !!api.run && !!userId && !isOwner.value && hasArtifacts.value && reportLoaded.value;
+    const dataOwner = props.source === 'draft' ? draftDataOwner.value : isOwner.value;
+    return !!api.run && !!userId && !dataOwner && hasArtifacts.value && reportLoaded.value;
 });
 
 // Which gate the withheld overlay shows. Auto-run makes 'loading' the state a
@@ -809,7 +813,17 @@ async function loadReport() {
 function asReport(meta: any) {
     if (props.source === 'report') return meta;
     if (props.source === 'dashboard') dashboardOwner.value = !!meta.is_owner;
-    if (props.source === 'draft') draftReportId.value = meta.report_id || null;
+    if (props.source === 'draft') dashboardOwner.value = !!meta.can_edit;
+    if (props.source === 'draft') {
+        draftReportId.value = meta.report_id || null;
+        draftDataOwner.value = !!meta.is_owner;
+        // The draft is its conversation: someone who is not its owner runs it
+        // for their own rows there, as main's /r let them.
+        if (meta.report_id && !meta.is_owner) {
+            const r = `/api/r/${encodeURIComponent(meta.report_id)}`;
+            api.run = (artifactId?: string) => `${r}/run${artifactId ? `?artifact_id=${encodeURIComponent(artifactId)}` : ''}`;
+        }
+    }
     dashboardMeta.value = meta;
     return {
         id: meta.id,
@@ -1442,7 +1456,21 @@ async function refreshOnView() {
     }
 }
 
+// An old /r/{conversation} link: since the data migration (phase 9) the
+// dashboard it showed is a dashboard of its own; go there, keeping the link
+// working (emails, bookmarks, pages that embed it). A conversation without
+// one is served here as before.
+async function forwardToDashboard(): Promise<boolean> {
+    if (props.source !== 'report') return false;
+    const { data, error } = await useMyFetch(`/r/${encodeURIComponent(props.id)}/dashboard`);
+    const target = (data.value as any)?.dashboard_id;
+    if (error.value || !target) return false;
+    await navigateTo(`/d/${encodeURIComponent(target)}`, { replace: true });
+    return true;
+}
+
 onMounted(async () => {
+    if (await forwardToDashboard()) return;
     // Load report and artifact in parallel first (viewer identity alongside —
     // it gates nothing; anonymous viewers just get current_user=null)
     // A dashboard's content is read after its answer (which names the

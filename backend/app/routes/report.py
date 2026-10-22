@@ -195,7 +195,9 @@ async def mark_report_viewed(report_id: str, current_user: User = Depends(curren
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def update_report(report_id: str, report: ReportUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.update_report(db, report_id, report, current_user, organization)
+    from app.services import conversation_dashboard
+    updated = await report_service.update_report(db, report_id, report, current_user, organization)
+    return await conversation_dashboard.as_report_schema(db, updated)
 
 @router.get("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
@@ -485,6 +487,20 @@ async def notify_report(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    if payload.type == NotificationType.SHARE_DASHBOARD:
+        # Phase 9: a conversation with a dashboard sends the dashboard's email
+        # (its /d link, its published version's PDF).
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.dashboard_of(db, report)
+        if dashboard is not None:
+            from app.routes.dashboard import notify_dashboard_share
+            from app.schemas.dashboard_schema import DashboardNotifyRequest
+            return await notify_dashboard_share(
+                dashboard_id=str(dashboard.id),
+                payload=DashboardNotifyRequest(channels=payload.channels, recipients=payload.recipients,
+                                               message=payload.message),
+                request=request, current_user=current_user, db=db, organization=organization)
 
     # Guard: schedule notifications only for published reports
     if payload.type == NotificationType.SCHEDULE_REPORT and report.status != "published":
@@ -1113,6 +1129,7 @@ async def export_public_report_html(
 @router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
 async def refresh_public_report_on_view(
     report_id: str,
+    artifact_id: str | None = Query(None, description="The dashboard version open in the editor (phase 9)"),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -1123,7 +1140,7 @@ async def refresh_public_report_on_view(
     single-flight claim. A declined request returns 200 with skipped=true; the
     page simply renders the data it already has.
     """
-    return await report_service.refresh_on_view_rerun(db, report_id, user=user)
+    return await report_service.refresh_on_view_rerun(db, report_id, user=user, artifact_id=artifact_id)
 
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)

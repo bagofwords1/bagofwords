@@ -186,6 +186,100 @@
   ]
  },
  "reports": {
+  "archived_private": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "archived_private/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "archived_private/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat_completions": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_queries": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "archived_private/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "archived_private/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
   "archived_public": {
    "artifact_chat_agents": {
     "body": "#3bccf7957ba119f7",
@@ -1533,6 +1627,100 @@
     }
    }
   },
+  "created_by_other": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "created_by_other/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "created_by_other/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "created_by_other/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "created_by_other/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
   "cron": {
    "artifact_chat_agents": {
     "body": "#3bccf7957ba119f7",
@@ -1622,6 +1810,382 @@
    "thumbnails": {},
    "viz_detail": {
     "cron/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "cron_job": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "cron_job/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "cron_job/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "cron_job/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "cron_job/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "cron_job_by_admin": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "cron_job_by_admin/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "cron_job_by_admin/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "cron_job_by_admin/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "cron_job_by_admin/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "cron_job_orphan": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "cron_job_orphan/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "cron_job_orphan/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat_completions": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_queries": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "cron_job_orphan/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "cron_job_orphan/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "cron_job_private": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "cron_job_private/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "cron_job_private/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_chat_completions": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_queries": {
+    "body": "#378236f71910cb1a",
+    "status": 404
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "cron_job_private/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "cron_job_private/q_sales/viz": {
      "body": "#7a0fe9babb84b5e9",
      "status": 404
     }
@@ -3646,6 +4210,100 @@
     }
    }
   },
+  "legacy_grown": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "legacy_grown/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "legacy_grown/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "legacy_grown/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "legacy_grown/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
   "legacy_widgets": {
    "artifact_chat_agents": {
     "body": "#3bccf7957ba119f7",
@@ -4388,6 +5046,100 @@
    "thumbnails": {},
    "viz_detail": {
     "orphans/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "owner_departed": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "owner_departed/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "owner_departed/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "owner_departed/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "owner_departed/q_sales/viz": {
      "body": "#7a0fe9babb84b5e9",
      "status": 404
     }
@@ -5418,6 +6170,100 @@
     }
    }
   },
+  "settings_set": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "settings_set/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "settings_set/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "settings_set/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "settings_set/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
   "shared_no_dash": {
    "artifact_chat_agents": {
     "body": "#3bccf7957ba119f7",
@@ -5609,6 +6455,100 @@
     }
    }
   },
+  "shares_gone": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "shares_gone/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "shares_gone/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "shares_gone/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "shares_gone/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
   "slides_previews": {
    "artifact_chat_agents": {
     "body": "#3bccf7957ba119f7",
@@ -5702,6 +6642,100 @@
    },
    "viz_detail": {
     "slides_previews/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
+  },
+  "stale_shares": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "stale_shares/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "stale_shares/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_chat": {
+    "body": "#e8fb48a70fc754be",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#c45ece07a8301667",
+    "status": 403
+   },
+   "r_shows": null,
+   "r_steps": {},
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "stale_shares/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "stale_shares/q_sales/viz": {
      "body": "#7a0fe9babb84b5e9",
      "status": 404
     }
@@ -7055,6 +8089,105 @@
    },
    "thumbnails": {},
    "viz_detail": {}
+  },
+  "widgets_cron": {
+   "artifact_chat_agents": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifact_detail": {},
+   "artifacts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "artifacts_latest": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "completions": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "files": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "fork_status": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "queries": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "query_detail": {
+    "widgets_cron/q_sales": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    },
+    "widgets_cron/q_sales#default_step": {
+     "body": "#3bccf7957ba119f7",
+     "status": 404
+    }
+   },
+   "r": {
+    "body": "#6aa5a38b04e1505e",
+    "status": 200
+   },
+   "r_artifact_detail": {},
+   "r_artifacts": {
+    "body": "#4f53cda18c2baa0c",
+    "status": 200
+   },
+   "r_chat": {
+    "body": "#16e8097760998747",
+    "status": 200
+   },
+   "r_chat_completions": {
+    "body": "#e366c828835c7d54",
+    "status": 403
+   },
+   "r_queries": {
+    "body": "#ccd6d8e57fbdb8dc",
+    "status": 200
+   },
+   "r_shows": null,
+   "r_steps": {
+    "widgets_cron/q_sales": {
+     "body": "#96f9bc88523114f3",
+     "status": 200
+    }
+   },
+   "report": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "scheduled_prompt_runs": {},
+   "scheduled_prompts": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_artifact": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "shares_conversation": {
+    "body": "#3bccf7957ba119f7",
+    "status": 404
+   },
+   "step_detail": {
+    "widgets_cron/q_sales/step": {
+     "body": "#5866d46ee6093962",
+     "status": 404
+    }
+   },
+   "thumbnails": {},
+   "viz_detail": {
+    "widgets_cron/q_sales/viz": {
+     "body": "#7a0fe9babb84b5e9",
+     "status": 404
+    }
+   }
   }
  }
 }

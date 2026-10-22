@@ -807,7 +807,8 @@
       }
     ],
     "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer.",
-    "deleteUnpublishedDashboards": "Ses tableaux de bord non publiés seront aussi supprimés : {names}"
+    "deleteUnpublishedDashboards": "Ses tableaux de bord non publiés seront aussi supprimés : {names}",
+    "deleteLosesUnpublishedChanges": "Les modifications non publiées de ces tableaux de bord seront perdues (la version publiée reste) : {names}"
   },
   "projects": {
     "title": "Projets",
@@ -3900,6 +3901,7 @@
     "artifact.not_found": "Artefact introuvable",
     "dashboard.not_published": "Ce tableau de bord n'a pas encore été publié.",
     "dashboard.share_requires_publish": "Publiez le tableau de bord avant de le partager.",
+    "dashboard.conversation_moved": "Le partage et la planification de cette conversation se trouvent sur son tableau de bord.",
     "dashboard.rls_requires_viewer": "Ce tableau de bord utilise la sécurité au niveau des lignes : les spectateurs s'exécutent toujours sous leur propre identité. « Exécuter en mon nom » n'est pas disponible.",
     "dashboard.export_withheld": "Ce tableau de bord montre à chaque spectateur ses propres données : il ne peut donc pas être exporté.",
     "dashboard.export_needs_run": "Exécutez d'abord le tableau de bord pour exporter vos données.",

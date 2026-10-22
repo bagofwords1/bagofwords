@@ -807,7 +807,8 @@
       }
     ],
     "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
-    "deleteUnpublishedDashboards": "Nicht veröffentlichte Dashboards darin werden ebenfalls gelöscht: {names}"
+    "deleteUnpublishedDashboards": "Nicht veröffentlichte Dashboards darin werden ebenfalls gelöscht: {names}",
+    "deleteLosesUnpublishedChanges": "Nicht veröffentlichte Änderungen an diesen Dashboards gehen verloren (die veröffentlichte Version bleibt): {names}"
   },
   "projects": {
     "title": "Projekte",
@@ -3900,6 +3901,7 @@
     "artifact.not_found": "Artefakt nicht gefunden",
     "dashboard.not_published": "Dieses Dashboard wurde noch nicht veröffentlicht.",
     "dashboard.share_requires_publish": "Veröffentlichen Sie das Dashboard, bevor Sie es teilen.",
+    "dashboard.conversation_moved": "Freigabe und Zeitplan dieser Unterhaltung befinden sich auf ihrem Dashboard.",
     "dashboard.rls_requires_viewer": "Dieses Dashboard verwendet Sicherheit auf Zeilenebene, daher werden Betrachter immer unter ihrer eigenen Identität ausgeführt. „In meinem Namen ausführen“ ist nicht verfügbar.",
     "dashboard.export_withheld": "Dieses Dashboard zeigt jedem Betrachter seine eigenen Daten und kann daher nicht exportiert werden.",
     "dashboard.export_needs_run": "Führen Sie das Dashboard zuerst aus, um Ihre Daten zu exportieren.",

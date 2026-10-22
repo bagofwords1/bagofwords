@@ -39,7 +39,46 @@ def corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # 
     try:
         yield built
     finally:
+        _remove_migrated_release_files(corpus_rows)
         remove_corpus_files(built)
+
+
+@pytest.fixture
+def migrated_corpus(test_client, create_user, login_user, whoami, sqlite_data_source,  # noqa: F811
+                    create_project, update_project, upsert_project_member, remove_project_member,
+                    delete_project, enterprise_license, corpus_rows):  # noqa: F811
+    """The corpus after the data migration (phase 9): the same rows, upgraded
+    through every revision, as a customer's database after the upgrade."""
+    built = build_corpus({
+        "test_client": test_client, "create_user": create_user, "login_user": login_user,
+        "whoami": whoami, "sqlite_data_source": sqlite_data_source,
+        "create_project": create_project, "update_project": update_project,
+        "upsert_project_member": upsert_project_member,
+        "remove_project_member": remove_project_member, "delete_project": delete_project,
+    }, corpus_rows, migrate=True)
+    try:
+        yield built
+    finally:
+        _remove_migrated_release_files(corpus_rows)
+        remove_corpus_files(built)
+
+
+def _remove_migrated_release_files(corpus_rows) -> None:
+    """The files of every release in the corpus database -- the data
+    migration's copies among them (a test upgrading a `corpus` itself makes
+    some too): uploads/ is shared by every test run."""
+    from sqlalchemy import inspect, text
+
+    from tests.e2e.dashboards.dashboard_setup import remove_release_files
+
+    try:
+        with corpus_rows.engine.connect() as conn:
+            if "artifact_releases" not in inspect(conn).get_table_names():
+                return
+            ids = [str(r[0]) for r in conn.execute(text("SELECT id FROM artifact_releases"))]
+    except Exception:  # the database is already gone: nothing to read
+        return
+    remove_release_files(ids)
 
 
 @pytest.fixture(autouse=True)

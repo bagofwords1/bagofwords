@@ -127,9 +127,11 @@ async def notify_owner_of_failure(
     report_id: Optional[str] = None,
     next_run_at: Optional[str] = None,
     link: Optional[str] = None,
+    email: bool = True,
 ) -> None:
     """Tell the owner their automation failed — inbox always, email when SMTP
-    is configured.
+    is configured (and `email`: a dashboard's schedule emails its own
+    subscribers instead).
 
     The owner, deliberately, and not the schedule's notification subscribers:
     that list means "send me the results", and a provider error is not a result.
@@ -179,6 +181,8 @@ async def notify_owner_of_failure(
     except Exception:
         logger.warning("automation: in-app failure notification failed for %s", automation_id, exc_info=True)
 
+    if not email:
+        return
     try:
         from app.dependencies import _locale_from_org
         from app.services.notification_service import notification_service

@@ -68,6 +68,11 @@ class DraftDashboardSchema(BaseModel):
     theme_name: str | None = None
     theme_overrides: dict | None = None
     general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
+    # An editor (owner, project) -- not the organization's admin, who reads it.
+    can_edit: bool = False
+    # The owner, whose rows are the shared ones; anyone else runs it for
+    # their own (POST /api/r/{report}/run, as on main's /r).
+    is_owner: bool = False
 
 
 class DashboardSharingSchema(BaseModel):

@@ -85,10 +85,13 @@ def sent(monkeypatch):
     from app.services.inbox_service import inbox_service
     from app.services.notification_service import notification_service
 
-    out = {"email": [], "inbox": [], "owner": []}
+    out = {"email": [], "inbox": [], "owner": [], "failure_email": []}
 
     async def email(**kwargs):
         out["email"].append(kwargs)
+
+    async def failure_email(**kwargs):
+        out["failure_email"].append(kwargs)
 
     async def inbox(db, **kwargs):
         out["inbox"].append(kwargs)
@@ -99,7 +102,22 @@ def sent(monkeypatch):
     monkeypatch.setattr(notification_service, "send_scheduled_report_results", email)
     monkeypatch.setattr(inbox_service, "notify_users", inbox)
     monkeypatch.setattr(automation_alerts, "notify_owner_of_failure", owner)
+    monkeypatch.setattr(notification_service, "send_automation_failure", failure_email)
     return out
+
+
+def _failure_told(sent, owner_id, link, addresses):
+    """A failed scheduled run (2026-10-21): the owner's Notifications row,
+    no email to the owner; the schedule's subscribers -- and only they --
+    emailed that it failed, without the technical error."""
+    (alert,) = sent["owner"]
+    assert str(alert["owner"].id) == owner_id and alert["link"] == link
+    assert alert["email"] is False
+    assert sorted(m["recipient_email"] for m in sent["failure_email"]) == sorted(addresses)
+    for mail in sent["failure_email"]:
+        assert mail["error_message"] == "" and not mail.get("hint")
+        assert mail["link"].endswith(link)
+    return alert
 
 
 @pytest.fixture
@@ -192,6 +210,8 @@ def test_a_refresh_replaces_every_row_at_once_and_keeps_the_ids(corpus, corpus_r
     (after,) = _copies(corpus_rows, release)
     assert (after["id"], after["step"]) == (copy["id"], copy["step"])
     assert _months(after["data"]) == {"ינואר", "פברואר"}
+    # Readers' own results on the refreshed rows are stale: gone, as main's
+    # rerun_step drops them (phase 6; decision 17 reversed 2026-10-21).
     assert _rows(corpus_rows, "SELECT id FROM step_user_results WHERE step_id = :s", s=copy["step"]) == []
     assert _months(_rows(corpus_rows, "SELECT data FROM steps WHERE id = :s", s=draft_step)[0]["data"]) == {"טיוטה"}
     row = _artifact(corpus_rows, aid)
@@ -278,7 +298,8 @@ def test_only_the_owner_refreshes_and_only_a_live_release(corpus, corpus_rows, t
 def test_a_personal_connection_refreshes_as_today(corpus, corpus_rows, test_client, monkeypatch, spawned):
     """A connection each person signs in to: the refresh runs with the
     owner's sign-in and clears readers' own results, as the conversation's
-    refresh does."""
+    refresh does (main's rerun_step drops them: they no longer match the
+    shared rows)."""
     from app.services.data_source_service import DataSourceService
 
     seen = []
@@ -318,7 +339,8 @@ def test_a_scheduled_refresh_tells_the_subscribers(corpus, corpus_rows, test_cli
 
 
 @pytest.mark.e2e
-def test_a_scheduled_refresh_that_fails_tells_the_owner_only(corpus, corpus_rows, test_client, spawned, sent):
+def test_a_scheduled_refresh_that_fails_tells_its_subscribers_and_the_owners_notifications(
+        corpus, corpus_rows, test_client, spawned, sent):
     aid, release = _published(corpus, corpus_rows, test_client)
     (copy,) = _copies(corpus_rows, release)
     corpus_rows.update("steps", copy["step"], code=BROKEN, data=STALE)
@@ -326,8 +348,7 @@ def test_a_scheduled_refresh_that_fails_tells_the_owner_only(corpus, corpus_rows
                        notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
     _scheduled(aid)
     assert sent["email"] == [] and sent["inbox"] == []
-    (alert,) = sent["owner"]
-    assert str(alert["owner"].id) == corpus.cast.id("owner") and alert["link"] == f"/d/{aid}"
+    alert = _failure_told(sent, corpus.cast.id("owner"), f"/d/{aid}", ["cfo@corpus.com"])
     assert "השאילתה נשברה" in alert["outcome"].error_message
     assert _months(_copies(corpus_rows, release)[0]["data"]) == {"ישן"}
 
@@ -650,7 +671,8 @@ def test_an_unpublished_dashboards_schedule_refreshes_its_draft_as_today(corpus,
 
 
 @pytest.mark.e2e
-def test_a_draft_refresh_that_fails_tells_the_owner_only(corpus, corpus_rows, test_client, no_thumbnail, sent):
+def test_a_draft_refresh_that_fails_tells_its_subscribers_and_the_owners_notifications(
+        corpus, corpus_rows, test_client, no_thumbnail, sent):
     conv = corpus.reports["conv_three_dash"]
     aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
     step = _draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["step"]
@@ -659,8 +681,7 @@ def test_a_draft_refresh_that_fails_tells_the_owner_only(corpus, corpus_rows, te
                        notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
     _scheduled(aid)
     assert sent["email"] == [] and sent["inbox"] == []
-    (alert,) = sent["owner"]
-    assert str(alert["owner"].id) == corpus.cast.id("owner") and alert["link"] == f"/d/{aid}/draft"
+    _failure_told(sent, corpus.cast.id("owner"), f"/d/{aid}/draft", ["cfo@corpus.com"])
 
 
 @pytest.mark.e2e
@@ -711,6 +732,155 @@ def test_a_draft_refresh_that_breaks_outright_still_tells_the_owner(corpus, corp
                        notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
     _scheduled(aid)
     assert sent["email"] == []
-    (alert,) = sent["owner"]
-    assert str(alert["owner"].id) == corpus.cast.id("owner") and alert["link"] == f"/d/{aid}/draft"
+    alert = _failure_told(sent, corpus.cast.id("owner"), f"/d/{aid}/draft", ["cfo@corpus.com"])
     assert "could not be built" in alert["outcome"].error_message
+
+
+@pytest.mark.e2e
+def test_a_failed_run_with_no_subscribers_emails_no_one(corpus, corpus_rows, test_client, spawned, sent):
+    """As main: a schedule nobody subscribed to fails without an email; the
+    owner finds it in Notifications."""
+    aid, release = _published(corpus, corpus_rows, test_client)
+    (copy,) = _copies(corpus_rows, release)
+    corpus_rows.update("steps", copy["step"], code=BROKEN, data=STALE)
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *", notification_subscribers=None)
+    _scheduled(aid)
+    _failure_told(sent, corpus.cast.id("owner"), f"/d/{aid}", [])
+
+
+@pytest.mark.e2e
+def test_a_member_subscribed_to_a_failing_schedule_is_emailed_at_their_address(
+        corpus, corpus_rows, test_client, spawned, sent):
+    aid, release = _published(corpus, corpus_rows, test_client)
+    (copy,) = _copies(corpus_rows, release)
+    corpus_rows.update("steps", copy["step"], code=BROKEN, data=STALE)
+    member = corpus.cast.people["member"]
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *",
+                       notification_subscribers=[{"type": "user", "id": corpus.cast.id("member")}])
+    _scheduled(aid)
+    _failure_told(sent, corpus.cast.id("owner"), f"/d/{aid}", [member.email])
+
+
+@pytest.mark.e2e
+def test_the_owners_alert_can_leave_out_the_email(corpus, monkeypatch):
+    from app.services import automation_alerts
+    from app.services.inbox_service import inbox_service
+    from app.services.notification_service import notification_service
+
+    inbox, mails = [], []
+
+    async def notify(db, **kwargs):
+        inbox.append(kwargs)
+
+    async def email(**kwargs):
+        mails.append(kwargs)
+
+    monkeypatch.setattr(inbox_service, "notify_users", notify)
+    monkeypatch.setattr(notification_service, "send_automation_failure", email)
+
+    class Who:
+        id, email = "u1", "owner@corpus.com"
+
+    class Org:
+        id, settings = corpus.cast.org_id, None
+
+    asyncio.run(automation_alerts.notify_owner_of_failure(
+        None, kind="dashboard", automation_id="abc", automation_name="מכירות", owner=Who(), organization=Org(),
+        outcome=automation_alerts.RunOutcome(ok=False, error_message="boom"), link="/d/abc", email=False))
+    assert len(inbox) == 1 and mails == []
+
+
+@pytest.mark.e2e
+def test_a_migrated_conversations_draft_schedule_links_its_old_link(corpus, corpus_rows, test_client,
+                                                                    no_thumbnail, sent):
+    """A schedule the data migration moved onto a page draft (its link shows
+    a deck): the subscribers keep getting what main sent them -- the
+    conversation's old /r link, which leads to what it showed; a draft's
+    link opens for its editors only (2026-10-21)."""
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    deck = own(corpus_rows, corpus, "conv_three_dash/deck")
+    corpus_rows.update("artifacts", deck, legacy_report_id=conv)  # what the migration records
+    subscribers = [{"type": "user", "id": corpus.cast.id("member")}, {"type": "email", "address": "cfo@corpus.com"}]
+    # The conversation's schedule, kept on it as the migration's backup...
+    corpus_rows.update("reports", conv, cron_schedule="0 8 * * *", notification_subscribers=subscribers)
+    # ...and moved onto the page draft.
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *", notification_subscribers=subscribers)
+    _scheduled(aid)
+    (email,) = sent["email"]
+    assert email["report_url"].endswith(f"/r/{conv}")
+    (inbox,) = sent["inbox"]
+    assert inbox["link"] == f"/r/{conv}"
+    # And when it fails, the subscribers' email links there too.
+    step = _draft_steps(corpus_rows, conv)["הכנסות לפי חודש"]["step"]
+    corpus_rows.update("steps", step, code=BROKEN, data=STALE)
+    for kind in sent:
+        sent[kind].clear()
+    _scheduled(aid)
+    assert len(sent["failure_email"]) == 2  # the member and the address
+    assert all(mail["link"].endswith(f"/r/{conv}") for mail in sent["failure_email"])
+
+
+@pytest.mark.e2e
+def test_a_draft_scheduled_since_in_a_migrated_conversation_links_itself(corpus, corpus_rows, test_client,
+                                                                         no_thumbnail, sent):
+    """Only the schedule the migration moved links the old /r (it leads to
+    what that schedule's emails led to on main): one the owner set since on
+    a draft links that draft, as any draft's does (phase 8)."""
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    deck = own(corpus_rows, corpus, "conv_three_dash/deck")
+    corpus_rows.update("artifacts", deck, legacy_report_id=conv)
+    corpus_rows.update("reports", conv, cron_schedule="0 8 * * *",
+                       notification_subscribers=[{"type": "email", "address": "cfo@corpus.com"}])
+    corpus_rows.update("artifacts", aid, cron_schedule="30 6 * * 1",
+                       notification_subscribers=[{"type": "email", "address": "ops@corpus.com"}])
+    _scheduled(aid)
+    (email,) = sent["email"]
+    assert email["report_url"].endswith(f"/d/{aid}/draft")
+
+
+@pytest.mark.e2e
+def test_a_missing_dashboard_job_comes_back_and_a_present_one_is_left_alone(corpus, corpus_rows, test_client, jobs):
+    """During a rolling upgrade a server still on the old version deletes a
+    job it cannot load (APScheduler drops what it cannot restore): the
+    leader puts the missing ones back every few minutes, without touching
+    the ones that are there (a fire due now is not moved)."""
+    from app.services import dashboard_refresh
+
+    aid, _ = _published(corpus, corpus_rows, test_client)
+    other = own(corpus_rows, corpus, "conv_three_dash/dash_stock")
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *")
+    corpus_rows.update("artifacts", other, cron_schedule="30 6 * * *")
+    asyncio.run(dashboard_refresh.register_all_jobs())
+    jobs.remove_job(dashboard_refresh.job_id(aid))  # what an old server does
+    registered = []
+    real = dashboard_refresh.register_job
+
+    def register(artifact_id, cron, timezone):
+        registered.append(artifact_id)
+        real(artifact_id, cron, timezone)
+
+    with patch("app.services.dashboard_refresh.register_job", register):
+        asyncio.run(dashboard_refresh.restore_missing_jobs())
+    assert registered == [aid]  # the present one is not re-registered (its due fire is not moved)
+    assert jobs.get_job(dashboard_refresh.job_id(aid)) is not None
+    assert jobs.get_job(dashboard_refresh.job_id(other)) is not None
+
+
+@pytest.mark.e2e
+def test_a_migrated_schedules_email_keeps_its_conversations_name(corpus, corpus_rows, test_client,
+                                                                 no_thumbnail, sent):
+    """As the dashboards list and the project's automations name it (decided
+    2026-10-21): the subscribers' email is titled as main titled it."""
+    conv = corpus.reports["conv_three_dash"]
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    deck = own(corpus_rows, corpus, "conv_three_dash/deck")
+    corpus_rows.update("artifacts", deck, legacy_report_id=conv)
+    subscribers = [{"type": "email", "address": "cfo@corpus.com"}]
+    corpus_rows.update("reports", conv, title="השיחה כפי שנקראה", cron_schedule="0 8 * * *",
+                       notification_subscribers=subscribers)
+    corpus_rows.update("artifacts", aid, cron_schedule="0 8 * * *", notification_subscribers=subscribers)
+    _scheduled(aid)
+    (email,) = sent["email"]
+    assert email["report_title"] == "השיחה כפי שנקראה"

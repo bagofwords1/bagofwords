@@ -109,3 +109,17 @@ def test_search_matches_the_words_typed_not_patterns(corpus, corpus_rows, test_c
     own(corpus_rows, corpus, f"{CONV}/dash_stock")
     assert _ids(_list(test_client, corpus, "owner", filter="my", search="%")) == []
     assert _ids(_list(test_client, corpus, "owner", filter="my", search="_")) == []
+
+
+@pytest.mark.e2e
+def test_versions_from_before_their_dashboard_tie_list_as_one_card(migrated_corpus, test_client):
+    """artver01 made every old version a dashboard of its own (same id): its
+    owner sees one card per kind of each conversation, its newest -- as the
+    editor and the link showed one dashboard (decision 4, by the list, not by
+    changing the rows)."""
+    c = migrated_corpus
+    ids = {d["id"] for d in _list(test_client, c, "owner", search="לוח מכירות", limit=100)["dashboards"]}
+    assert c.ids["artver01_chain/legacy_3"] in ids
+    assert not {c.ids["artver01_chain/legacy_1"], c.ids["artver01_chain/legacy_2"]} & ids
+    # A dashboard with a chain of its own is listed as ever.
+    assert c.ids["legacy_grown/old"] in ids and c.ids["dash_many_versions/dash"] in ids

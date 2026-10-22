@@ -22,6 +22,11 @@ from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
 MAIN_BASE_REVISION = "submsg02"
 
+# The last schema-only revision of this branch: the corpus stops here unless
+# a test asks for the data migration (phase 9), so the tests written for
+# phases 1-8 keep the data as customers have it before the upgrade.
+PRE_MIGRATION_REVISION = "dashfc07"
+
 # The last revision of release 0.0.560 (commit 052d73926). Customers skip
 # releases; the oldest-upgrade test starts here.
 OLD_RELEASE_REVISION = "codeperm01"
@@ -102,7 +107,7 @@ def downgrade_test_db_to_base() -> None:
     assert current_revisions(url) == (MAIN_BASE_REVISION,)
 
 
-def upgrade_test_db_to_head() -> None:
+def upgrade_test_db_to_head(target: str = "head") -> None:
     url = sync_test_url()
     with alembic_pointed_at(url) as cfg:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, target)

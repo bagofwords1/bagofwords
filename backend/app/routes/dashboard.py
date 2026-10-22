@@ -109,6 +109,8 @@ async def get_draft_dashboard(
         published=await dashboard_access.published_release(db, artifact) is not None,
         theme_name=theme[0] if theme else None, theme_overrides=theme[1] if theme else None,
         general=await _general(db, artifact.organization_id),
+        can_edit=await dashboard_access.can_edit(db, artifact, user),
+        is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
     )
 
 
@@ -952,17 +954,15 @@ async def get_draft_file_embed_token(
 # ── Old links (part B) ───────────────────────────────────────────────────
 
 @router.get("/r/{report_id}/dashboard")
-async def get_legacy_link_target(report_id: str, db: AsyncSession = Depends(get_async_db)):
-    """The dashboard an old /r/{report_id} link leads to: the one recorded
-    for that conversation by the data migration (artifacts.legacy_report_id).
-    It reveals only an id; the dashboard's own /d check decides who opens it.
-    Nothing recorded: /r keeps serving the conversation as before."""
-    from app.models.artifact import Artifact
-    from app.services import dashboard_data
+async def get_legacy_link_target(report_id: str, db: AsyncSession = Depends(get_async_db),
+                                 user: User | None = Depends(current_user_optional)):
+    """The dashboard an old /r/{report_id} link leads to. It reveals only an
+    id; the dashboard's own /d check decides who opens it. None: /r keeps
+    serving the conversation as before (no dashboard -- widget era)."""
+    from app.services.dashboard_legacy import link_target
 
-    dashboard_id = (await db.execute(
-        select(Artifact.id).where(Artifact.legacy_report_id == str(report_id), Artifact.deleted_at.is_(None))
-    )).scalar_one_or_none()
+    dashboard_id = await link_target(db, report_id, user)
     if dashboard_id is None:
+        from app.services import dashboard_data
         raise dashboard_data.not_found()
-    return {"dashboard_id": str(dashboard_id)}
+    return {"dashboard_id": dashboard_id}

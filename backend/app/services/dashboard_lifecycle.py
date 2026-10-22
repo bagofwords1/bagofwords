@@ -56,8 +56,18 @@ async def delete_outcomes(db, report_ids: list[str]) -> list[dict]:
     """For each dashboard of these conversations: what deleting them does to
     it -- survives, loses_changes (published, with unpublished edits) or
     deleted (never published)."""
+    from app.services.dashboard_list import not_an_older_legacy_version
+
+    dashboards = await _dashboards(db, report_ids)
+    # An old version artver01 made a dashboard of its own is not one about to
+    # go: it is counted as the dashboards list counts (decision 4).
+    counted = {str(i) for (i,) in (await db.execute(
+        select(Artifact.id).where(Artifact.id.in_([str(a.id) for a in dashboards]), not_an_older_legacy_version())
+    )).all()} if dashboards else set()
     out = []
-    for artifact in await _dashboards(db, report_ids):
+    for artifact in dashboards:
+        if str(artifact.id) not in counted:
+            continue
         release = await _live_release(db, artifact)
         if release is None:
             outcome = "deleted"

@@ -15,6 +15,7 @@ version's for everyone, else -- for its editors -- the draft's.
 """
 from fastapi import HTTPException
 from sqlalchemy import and_, exists, or_, select
+from sqlalchemy.orm import aliased
 
 from app.errors import AppError
 from app.models.artifact import Artifact, ArtifactVersion
@@ -79,11 +80,47 @@ async def _card(db, artifact: Artifact, user) -> dict:
         await _draft_thumbnail(db, artifact) if editor else None)
     owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
     return {
-        "id": str(artifact.id), "slug": artifact.slug, "title": artifact.title, "mode": artifact.mode,
+        "id": str(artifact.id), "slug": artifact.slug, "title": await _card_title(db, artifact),
+        "mode": artifact.mode,
         "published": release is not None, "is_owner": is_owner(artifact, user), "report_id": report_id,
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
         "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at,
     }
+
+
+async def _card_title(db, artifact: Artifact) -> str | None:
+    """Main's Dashboards page listed conversations by their names: the
+    dashboard an old link leads to (phase 9) keeps its conversation's name
+    on its card. Every other dashboard shows its own."""
+    from app.models.report import Report
+
+    if artifact.legacy_report_id:
+        name = (await db.execute(
+            select(Report.title).where(Report.id == str(artifact.legacy_report_id))
+        )).scalar_one_or_none()
+        if name and name.strip():
+            return name
+    return artifact.title
+
+
+def not_an_older_legacy_version():
+    """artver01 gave every old version a dashboard of its own (its id is the
+    version's): of those in one conversation and of one kind, only the newest
+    is listed -- one card, as the editor and the link showed one dashboard
+    (decision 4). The rows stay as they are; the editor lists them as
+    versions."""
+    newer = aliased(Artifact)
+    own_version, newer_version = aliased(ArtifactVersion), aliased(ArtifactVersion)
+    is_legacy = exists().where(own_version.id == Artifact.id)
+    newer_legacy = exists().where(
+        newer.report_id == Artifact.report_id, newer.mode == Artifact.mode, newer.id != Artifact.id,
+        newer.deleted_at.is_(None), newer.created_at > Artifact.created_at,
+        exists().where(newer_version.id == newer.id))
+    # Unless its owner put it to use from the editor: published, shared or
+    # scheduled, it is a dashboard people use (2026-10-21).
+    in_use = or_(Artifact.published_release_id.isnot(None), Artifact.visibility != "none",
+                 and_(Artifact.cron_schedule.isnot(None), Artifact.cron_schedule != ""))
+    return ~and_(is_legacy, newer_legacy, Artifact.legacy_report_id.is_(None), ~in_use)
 
 
 async def list_dashboards(db, user, organization, *, filter: str = "my", search: str | None = None,
@@ -91,13 +128,18 @@ async def list_dashboards(db, user, organization, *, filter: str = "my", search:
     from app.services.dashboard_access import admit_reader
 
     conditions = [Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
-                  Artifact.owner_id.isnot(None)]
+                  Artifact.owner_id.isnot(None), not_an_older_legacy_version()]
     if filter == "my":
         conditions.append(Artifact.owner_id == str(user.id))
     else:
         conditions += [Artifact.owner_id != str(user.id), await _shared_with(db, user, organization)]
     if search and search.strip():
-        conditions.append(Artifact.title.ilike(_like(search.strip()), escape="\\"))
+        from app.models.report import Report
+
+        like = _like(search.strip())
+        conditions.append(or_(  # by either name an old dashboard's card may show
+            Artifact.title.ilike(like, escape="\\"),
+            exists().where(Report.id == Artifact.legacy_report_id, Report.title.ilike(like, escape="\\"))))
     if mode in ("page", "slides", "doc"):
         conditions.append(Artifact.mode == mode)
     candidates = (await db.execute(

@@ -807,7 +807,8 @@
       }
     ],
     "artifactLoadFailed": "Não foi possível carregar o painel. Atualize a página para tentar novamente.",
-    "deleteUnpublishedDashboards": "Os painéis não publicados também serão excluídos: {names}"
+    "deleteUnpublishedDashboards": "Os painéis não publicados também serão excluídos: {names}",
+    "deleteLosesUnpublishedChanges": "As alterações não publicadas destes painéis serão perdidas (a versão publicada permanece): {names}"
   },
   "projects": {
     "title": "Projetos",
@@ -3900,6 +3901,7 @@
     "artifact.not_found": "Artefato não encontrado",
     "dashboard.not_published": "Este painel ainda não foi publicado.",
     "dashboard.share_requires_publish": "Publique o painel antes de compartilhá-lo.",
+    "dashboard.conversation_moved": "O compartilhamento e o agendamento desta conversa estão no painel dela.",
     "dashboard.rls_requires_viewer": "Este painel usa segurança em nível de linha, então os visualizadores sempre executam com a própria identidade. \"Executar em meu nome\" não está disponível.",
     "dashboard.export_withheld": "Este painel mostra a cada visualizador os próprios dados, por isso não pode ser exportado.",
     "dashboard.export_needs_run": "Execute o painel primeiro para exportar seus dados.",

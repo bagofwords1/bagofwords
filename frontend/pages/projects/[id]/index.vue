@@ -471,6 +471,8 @@ function automationIcon(auto: any): string {
 }
 function automationLink(auto: any): string {
     if (auto.kind === 'trigger') return '/automations?tab=triggers'
+    // A dashboard whose conversation was deleted: the dashboard itself.
+    if (!auto.report_id && auto.dashboard_id) return `/d/${auto.dashboard_id}`
     return `/reports/${auto.report_id}`
 }
 // Sections collapse when empty (set after first fetch); reports stay open.

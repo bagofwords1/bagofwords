@@ -823,7 +823,8 @@
     "sharedEmpty": "No hay informes compartidos",
     "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí.",
     "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
-    "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}"
+    "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
+    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}"
   },
   "projects": {
     "title": "Proyectos",
@@ -4149,6 +4150,7 @@
     "artifact.not_found": "Artefacto no encontrado",
     "dashboard.not_published": "Este panel aún no se ha publicado.",
     "dashboard.share_requires_publish": "Publica el panel antes de compartirlo.",
+    "dashboard.conversation_moved": "El uso compartido y la programación de esta conversación están en su panel.",
     "dashboard.rls_requires_viewer": "Este panel usa seguridad a nivel de fila, por lo que los espectadores siempre se ejecutan con su propia identidad. \"Ejecutar en mi nombre\" no está disponible.",
     "dashboard.export_withheld": "Este panel muestra a cada espectador sus propios datos, por lo que no se puede exportar.",
     "dashboard.export_needs_run": "Ejecuta primero el panel para exportar tus datos.",

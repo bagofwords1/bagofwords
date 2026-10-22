@@ -2067,7 +2067,9 @@ onMounted(async () => {
   // matter how many people open the page. Mirrors the /r host.
   try {
     if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
-    const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
+    // The dashboard open here decides (its "refresh when opened", phase 9).
+    const open = selectedArtifact.value?.id;
+    const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun${open ? `?artifact_id=${encodeURIComponent(open)}` : ''}`, { method: 'POST' });
     const run: any = data.value;
     if (run && !run.skipped && run.steps_succeeded) {
       await refreshDataInPlace();

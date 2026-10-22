@@ -807,7 +807,8 @@
       }
     ],
     "artifactLoadFailed": "Det gick inte att läsa in översikten. Uppdatera sidan och försök igen.",
-    "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}"
+    "deleteUnpublishedDashboards": "Opublicerade instrumentpaneler i den raderas också: {names}",
+    "deleteLosesUnpublishedChanges": "Opublicerade ändringar i dessa instrumentpaneler går förlorade (den publicerade versionen finns kvar): {names}"
   },
   "projects": {
     "title": "Projekt",
@@ -3900,6 +3901,7 @@
     "artifact.not_found": "Artefakten hittades inte",
     "dashboard.not_published": "Den här instrumentpanelen har inte publicerats än.",
     "dashboard.share_requires_publish": "Publicera instrumentpanelen innan du delar den.",
+    "dashboard.conversation_moved": "Delning och schema för den här konversationen finns på dess instrumentpanel.",
     "dashboard.rls_requires_viewer": "Den här instrumentpanelen använder säkerhet på radnivå, så visare kör alltid med sin egen identitet. \"Kör för min räkning\" är inte tillgängligt.",
     "dashboard.export_withheld": "Den här instrumentpanelen visar varje visare deras egna data, så den kan inte exporteras.",
     "dashboard.export_needs_run": "Kör instrumentpanelen först för att exportera dina data.",

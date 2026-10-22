@@ -849,7 +849,8 @@
     },
     "inProject": "In {name}",
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
-    "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}"
+    "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
+    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}"
   },
   "projects": {
     "title": "Projects",
@@ -4211,6 +4212,7 @@
     "artifact.not_found": "Artifact not found",
     "dashboard.not_published": "This dashboard hasn't been published yet.",
     "dashboard.share_requires_publish": "Publish the dashboard before sharing it.",
+    "dashboard.conversation_moved": "This conversation's sharing and schedule are on its dashboard.",
     "dashboard.rls_requires_viewer": "This dashboard uses row-level security, so viewers always run under their own identity. \"Run on my behalf\" is not available.",
     "dashboard.export_withheld": "This dashboard shows each viewer their own data, so it can't be exported.",
     "dashboard.export_needs_run": "Run the dashboard first to export your data.",

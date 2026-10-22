@@ -58,7 +58,9 @@ async def protect_report(db, report_id, access):
     report = (await db.execute(select(Report).options(lazyload("*")).where(Report.id == str(report_id)).with_for_update())).scalar_one()
     if str(report.organization_id) != access["organization_id"]:
         raise AppError.forbidden(ErrorCode.ACCESS_DENIED)
-    if report.artifact_visibility == "public" or report.conversation_visibility == "public":
+    from app.services.dashboard_legacy import is_link_taken_over
+    artifact_public = report.artifact_visibility == "public" and not await is_link_taken_over(db, report.id)
+    if artifact_public or report.conversation_visibility == "public":
         raise AppError.forbidden(ErrorCode.ACCESS_DENIED)
     report.bow_source_access = merge_access(report.bow_source_access, access)
     from app.models.query import Query

@@ -749,6 +749,11 @@ async def startup_event():
             await register_dashboard_jobs()
         except Exception:
             logger.warning("Dashboard schedules were not registered", exc_info=True)
+        # And kept: a server on an older version (a rolling upgrade) drops the
+        # jobs it cannot load; the leader puts missing ones back.
+        import asyncio as _asyncio_keep
+        from app.services.dashboard_refresh import keep_jobs as keep_dashboard_jobs
+        app.state.dashboard_jobs_task = _asyncio_keep.create_task(keep_dashboard_jobs())
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to
@@ -852,6 +857,9 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    dashboard_jobs_task = getattr(app.state, "dashboard_jobs_task", None)
+    if dashboard_jobs_task is not None:
+        dashboard_jobs_task.cancel()
     stop_event = getattr(app.state, "email_poller_stop", None)
     if stop_event is not None:
         stop_event.set()

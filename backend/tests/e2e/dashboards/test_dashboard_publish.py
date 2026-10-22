@@ -452,6 +452,27 @@ def test_a_decks_thumbnail_stays_as_published(corpus, corpus_rows, test_client, 
     assert _rows(corpus_rows, "SELECT thumbnail_path FROM artifact_releases WHERE id = :r", r=release) == [copied]
 
 
+@pytest.mark.e2e
+def test_a_decks_thumbnail_goes_when_readers_may_not_get_its_rows(corpus, corpus_rows, test_client, spawned,
+                                                                  drawn):
+    """A deck keeps the picture it was published with -- unless its rows are
+    one identity's: the picture (its first slide) is served without a user
+    (2026-10-21 review)."""
+    from tests.e2e.dashboards.dashboard_setup import uploads_dir
+
+    corpus_rows.update("queries", corpus.ids["slides_previews/q_sales"],
+                       parameters=[{"name": "UserEmail", "type": "string", "source": "identity"}])
+    aid = own(corpus_rows, corpus, "slides_previews/deck")
+    release = _post(test_client, corpus, aid).json()["latest"]["id"]
+    (copied,) = _rows(corpus_rows, "SELECT thumbnail_path FROM artifact_releases WHERE id = :r", r=release)
+    assert copied["thumbnail_path"], "the deck was published with no picture"
+    _finish(spawned)
+    assert drawn == []
+    assert _rows(corpus_rows, "SELECT thumbnail_path FROM artifact_releases WHERE id = :r", r=release) == [
+        {"thumbnail_path": None}]
+    assert not (uploads_dir() / copied["thumbnail_path"]).exists()
+
+
 # ── review fixes ─────────────────────────────────────────────────────────
 
 BOW = {"version": 1, "source_id": "builtin:bow", "report_ids": [], "scope_ids": None}

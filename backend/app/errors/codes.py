@@ -57,6 +57,8 @@ class ErrorCode(str, Enum):
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"
     DASHBOARD_SHARE_REQUIRES_PUBLISH = "dashboard.share_requires_publish"
+    # A migrated conversation's old API with no dashboard to act on (phase 9).
+    DASHBOARD_CONVERSATION_MOVED = "dashboard.conversation_moved"
     DASHBOARD_RLS_REQUIRES_VIEWER = "dashboard.rls_requires_viewer"
     DASHBOARD_EXPORT_WITHHELD = "dashboard.export_withheld"
     DASHBOARD_EXPORT_NEEDS_RUN = "dashboard.export_needs_run"

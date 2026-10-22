@@ -728,7 +728,121 @@ def seed_corpus(rows: Rows, cast: Cast, thumbnails_dir: str, written: list[str])
     s.artifact("refs_in_code", "dash", title="לוח הפניות", versions=[{"content": {
         "code": code, "runtime_version": 1, "visualization_ids": viz_ids}}])
 
+    _phase9_shapes(s, cast)
     return c
+
+
+def _phase9_shapes(s: "Seeder", cast: Cast) -> None:
+    """Shapes the data migration (phase 9) meets that the kinds above lack.
+    Seeded last, so every name above stays as it was."""
+    c = s.corpus
+
+    # Conversation schedules live in APScheduler's job table too: id
+    # report_{id}, args (the service, report_id, the user who scheduled it,
+    # org_id -- a bound method's job). The
+    # table exists once a server has run; the job body is APScheduler's
+    # pickled state (only the fields the migration reads are written here).
+    _job_table(s)
+    s.simple_dash("cron_job", artifact_visibility="internal", cron_schedule="0 8 * * *",
+                  notification_subscribers=[{"type": "user", "id": cast.id("member")}])
+    _report_job(s, "cron_job", "owner")
+    s.simple_dash("cron_job_by_admin", artifact_visibility="internal", cron_schedule="30 6 * * 1")
+    _report_job(s, "cron_job_by_admin", "admin")
+    s.simple_dash("cron_job_private", cron_schedule="0 9 * * *")  # scheduled, never shared
+    _report_job(s, "cron_job_private", "owner")
+    s.simple_dash("cron_job_orphan")  # a job left behind: the report has no schedule
+    _report_job(s, "cron_job_orphan", "owner")
+    s.report("widgets_cron", title="widgets עם תזמון", status="published", artifact_visibility="public",
+             cron_schedule="0 7 * * *")
+    s.query("widgets_cron", "q_sales", title="הכנסות לפי חודש", widget_status="published")
+    _report_job(s, "widgets_cron", "owner")
+
+    # People who are gone: an owner whose membership was removed, a direct
+    # grantee who left, a group that was deleted.
+    departed = _departed_user(s, cast)
+    s.simple_dash("owner_departed", artifact_visibility="internal")
+    s.rows.update("reports", c.reports["owner_departed"], user_id=departed)
+    s.simple_dash("shares_gone", artifact_visibility="shared")
+    s.share("shares_gone", "artifact", user="direct_share")
+    s.rows.insert("report_shares", report_id=c.reports["shares_gone"], share_type="artifact", user_id=departed)
+    gone_group = c.name("shares_gone/group", s.rows.insert(
+        "groups", organization_id=cast.org_id, name="קבוצה שנמחקה", deleted_at=s.tick()))
+    s.rows.insert("report_shares", report_id=c.reports["shares_gone"], share_type="artifact",
+                  group_id=gone_group)
+    # Grants kept on a conversation that is no longer 'shared' (the old
+    # publish toggle left them): they must not reopen anything later.
+    s.simple_dash("stale_shares", artifact_visibility="internal")
+    s.share("stale_shares", "artifact", user="direct_share")
+
+    # A dashboard created by someone other than the conversation's owner.
+    s.report("created_by_other", title="נוצר על ידי אחר", artifact_visibility="internal")
+    s.query("created_by_other", "q_sales", title="הכנסות לפי חודש")
+    aid = s.artifact("created_by_other", "dash", title="לוח מכירות", versions=[{"viz": ["q_sales"]}])
+    s.rows.update("artifacts", aid, created_by=cast.id("member"))
+
+    # Settings that must reach the dashboard as they are.
+    s.simple_dash("settings_set", artifact_visibility="internal", theme_name="dark",
+                  theme_overrides={"accent": "#2457d6"}, artifact_chat_enabled=True,
+                  artifact_chat_model_id="org-default", include_data_tab=False,
+                  shared_run_identity="creator", refresh_on_view=False)
+
+    # A legacy parent (artver01: id == its version's id) that grew a chain
+    # after the migration: its later versions keep the parent's id.
+    s.report("legacy_grown", title="שרשרת ישנה שגדלה", artifact_visibility="internal")
+    s.query("legacy_grown", "q_sales", title="הכנסות לפי חודש")
+    parent = s.artifact("legacy_grown", "old", title="לוח מכירות", legacy_same_id=True,
+                        versions=[{"viz": ["q_sales"], "version": 1}])
+    t = s.tick()
+    c.name("legacy_grown/old/v2", s.rows.insert(
+        "artifact_versions", artifact_id=parent, report_id=c.reports["legacy_grown"],
+        user_id=cast.id("owner"), organization_id=cast.org_id, version=2, status="completed",
+        content={"code": page_code("לוח מכירות"), "runtime_version": 1,
+                 "visualization_ids": [c.ids["legacy_grown/q_sales/viz"]]},
+        created_at=t, updated_at=t))
+
+    # An archived conversation nobody but its owner could open.
+    s.simple_dash("archived_private", status="archived")
+
+
+def _job_table(s: "Seeder") -> None:
+    import sqlalchemy as sa
+
+    meta = sa.MetaData()
+    sa.Table("apscheduler_jobs", meta,
+             sa.Column("id", sa.Unicode(191), primary_key=True),
+             sa.Column("next_run_time", sa.Float(25), index=True),
+             sa.Column("job_state", sa.LargeBinary, nullable=False))
+    meta.create_all(s.rows.engine)
+    s.rows.forget_schema()
+
+
+def _report_job(s: "Seeder", key: str, scheduled_by: str) -> None:
+    import pickle
+
+    import sqlalchemy as sa
+
+    from app.services.report_service import ReportService
+
+    rid = s.corpus.reports[key]
+    # As APScheduler stores a bound method's job: the instance first, then
+    # set_report_schedule's args (found on a real database, phase 9).
+    state = {"version": 1, "id": f"report_{rid}",
+             "func": "app.services.report_service:ReportService.scheduled_rerun_report_steps",
+             "args": (ReportService(), rid, s.cast.id(scheduled_by), s.cast.org_id), "kwargs": {}}
+    jobs = sa.Table("apscheduler_jobs", sa.MetaData(), autoload_with=s.rows.engine)
+    with s.rows.engine.begin() as conn:
+        conn.execute(jobs.insert().values(id=f"report_{rid}", next_run_time=1893456000.0,
+                                          job_state=pickle.dumps(state)))
+
+
+def _departed_user(s: "Seeder", cast: Cast) -> str:
+    """A user whose membership in the corpus org was removed."""
+    uid = s.corpus.name("departed", s.rows.insert(
+        "users", name="עזב", email="departed@corpus.com", hashed_password="x", is_active=True,
+        is_superuser=False, is_verified=True))
+    s.rows.insert("memberships", user_id=uid, organization_id=cast.org_id, role="member",
+                  email="departed@corpus.com", deleted_at=s.tick())
+    return uid
 
 
 def _thumbnail(s: Seeder, version_name: str, thumbnails_dir: str) -> None:

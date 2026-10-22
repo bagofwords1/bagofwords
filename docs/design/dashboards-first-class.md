@@ -615,10 +615,12 @@ credentials, at most once per five minutes, one at a time; not during a
 publish); a dashboard is scheduled only once published; the schedule fires in
 the organization's timezone when it has one, else on the server's clock (the
 scheduled prompts' rule); subscribers are told on success as today (a link,
-now to `/d`), and the owner is told on failure; a connection each person
+now to `/d`); on failure (2026-10-21) the subscribers are emailed that it
+failed and the owner gets a Notifications row, no email; a connection each person
 signs in to refreshes exactly as today (the owner's sign-in; readers' own
-results go); the conversations' schedules stay as they are until the data
-migration.
+results go, as main's rerun_step drops them -- phase 9 briefly kept them,
+then reverted); the conversations' schedules
+stay as they are until the data migration.
 
 - **Settings**: `cron_schedule`, `refresh_on_view` and
   `notification_subscribers` on `/api/dashboards/{id}/settings`, with the
@@ -634,8 +636,8 @@ migration.
 - **The run** is Publish's (`dashboard_publish.run_release_copies`), handed a
   keep-it-for-later callback: what a copy loads reads the refresh's own new
   rows (`ExecContext.fresh_rows`); at the end, under the dashboard's row lock
-  and only while the release is still live, every row is written, readers'
-  own results on them go, and `last_run_at` / `last_run_status` /
+  and only while the release is still live, every row is written (readers'
+  own results on them are deleted, as main's rerun_step does), and `last_run_at` / `last_run_status` /
   `last_run_error` (dashfc05) are set. A failure writes no row and records
   the reason. A published deck is frozen and does not refresh.
 - **Routes**: `POST /api/dashboards/{id}/refresh` (the owner's Refresh) and
@@ -795,3 +797,85 @@ Tests: `test_dashboard_page.py`, `test_dashboard_slug.py`,
 `test_dashboard_notify.py`, `test_dashboard_list.py`, additions to
 `test_dashboard_refresh.py` and `test_dashboard_lifecycle.py`;
 `frontend/tests/unit/useErrorMessage.mjs`.
+
+## Phase 9 — the existing dashboards (in progress)
+
+Research and 17 decisions (with Rachel, 2026-10-19) in the phase-9 research
+document; plan in six parts.
+
+- **Part A — sync with main** (merge e5f9969e2): main's viewer-scoped exports
+  and the release render share one payload builder; `/d` embed tokens are
+  bound to the organization and the release (`rel` claim); an organization's
+  full admin opens every published dashboard on `/d`, as main's `/r` does
+  (#1400); the golden files follow main (#1400, #1304, the query read gate).
+- **Part B — reversed (2026-10-21).** Decision 17 assumed main's refresh
+  keeps readers' own results; it does not: `StepService.rerun_step` deletes
+  every `StepUserResult` of the step (they no longer match the shared rows).
+  Phase 6's delete in `dashboard_refresh._run_and_write` stays.
+- **Part C — the corpus before and after.** `migrated_corpus` is the corpus
+  upgraded through `dashfc08`; `test_migration_before_after.py` has every
+  baseline reader follow the same old link (`/api/r/{report}/dashboard`) and
+  open the same dashboards with the same rows. The differences allowed are
+  the decided ones (decision 6: unshared archived conversations take their
+  dashboards with them).
+- **Part D — the data migration** (`dashfc08_existing_dashboards`, Core and
+  reflected tables, no app code): per conversation, the dashboard `/r`
+  showed gets the conversation's owner, project, settings, schedule and
+  link (`legacy_report_id`); if others could open it, it is published from
+  the rows it shows (copied, nothing run; readers' own results copied with
+  them) and its valid grants copied. Other dashboards become private
+  drafts. The conversations' `report_*` jobs are deleted (kept in
+  `dashfc08_report_jobs`); a widget-era schedule is removed with its job,
+  `reports.cron_schedule` included (decision 7). Every change is in
+  `dashfc08_undo`; downgrade restores exactly; a second run adds nothing.
+- **Part E — old links and what still read the conversation**
+  (`services/dashboard_legacy.py`). Once a dashboard took over a
+  conversation's link, the conversation's old artifact sharing admits no one
+  (its editors keep access); the dashboard's own sharing decides, on `/d`.
+  The conversations list, the project page and the agent's report tools
+  read the conversation's dashboards. artver01's per-version dashboards list
+  as one card (the newest of a conversation and kind).
+
+- **The conversation's old API on a migrated conversation**
+  (`services/conversation_dashboard.py`, approved 2026-10-22). Once the
+  migration recorded a conversation's dashboard, the conversation's
+  schedule, publish toggle, `PUT status`, artifact sharing, its shares,
+  `notify` (dashboard share) and `GET /reports/{id}` act on and answer from
+  that dashboard; the conversation's columns are never written again -- they
+  are the migration's backup. A conversation made since answers its old API
+  exactly as main (the UI never calls it for a dashboard; 59 of main's tests
+  encode that); one with no dashboard too. The editor's refresh on open
+  follows the dashboard open in it, for every conversation.
+  Round-6 review rules (approved 2026-10-22):
+  - A schedule whose link shows a deck is read and changed on the page that
+    already runs it, else on the page with the newest version -- the
+    migration's choice -- so the old API never schedules a second page.
+  - The recorded dashboard deleted: the old API refuses
+    (`dashboard.conversation_moved`), as the `/r` link leads nowhere; it never
+    moves to another dashboard of the conversation, which nobody shared.
+  - A refused request saves nothing: artifact sharing checks the settings
+    sent with it (`dashboard_settings_service.check_settings`) before it
+    shares, and saves them after; `PUT /reports/{id}` applies the status
+    before any other field.
+  - Refresh on open: only one who may edit the dashboard names it (the
+    editor's `artifact_id`), and never a deleted one; anyone else gets the
+    conversation's dashboard (a conversation made since: its own column).
+
+#### Old `/r` functions and what replaces them
+
+| Before (reads the conversation) | After |
+| --- | --- |
+| `/r/{report}` page | Forwards to `/d/{id}` (`GET /api/r/{report}/dashboard`): the dashboard the migration recorded, frozen; for a conversation made since, its newest published page (then a published doc, then the newest unpublished one), the first the reader can open. No dashboard: served as before (widget era). |
+| `/api/r/{report}`, `/queries`, `/queries/{q}/step`, `/artifacts`, `/artifacts/{a}`, `/run`, `/rerun`, exports, embed tokens, `/r/{report}/chat*` | `ReportService._check_visibility('artifact_visibility')`: closed to readers once the link was taken over; the conversation's editors (owner, project, org admin) keep them -- the editor's draft run and rerun stay conversation-level. Readers use `/api/d/{ref}/...`. |
+| `/api/artifacts/...` with `allow_public` | Same rule in `permissions_decorator`. |
+| Files embedded in a shared conversation's dashboard | Through `_check_visibility` (same rule); the release has its own file copies. |
+| `bow_source_access.protect_report` (refuses on a public conversation) | The conversation's old public setting no longer counts once taken over; the release has its own guard (`protect_release`). |
+| Conversations list: badge (`artifact_visibility`), schedule icon (`cron_schedule`), "Shared"/"Private" filter, scheduled filter, "Shared with me" | From the conversation's dashboards: the most open visibility among its published ones, a dashboard schedule, `dashboard_legacy.counts_as_shared()`, `has_scheduled_dashboard()`, `dashboard_visible_to()`. A conversation without dashboards: its own columns. |
+| Project page: automations and their count (`reports.cron_schedule`) | Dashboard schedules (one row per dashboard); a conversation without dashboards keeps its own. |
+| Project page dashboard cards, org cards, ForkBanner, editor's 403 handoff (links to `/r/{report}`) | Unchanged links; `/r` forwards. |
+| Agent tools `search_reports` (status filter and value), `read_report` (status) | `counts_as_shared()`, as the list. |
+| MCP report-scoped reads (`_assert_can_view_report`) | Through `_check_visibility` (same rule); MCP's dashboard path is phase 4 part C. |
+| Share window: chat agent candidates (`/reports/{id}/artifact_chat/agents`) | Stays: the candidates are the agents the conversation uses (the draft lives there); the choice is the dashboard's `chat_data_source_ids`. |
+| Daily step purge (protects shared conversations by their columns) | Stays: the columns are kept (decision 14); release copies have no widget and are never purged. |
+| Conversation fire-time guard and `set_report_schedule` (`report_*` jobs) | Only widget-era conversations can still have one; removed with the old columns. |
+| Legacy conversation endpoints (`PUT /reports/{id}` status, publish toggle, schedule, artifact sharing, notify) | Migrated conversation: act on its dashboard (`conversation_dashboard`), never writing the conversation's columns. A conversation made since: as main. |

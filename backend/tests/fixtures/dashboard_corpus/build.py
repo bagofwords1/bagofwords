@@ -15,6 +15,7 @@ import uuid
 from pathlib import Path
 
 from tests.fixtures.dashboard_corpus.alembic_at import (
+    PRE_MIGRATION_REVISION,
     downgrade_test_db_to_base,
     upgrade_test_db_to_head,
 )
@@ -26,7 +27,10 @@ from tests.fixtures.dashboard_corpus.rows import Rows
 THUMBNAILS_DIR = str(Path(__file__).resolve().parents[3] / "uploads" / "thumbnails")
 
 
-def build_corpus(fixtures: dict, rows: Rows) -> Corpus:
+def build_corpus(fixtures: dict, rows: Rows, *, migrate: bool = False) -> Corpus:
+    """The corpus at main's schema, upgraded through this branch: up to the
+    last schema-only revision, or -- `migrate` -- through the data migration
+    too (phase 9)."""
     client = fixtures["test_client"]
     cast = build_cast(rows=rows, **fixtures)
     admin = cast.people["admin"]
@@ -42,7 +46,7 @@ def build_corpus(fixtures: dict, rows: Rows) -> Corpus:
     written: list[str] = []
     try:
         corpus = seed_corpus(rows, cast, THUMBNAILS_DIR, written)
-        upgrade_test_db_to_head()
+        upgrade_test_db_to_head("head" if migrate else PRE_MIGRATION_REVISION)
         rows.forget_schema()
         _add_live_resources(client, cast, corpus, put_setting)
     except BaseException:

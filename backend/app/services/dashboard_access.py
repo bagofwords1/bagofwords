@@ -123,8 +123,9 @@ async def _granted(db, artifact: Artifact, user) -> bool:
 async def is_org_admin(db, artifact: Artifact, user) -> bool:
     """The organization's full admin, while a member of it: opens every
     published dashboard of the organization, as /r lets an admin open every
-    conversation's dashboard (main, #1400). Not the draft: that is the
-    conversation, which /r keeps owner- and share-gated for admins too."""
+    conversation's dashboard (main, #1400), and reads drafts (phase 9: after
+    the data migration a private conversation's dashboard is a draft) --
+    without editing them."""
     from app.core.permission_resolver import FULL_ADMIN, principal_belongs_to_org, resolve_permissions
 
     if user is None:
@@ -161,7 +162,8 @@ async def open_published(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]
     editor = await can_edit(db, artifact, user)
     release = await published_release(db, artifact)
     if release is None:
-        if editor:
+        # Told to whoever may read the draft, so the page takes them there.
+        if editor or await is_org_admin(db, artifact, user):
             raise AppError.not_found(ErrorCode.DASHBOARD_NOT_PUBLISHED)
         raise _not_found()
     await assert_read(db, release.bow_source_access, user)
@@ -171,14 +173,17 @@ async def open_published(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]
 
 
 async def open_draft(db, ref: str, user) -> Artifact:
-    """The dashboard, for its editors only."""
+    """The dashboard, for its editors -- and, to read, the organization's
+    admin, as main's /r shows an admin every conversation's dashboard (#1400).
+    Every draft route is a read; running and editing go through the
+    conversation, which stays its owner's."""
     from app.services.bow_source_access import assert_read, report_access
 
     if user is None:
         # Said to every anonymous caller alike, so it reveals nothing.
         raise AppError.unauthorized()
     artifact = await resolve(db, ref)
-    if not await can_edit(db, artifact, user):
+    if not await can_edit(db, artifact, user) and not await is_org_admin(db, artifact, user):
         raise _not_found()
     # The draft lives in the editing conversation: none once it was deleted
     # (phase 7; "Edit" starts a new one from the published release).

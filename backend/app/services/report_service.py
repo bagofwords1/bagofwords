@@ -20,7 +20,7 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select, or_, func, cast, delete, case, String as SAString
+from sqlalchemy import select, and_, or_, func, cast, delete, case, String as SAString
 from sqlalchemy.exc import IntegrityError, OperationalError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -99,6 +99,12 @@ class ReportService:
                 return
 
         visibility = getattr(report, visibility_field, 'none') or 'none'
+        if visibility_field == 'artifact_visibility' and visibility != 'none':
+            # Phase 9: a dashboard took over this conversation's link; its own
+            # sharing decides, on /d. The old setting admits no one here.
+            from app.services.dashboard_legacy import is_link_taken_over
+            if await is_link_taken_over(db, report.id):
+                visibility = 'none'
 
         if visibility == 'none':
             # Only owner can access
@@ -291,6 +297,33 @@ class ReportService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+
+        if share_type == 'artifact':
+            # Phase 9: a conversation with a dashboard shares the dashboard.
+            from app.services import conversation_dashboard
+            dashboard = await conversation_dashboard.require(db, report)
+            if dashboard is not None:
+                from app.services import dashboard_settings_service
+                changes = {k: v for k, v in {
+                    "shared_run_identity": run_identity, "include_data_tab": include_data_tab,
+                    "chat_enabled": artifact_chat_enabled, "chat_data_source_ids": artifact_chat_data_source_ids,
+                    "chat_model_id": artifact_chat_model_id}.items() if v is not None}
+                # Everything is checked before anything is saved: a refused
+                # share leaves the settings sent with it (an identity switch
+                # drops readers' results) as they were.
+                if changes:
+                    await dashboard_settings_service.check_settings(db, dashboard, changes,
+                                                                    current_user=current_user, organization=organization)
+                await conversation_dashboard.share(
+                    db, dashboard, visibility=visibility,
+                    user_ids=shared_user_ids if visibility == 'shared' else None,
+                    group_ids=shared_group_ids if visibility == 'shared' else None,
+                    current_user=current_user, organization=organization)
+                if changes:
+                    await dashboard_settings_service.set_settings(db, dashboard, changes,
+                                                                  current_user=current_user, organization=organization)
+                await db.refresh(dashboard)
+                return await conversation_dashboard.visibility_answer(db, dashboard, share_type)
 
         # Group grants must reference groups of the report's own organization.
         if shared_group_ids:
@@ -593,6 +626,13 @@ class ReportService:
         from app.models.report_share import ReportShare
         from app.models.group_membership import GroupMembership
 
+        if share_type == 'artifact':
+            from app.services import conversation_dashboard
+            report = await db.get(Report, str(report_id))
+            dashboard = await conversation_dashboard.dashboard_of(db, report) if report is not None else None
+            if dashboard is not None:  # phase 9: the dashboard's grants
+                return await conversation_dashboard.shares_answer(db, dashboard)
+
         stmt = (
             select(ReportShare)
             .options(selectinload(ReportShare.user), selectinload(ReportShare.group))
@@ -862,7 +902,9 @@ class ReportService:
 
         # Enrich fork lineage
         await self._enrich_fork_lineage(db, report, report_schema)
-        return report_schema
+        # Phase 9: what the conversation's dashboard now holds (sharing, schedule).
+        from app.services import conversation_dashboard
+        return await conversation_dashboard.as_report_schema(db, report, report_schema)
 
     async def _assert_can_enter_training_mode(
         self,
@@ -1101,11 +1143,21 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
-        from app.services.bow_source_access import assert_shareable
-        await assert_shareable(db, report.id, report_data.status == 'published')
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.require(db, report) \
+            if report_data.status in ('published', 'draft') else None
+        if dashboard is None:
+            from app.services.bow_source_access import assert_shareable
+            await assert_shareable(db, report.id, report_data.status == 'published')
+        if report_data.status and dashboard is not None:
+            # Phase 9: the conversation's status is its dashboard's sharing --
+            # first: refused, nothing else sent with it is saved (the publish
+            # it starts commits).
+            await conversation_dashboard.set_published(db, dashboard, report_data.status == 'published',
+                                                       current_user=current_user, organization=organization)
         if report_data.title:
             report.title = report_data.title
-        if report_data.status:
+        if report_data.status and dashboard is None:
             report.status = report_data.status
             # Sync artifact_visibility with legacy status field
             if report_data.status == 'published':
@@ -1844,7 +1896,16 @@ class ReportService:
 
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.require(db, report)
+        if dashboard is not None:
+            # Phase 9: the toggle shares the dashboard publicly, or makes it private.
+            await conversation_dashboard.set_published(db, dashboard, not conversation_dashboard.is_published(dashboard),
+                                                       current_user=current_user, organization=organization)
+            await db.refresh(report)
+            return await conversation_dashboard.as_report_schema(db, report)
+
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, report.status != 'published')
         if report.status == 'published':
@@ -2115,25 +2176,35 @@ class ReportService:
         they can view. Callers OR in ownership themselves."""
         from app.models.report_share import ReportShare
         from app.services.project_service import project_service
+        from app.services import dashboard_legacy
         user_group_ids = self._user_group_ids_subquery(
             current_user.id, organization.id
         )
-        shared_with_user = Report.id.in_(
-            select(ReportShare.report_id).where(
-                or_(
-                    ReportShare.user_id == current_user.id,
-                    ReportShare.group_id.in_(user_group_ids),
-                ),
-                ReportShare.deleted_at.is_(None),
+
+        def shared_with_user(share_type):
+            return Report.id.in_(
+                select(ReportShare.report_id).where(
+                    ReportShare.share_type == share_type,
+                    or_(
+                        ReportShare.user_id == current_user.id,
+                        ReportShare.group_id.in_(user_group_ids),
+                    ),
+                    ReportShare.deleted_at.is_(None),
+                )
             )
-        )
         visible_project_ids = await project_service.get_visible_project_ids(
             db, current_user, organization
         )
+        # The dashboard's sharing once one took over the conversation's link
+        # (phase 9), and for every dashboard on its own; the conversation's old
+        # artifact setting only where none did.
+        taken_over = dashboard_legacy.link_taken_over()
         visibility_terms = [
-            Report.artifact_visibility.in_(['public', 'internal']),
+            and_(~taken_over, Report.artifact_visibility.in_(['public', 'internal'])),
+            and_(~taken_over, shared_with_user('artifact')),
+            dashboard_legacy.dashboard_visible_to(current_user.id, user_group_ids),
             Report.conversation_visibility.in_(['public', 'internal']),
-            shared_with_user,
+            shared_with_user('conversation'),
         ]
         if visible_project_ids:
             visibility_terms.append(Report.project_id.in_(visible_project_ids))
@@ -2523,6 +2594,7 @@ class ReportService:
         artifact_mode: str | None = None,
         project_id: str | None = None,
     ):
+        from app.services import dashboard_legacy
         with tracer.start_as_current_span("get_reports") as span:
 
             span.set_attribute("user.id", str(current_user.name))
@@ -2593,13 +2665,18 @@ class ReportService:
                 )
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
+            # A conversation with dashboards is scheduled by them (phase 9).
+            scheduled_itself = or_(
+                and_(dashboard_legacy.speaks_for_itself(), Report.cron_schedule.isnot(None)),
+                dashboard_legacy.has_scheduled_dashboard(),
+            )
             if scheduled is True:
                 # ScheduledPrompt is imported at module scope; a local re-import
                 # here would make the name function-local for all of get_reports
                 # and UnboundLocalError the later use (the artifact-modes branch).
                 base_conditions.append(
                     or_(
-                        Report.cron_schedule.isnot(None),
+                        scheduled_itself,
                         Report.id.in_(
                             select(ScheduledPrompt.report_id).where(
                                 ScheduledPrompt.is_active == True,
@@ -2609,7 +2686,7 @@ class ReportService:
                     )
                 )
             elif scheduled is False:
-                base_conditions.append(Report.cron_schedule.is_(None))
+                base_conditions.append(~scheduled_itself)
                 base_conditions.append(
                     ~Report.id.in_(
                         select(ScheduledPrompt.report_id).where(
@@ -2620,8 +2697,11 @@ class ReportService:
                 )
 
             # Optional filter by report status (draft/published)
+            # (shared = a shared dashboard; the conversation's own status where
+            # it has none -- phase 9)
             if status in ('draft', 'published'):
-                base_conditions.append(Report.status == status)
+                shared = dashboard_legacy.counts_as_shared()
+                base_conditions.append(shared if status == 'published' else ~shared)
 
             # Optional filter by data source
             if data_source_id:
@@ -2754,9 +2834,12 @@ class ReportService:
                         )).all()
                     }
 
+                dashboard_fields = await dashboard_legacy.list_fields(db, report_ids)
                 report_schemas = []
                 for report in reports:
                     rs = ReportSchema.from_orm(report)  # heavy fields stay [] / None (noload)
+                    for field, value in dashboard_fields.get(str(report.id), {}).items():
+                        setattr(rs, field, value)
                     rs.user = UserSchema.from_orm(report.user)
                     rs.is_starred = str(report.id) in starred_ids
                     rs.artifact_modes = list(modes_by_report.get(str(report.id), set()))
@@ -2920,6 +3003,11 @@ class ReportService:
                     if rid not in best or key < best[rid][0]:
                         best[rid] = (key, thumb_path)
                 thumbs_by_report = {rid: pick[1] for rid, pick in best.items()}
+                # Someone else's conversation, read through its published
+                # dashboard: the release's picture, never the draft's (phase 9).
+                others = [str(r.id) for r in reports if str(r.user_id) != str(current_user.id)]
+                for rid, path in (await dashboard_legacy.published_pictures(db, others, current_user)).items():
+                    thumbs_by_report[rid] = path
 
             # Convert to schemas
             # Lifecycle-filter each report's attached data sources (same rules
@@ -2928,10 +3016,15 @@ class ReportService:
             from app.services.data_source_service import DataSourceService
             ds_service = DataSourceService()
             publish_visibility = await ds_service._publish_visibility(db, current_user, organization)
+            # A conversation with dashboards shows their sharing and schedule
+            # (phase 9), not its own old columns.
+            dashboard_fields = await dashboard_legacy.list_fields(db, report_ids)
             report_schemas = []
             for report in reports:
                 report_schema = ReportSchema.from_orm(report)
                 report_schema.user = UserSchema.from_orm(report.user)
+                for field, value in dashboard_fields.get(str(report.id), {}).items():
+                    setattr(report_schema, field, value)
 
                 live_data_sources = await ds_service.filter_live_data_sources(
                     db, report.data_sources, current_user, organization,
@@ -3338,14 +3431,20 @@ class ReportService:
             dead = guard_row is None or guard_row.deleted_at is not None or (
                 guard_row.status == 'archived' and visibility not in ('public', 'internal', 'shared')
             )
-            if dead:
+            # Phase 9: a dashboard took this conversation over and holds its
+            # schedule; a conversation job left behind (an old server during a
+            # rolling upgrade) never runs beside it -- and leaves the
+            # conversation's columns as they are (the migration's backup).
+            from app.services.dashboard_legacy import is_link_taken_over
+            taken_over = guard_row is not None and await is_link_taken_over(db, report_id)
+            if dead or taken_over:
                 try:
                     scheduler.remove_job(job_id=f"report_{report_id}")
                 except JobLookupError:
                     pass
                 except Exception:
                     logger.warning(f"Failed to remove refresh job for report {report_id}", exc_info=True)
-                if guard_row is not None:
+                if guard_row is not None and not taken_over:
                     guard_row.cron_schedule = None
                     guard_row.notification_subscribers = None
                     await db.commit()
@@ -3374,7 +3473,8 @@ class ReportService:
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
 
-    async def refresh_on_view_rerun(self, db: AsyncSession, report_id: str, user=None) -> dict:
+    async def refresh_on_view_rerun(self, db: AsyncSession, report_id: str, user=None,
+                                    artifact_id: str | None = None) -> dict:
         """Rerun a shared report's queries because a viewer opened /r/{id}.
 
         Reachable by anyone who can *view* the report (including anonymous
@@ -3419,7 +3519,13 @@ class ReportService:
                 "last_run_at": report.last_run_at,
             }
 
-        if not report.refresh_on_view:
+        # Phase 9: a conversation with a dashboard follows that dashboard's
+        # "refresh when opened" (the one open in the editor, by its version);
+        # the conversation's column is the migration's backup.
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.refresh_on_view_dashboard(db, report, artifact_id, user)
+        enabled = dashboard.refresh_on_view if dashboard is not None else report.refresh_on_view
+        if not enabled:
             return _skip("not enabled")
 
         # A fork of a delegated source is being filled in by hydrate_fork,
@@ -3488,6 +3594,22 @@ class ReportService:
         
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
+
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.require(db, report, schedule=True)
+        if dashboard is not None:
+            # Phase 9: the dashboard's schedule (one job, the dashboard's); the
+            # conversation's columns stay the migration's backup.
+            from app.services import dashboard_settings_service
+            changes = {"cron_schedule": "" if cron_expression in (None, '', 'None') else cron_expression}
+            if notification_subscribers is not None:
+                changes["notification_subscribers"] = notification_subscribers
+            if refresh_on_view is not None:
+                changes["refresh_on_view"] = bool(refresh_on_view)
+            await dashboard_settings_service.set_settings(db, dashboard, changes,
+                                                          current_user=current_user, organization=organization)
+            await db.refresh(report)
+            return await conversation_dashboard.as_report_schema(db, report)
         try:
             # Try to remove existing job if it exists
             scheduler.remove_job(job_id=f"report_{report_id}")

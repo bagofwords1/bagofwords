@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
-from tests.fixtures.dashboard_corpus.alembic_at import alembic_pointed_at, current_revisions, script_directory
+from tests.fixtures.dashboard_corpus.alembic_at import PRE_MIGRATION_REVISION, alembic_pointed_at, current_revisions, script_directory
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
 
@@ -53,13 +53,13 @@ def test_round_trip_and_refusal(corpus, corpus_rows):
     from alembic import command
 
     url = sync_test_url()
-    head = script_directory().get_current_head()
+    head = PRE_MIGRATION_REVISION  # the corpus stops before the data migration (dashfc08)
     with alembic_pointed_at(url) as cfg:
         command.downgrade(cfg, "dashfc02")
     assert current_revisions(url) == ("dashfc02",)
     assert "legacy_report_id" not in _inspect(url)[0]
     with alembic_pointed_at(url) as cfg:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, PRE_MIGRATION_REVISION)
     assert current_revisions(url) == (head,)
 
     aid = corpus.ids["conv_one_dash/dash"]
@@ -79,5 +79,5 @@ def test_round_trip_and_refusal(corpus, corpus_rows):
         engine.dispose()
     assert kept == corpus.reports["conv_one_dash"]
     with alembic_pointed_at(url) as cfg:
-        command.upgrade(cfg, "head")
+        command.upgrade(cfg, PRE_MIGRATION_REVISION)
     assert current_revisions(url) == (head,)

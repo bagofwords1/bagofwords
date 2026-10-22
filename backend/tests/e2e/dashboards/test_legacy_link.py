@@ -18,7 +18,11 @@ def test_an_old_link_leads_to_its_recorded_dashboard_for_good(corpus, corpus_row
     report = corpus.reports["conv_three_dash"]
     sales = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
     url = f"/api/r/{report}/dashboard"
-    assert test_client.get(url).status_code == 404  # nothing recorded yet: /r behaves as today
+    # Nothing recorded (a conversation made after the upgrade): its newest
+    # dashboard its editor can open (dash_stock has no owner yet, so is no
+    # dashboard of its own); a reader who can open none stays on /r.
+    assert test_client.get(url, headers=as_(corpus, "owner")).json() == {"dashboard_id": sales}
+    assert test_client.get(url).status_code == 404
 
     corpus_rows.update("artifacts", sales, legacy_report_id=report)  # what the data migration writes
     publish(sales)

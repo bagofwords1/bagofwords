@@ -1,16 +1,19 @@
-// The never-published dashboards that deleting these conversations deletes
-// with them (phase 7: published ones stay, the others go). The delete
-// confirmations name them in one small line. Empty when the preview cannot
-// be read: the confirmation then reads as it always did.
-export async function unpublishedDashboardsDeletedWith(reportIds: string[]): Promise<string[]> {
+import { deleteNotes, type DeleteNotes } from '~/utils/deleteNotes'
+
+// What deleting these conversations does to their dashboards (phase 7):
+// never-published ones go with them; published ones stay, losing changes
+// not yet published. The delete confirmations say so in small lines. Empty
+// when the preview cannot be read: the confirmation then reads as it always
+// did.
+export async function dashboardsDeleteNotes(reportIds: string[]): Promise<DeleteNotes> {
     const previews = await Promise.all(reportIds.map(async (id) => {
         try {
             const { data, error } = await useMyFetch(`/reports/${id}/delete_preview`)
             if (error.value) return []
-            return ((data.value as any)?.dashboards || []) as Array<{ title?: string; outcome?: string }>
+            return ((data.value as any)?.dashboards || []) as Array<{ id?: string; title?: string; outcome?: string }>
         } catch {
             return []
         }
     }))
-    return previews.flat().filter((d) => d.outcome === 'deleted').map((d) => d.title || 'Untitled')
+    return deleteNotes(previews.flat())
 }

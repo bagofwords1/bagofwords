@@ -807,7 +807,8 @@
       }
     ],
     "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
-    "deleteUnpublishedDashboards": "Verranno eliminate anche le dashboard non pubblicate: {names}"
+    "deleteUnpublishedDashboards": "Verranno eliminate anche le dashboard non pubblicate: {names}",
+    "deleteLosesUnpublishedChanges": "Le modifiche non pubblicate di queste dashboard andranno perse (la versione pubblicata resta): {names}"
   },
   "projects": {
     "title": "Progetti",
@@ -3900,6 +3901,7 @@
     "artifact.not_found": "Artefatto non trovato",
     "dashboard.not_published": "Questa dashboard non è ancora stata pubblicata.",
     "dashboard.share_requires_publish": "Pubblica la dashboard prima di condividerla.",
+    "dashboard.conversation_moved": "La condivisione e la pianificazione di questa conversazione sono nella sua dashboard.",
     "dashboard.rls_requires_viewer": "Questa dashboard usa la sicurezza a livello di riga, quindi gli spettatori eseguono sempre con la propria identità. \"Esegui a mio nome\" non è disponibile.",
     "dashboard.export_withheld": "Questa dashboard mostra a ogni spettatore i propri dati, quindi non può essere esportata.",
     "dashboard.export_needs_run": "Esegui prima la dashboard per esportare i tuoi dati.",

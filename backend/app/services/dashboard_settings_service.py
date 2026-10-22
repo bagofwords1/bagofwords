@@ -116,13 +116,23 @@ async def _check_groups(db, organization, group_ids: list[str]) -> None:
 
 
 async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | None,
-                      group_ids: list[str] | None, current_user: User, organization) -> dict:
+                      group_ids: list[str] | None, current_user: User, organization,
+                      before_publish: bool = False) -> dict:
+    """`before_publish`: the conversation's old publish call (phase 9) saves
+    the sharing and then publishes; /d serves only a ready release, so it
+    takes effect when that one is ready."""
     release = await published_release(db, artifact)
-    if visibility != "none" and release is None:
+    if visibility != "none" and release is None and not before_publish:
         raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
-    if visibility == "public" and release.bow_source_access:
-        # A monitoring dashboard is never public (bow_source_access.assert_shareable).
-        raise AppError.forbidden()
+    if visibility == "public":
+        if release is not None:
+            monitoring = release.bow_source_access
+        else:
+            from app.services.bow_source_access import report_access
+            monitoring = await report_access(db, artifact.report_id) if artifact.report_id else None
+        if monitoring:
+            # A monitoring dashboard is never public (bow_source_access.assert_shareable).
+            raise AppError.forbidden()
     user_ids = list(dict.fromkeys(str(u) for u in user_ids)) if user_ids is not None else None
     group_ids = list(dict.fromkeys(str(g) for g in group_ids)) if group_ids is not None else None
     await _check_members(db, organization, user_ids or [])
@@ -236,9 +246,10 @@ async def _drop_viewer_results(db, artifact) -> None:
     await db.execute(delete(StepUserResult).where(StepUserResult.step_id.in_(copies)))
 
 
-async def set_settings(db, artifact, changes: dict, *, current_user: User, organization) -> dict:
-    """Apply the settings given; a setting left out (None) stays as it is.
-    Everything is checked before anything changes."""
+async def check_settings(db, artifact, changes: dict, *, current_user: User, organization) -> None:
+    """set_settings' checks, changing nothing: refused here, set_settings
+    would refuse. A caller that saves something else with the settings (the
+    conversation's old sharing call, phase 9) checks them first."""
     identity = changes.get("shared_run_identity")
     switch_identity = identity is not None and identity != artifact.shared_run_identity
     if switch_identity and identity == "creator":
@@ -281,6 +292,20 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         # the draft, as a conversation's does today.
         if artifact.mode == "slides":
             raise AppError.bad_request(ErrorCode.VALIDATION, "A deck does not refresh on a schedule")
+
+
+async def set_settings(db, artifact, changes: dict, *, current_user: User, organization) -> dict:
+    """Apply the settings given; a setting left out (None) stays as it is.
+    Everything is checked before anything changes."""
+    await check_settings(db, artifact, changes, current_user=current_user, organization=organization)
+    identity = changes.get("shared_run_identity")
+    switch_identity = identity is not None and identity != artifact.shared_run_identity
+    sources = changes.get("chat_data_source_ids")
+    if sources is not None and sources != ["*"]:
+        sources = [str(s) for s in sources]
+    model = changes.get("chat_model_id")
+    cron = changes.get("cron_schedule")
+    unschedule = cron is not None and (not cron.strip() or cron.strip().lower() in {"none", "null", "false"})
 
     if switch_identity:
         await _drop_viewer_results(db, artifact)

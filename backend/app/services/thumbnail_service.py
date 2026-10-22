@@ -344,9 +344,12 @@ class ThumbnailService:
                 if release is None or release.status != "ready":
                     return None
                 artifact = await db.get(Artifact, str(release.artifact_id))
-                if artifact is None or artifact.mode != "page":
+                if artifact is None or artifact.mode == "doc":
                     return None
                 stem = f"release-{release.id}"
+                # First, for a deck too (its picture is its first slide): no
+                # picture of rows a reader may not get -- it is served
+                # without a user.
                 if (release.bow_source_access
                         or await release_snapshot_withheld(db, artifact, release)
                         or await any_copy_tainted(db, release)):
@@ -355,6 +358,8 @@ class ThumbnailService:
                                      .values(thumbnail_path=None))
                     await db.commit()
                     return None
+                if artifact.mode != "page":
+                    return None  # a deck keeps the picture it was published with (frozen)
                 content = release.content or {}
                 rows = (await db.execute(
                     select(Visualization, Query, Step)
