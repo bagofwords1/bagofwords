@@ -567,3 +567,59 @@ def test_a_publish_records_monitoring_access_on_its_release(corpus, corpus_rows,
     report = corpus.reports["conv_three_dash"]
     (draft,) = _rows(corpus_rows, "SELECT bow_source_access FROM reports WHERE id = :r", r=report)
     assert _json(draft["bow_source_access"]) is None
+
+
+@pytest.mark.e2e
+def test_a_publish_that_fails_to_start_saves_nothing_after_failing_a_stale_one(corpus, corpus_rows, test_client,
+                                                                              spawned, monkeypatch):
+    """Failing a stale publish is part of starting the new one: when the
+    start fails, neither is saved and the dashboard stays locked to the end
+    (PR #1455 review)."""
+    from datetime import timedelta
+
+    from app.services import dashboard_publish
+
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    stale = corpus_rows.insert("artifact_releases", artifact_id=aid, organization_id=corpus.cast.org_id,
+                               status="publishing", updated_at=datetime.utcnow() - timedelta(hours=1))
+
+    async def broken_copy(*args, **kwargs):
+        raise RuntimeError("copy failed")
+
+    monkeypatch.setattr("app.services.dashboard_copy.copy_dashboard", broken_copy)
+    try:
+        assert _post(test_client, corpus, aid).status_code >= 500
+    except RuntimeError:
+        pass  # the test client re-raises what the app did not handle
+    with corpus_rows.engine.connect() as conn:
+        status = conn.execute(text("SELECT status FROM artifact_releases WHERE id = :r"), {"r": stale}).scalar()
+    assert status == "publishing"
+
+
+@pytest.mark.e2e
+def test_the_connection_check_runs_before_the_dashboard_is_locked(corpus, corpus_rows, test_client, spawned,
+                                                                 monkeypatch):
+    """Building the clients may take a warehouse's handshake: a conversation
+    delete or a second Publish must not wait on it (PR #1455 review).
+    Postgres only: SQLite has no row locks."""
+    from app.services import dashboard_publish
+
+    if corpus_rows.engine.dialect.name != "postgresql":
+        pytest.skip("needs row locks")
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    seen = []
+    check = dashboard_publish._check_connections
+
+    async def probing(*args, **kwargs):
+        with corpus_rows.engine.connect() as conn:
+            try:
+                conn.execute(text("SELECT id FROM artifacts WHERE id = :a FOR UPDATE NOWAIT"), {"a": aid})
+                seen.append("free")
+            except Exception:
+                seen.append("locked")
+            conn.rollback()
+        return await check(*args, **kwargs)
+
+    monkeypatch.setattr(dashboard_publish, "_check_connections", probing)
+    assert _post(test_client, corpus, aid).status_code == 202
+    assert seen == ["free"]

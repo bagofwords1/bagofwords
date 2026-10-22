@@ -77,13 +77,9 @@ async def _is_member(db, artifact: Artifact, user) -> bool:
     signed-in stranger spend them) or choose filter values. Everyone a
     dashboard is shared with is a member: grants name members only, and a
     grant stops counting when its holder leaves."""
-    from app.models.membership import Membership
+    from app.services.dashboard_access import _is_member as is_member
 
-    return (await db.execute(
-        select(Membership.id).where(Membership.user_id == str(user.id),
-                                    Membership.organization_id == str(artifact.organization_id),
-                                    Membership.deleted_at.is_(None)).limit(1)
-    )).scalar_one_or_none() is not None
+    return await is_member(db, user, artifact.organization_id)
 
 
 async def run_identity(db, artifact: Artifact, release: ArtifactRelease, caller,

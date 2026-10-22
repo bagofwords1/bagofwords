@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { createI18n } from 'vue-i18n'
 
-import { errorCatalogKeys, wantsCatalogMessage } from '../../composables/useErrorMessage.ts'
+import { catalogMessage, errorCatalogKeys } from '../../composables/useErrorMessage.ts'
 
 // The backend's AppError carries `error_code`, and the catalogs hold the
 // localized message under `errors.<code>`. Most codes hold a dot
@@ -40,13 +40,14 @@ for (const code of codes) {
 // server's detail).
 assert.equal(resolve('no.such_code'), null)
 
-// The catalog speaks only when the server did not: a bare code in `detail`
-// (AppError without a message) or none at all. A sentence the server wrote
-// for the case stays, being more specific than the code's generic text.
-assert.equal(wantsCatalogMessage('membership.not_found', 'membership.not_found'), true)
-assert.equal(wantsCatalogMessage('membership.not_found', undefined), true)
-assert.equal(wantsCatalogMessage('membership.not_found', '  '), true)
-assert.equal(wantsCatalogMessage('resource.conflict', 'This change moved since you viewed it — refresh and try again.'), false)
-assert.equal(wantsCatalogMessage(undefined, 'anything'), false)
+// The catalog wins over the server's English detail whenever it has the
+// code (PR #1455 review): a Hebrew or Spanish user never sees the English
+// sentence for a code their catalog translates.
+const withDetail = { error_code: dotted[0], detail: 'The server wrote this in English.' }
+assert.equal(catalogMessage(withDetail, t, te), resolve(dotted[0]))
+const plain = codes.find((c) => !c.includes('.') && typeof en.errors[c] === 'string' && !en.errors[c].includes('{'))
+if (plain) assert.equal(catalogMessage({ error_code: plain, detail: 'English' }, t, te), en.errors[plain])
+assert.equal(catalogMessage({ error_code: 'no.such_code', detail: 'English' }, t, te), null)
+assert.equal(catalogMessage({ detail: 'English' }, t, te), null)
 
 console.log(`useErrorMessage: ${codes.length} codes resolve (${dotted.length} dotted)`)

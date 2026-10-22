@@ -26,16 +26,20 @@ export function errorCatalogKeys(code: string): string[] {
 }
 
 /**
- * Whether the catalog's message should be shown for this code. Only when the
- * server sent no message of its own: AppError then puts the bare code in
- * `detail` ("membership.not_found"), which is no message for a person. A
- * sentence the server wrote for this case ("This change moved since you
- * viewed it…") is more specific than the code's generic catalog text, so it
- * stays.
+ * The localized message for an AppError payload, or null when the catalog
+ * has no entry for its code. The catalog wins over the server's `detail`
+ * whenever it has one: `detail` is the server's English (backend/AGENTS.md:
+ * "the frontend localizes via the error_code").
  */
-export function wantsCatalogMessage(code?: string, detail?: unknown): boolean {
-  if (!code) return false
-  return typeof detail !== 'string' || !detail.trim() || detail === code
+export function catalogMessage(
+  payload: { error_code?: string; params?: Record<string, unknown> },
+  t: (key: string, params: Record<string, unknown>) => string,
+  te: (key: string) => boolean,
+): string | null {
+  const code = payload.error_code
+  if (!code) return null
+  const key = errorCatalogKeys(code).find((k) => te(k))
+  return key ? t(key, (payload.params ?? {}) as Record<string, unknown>) : null
 }
 
 export function useErrorMessage() {
@@ -61,14 +65,8 @@ export function useErrorMessage() {
 
   function getErrorMessage(err: unknown, fallback?: string): string {
     const payload = extractPayload(err)
-    const code = payload.error_code
-    if (code && wantsCatalogMessage(code, payload.detail)) {
-      for (const key of errorCatalogKeys(code)) {
-        if (te(key)) {
-          return t(key, (payload.params ?? {}) as Record<string, unknown>)
-        }
-      }
-    }
+    const localized = catalogMessage(payload, t, te)
+    if (localized) return localized
     // Fall back to server-provided English string, then caller fallback, then generic.
     if (typeof payload.detail === 'string' && payload.detail) return payload.detail
     // FastAPI validation responses are arrays, not localized AppError envelopes.

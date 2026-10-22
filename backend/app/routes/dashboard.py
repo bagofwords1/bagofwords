@@ -8,6 +8,7 @@ The path parameter is `dashboard_id`, not `artifact_id`: the permission
 decorator reads `artifact_id` as a version id and resolves its conversation.
 """
 import asyncio
+import contextlib
 
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select
@@ -17,7 +18,6 @@ from app.core.auth import current_user, current_user_optional
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
-from app.models.artifact import ArtifactVersion
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
@@ -91,14 +91,11 @@ async def get_draft_dashboard(
 ):
     from app.models.report import Report
 
+    from app.services.dashboard_data import draft_version
+
     artifact = await dashboard_access.open_draft(db, ref, user)
-    version_id = (await db.execute(
-        select(ArtifactVersion.id).where(
-            ArtifactVersion.artifact_id == str(artifact.id),
-            ArtifactVersion.deleted_at.is_(None),
-            ArtifactVersion.status == "completed",
-        ).order_by(ArtifactVersion.version.desc()).limit(1)
-    )).scalar_one_or_none()
+    draft = await draft_version(db, artifact, light=True)
+    version_id = draft.id if draft else None
     theme = (await db.execute(
         select(Report.theme_name, Report.theme_overrides).where(Report.id == str(artifact.report_id))
     )).first() if artifact.report_id else None
@@ -217,20 +214,22 @@ async def notify_dashboard_share(
         made.append(path)
         return [{"file": path, "filename": f"{title}.pdf", "type": "application", "subtype": "pdf"}]
 
-    response = await notification_service.dispatch(
-        attachment_builder=attachments,
-        notification_type=NotificationType.SHARE_DASHBOARD, channels=payload.channels,
-        recipients=payload.recipients, share_url=share_url, report_title=artifact.title,
-        sender_name=current_user.name or current_user.email, message=payload.message,
-        report_id=str(artifact.id), locale=_locale_from_org(organization),
-        db=db, organization_id=str(organization.id),
-    )
-    # The file holds the release's rows: it goes once the email went, as the
-    # /d export removes its file once sent.
     from pathlib import Path
 
-    for path in made:
-        Path(path).unlink(missing_ok=True)
+    try:
+        response = await notification_service.dispatch(
+            attachment_builder=attachments,
+            notification_type=NotificationType.SHARE_DASHBOARD, channels=payload.channels,
+            recipients=payload.recipients, share_url=share_url, report_title=artifact.title,
+            sender_name=current_user.name or current_user.email, message=payload.message,
+            report_id=str(artifact.id), locale=_locale_from_org(organization),
+            db=db, organization_id=str(organization.id),
+        )
+    finally:
+        # The file holds the release's rows: it goes once the email went --
+        # or failed -- as the /d export removes its file once sent.
+        for path in made:
+            Path(path).unlink(missing_ok=True)
     try:
         await audit_service.log(db=db, organization_id=str(organization.id), action="dashboard.notification_sent",
                                 user_id=str(current_user.id), resource_type="artifact", resource_id=str(artifact.id),
@@ -344,11 +343,25 @@ _EXPORT_FORMATS = {
     "xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "xlsx"),
 }
 _PDF_EXPORT_TIMEOUT_SECONDS = 330
-_pdf_locks: dict[str, asyncio.Lock] = {}
+_pdf_locks: dict[str, tuple[asyncio.Lock, int]] = {}
 
 
-def _lock(key: str):
-    return _pdf_locks.setdefault(key, asyncio.Lock())
+@contextlib.asynccontextmanager
+async def _lock(key: str):
+    """One render of `key` at a time in this worker; the entry goes with its
+    last user, so the table holds only renders in progress."""
+    lock, users = _pdf_locks.get(key, (None, 0))
+    lock = lock or asyncio.Lock()
+    _pdf_locks[key] = (lock, users + 1)
+    try:
+        async with lock:
+            yield
+    finally:
+        lock, users = _pdf_locks[key]
+        if users <= 1:
+            del _pdf_locks[key]
+        else:
+            _pdf_locks[key] = (lock, users - 1)
 
 
 async def _withheld_from(db, artifact, release, user, *, baked: bool = False) -> bool:

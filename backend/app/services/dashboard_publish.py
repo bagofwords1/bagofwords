@@ -72,13 +72,9 @@ def _release_view(release: ArtifactRelease | None) -> dict | None:
 
 
 async def _newest_completed_version(db, artifact: Artifact) -> ArtifactVersion | None:
-    return (await db.execute(
-        select(ArtifactVersion).options(lazyload("*")).where(
-            ArtifactVersion.artifact_id == str(artifact.id),
-            ArtifactVersion.deleted_at.is_(None),
-            ArtifactVersion.status == "completed",
-        ).order_by(ArtifactVersion.version.desc()).limit(1)
-    )).scalars().first()
+    from app.services.dashboard_data import draft_version
+
+    return await draft_version(db, artifact, light=True)
 
 
 async def publish_status(db, artifact: Artifact) -> dict:
@@ -190,35 +186,31 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     from app.services.bow_source_access import assert_read
     from app.services.dashboard_copy import copy_dashboard
 
-    # A dashboard whose conversation was deleted has no draft: publishing an
-    # old version from it would roll the dashboard back. Edit it first.
-    # Locked so a conversation delete (dashboard_lifecycle.settle_dashboards
-    # locks it too) cannot settle the dashboard while this starts.
+    # The connections first, unlocked: building the clients may wait on a
+    # warehouse's handshake or an OAuth refresh, which must not hold a
+    # conversation delete or another Publish on the dashboard's row.
+    report, version = await _publish_target(db, artifact, version_id)
+    if artifact.mode != "slides":
+        await _check_connections(db, report, version, publisher)
+    # Then locked, so a conversation delete (dashboard_lifecycle.settle_
+    # dashboards locks it too) cannot settle the dashboard while this starts;
+    # what was checked is read again under the lock.
     artifact = (await db.execute(
         select(Artifact).where(Artifact.id == str(artifact.id)).with_for_update()
         .execution_options(populate_existing=True))).scalar_one()
-    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
-    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
-        raise AppError.conflict(ErrorCode.DASHBOARD_EDIT_FIRST, "This dashboard has no draft to publish; edit it first")
-    version = await _version_to_publish(db, artifact, version_id)
-    if str(version.report_id) != str(artifact.report_id):
-        # A version from a conversation the dashboard has left (Edit moved it).
-        raise AppError.conflict(ErrorCode.DASHBOARD_VERSION_NOT_PUBLISHABLE,
-                                "This version belongs to a deleted conversation")
-    report = (await db.execute(
-        select(Report).options(lazyload("*")).where(Report.id == str(version.report_id))
-    )).scalar_one()
+    checked = str(version.id)
+    report, version = await _publish_target(db, artifact, version_id)
+    if artifact.mode != "slides" and str(version.id) != checked:
+        await _check_connections(db, report, version, publisher)  # the draft moved meanwhile
     # What is published is the conversation's: the publisher must still read
     # its monitoring data, and a public dashboard may not show it.
     await assert_read(db, report.bow_source_access, publisher)
     if report.bow_source_access and artifact.visibility == "public":
         raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_PUBLIC_MONITORING,
                                 "A public dashboard cannot show monitoring data; change its sharing first")
-    await reap_stale(db, artifact)
+    await reap_stale(db, artifact, commit=False)  # with the rest of this start, or not at all
     if await _publishing(db, artifact) is not None:
         raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_IN_PROGRESS, "This dashboard is already being published")
-    if artifact.mode != "slides":
-        await _check_connections(db, report, version, publisher)
 
     release = ArtifactRelease(artifact_id=str(artifact.id), organization_id=str(artifact.organization_id),
                               status="publishing", published_by=str(publisher.id))
@@ -244,6 +236,25 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     return release
 
 
+async def _publish_target(db, artifact: Artifact, version_id: str | None):
+    """The conversation and the version a Publish would copy -- refused when
+    there is no draft to publish."""
+    # A dashboard whose conversation was deleted has no draft: publishing an
+    # old version from it would roll the dashboard back. Edit it first.
+    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
+    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
+        raise AppError.conflict(ErrorCode.DASHBOARD_EDIT_FIRST, "This dashboard has no draft to publish; edit it first")
+    version = await _version_to_publish(db, artifact, version_id)
+    if str(version.report_id) != str(artifact.report_id):
+        # A version from a conversation the dashboard has left (Edit moved it).
+        raise AppError.conflict(ErrorCode.DASHBOARD_VERSION_NOT_PUBLISHABLE,
+                                "This version belongs to a deleted conversation")
+    report = (await db.execute(
+        select(Report).options(lazyload("*")).where(Report.id == str(version.report_id))
+    )).scalar_one()
+    return report, version
+
+
 async def _publishing(db, artifact: Artifact) -> ArtifactRelease | None:
     return (await db.execute(
         select(ArtifactRelease).options(lazyload("*")).where(
@@ -252,8 +263,11 @@ async def _publishing(db, artifact: Artifact) -> ArtifactRelease | None:
     )).scalars().first()
 
 
-async def reap_stale(db, artifact: Artifact) -> None:
-    """A publish that stopped beating fails, and its copies go."""
+async def reap_stale(db, artifact: Artifact, *, commit: bool = True) -> None:
+    """A publish that stopped beating fails, and its copies go. `commit`
+    False: part of the caller's transaction (starting a publish, deleting a
+    conversation) -- flushed only, so a refusal later rolls it back and the
+    caller's row locks hold; its files go once the caller commits."""
     cutoff = datetime.utcnow() - timedelta(seconds=PUBLISH_STALE_SECONDS)
     stale = (await db.execute(
         select(ArtifactRelease.id, ArtifactRelease.pptx_path).where(
@@ -269,8 +283,32 @@ async def reap_stale(db, artifact: Artifact) -> None:
         )
         if failed.rowcount == 1:
             await delete_release_rows(db, str(rid), keep_release=True)
-            await db.commit()
-            _remove_files(str(rid), pptx)
+            if commit:
+                await db.commit()
+                _remove_files(str(rid), pptx)
+            else:
+                await db.flush()
+                _after_commit(db, lambda rid=str(rid), pptx=pptx: _remove_files(rid, pptx))
+
+
+def _after_commit(db, action) -> None:
+    """Run `action` once the session's transaction commits -- never when it
+    rolls back first (the files of rows that were not deleted stay)."""
+    from sqlalchemy import event
+
+    session = db.sync_session
+    state = {"settled": False}
+
+    def committed(_session):
+        if not state["settled"]:
+            state["settled"] = True
+            action()
+
+    def rolled_back(_session, _previous=None):
+        state["settled"] = True
+
+    event.listen(session, "after_commit", committed, once=True)
+    event.listen(session, "after_soft_rollback", rolled_back, once=True)
 
 
 # ── running ──────────────────────────────────────────────────────────────

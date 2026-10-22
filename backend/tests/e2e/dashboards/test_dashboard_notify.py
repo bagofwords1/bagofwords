@@ -163,3 +163,44 @@ def test_the_attached_pdf_does_not_stay_on_disk(corpus, corpus_rows, test_client
     assert share(test_client, corpus, aid, "internal").status_code == 200
     assert _notify(test_client, corpus, aid).status_code == 200
     assert made and not made[0].exists()
+
+
+@pytest.mark.e2e
+def test_the_pdf_goes_even_when_the_email_fails(corpus, corpus_rows, test_client, monkeypatch):
+    """It holds the release's rows: removed whether or not the email went
+    (PR #1455 review)."""
+    from app.services import email_client_resolver
+    from app.services.inbox_service import inbox_service
+    from app.services.notification_service import notification_service
+    from app.services.report_pdf_service import ReportPdfService
+
+    made = []
+
+    async def render(self, db, release_render):
+        path = ReportPdfService.UPLOADS_DIR / "notify-test-failed.pdf"
+        path.write_bytes(b"%PDF-1.4")
+        made.append(path)
+        return str(path)
+
+    async def dispatch(**kwargs):
+        await kwargs["attachment_builder"]()
+        raise RuntimeError("SMTP down")
+
+    async def inbox(db, **kwargs):
+        return []
+
+    async def available(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(ReportPdfService, "generate_for_release", render)
+    monkeypatch.setattr(notification_service, "dispatch", dispatch)
+    monkeypatch.setattr(inbox_service, "notify_dashboard_share", inbox)
+    monkeypatch.setattr(email_client_resolver, "is_outbound_available", available)
+    aid = own(corpus_rows, corpus, SALES)
+    publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    try:
+        _notify(test_client, corpus, aid)
+    except RuntimeError:
+        pass  # the test client re-raises what the app did not handle
+    assert made and not made[0].exists()

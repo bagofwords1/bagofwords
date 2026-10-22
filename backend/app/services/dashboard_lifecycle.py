@@ -15,6 +15,7 @@ same transaction (`settle_dashboards`):
 is publishing is not deleted. A deleted project's dashboards leave it
 (`leave_project`).
 """
+import logging
 from datetime import datetime
 
 from sqlalchemy import select, update
@@ -22,6 +23,8 @@ from sqlalchemy import select, update
 from app.errors import AppError, ErrorCode
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.artifact_release import ArtifactRelease
+
+logger = logging.getLogger(__name__)
 
 
 async def _dashboards(db, report_ids: list[str], *, lock: bool = False) -> list[Artifact]:
@@ -43,13 +46,10 @@ async def _live_release(db, artifact: Artifact) -> ArtifactRelease | None:
 
 
 async def _newest_completed_version_id(db, artifact: Artifact) -> str | None:
-    found = (await db.execute(
-        select(ArtifactVersion.id).where(
-            ArtifactVersion.artifact_id == str(artifact.id), ArtifactVersion.deleted_at.is_(None),
-            ArtifactVersion.status == "completed",
-        ).order_by(ArtifactVersion.version.desc()).limit(1)
-    )).scalar()
-    return str(found) if found else None
+    from app.services.dashboard_data import draft_version
+
+    found = await draft_version(db, artifact, light=True)
+    return str(found.id) if found else None
 
 
 async def delete_outcomes(db, report_ids: list[str]) -> list[dict]:
@@ -92,7 +92,7 @@ async def settle_dashboards(db, report_ids: list[str]) -> None:
 
     now = datetime.utcnow()
     for artifact in await _dashboards(db, report_ids, lock=True):
-        await reap_stale(db, artifact)
+        await reap_stale(db, artifact, commit=False)  # with the caller's archive, or not at all
         if await _publishing(db, artifact) is not None:
             raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_IN_PROGRESS,
                                     f'"{artifact.title or "A dashboard"}" is being published; try again when it '
@@ -209,6 +209,27 @@ def _copy_thumbnail(release: ArtifactRelease, version_id: str, copied_previews: 
         return None
 
 
+def _remove_edit_files(stem: str, deck: str | None, thumbnail: str | None) -> None:
+    """The files an Edit copied from the release, when its rows did not
+    stay: its slide previews' folder, its deck and its thumbnail (only
+    names this Edit made, inside uploads/)."""
+    import shutil
+    from pathlib import Path
+
+    from app.services.dashboard_copy import _UPLOADS
+
+    shutil.rmtree(_UPLOADS / "pptx_previews" / stem, ignore_errors=True)
+    for path in (deck, thumbnail):
+        if not path or "pptx_previews/" in str(path):
+            continue  # a deck's thumbnail is one of its previews, gone with the folder
+        try:
+            target = Path(path) if Path(path).is_absolute() else _UPLOADS / str(path)
+            target.resolve().relative_to(_UPLOADS.resolve())  # never outside uploads/
+            target.unlink(missing_ok=True)
+        except (ValueError, OSError):
+            logger.warning("Edit: copied file %s not removed", path)
+
+
 async def _editing_conversation(db, artifact: Artifact):
     from app.models.report import Report
 
@@ -243,18 +264,25 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
         select(ArtifactVersion).where(ArtifactVersion.artifact_id == artifact_id)
         .order_by(ArtifactVersion.version.desc()).limit(1)
     )).scalars().first()
-    content, deck, previews = _content_for(release, maps, f"edit-{report.id}")
-    version = await new_version(db, source, content=content, user_id=str(owner.id), report_id=str(report.id),
-                                status="completed", **({"pptx_path": deck} if deck else {}))
-    thumbnail = _copy_thumbnail(release, str(version.id), previews)
-    if thumbnail:
-        version.thumbnail_path = thumbnail
-    moved = await db.execute(
-        update(Artifact).where(Artifact.id == artifact_id,
-                               Artifact.report_id.is_(None) if was is None else Artifact.report_id == was)
-        .values(report_id=str(report.id)))
+    stem = f"edit-{report.id}"
+    deck = thumbnail = None
+    try:
+        content, deck, previews = _content_for(release, maps, stem)
+        version = await new_version(db, source, content=content, user_id=str(owner.id), report_id=str(report.id),
+                                    status="completed", **({"pptx_path": deck} if deck else {}))
+        thumbnail = _copy_thumbnail(release, str(version.id), previews)
+        if thumbnail:
+            version.thumbnail_path = thumbnail
+        moved = await db.execute(
+            update(Artifact).where(Artifact.id == artifact_id,
+                                   Artifact.report_id.is_(None) if was is None else Artifact.report_id == was)
+            .values(report_id=str(report.id)))
+    except BaseException:
+        _remove_edit_files(stem, deck, thumbnail)
+        raise
     if moved.rowcount != 1:
         await db.rollback()  # another Edit moved it first: theirs stands
+        _remove_edit_files(stem, deck, thumbnail)  # what this one copied holds the release's data
         winner = await db.get(Artifact, artifact_id)
         await db.refresh(winner)
         editing = await _editing_conversation(db, winner)
@@ -288,8 +316,8 @@ async def fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, use
     use every source the release runs on. {can_fork, reason}, as /r's page
     reads it; the reason is the first rule that fails."""
     from app.core.permission_resolver import FULL_ADMIN, resolve_permissions, user_can_access_data_source
-    from app.models.membership import Membership
     from app.models.organization import Organization
+    from app.services.dashboard_access import _is_member
     from app.services.dashboard_runs import release_data_sources
 
     def no(reason):
@@ -297,10 +325,7 @@ async def fork_eligibility(db, artifact: Artifact, release: ArtifactRelease, use
 
     if user is None:
         return no("not_logged_in")
-    member = (await db.execute(select(Membership.id).where(
-        Membership.user_id == str(user.id), Membership.organization_id == str(artifact.organization_id),
-        Membership.deleted_at.is_(None)))).first()
-    if member is None:
+    if not await _is_member(db, user, artifact.organization_id):
         return no("different_org")
     resolved = await resolve_permissions(db, str(user.id), str(artifact.organization_id))
     if FULL_ADMIN not in resolved.org_permissions and not resolved.has_org_permission("create_reports"):

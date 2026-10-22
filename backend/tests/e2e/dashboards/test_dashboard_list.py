@@ -123,3 +123,26 @@ def test_versions_from_before_their_dashboard_tie_list_as_one_card(migrated_corp
     assert not {c.ids["artver01_chain/legacy_1"], c.ids["artver01_chain/legacy_2"]} & ids
     # A dashboard with a chain of its own is listed as ever.
     assert c.ids["legacy_grown/old"] in ids and c.ids["dash_many_versions/dash"] in ids
+
+
+@pytest.mark.e2e
+def test_the_check_runs_only_on_the_page_shown(migrated_corpus, test_client, monkeypatch):
+    """The SQL narrows and pages; the per-dashboard check guards only the
+    cards returned -- not every candidate (PR #1455 review). The total is
+    the SQL's, beyond any candidate cap."""
+    from app.services import dashboard_access
+
+    c = migrated_corpus
+    everything = _list(test_client, c, "owner", filter="my", limit=100)["meta"]["total"]
+    assert everything > 3
+    checked = []
+    admit = dashboard_access.admit_reader
+
+    async def counting(db, artifact, user):
+        checked.append(str(artifact.id))
+        return await admit(db, artifact, user)
+
+    monkeypatch.setattr(dashboard_access, "admit_reader", counting)
+    page = _list(test_client, c, "owner", filter="my", limit=2, page=2)
+    assert len(page["dashboards"]) == 2 and page["meta"]["total"] == everything
+    assert len(checked) <= 2

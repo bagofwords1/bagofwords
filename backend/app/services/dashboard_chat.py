@@ -36,18 +36,14 @@ async def open_chat(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]:
     """The dashboard and its live release, if `user` may chat about it;
     otherwise 401 (anonymous), 403 (chat off, or not a member) or the /d
     refusal."""
-    from app.models.membership import Membership
-    from app.services.dashboard_access import open_published
+    from app.services.dashboard_access import _is_member, open_published
 
     artifact, release = await open_published(db, ref, user)
     if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     if not artifact.chat_enabled:
         raise HTTPException(status_code=403, detail="Chat is not enabled on this dashboard")
-    member = (await db.execute(select(Membership.id).where(
-        Membership.user_id == str(user.id), Membership.organization_id == str(artifact.organization_id),
-        Membership.deleted_at.is_(None)).limit(1))).first()
-    if member is None:
+    if not await _is_member(db, user, artifact.organization_id):
         raise HTTPException(status_code=403, detail="Chat is available to members of this workspace only")
     return artifact, release
 

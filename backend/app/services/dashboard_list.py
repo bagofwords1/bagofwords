@@ -14,15 +14,12 @@ A card carries the conversation id only for whoever may edit the dashboard
 version's for everyone, else -- for its editors -- the draft's.
 """
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
 from app.errors import AppError
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.artifact_release import ArtifactShare
-
-MAX_CANDIDATES = 2000  # after the SQL narrowing; the check runs per row
-
 
 def _like(text: str) -> str:
     """The words typed, not a pattern: % and _ match themselves."""
@@ -125,7 +122,7 @@ def not_an_older_legacy_version():
 
 async def list_dashboards(db, user, organization, *, filter: str = "my", search: str | None = None,
                           mode: str | None = None, page: int = 1, limit: int = 15) -> dict:
-    from app.services.dashboard_access import admit_reader
+    from app.services import dashboard_access
 
     conditions = [Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
                   Artifact.owner_id.isnot(None), not_an_older_legacy_version()]
@@ -142,22 +139,23 @@ async def list_dashboards(db, user, organization, *, filter: str = "my", search:
             exists().where(Report.id == Artifact.legacy_report_id, Report.title.ilike(like, escape="\\"))))
     if mode in ("page", "slides", "doc"):
         conditions.append(Artifact.mode == mode)
+    # The SQL narrows to what admit_reader can let in, counts and pages; the
+    # check then guards only the cards returned (a card it refuses -- a
+    # monitoring dashboard the reader lacks the scope for, a release not
+    # ready -- is left out of this page).
+    total = (await db.execute(select(func.count()).select_from(Artifact).where(*conditions))).scalar() or 0
+    total_pages = (total + limit - 1) // limit if total else 0
     candidates = (await db.execute(
         select(Artifact).where(*conditions).order_by(Artifact.updated_at.desc(), Artifact.id)
-        .limit(MAX_CANDIDATES)
+        .offset((page - 1) * limit).limit(limit)
     )).scalars().all()
-
-    admitted = []
+    shown = []
     for artifact in candidates:
         try:
-            await admit_reader(db, artifact, user)
+            await dashboard_access.admit_reader(db, artifact, user)
         except (AppError, HTTPException):
             continue
-        admitted.append(artifact)
-
-    total = len(admitted)
-    total_pages = (total + limit - 1) // limit if total else 0
-    shown = admitted[(page - 1) * limit:page * limit]
+        shown.append(artifact)
     return {
         "dashboards": [await _card(db, a, user) for a in shown],
         "meta": {"total": total, "page": page, "limit": limit, "total_pages": total_pages,

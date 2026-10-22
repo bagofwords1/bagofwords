@@ -209,9 +209,14 @@ def file_ids(content: dict) -> set[str]:
 
 # ── the draft of one dashboard ───────────────────────────────────────────
 
-async def draft_version(db, artifact: Artifact) -> ArtifactVersion | None:
+async def draft_version(db, artifact: Artifact, *, light: bool = False) -> ArtifactVersion | None:
+    """The dashboard's draft: its newest completed version. `light`: without
+    the version's eager relationships (its conversation, user, ...)."""
+    stmt = select(ArtifactVersion)
+    if light:
+        stmt = stmt.options(lazyload("*"))
     return (await db.execute(
-        select(ArtifactVersion).where(
+        stmt.where(
             ArtifactVersion.artifact_id == str(artifact.id),
             ArtifactVersion.deleted_at.is_(None),
             ArtifactVersion.status == "completed",

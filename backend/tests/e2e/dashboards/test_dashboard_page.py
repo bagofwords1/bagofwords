@@ -208,3 +208,22 @@ def test_forks_refusal_for_a_signed_out_caller_is_a_refusal():
     with pytest.raises(HTTPException) as refused:
         asyncio.run(dashboard_lifecycle._fork_eligibility(None, SimpleNamespace(), SimpleNamespace(), None))
     assert refused.value.status_code in (401, 403)
+
+
+@pytest.mark.e2e
+def test_pdf_render_locks_do_not_pile_up():
+    """One render of a release at a time -- and the lock goes with its last
+    user, so republishing for months does not grow the table (PR #1455
+    review)."""
+    import asyncio
+
+    from app.routes import dashboard as routes
+
+    async def two_renders():
+        async def render():
+            async with routes._lock("release-x"):
+                await asyncio.sleep(0)
+        await asyncio.gather(render(), render())
+
+    asyncio.run(two_renders())
+    assert "release-x" not in routes._pdf_locks

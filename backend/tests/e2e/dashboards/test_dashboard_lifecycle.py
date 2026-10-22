@@ -453,3 +453,67 @@ def test_a_fork_from_d_names_its_source_dashboard(corpus, corpus_rows, test_clie
     assert body["forked_from_artifact_id"] == aid and body["forked_from_id"] is None
     assert body["forked_from_title"] == "לוח מכירות"
     assert body["forked_from_user_name"] == "corpus owner"
+
+
+@pytest.mark.e2e
+def test_a_refused_delete_saves_nothing_even_after_failing_a_stale_publish(corpus, corpus_rows, test_client,
+                                                                           monkeypatch):
+    """One dashboard's publish stopped beating, another's is running: the
+    delete is refused and none of it is saved -- the conversation is not
+    archived, the stale publish is not failed half-way (PR #1455 review)."""
+    from datetime import timedelta
+
+    from app.services import dashboard_lifecycle
+
+    stale_aid = own(corpus_rows, corpus, f"{CONV}/dash_sales")
+    busy_aid = own(corpus_rows, corpus, f"{CONV}/dash_stock")
+    stale = corpus_rows.insert("artifact_releases", artifact_id=stale_aid, organization_id=corpus.cast.org_id,
+                               status="publishing", updated_at=datetime.utcnow() - timedelta(hours=1))
+    corpus_rows.insert("artifact_releases", artifact_id=busy_aid, organization_id=corpus.cast.org_id,
+                       status="publishing", updated_at=datetime.utcnow())
+    listed = dashboard_lifecycle._dashboards
+
+    async def stale_first(db, report_ids, *, lock=False):
+        return sorted(await listed(db, report_ids, lock=lock), key=lambda a: str(a.id) != stale_aid)
+
+    monkeypatch.setattr(dashboard_lifecycle, "_dashboards", stale_first)
+    report = corpus.reports[CONV]
+    resp = test_client.delete(f"/api/reports/{report}", headers=as_(corpus, "owner"))
+    assert resp.status_code == 409 and resp.json()["error_code"] == "dashboard.publish_in_progress"
+    assert _rows(corpus_rows, "SELECT status FROM reports WHERE id = :r", r=report)[0]["status"] != "archived"
+    assert _rows(corpus_rows, "SELECT status FROM artifact_releases WHERE id = :r", r=stale)[0]["status"] == \
+        "publishing"
+
+
+@pytest.mark.e2e
+def test_the_losing_edit_leaves_no_copied_files(corpus, corpus_rows, test_client, monkeypatch, spawned):
+    """Two Edits at once: the one that loses removes the files it copied
+    from the release -- they hold the release's data (PR #1455 review).
+    Postgres only, as the race above."""
+    from pathlib import Path
+
+    from app.services import dashboard_lifecycle
+    from app.services.thumbnail_service import ThumbnailService
+    from tests.fixtures.dashboard_corpus.kinds import TINY_PNG
+
+    if corpus_rows.engine.dialect.name != "postgresql":
+        pytest.skip("needs two concurrent writers")
+
+    aid, release = _published_shared(corpus, corpus_rows, test_client, f"{CONV}/dash_sales")
+    thumbs = Path(ThumbnailService.UPLOADS_DIR)
+    (thumbs / f"release-{release}.png").write_bytes(TINY_PNG)
+    corpus_rows.update("artifact_releases", release, thumbnail_path=f"thumbnails/release-{release}.png")
+    assert test_client.delete(f"/api/reports/{corpus.reports[CONV]}", headers=as_(corpus, "owner")).status_code == 200
+    before = set(thumbs.glob("*.png"))
+    winner = corpus.reports["conv_one_dash"]
+    copy_it = dashboard_lifecycle.release_to_conversation
+
+    async def raced(*args, **kwargs):
+        made = await copy_it(*args, **kwargs)
+        corpus_rows.update("artifacts", aid, report_id=winner)  # the other Edit committed first
+        return made
+
+    monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
+    body = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
+    assert body == {"report_id": winner, "created": False}
+    assert set(thumbs.glob("*.png")) - before == set()

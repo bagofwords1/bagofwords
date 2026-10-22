@@ -19,7 +19,6 @@ A dashboard without a ready release is unpublished: its editors are told so
 (the page then sends them to the draft), everyone else that it does not
 exist.
 """
-import re
 
 from sqlalchemy import or_, select
 
@@ -29,7 +28,7 @@ from app.models.artifact_release import ArtifactRelease, ArtifactShare
 
 VISIBILITIES = ("none", "shared", "internal", "public")
 
-_UUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+from app.services.dashboard_slug import _UUID  # noqa: E402  (one pattern for ids and names)
 
 
 def _not_found() -> AppError:

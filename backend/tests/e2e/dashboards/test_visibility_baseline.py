@@ -68,10 +68,12 @@ def _finish_update() -> None:
 
 
 @pytest.mark.e2e
-@pytest.mark.parametrize("group", sorted(GROUPS))
-def test_every_reader_sees_what_main_shows(group, corpus):
+@pytest.mark.parametrize("role", [r for group in sorted(GROUPS) for r in GROUPS[group]])
+def test_every_reader_sees_what_main_shows(role, corpus):
+    """One reader per test, so each stays well inside CI's per-test timeout
+    (a group of four or five took over 600 s on its runners)."""
     if UPDATE and os.environ.get("PYTEST_XDIST_WORKER"):
-        pytest.fail("regenerate golden files without xdist: the groups share bodies.json")
+        pytest.fail("regenerate golden files without xdist: the readers share bodies.json")
     # Server errors are part of what a reader gets; record them as statuses.
     from fastapi.testclient import TestClient
 
@@ -81,7 +83,7 @@ def test_every_reader_sees_what_main_shows(group, corpus):
     golden_bodies = load_bodies()
     new_bodies: dict = {}
     failures = []
-    for role in GROUPS[group]:
+    for role in [role]:
         path = golden_path(role)
         snap = split_bodies(snapper.take(corpus.cast.people[role]), new_bodies)
         if path.exists():
