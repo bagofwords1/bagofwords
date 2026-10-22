@@ -63,14 +63,14 @@ async def require(db, report, *, schedule: bool = False) -> Artifact | None:
     return dashboard
 
 
-async def schedule_dashboard_of(db, report) -> Artifact | None:
+async def schedule_dashboard_of(db, report, dashboard: Artifact | None = None) -> Artifact | None:
     """Where the conversation's schedule is: its dashboard, unless that is a
     deck (never refreshed) -- then the page that already runs it, else the
     page the migration would choose (the one with the newest version); None
     when it has only decks (or no dashboard)."""
     from sqlalchemy import func
 
-    dashboard = await dashboard_of(db, report)
+    dashboard = dashboard if dashboard is not None else await dashboard_of(db, report)
     if dashboard is None or dashboard.mode != "slides":
         return dashboard
     pages = [a for a in await _live_owned(db, report.id) if a.mode == "page"]
@@ -129,7 +129,7 @@ async def as_report_schema(db, report, schema=None):
         fields = await report_fields(db, report, dashboard)
         # The schedule is read where it is: on the newest page when the
         # dashboard is a deck (schedule_dashboard_of), else on it.
-        scheduled = await schedule_dashboard_of(db, report)
+        scheduled = await schedule_dashboard_of(db, report, dashboard)
         if scheduled is None or scheduled.mode == "slides":
             fields.update(cron_schedule=None, notification_subscribers=None)
         elif str(scheduled.id) != str(dashboard.id):
