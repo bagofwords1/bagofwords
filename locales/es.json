@@ -822,7 +822,9 @@
     "inProject": "En {name}",
     "sharedEmpty": "No hay informes compartidos",
     "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí.",
-    "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo."
+    "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
+    "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
+    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}"
   },
   "projects": {
     "title": "Proyectos",
@@ -4125,7 +4127,9 @@
     "chatModelOrgDefaultPlain": "Predeterminado de la organización",
     "chatModelReport": "Igual que el informe ({name})",
     "chatModelReportPlain": "Igual que el informe",
-    "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado"
+    "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado",
+    "linkNameEdit": "Editar nombre del enlace",
+    "linkNameRemove": "Los enlaces que ya usan un nombre siguen funcionando; el enlace con el id también."
   },
   "publish": {
     "published": "Publicado",
@@ -4156,6 +4160,20 @@
     "notFound": "No encontrado.",
     "validation": "Revisa el formulario e inténtalo de nuevo.",
     "artifact.not_found": "Artefacto no encontrado",
+    "dashboard.not_published": "Este panel aún no se ha publicado.",
+    "dashboard.share_requires_publish": "Publica el panel antes de compartirlo.",
+    "dashboard.conversation_moved": "El uso compartido y la programación de esta conversación están en su panel.",
+    "dashboard.rls_requires_viewer": "Este panel usa seguridad a nivel de fila, por lo que los espectadores siempre se ejecutan con su propia identidad. \"Ejecutar en mi nombre\" no está disponible.",
+    "dashboard.export_withheld": "Este panel muestra a cada espectador sus propios datos, por lo que no se puede exportar.",
+    "dashboard.export_needs_run": "Ejecuta primero el panel para exportar tus datos.",
+    "dashboard.export_unavailable": "Esta exportación no está disponible para este panel.",
+    "dashboard.publish_in_progress": "Este panel ya se está publicando.",
+    "dashboard.version_not_publishable": "Solo se puede publicar una versión que terminó correctamente.",
+    "dashboard.publish_public_monitoring": "Este panel es público y usa datos de monitoreo. Cambia cómo se comparte antes de publicarlo.",
+    "dashboard.publish_connection": "Una conexión que usa este panel no funciona: {names}. Vuelve a conectarla y publica de nuevo.",
+    "dashboard.edit_first": "Este panel no tiene un borrador para publicar. Edítalo primero.",
+    "dashboard.slug_invalid": "El nombre del enlace usa de 3 a 80 letras minúsculas en inglés, dígitos y guiones, y empieza y termina con una letra o un dígito.",
+    "dashboard.slug_taken": "Este nombre de enlace ya está en uso. Elige otro.",
     "access.denied": "Acceso denegado",
     "account.disabled": "Tu cuenta ha sido deshabilitada. Ponte en contacto con tu administrador.",
     "connection.not_found": "Conexión no encontrada",
@@ -4464,7 +4482,14 @@
     "exportAs": "Exportar como {format}",
     "partialNoAccess": "No tienes acceso a los datos de: {charts}",
     "partialFailed": "No se pudo cargar: {charts}",
-    "partialRenderFailed": "Parte de este panel usa datos a los que no tienes acceso, por lo que no se pudo mostrar. Pide acceso al propietario del panel."
+    "partialRenderFailed": "Parte de este panel usa datos a los que no tienes acceso, por lo que no se pudo mostrar. Pide acceso al propietario del panel.",
+    "publish": "Publicar",
+    "publishing": "Publicando…",
+    "published": "Panel publicado",
+    "publishFailed": "Error al publicar",
+    "notPublishedYet": "Aún no publicado",
+    "unpublishedChanges": "Tienes cambios sin publicar",
+    "publishedUpToDate": "Publicado y actualizado"
   },
   "filter": {
     "selectColumn": "Selecciona una columna",

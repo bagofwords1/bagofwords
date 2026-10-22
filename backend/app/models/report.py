@@ -117,11 +117,20 @@ class Report(BaseSchema):
 
     # Fork lineage
     forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
+    # A fork from a published dashboard's page (dashfc07): the dashboard, not
+    # the owner's conversation (forked_from_id stays empty for it).
+    forked_from_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_forked_from_artifact_id',
+                                                            ondelete='SET NULL'), nullable=True, index=True)
     forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
 
     # Project membership (shared folder). NULL = personal root list. Moving a
     # report between projects is just an update of this column.
     project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
+
+    # A viewer's chat thread (report_type='artifact_chat') records the
+    # dashboard it was opened from (dashfc01; not read yet).
+    source_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_source_artifact_id'),
+                                nullable=True, index=True)
     project = relationship("Project", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
@@ -160,7 +169,8 @@ class Report(BaseSchema):
     # Parent Artifact rows (identity: mode + title), NOT versions — cheap to
     # selectin-load. Version rows hang off `artifact_versions` and are only
     # loaded on explicit request (their content JSON can be ~100kB each).
-    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
+    artifacts = relationship("Artifact", back_populates="report", lazy="selectin",
+                             foreign_keys="Artifact.report_id")
     artifact_versions = relationship("ArtifactVersion", back_populates="report", lazy="select")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")

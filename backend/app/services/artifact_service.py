@@ -30,6 +30,19 @@ def _id(value: Any) -> Optional[str]:
     return str(value) if value is not None else None
 
 
+async def follow_conversation_project(db: AsyncSession, report_ids: List[str], project_id: Optional[str]) -> None:
+    """A conversation's dashboards move to the project it moves to (phase 4).
+    Does not commit: the caller's move does."""
+    from sqlalchemy import update
+
+    if report_ids:
+        await db.execute(
+            update(Artifact)
+            .where(Artifact.report_id.in_([str(r) for r in report_ids]))
+            .values(project_id=_id(project_id))
+        )
+
+
 async def new_artifact(
     db: AsyncSession,
     *,
@@ -48,13 +61,24 @@ async def new_artifact(
 
     Extra keyword arguments (thumbnail_path, screenshot_base64, created_at,
     ...) are set on the version row as-is.
+
+    The dashboard is owned by its conversation's owner and sits in its
+    conversation's project (dashboards project, phase 4): the /d routes and
+    the owner's sharing controls read them from the dashboard.
     """
+    from app.models.report import Report
+
+    owner = (await db.execute(
+        select(Report.user_id, Report.project_id).where(Report.id == _id(report_id))
+    )).first()
     parent = Artifact(
         report_id=_id(report_id),
         organization_id=_id(organization_id),
         created_by=_id(user_id),
         mode=mode,
         title=title,
+        owner_id=_id(owner[0]) if owner else None,
+        project_id=_id(owner[1]) if owner else None,
     )
     db.add(parent)
     await db.flush()
@@ -121,13 +145,16 @@ async def new_version(
     completion_id: Optional[str] = None,
     status: str = "completed",
     title: Optional[str] = None,
+    report_id: Optional[str] = None,
     **version_fields: Any,
 ) -> ArtifactVersion:
     """Append the next version to the artifact ``source`` belongs to.
 
     The new row joins ``source``'s parent artifact — a version can never
     move between artifacts, and mode is fixed there. ``user_id`` (the author
-    of this version) defaults to the source's. Passing ``title`` RENAMES the
+    of this version) defaults to the source's; ``report_id`` (the
+    conversation it is edited in) too -- a dashboard whose conversation was
+    deleted is edited in a new one (dashboards project, phase 7). Passing ``title`` RENAMES the
     parent, i.e. every version of this artifact at once.
 
     Two writers can read the same max(version) at once; the loser's INSERT
@@ -137,7 +164,7 @@ async def new_version(
     """
     fields = dict(
         artifact_id=str(source.artifact_id),
-        report_id=_id(source.report_id),
+        report_id=_id(report_id) or _id(source.report_id),
         user_id=_id(user_id) or _id(source.user_id),
         organization_id=_id(source.organization_id),
         content=content,

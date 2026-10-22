@@ -61,6 +61,8 @@ const props = defineProps<{
     reportId: string
     notificationType: 'share_dashboard' | 'share_conversation' | 'schedule_report'
     shareUrl: string
+    // A dashboard's own notify route (phase 8), which builds its link itself
+    notifyPath?: string
 }>()
 
 const emit = defineEmits<{
@@ -167,7 +169,7 @@ const send = async () => {
     isSending.value = true
     sendStatus.value = null
     try {
-        const res = await useMyFetch(`/reports/${props.reportId}/notify`, {
+        const res = await useMyFetch(props.notifyPath || `/reports/${props.reportId}/notify`, {
             method: 'POST',
             body: {
                 type: props.notificationType,

@@ -11,7 +11,7 @@ class TableFeedbackEvent(BaseSchema):
     org_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=True)
     data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
-    step_id = Column(String(36), ForeignKey("steps.id"), nullable=True)
+    step_id = Column(String(36), ForeignKey("steps.id"), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
 
     completion_feedback_id = Column(String(36), ForeignKey("completion_feedbacks.id"), nullable=False)
 

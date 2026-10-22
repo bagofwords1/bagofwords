@@ -806,7 +806,9 @@
         "prompt": "Examine les réponses ayant reçu des retours négatifs des utilisateurs afin d'identifier des tendances et des axes d'amélioration."
       }
     ],
-    "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer."
+    "artifactLoadFailed": "Impossible de charger le tableau de bord. Actualisez la page pour réessayer.",
+    "deleteUnpublishedDashboards": "Ses tableaux de bord non publiés seront aussi supprimés : {names}",
+    "deleteLosesUnpublishedChanges": "Les modifications non publiées de ces tableaux de bord seront perdues (la version publiée reste) : {names}"
   },
   "projects": {
     "title": "Projets",
@@ -3857,7 +3859,9 @@
     "chatModelOrgDefaultPlain": "Par défaut de l'organisation",
     "chatModelReport": "Identique au rapport ({name})",
     "chatModelReportPlain": "Identique au rapport",
-    "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé"
+    "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé",
+    "linkNameEdit": "Modifier le nom du lien",
+    "linkNameRemove": "Les liens qui utilisent déjà un nom continuent de fonctionner ; le lien avec l'identifiant aussi."
   },
   "publish": {
     "published": "Publié",
@@ -3888,6 +3892,20 @@
     "notFound": "Introuvable.",
     "validation": "Veuillez vérifier le formulaire et réessayer.",
     "artifact.not_found": "Artefact introuvable",
+    "dashboard.not_published": "Ce tableau de bord n'a pas encore été publié.",
+    "dashboard.share_requires_publish": "Publiez le tableau de bord avant de le partager.",
+    "dashboard.conversation_moved": "Le partage et la planification de cette conversation se trouvent sur son tableau de bord.",
+    "dashboard.rls_requires_viewer": "Ce tableau de bord utilise la sécurité au niveau des lignes : les spectateurs s'exécutent toujours sous leur propre identité. « Exécuter en mon nom » n'est pas disponible.",
+    "dashboard.export_withheld": "Ce tableau de bord montre à chaque spectateur ses propres données : il ne peut donc pas être exporté.",
+    "dashboard.export_needs_run": "Exécutez d'abord le tableau de bord pour exporter vos données.",
+    "dashboard.export_unavailable": "Cet export n'est pas disponible pour ce tableau de bord.",
+    "dashboard.publish_in_progress": "Ce tableau de bord est déjà en cours de publication.",
+    "dashboard.version_not_publishable": "Seule une version terminée avec succès peut être publiée.",
+    "dashboard.publish_public_monitoring": "Ce tableau de bord est public et utilise des données de supervision. Modifiez son partage avant de le publier.",
+    "dashboard.publish_connection": "Une connexion utilisée par ce tableau de bord ne fonctionne pas : {names}. Reconnectez-la et publiez à nouveau.",
+    "dashboard.edit_first": "Ce tableau de bord n'a pas de brouillon à publier. Modifiez-le d'abord.",
+    "dashboard.slug_invalid": "Un nom de lien comporte de 3 à 80 lettres anglaises minuscules, chiffres et tirets, et commence et se termine par une lettre ou un chiffre.",
+    "dashboard.slug_taken": "Ce nom de lien est déjà pris. Choisissez-en un autre.",
     "access.denied": "Accès refusé",
     "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
@@ -4187,7 +4205,14 @@
     "exportAs": "Exporter en {format}",
     "partialNoAccess": "Vous n’avez pas accès aux données de : {charts}",
     "partialFailed": "Impossible de charger : {charts}",
-    "partialRenderFailed": "Une partie de ce tableau de bord utilise des données auxquelles vous n’avez pas accès ; il n’a donc pas pu être affiché. Demandez l’accès à son propriétaire."
+    "partialRenderFailed": "Une partie de ce tableau de bord utilise des données auxquelles vous n’avez pas accès ; il n’a donc pas pu être affiché. Demandez l’accès à son propriétaire.",
+    "publish": "Publier",
+    "publishing": "Publication…",
+    "published": "Tableau de bord publié",
+    "publishFailed": "Échec de la publication",
+    "notPublishedYet": "Pas encore publié",
+    "unpublishedChanges": "Vous avez des modifications non publiées",
+    "publishedUpToDate": "Publié et à jour"
   },
   "filter": {
     "selectColumn": "Sélectionner une colonne",
@@ -5865,6 +5890,12 @@
     "failed": "Impossible de charger les données de l’artefact",
     "newest": "Plus récents en premier",
     "oldest": "Plus anciens en premier"
+  },
+  "integrationConnection": {
+    "noConnection": "Cet agent n'a pas encore de connexion.",
+    "notFound": "Cette connexion est introuvable.",
+    "forbidden": "Vous n'avez pas accès à cette connexion.",
+    "loadFailed": "Impossible de charger la connexion. Réessayez plus tard."
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"

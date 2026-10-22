@@ -806,7 +806,9 @@
         "prompt": "Prüfe Antworten mit negativem Nutzerfeedback, um Muster und Verbesserungsmöglichkeiten zu erkennen."
       }
     ],
-    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut."
+    "artifactLoadFailed": "Das Dashboard konnte nicht geladen werden. Bitte lade die Seite erneut.",
+    "deleteUnpublishedDashboards": "Nicht veröffentlichte Dashboards darin werden ebenfalls gelöscht: {names}",
+    "deleteLosesUnpublishedChanges": "Nicht veröffentlichte Änderungen an diesen Dashboards gehen verloren (die veröffentlichte Version bleibt): {names}"
   },
   "projects": {
     "title": "Projekte",
@@ -3857,7 +3859,9 @@
     "chatModelOrgDefaultPlain": "Standard der Organisation",
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
-    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"
+    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
+    "linkNameEdit": "Linknamen bearbeiten",
+    "linkNameRemove": "Links, die bereits einen Namen verwenden, funktionieren weiter; der Link mit der ID ebenfalls."
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -3888,6 +3892,20 @@
     "notFound": "Nicht gefunden.",
     "validation": "Bitte überprüfen Sie das Formular und versuchen Sie es erneut.",
     "artifact.not_found": "Artefakt nicht gefunden",
+    "dashboard.not_published": "Dieses Dashboard wurde noch nicht veröffentlicht.",
+    "dashboard.share_requires_publish": "Veröffentlichen Sie das Dashboard, bevor Sie es teilen.",
+    "dashboard.conversation_moved": "Freigabe und Zeitplan dieser Unterhaltung befinden sich auf ihrem Dashboard.",
+    "dashboard.rls_requires_viewer": "Dieses Dashboard verwendet Sicherheit auf Zeilenebene, daher werden Betrachter immer unter ihrer eigenen Identität ausgeführt. „In meinem Namen ausführen“ ist nicht verfügbar.",
+    "dashboard.export_withheld": "Dieses Dashboard zeigt jedem Betrachter seine eigenen Daten und kann daher nicht exportiert werden.",
+    "dashboard.export_needs_run": "Führen Sie das Dashboard zuerst aus, um Ihre Daten zu exportieren.",
+    "dashboard.export_unavailable": "Dieser Export ist für dieses Dashboard nicht verfügbar.",
+    "dashboard.publish_in_progress": "Dieses Dashboard wird bereits veröffentlicht.",
+    "dashboard.version_not_publishable": "Nur eine erfolgreich abgeschlossene Version kann veröffentlicht werden.",
+    "dashboard.publish_public_monitoring": "Dieses Dashboard ist öffentlich und nutzt Monitoring-Daten. Ändere die Freigabe vor dem Veröffentlichen.",
+    "dashboard.publish_connection": "Eine Verbindung, die dieses Dashboard nutzt, funktioniert nicht: {names}. Verbinde sie neu und veröffentliche erneut.",
+    "dashboard.edit_first": "Für dieses Dashboard gibt es keinen Entwurf zum Veröffentlichen. Bearbeite es zuerst.",
+    "dashboard.slug_invalid": "Ein Linkname besteht aus 3 bis 80 englischen Kleinbuchstaben, Ziffern und Bindestrichen und beginnt und endet mit einem Buchstaben oder einer Ziffer.",
+    "dashboard.slug_taken": "Dieser Linkname ist bereits vergeben. Wählen Sie einen anderen.",
     "access.denied": "Zugriff verweigert",
     "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",
@@ -4187,7 +4205,14 @@
     "exportAs": "Als {format} exportieren",
     "partialNoAccess": "Du hast keinen Zugriff auf die Daten für: {charts}",
     "partialFailed": "Konnte nicht geladen werden: {charts}",
-    "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff."
+    "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff.",
+    "publish": "Veröffentlichen",
+    "publishing": "Wird veröffentlicht…",
+    "published": "Dashboard veröffentlicht",
+    "publishFailed": "Veröffentlichung fehlgeschlagen",
+    "notPublishedYet": "Noch nicht veröffentlicht",
+    "unpublishedChanges": "Sie haben nicht veröffentlichte Änderungen",
+    "publishedUpToDate": "Veröffentlicht und aktuell"
   },
   "filter": {
     "selectColumn": "Spalte auswählen",
@@ -5865,6 +5890,12 @@
     "failed": "Artefaktdaten konnten nicht geladen werden",
     "newest": "Neueste zuerst",
     "oldest": "Älteste zuerst"
+  },
+  "integrationConnection": {
+    "noConnection": "Dieser Agent hat noch keine Verbindung.",
+    "notFound": "Diese Verbindung wurde nicht gefunden.",
+    "forbidden": "Sie haben keinen Zugriff auf diese Verbindung.",
+    "loadFailed": "Die Verbindung konnte nicht geladen werden. Versuchen Sie es später erneut."
   },
   "trackedChanges": {
     "noChanges": "Keine Änderungen"

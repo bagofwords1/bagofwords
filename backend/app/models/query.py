@@ -1,10 +1,13 @@
-from sqlalchemy import Column, String, ForeignKey, JSON
+from sqlalchemy import CheckConstraint, Column, String, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 
 class Query(BaseSchema):
     __tablename__ = 'queries'
+    __table_args__ = (
+        CheckConstraint('report_id IS NULL OR artifact_release_id IS NULL', name='ck_queries_single_owner'),
+    )
 
     # Minimal v0: treat Query as a facade for Widget ownership within a Report
     title = Column(String, nullable=False, default="")
@@ -20,10 +23,18 @@ class Query(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     report = relationship("Report", back_populates="queries", lazy="selectin")
 
+    # The release this query is a frozen copy for (dashfc01; not written yet).
+    # A query belongs to a conversation or to a release, never both.
+    artifact_release_id = Column(String(36), ForeignKey('artifact_releases.id',
+                                                        name='fk_queries_artifact_release_id'),
+                                 nullable=True, index=True)
+
     
 
     # Transitional: 1:1 linkage with a Widget so we don't orphan Steps
-    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False, index=True)
+    # A conversation's queries hang off a widget; a published dashboard's
+    # copies have none (dashfc02).
+    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True, index=True)
     widget = relationship("Widget", lazy="selectin")
 
     # Optional: default step for this query (version follow)

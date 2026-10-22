@@ -80,7 +80,7 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
         if(countedViews.has(context.artifactId!)) return
         countedViews.add(context.artifactId!)
         try {
-          const surface = window.location.pathname.startsWith('/r/') ? 'standalone' : 'embedded'
+          const surface = /^\/(r|d)\//.test(window.location.pathname) ? 'standalone' : 'embedded'
           const response = await fetch(base + '/view-token?surface=' + surface, {headers:headers(),credentials:'omit'})
           if (!response.ok) return
           const view = await response.json()

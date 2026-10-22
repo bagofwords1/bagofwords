@@ -64,6 +64,7 @@ from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
 from app.routes import (
+    dashboard,
     report,
     artifact_chat,
     project,
@@ -275,6 +276,7 @@ app.include_router(review.router, prefix="/api")
 app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(artifact_chat.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
@@ -757,6 +759,17 @@ async def startup_event():
             await ReportService().register_schedule_timezones()
         except Exception as e:
             logger.error(f"Failed to move dashboard refresh jobs to their org timezone: {e}")
+        # Published dashboards' schedules (phase 6), rebuilt from the table.
+        try:
+            from app.services.dashboard_refresh import register_all_jobs as register_dashboard_jobs
+            await register_dashboard_jobs()
+        except Exception:
+            logger.warning("Dashboard schedules were not registered", exc_info=True)
+        # And kept: a server on an older version (a rolling upgrade) drops the
+        # jobs it cannot load; the leader puts missing ones back.
+        import asyncio as _asyncio_keep
+        from app.services.dashboard_refresh import keep_jobs as keep_dashboard_jobs
+        app.state.dashboard_jobs_task = _asyncio_keep.create_task(keep_dashboard_jobs())
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to
@@ -860,6 +873,9 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    dashboard_jobs_task = getattr(app.state, "dashboard_jobs_task", None)
+    if dashboard_jobs_task is not None:
+        dashboard_jobs_task.cancel()
     stop_event = getattr(app.state, "email_poller_stop", None)
     if stop_event is not None:
         stop_event.set()

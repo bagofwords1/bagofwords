@@ -49,7 +49,9 @@ class Step(BaseSchema):
     # Per-viewer runs record their values on StepUserResult, not here.
     applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
 
-    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False)
+    # Nullable in the database since it was added; a published dashboard's
+    # copies have no widget (dashfc02).
+    widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True)
     widget = relationship("Widget", back_populates="steps")
     # Optional linkage to Query for grouping/versioning
     query_id = Column(String(36), ForeignKey('queries.id'), nullable=True)

@@ -745,3 +745,41 @@ def test_scim_delete_removes_everything_that_points_at_the_group(
     assert all(s.get("group_id") != gid for s in get_shares(report["id"], "artifact",
                                                              user_token=token, org_id=org_id))
     assert gid not in quota_principals()
+
+
+@pytest.mark.e2e
+def test_scim_delete_removes_the_groups_dashboard_grants(org_with_members, test_client, create_report):
+    """Dashboard grants (artifact_shares) go with the group too. On SQLite the
+    ON DELETE CASCADE does not run, so the service must remove them itself."""
+    from sqlalchemy import create_engine, text
+
+    from tests.e2e.dashboards.dashboard_setup import publish
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    org = org_with_members
+    org_id, token = org["org_id"], org["admin_token"]
+    gid = org["scim"]("POST", "/Groups", {"displayName": _uniq("Dashboard readers"),
+                                          "members": [{"value": org["user_ids"][0]}]}).json()["id"]
+    report = create_report(title="Dashboard for an IdP group", user_token=token, org_id=org_id, data_sources=[])
+    made = test_client.post("/api/artifacts", headers=_hdr(token, org_id), json={
+        "report_id": report["id"], "title": "Readers", "mode": "page",
+        "content": {"code": "function App() { return null }", "visualization_ids": []}})
+    assert made.status_code == 200, made.text
+    aid = made.json()["artifact_id"]
+    publish(aid)
+    resp = test_client.put(f"/api/dashboards/{aid}/sharing", headers=_hdr(token, org_id),
+                           json={"visibility": "shared", "group_ids": [gid]})
+    assert resp.status_code == 200, resp.text
+
+    assert org["scim"]("DELETE", f"/Groups/{gid}").status_code == 204
+
+    engine = create_engine(sync_test_url())
+    try:
+        with engine.connect() as conn:
+            left = conn.execute(text("SELECT count(*) FROM artifact_shares WHERE group_id = :g"),
+                                {"g": gid}).scalar()
+    finally:
+        engine.dispose()
+    assert left == 0
+    sharing = test_client.get(f"/api/dashboards/{aid}/sharing", headers=_hdr(token, org_id))
+    assert sharing.status_code == 200 and sharing.json()["group_ids"] == []

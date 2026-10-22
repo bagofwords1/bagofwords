@@ -806,7 +806,9 @@
         "prompt": "Esamina le risposte che hanno ricevuto feedback negativi dagli utenti per individuare schemi e aree di miglioramento."
       }
     ],
-    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare."
+    "artifactLoadFailed": "Impossibile caricare la dashboard. Aggiorna la pagina per riprovare.",
+    "deleteUnpublishedDashboards": "Verranno eliminate anche le dashboard non pubblicate: {names}",
+    "deleteLosesUnpublishedChanges": "Le modifiche non pubblicate di queste dashboard andranno perse (la versione pubblicata resta): {names}"
   },
   "projects": {
     "title": "Progetti",
@@ -3857,7 +3859,9 @@
     "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
     "chatModelReport": "Come nel report ({name})",
     "chatModelReportPlain": "Come nel report",
-    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito",
+    "linkNameEdit": "Modifica nome del link",
+    "linkNameRemove": "I link che usano già un nome continuano a funzionare; anche il link con l'id."
   },
   "publish": {
     "published": "Pubblicato",
@@ -3888,6 +3892,20 @@
     "notFound": "Non trovato.",
     "validation": "Verifica il modulo e riprova.",
     "artifact.not_found": "Artefatto non trovato",
+    "dashboard.not_published": "Questa dashboard non è ancora stata pubblicata.",
+    "dashboard.share_requires_publish": "Pubblica la dashboard prima di condividerla.",
+    "dashboard.conversation_moved": "La condivisione e la pianificazione di questa conversazione sono nella sua dashboard.",
+    "dashboard.rls_requires_viewer": "Questa dashboard usa la sicurezza a livello di riga, quindi gli spettatori eseguono sempre con la propria identità. \"Esegui a mio nome\" non è disponibile.",
+    "dashboard.export_withheld": "Questa dashboard mostra a ogni spettatore i propri dati, quindi non può essere esportata.",
+    "dashboard.export_needs_run": "Esegui prima la dashboard per esportare i tuoi dati.",
+    "dashboard.export_unavailable": "Questa esportazione non è disponibile per questa dashboard.",
+    "dashboard.publish_in_progress": "Questa dashboard è già in fase di pubblicazione.",
+    "dashboard.version_not_publishable": "Si può pubblicare solo una versione completata correttamente.",
+    "dashboard.publish_public_monitoring": "Questa dashboard è pubblica e usa dati di monitoraggio. Modifica la condivisione prima di pubblicarla.",
+    "dashboard.publish_connection": "Una connessione usata da questa dashboard non funziona: {names}. Ricollegala e pubblica di nuovo.",
+    "dashboard.edit_first": "Questa dashboard non ha una bozza da pubblicare. Modificala prima.",
+    "dashboard.slug_invalid": "Un nome di link usa da 3 a 80 lettere inglesi minuscole, cifre e trattini, e inizia e finisce con una lettera o una cifra.",
+    "dashboard.slug_taken": "Questo nome di link è già in uso. Scegline un altro.",
     "access.denied": "Accesso negato",
     "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",
@@ -4187,7 +4205,14 @@
     "exportAs": "Esporta come {format}",
     "partialNoAccess": "Non hai accesso ai dati di: {charts}",
     "partialFailed": "Impossibile caricare: {charts}",
-    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
+    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard.",
+    "publish": "Pubblica",
+    "publishing": "Pubblicazione…",
+    "published": "Dashboard pubblicata",
+    "publishFailed": "Pubblicazione non riuscita",
+    "notPublishedYet": "Non ancora pubblicata",
+    "unpublishedChanges": "Ci sono modifiche non pubblicate",
+    "publishedUpToDate": "Pubblicata e aggiornata"
   },
   "filter": {
     "selectColumn": "Seleziona colonna",
@@ -5865,6 +5890,12 @@
     "failed": "Impossibile caricare i dati dell’artefatto",
     "newest": "Più recenti prima",
     "oldest": "Meno recenti prima"
+  },
+  "integrationConnection": {
+    "noConnection": "Questo agente non ha ancora una connessione.",
+    "notFound": "Impossibile trovare questa connessione.",
+    "forbidden": "Non hai accesso a questa connessione.",
+    "loadFailed": "Impossibile caricare la connessione. Riprova più tardi."
   },
   "trackedChanges": {
     "noChanges": "Nessuna modifica"

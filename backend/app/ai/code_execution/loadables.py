@@ -16,7 +16,9 @@ Instead the pipeline:
 
 Scope:
   - load_step   -> the current report's default steps (Report -> Query -> Step),
-                   successful only. Widget is not consulted (deprecated).
+                   successful only. Widget is not consulted (deprecated). In a
+                   published dashboard's run, its release's copies instead
+                   (Query.artifact_release_id), never the draft's steps.
   - load_entity -> published catalog entities whose data sources the caller
                    may access (user_can_access_data_source).
 """
@@ -121,7 +123,7 @@ def grid_to_df(data) -> pd.DataFrame:
 
 async def resolve_loadables_for_code(
     db: AsyncSession, organization, report, current_user, code: str,
-    *, enable_load_step: bool = True,
+    *, enable_load_step: bool = True, release=None, fresh_rows: Optional[Dict] = None,
 ) -> Optional[Dict]:
     """One-shot helper for non-streaming paths (step rerun / query run).
 
@@ -132,12 +134,15 @@ async def resolve_loadables_for_code(
 
     `enable_load_step` gates the step half only; when off, `load_step` refs in
     saved code are not resolved (they surface as the sandbox closure's error).
+    `release` scopes resolution to a published dashboard's release;
+    `fresh_rows` (step id -> rows) are a refresh's not-yet-written results.
     """
     step_refs, entity_refs = extract_loadable_refs(code or "")
     if not step_refs and not entity_refs:
         return None
     resolver = LoadablesResolver(
-        db, organization, report, current_user, enable_load_step=enable_load_step
+        db, organization, report, current_user, enable_load_step=enable_load_step, release=release,
+        fresh_rows=fresh_rows,
     )
     resolved = await resolver.resolve(step_refs, entity_refs)
     return {"steps": resolved.get("steps", {}), "entities": resolved.get("entities", {})}
@@ -159,10 +164,17 @@ class LoadablesResolver:
     def __init__(
         self, db: AsyncSession, organization, report=None, current_user=None,
         *, enable_load_step: bool = True, step_max_age_seconds: Optional[int] = None,
+        release=None, fresh_rows: Optional[Dict] = None,
     ):
         self.db = db
         self.organization = organization
         self.report = report
+        # A published dashboard's release: load_step finds its copies, not a
+        # conversation's steps, and monitoring access joins the release's.
+        self.release = release
+        # A refresh's new rows, not written until every copy ran: what a copy
+        # loads reads these, so it builds on the same refresh.
+        self.fresh_rows = fresh_rows or {}
         self.current_user = current_user
         # When False, load_step is disabled: no steps are advertised for
         # discovery and none are resolved. load_entity is unaffected.
@@ -285,7 +297,8 @@ class LoadablesResolver:
                 )
                 if step is None:
                     result["errors"].append(
-                        f"load_step({key!r}): no matching step in this report. "
+                        f"load_step({key!r}): no matching step in this "
+                        f"{'dashboard' if self.release is not None else 'report'}. "
                         f"Available steps: {sorted({s.title for s in steps if s.title})}"
                     )
                     continue
@@ -293,10 +306,16 @@ class LoadablesResolver:
                 # identity's slice (identity params, declared or inherited,
                 # or credential-differentiated sources). The policy hands
                 # this reader their own result or withholds.
-                from app.services.viewer_data_policy import resolve_step_data
-                resolution = await resolve_step_data(
-                    self.db, step, self.report, self.current_user
-                )
+                if self.release is not None:
+                    from app.services.dashboard_data import resolve_release_step
+                    resolution = await resolve_release_step(
+                        self.db, step, await self._artifact(), self.release, self.current_user
+                    )
+                else:
+                    from app.services.viewer_data_policy import resolve_step_data
+                    resolution = await resolve_step_data(
+                        self.db, step, self.report, self.current_user
+                    )
                 if resolution.withheld:
                     result["errors"].append(
                         f"load_step({key!r}): its snapshot is scoped to another "
@@ -304,11 +323,20 @@ class LoadablesResolver:
                         f"directly (with the same parameters) instead."
                     )
                     continue
-                result["steps"][key] = grid_to_df(resolution.data)
-                from app.services.bow_source_access import step_access, protect_report
-                access = await step_access(self.db, step)
+                data = resolution.data
+                if self.release is not None and str(step.id) in self.fresh_rows:
+                    data = self.fresh_rows[str(step.id)]
+                result["steps"][key] = grid_to_df(data)
+                if self.release is not None:
+                    # A copy's monitoring access is its release's, which
+                    # resolve_release_step has already checked.
+                    access = self.release.bow_source_access
+                else:
+                    from app.services.bow_source_access import step_access, protect_report
+                    access = await step_access(self.db, step)
+                    if access:
+                        await protect_report(self.db, self.report.id, access)
                 if access:
-                    await protect_report(self.db, self.report.id, access)
                     result["steps"][key].attrs["bow_source"] = access
 
         for ref in entity_refs or []:
@@ -341,8 +369,11 @@ class LoadablesResolver:
             result["entities"][key] = grid_to_df(data)
             access = getattr(entity, "bow_source_access", None)
             if access:
-                from app.services.bow_source_access import protect_report
-                await protect_report(self.db, getattr(self.report, "id", None), access)
+                from app.services.bow_source_access import protect_release, protect_report
+                if self.release is not None:
+                    await protect_release(self.db, self.release, access)
+                else:
+                    await protect_report(self.db, getattr(self.report, "id", None), access)
                 result["entities"][key].attrs["bow_source"] = access
 
         return result
@@ -354,19 +385,24 @@ class LoadablesResolver:
         self, *, limit: Optional[int] = None, max_age_seconds: Optional[int] = None,
         light: bool = False,
     ) -> List[Step]:
-        """Successful default steps for the report (Report -> Query -> Step).
+        """Successful default steps for the report (Report -> Query -> Step),
+        or for the release's copies when the resolver has one.
 
         `max_age_seconds` (>0) bounds by `Step.created_at` recency — used by
         discovery only. Resolution passes it as None so any step remains
         loadable by id/name regardless of age.
         """
-        if self.report is None:
+        if self.release is not None:
+            scope = Query.artifact_release_id == str(self.release.id)
+        elif self.report is not None:
+            scope = Query.report_id == str(self.report.id)
+        else:
             return []
         stmt = (
             select(Step)
             .join(Query, Step.query_id == Query.id)
             .where(
-                Query.report_id == str(self.report.id),
+                scope,
                 Step.id == Query.default_step_id,
                 Step.status == "success",
             )
@@ -385,6 +421,10 @@ class LoadablesResolver:
             stmt = stmt.options(lazyload("*"), defer(Step.data))
         res = await self.db.execute(stmt)
         return list(res.scalars().all())
+
+    async def _artifact(self):
+        from app.models.artifact import Artifact
+        return await self.db.get(Artifact, str(self.release.artifact_id))
 
     async def _resolve_entity(self, ref: str) -> Tuple[Optional[Entity], str]:
         """Find a published entity by id/slug/title/fuzzy, then access-check it."""

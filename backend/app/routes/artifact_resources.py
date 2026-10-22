@@ -192,7 +192,7 @@ async def ai_stream(operation: str, payload: AIInput, request: Request, service=
         service.actor,
         str(service.artifact.id),
         str(service.artifact.organization_id),
-        str(service.report.id),
+        str(service.report.id) if service.report else None,
     )
     await service.db.commit()  # Never hold the resource transaction while streaming.
 

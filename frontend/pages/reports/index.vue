@@ -848,8 +848,18 @@ const toggleAllVisible = () => {
     selectedIds.value = s
 }
 
+// The confirmation names the never-published dashboards that go too, and the
+// published ones whose changes not yet published are lost (phase 7).
+async function withUnpublishedNote(message: string, reportIds: string[]) {
+    const notes = await dashboardsDeleteNotes(reportIds)
+    const lines = [message]
+    if (notes.deleted.length) lines.push(t('reports.deleteUnpublishedDashboards', { names: notes.deleted.join(', ') }))
+    if (notes.losesChanges.length) lines.push(t('reports.deleteLosesUnpublishedChanges', { names: notes.losesChanges.join(', ') }))
+    return lines.join('\n\n')
+}
+
 async function confirmDelete(reportId: string) {
-    if (confirm(t('reports.archiveConfirm'))) {
+    if (confirm(await withUnpublishedNote(t('reports.archiveConfirm'), [reportId]))) {
         await deleteReport(reportId)
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     }
@@ -882,7 +892,8 @@ async function toggleStar(report: any) {
 
 async function archiveSelected() {
     if (selectedIds.value.size === 0) return
-    const ok = window.confirm(t('reports.archiveConfirmBulk', { count: selectedIds.value.size }))
+    const ok = window.confirm(await withUnpublishedNote(
+        t('reports.archiveConfirmBulk', { count: selectedIds.value.size }), Array.from(selectedIds.value)))
     if (!ok) return
     try {
         const response: any = await useMyFetch('/reports/bulk/archive', {
