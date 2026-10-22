@@ -101,6 +101,7 @@ from app.routes import (
     mcp,
     build,
     connection,
+    data_tunnel,
     connection_oauth,
     artifact,
     oauth_server,
@@ -309,6 +310,7 @@ app.include_router(mcp.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
+app.include_router(data_tunnel.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
@@ -803,6 +805,70 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to start Slack Socket Mode listener: {e}")
 
+    # Secure data tunnel (design B3/B4). Every worker opens its own NATS
+    # connection — it is how that worker's tunneled clients reach an edge agent
+    # — but the advertisement listener is leader-gated: a plain subscribe fans
+    # to every worker, so registration must run in exactly one. The tunnel is
+    # gated on data_tunnel.enabled; disabled, the app starts normally without it.
+    from app.services.tunnel_client import TunnelClient, set_tunnel_client
+    tunnel_cfg = settings.bow_config.data_tunnel
+    tunnel_client = TunnelClient()
+    if not tunnel_cfg.enabled:
+        logger.info("data_tunnel disabled (data_tunnel.enabled is false)")
+    elif tunnel_cfg.missing_requirements():
+        # Enabled but under-configured: mTLS needs the endpoint plus all three
+        # cert paths. Log exactly what is missing and skip connecting rather than
+        # failing with an opaque handshake error.
+        logger.error(
+            "data_tunnel.enabled is true but required settings are missing: %s — set them in "
+            "bow-config.yaml (data_tunnel) or the BOW_DATA_TUNNEL_* env vars; secure data tunnel disabled",
+            ", ".join(tunnel_cfg.missing_requirements()),
+        )
+    else:
+        # Connect in the BACKGROUND, never inline: the client's initial connect
+        # retries forever (max_reconnect_attempts=-1), so awaiting it here would
+        # hang the whole app startup whenever NATS is unreachable at boot. Backed
+        # off to a task, the app starts immediately and the tunnel attaches
+        # whenever the broker becomes reachable; until then tunneled connections
+        # fail (as intended) while everything else runs.
+        import asyncio
+
+        async def _connect_tunnel() -> None:
+            try:
+                await tunnel_client.connect(
+                    tunnel_cfg.url,
+                    org_id=tunnel_cfg.org_id,
+                    tls_ca=tunnel_cfg.tls_ca or None,
+                    tls_cert=tunnel_cfg.tls_cert or None,
+                    tls_key=tunnel_cfg.tls_key or None,
+                    tls_verify=tunnel_cfg.tls_verify,
+                )
+                if is_scheduler_leader:
+                    await tunnel_client.start_advertisement_listener()
+                    await tunnel_client.start_heartbeat_listener()
+                    # Sweep agent liveness: flip status stale/offline and deactivate
+                    # an offline agent's connections (design A10/B4). Leader-gated.
+                    from app.services.tunnel_registration_service import sweep_stale_agents
+                    scheduler.add_job(
+                        sweep_stale_agents,
+                        trigger="interval",
+                        seconds=30,
+                        # Only this worker's org: it receives no other org's
+                        # heartbeats, so it must not judge their liveness.
+                        kwargs={"org_id": tunnel_cfg.org_id},
+                        id="tunnel_agent_liveness_sweep",
+                        replace_existing=True,
+                        coalesce=True,
+                        max_instances=1,
+                    )
+            except Exception:
+                logger.exception("Tunnel unavailable; tunneled connections will fail")
+
+        asyncio.create_task(_connect_tunnel())
+        logger.info("data_tunnel: connecting to the broker in the background")
+    app.state.tunnel_client = tunnel_client
+    set_tunnel_client(tunnel_client)
+
     # Load the license key stored in the database (Settings → License), which
     # overrides BOW_LICENSE_KEY, before anything reads the license status.
     from app.services.license_service import load_license_at_startup, run_license_refresher
@@ -885,6 +951,15 @@ async def shutdown_event():
     if license_refresher_task is not None:
         try:
             await license_refresher_task
+        except Exception:
+            pass
+    # Drain the tunnel: let in-flight requests finish and their replies land
+    # before the socket goes away, so a shutdown mid-query surfaces as a
+    # completed query rather than a spurious error (design B4).
+    tunnel_client = getattr(app.state, "tunnel_client", None)
+    if tunnel_client is not None:
+        try:
+            await tunnel_client.drain()
         except Exception:
             pass
     scheduler.shutdown()

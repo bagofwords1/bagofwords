@@ -67,6 +67,7 @@ from app.models.visualization import Visualization
 from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.connection import Connection
+from app.models.data_edge_agent import DataEdgeAgent
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable

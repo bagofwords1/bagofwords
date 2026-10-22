@@ -561,11 +561,13 @@ dependencies = [
     { name = "ipython" },
     { name = "jinja2" },
     { name = "kubernetes" },
+    { name = "kubernetes-asyncio" },
     { name = "ldap3" },
     { name = "lkml" },
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "mcp" },
+    { name = "nats-py", extra = ["aiohttp"] },
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -693,11 +695,13 @@ requires-dist = [
     { name = "ipython", specifier = ">=8.39.0,<8.40" },
     { name = "jinja2", specifier = ">=3.1.6,<3.2" },
     { name = "kubernetes", specifier = ">=36.0.3" },
+    { name = "kubernetes-asyncio", specifier = ">=32.0.0,<33" },
     { name = "ldap3", specifier = ">=2.9.1,<2.10" },
     { name = "lkml", specifier = ">=1.3.7,<1.4" },
     { name = "lxml", specifier = ">=6.1.1,<6.2" },
     { name = "matplotlib", specifier = ">=3.11.0,<3.12" },
     { name = "mcp", specifier = ">=1.30.0,<1.31" },
+    { name = "nats-py", extras = ["aiohttp"], specifier = ">=2.9.0,<3" },
     { name = "numpy", specifier = ">=1.26.4,<1.27" },
     { name = "openai", specifier = ">=1.109.1,<1.110" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
@@ -2488,6 +2492,23 @@ wheels = [
 ]
 
 [[package]]
+name = "kubernetes-asyncio"
+version = "32.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/74/6d454c06c44acbe2dba10aaddb87e6a8a980055308d4052aa408da280095/kubernetes_asyncio-32.3.2.tar.gz", hash = "sha256:a4b6da1dbfa16e87ab8df6898f54fa03f651591a502bd6480a647d5513a580bf", size = 1032557, upload-time = "2025-04-30T21:59:34.121Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/bf/8d9ae183b3bee0811f633411d3e3de4bcc58eefb81021b3e2fdcc1d1e26b/kubernetes_asyncio-32.3.2-py3-none-any.whl", hash = "sha256:3584e6358571e686ea1396fc310890263c58fa41c084a841a9609a54ad05de62", size = 1984148, upload-time = "2025-04-30T21:59:32.254Z" },
+]
+
+[[package]]
 name = "ldap3"
 version = "2.9.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2965,6 +2986,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/62/3c/c4ef2164a71c1a63d7f1ae411c4082c5fa872405106db60a4b7114989ad7/narwhals-2.22.1.tar.gz", hash = "sha256:d62920805a0a43b7ff8b54b0c0d3142d796f8a9301836ada37e573d6a33cbcd9", size = 647493, upload-time = "2026-06-05T12:34:34.051Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/ca/36339329c4604adbcc99c899b7eb1ce1a555c499b6a6860757dc9bfed36d/narwhals-2.22.1-py3-none-any.whl", hash = "sha256:60567d774edf77db53906f89d9fbd164e66e56d66d388e1e6990f17ac33cfb53", size = 454815, upload-time = "2026-06-05T12:34:32.289Z" },
+]
+
+[[package]]
+name = "nats-py"
+version = "2.16.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2c/c8/739b72c9201081e48000884d476231873ac82f7247c43b33823eaf3c0bfb/nats_py-2.16.0.tar.gz", hash = "sha256:1d137ed7afc9b59033b3199324c6237df2016a5091935871344a787eba6b72fc", size = 79731, upload-time = "2026-09-16T07:47:21.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/48/a3/16cec37172144d3362d7551bb823a098b2b2903281fc095dfe4480b8c2fd/nats_py-2.16.0-py3-none-any.whl", hash = "sha256:aeb1ff123966c05833d26c7df7e1d54c1c6d32b612428b21677a2e921f1fecae", size = 93578, upload-time = "2026-09-16T07:47:20.799Z" },
+]
+
+[package.optional-dependencies]
+aiohttp = [
+    { name = "aiohttp" },
 ]
 
 [[package]]

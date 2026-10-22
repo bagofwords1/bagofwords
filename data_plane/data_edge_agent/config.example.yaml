@@ -1,0 +1,134 @@
+# Data Edge Agent — sample configuration
+#
+# Copy to config.yaml and edit. Shape lives here; secrets live in the
+# environment, so this file is safe to commit to your own deployment repo.
+#
+#   python -m data_plane.data_edge_agent --config config.yaml
+#
+# Every value below can be overridden by BOW_EDGE_AGENT_<FIELD>, which is what
+# container deployments use. Environment wins over file.
+
+# --- identity -----------------------------------------------------------
+# Both become NATS subject tokens, so: no dots, spaces, '*' or '>'.
+#
+# edge_agent_id must match the user granted in the Bow instance's nats.conf,
+# and must be assigned before first start — the broker grants permissions
+# against it, so an id invented at boot could never connect.
+org_id: cust-b
+edge_agent_id: nyc-01
+edge_agent_name: NYC Office          # display label only; safe to rename
+
+# --- broker -------------------------------------------------------------
+# The scheme decides whether there is a TLS handshake, and mTLS lives inside
+# that handshake — the client cert configured below is exchanged during it.
+# So the cert is only presented on a TLS-bearing scheme:
+#   wss://host        WebSocket over TLS. This is the mTLS path: the agent
+#                     negotiates TLS and presents its client cert. For the
+#                     BROKER to verify it (verify_and_map), TLS must reach the
+#                     broker end-to-end — a proxy that TERMINATES TLS and
+#                     forwards plaintext strips the cert first; a TLS-passthrough
+#                     load balancer is fine.
+#   tls://host:4222   native TLS straight to the broker. Same mTLS behaviour,
+#                     no WebSocket framing.
+#   ws://host         plaintext WebSocket. No TLS handshake, so no client cert
+#                     is ever sent — the agent cannot authenticate. Unusable.
+# Pointing wss:// or tls:// at a no_tls listener fails the handshake with an
+# error that looks like a certificate problem and is not one.
+tunnel_endpoint_url: wss://data-edge-tunnels.bow.dev.local:443
+
+# --- mTLS to the broker (design A11) — the ONLY authentication -----------
+# tls_cert + tls_key are REQUIRED: the agent authenticates by presenting a
+# client certificate, which the broker maps to a scoped user (verify_and_map).
+# There is no token fallback. The endpoint above must be TLS-bearing
+# (tls://host:4222 or wss://host) or the certificate is never sent.
+#
+#   tls_ca:   the CA that signed the broker's SERVER cert. A private CA path
+#             becomes the ONLY trust anchor (system roots are not consulted),
+#             which is what a self-signed broker CA wants.
+#   tls_cert
+#   tls_key:  the agent's CLIENT cert + key. REQUIRED — the agent presents this
+#             certificate and the broker verifies it and maps its subject to a
+#             scoped NATS user (verify_and_map). This certificate is the agent's
+#             sole credential; both must be set.
+#
+# These are filesystem paths; the PEM files stay on this box. Prefer the
+# environment (BOW_EDGE_AGENT_TLS_CA / _TLS_CERT / _TLS_KEY) in containers, and
+# keep the key mode 0600. The example below is a full mTLS setup matching the
+# wss:// endpoint above — the agent presents this client cert during the TLS
+# handshake.
+tls_ca: /etc/bow/tls/ca.pem
+tls_cert: /etc/bow/tls/edge-agent.pem
+tls_key: /etc/bow/tls/edge-agent-key.pem
+#
+# Verify the broker's server cert. Leave true. Setting false disables server
+# authentication entirely — for local experiments only.
+tls_verify: true
+
+# --- served connections -------------------------------------------------
+# One NATS subject per entry: tunnel.<org_id>.<edge_agent_id>.conn.<name>
+#
+# `name` must be unique within your Bow organization — a second agent
+# advertising a name another already owns is rejected at registration, and an
+# admin has to rename it here.
+#
+# Credentials are NOT configured here. They arrive with the encrypted local
+# config store in a later phase, which is the whole point of the agent: the Bow
+# instance never holds them.
+connections:
+  - name: prod-pg
+    type: postgresql
+    label: NYC Production
+
+    # Non-secret connection detail.
+    config:
+      host: localhost
+      port: 5432
+      database: analytics
+      schema: public              # optional; comma-separated for several
+
+    # Credentials stay on this machine. They are never advertised, never
+    # logged, and never reach the Bow instance — that is the entire point of
+    # running an agent rather than giving Bow a database login.
+    #
+    # Prefer the environment over this file:
+    #   BOW_EDGE_AGENT_CONN_PROD_PG_USER / _PASSWORD
+    credentials:
+      user: bow_reader
+      password: ""
+
+    # Optional. Omit to inherit default_query_timeout_seconds below.
+    query_timeout_seconds: 300
+
+# --- local -------------------------------------------------------------
+# --- local admin UI (design C4) ----------------------------------------
+# Loopback-only web UI for configuring connections and their credentials, and
+# for watching tunnel/connection health. Bound to admin_host on purpose — the
+# credential-entry surface must never be reachable from off the box.
+admin_enabled: true
+admin_host: 127.0.0.1                 # keep on loopback; there is no auth
+admin_port: 9191
+# Where UI edits persist (connections + credentials, stored in cleartext).
+# Default is edge-agent-store.json beside this config file. There is no at-rest
+# encryption — secure the file and the host it runs on.
+# store_path: /var/lib/bow/edge-agent-store.json
+
+# --- local audit trail (design C4/C5) ----------------------------------
+# Every operation (timestamp, connection, operation, duration, row count,
+# outcome) is appended to a JSONL file on this box and shown in the admin UI.
+# Default is edge-agent-audit.jsonl beside this config; audit_retain bounds the
+# in-memory tail the UI reads.
+# audit_path: /var/log/bow/edge-agent-audit.jsonl
+audit_retain: 2000
+
+log_level: INFO                      # DEBUG logs request bodies (credentials redacted)
+
+# --- budgets ------------------------------------------------------------
+# Advertised upward so the control plane can size its own waits. It cannot
+# raise them: a request may ask for less time, never more.
+default_query_timeout_seconds: 300   # per-connection default for execute_query
+index_timeout_seconds: 900           # get_schemas / warm_all, which run for minutes
+
+# How often to re-publish the advertisement. NATS core is at-most-once with no
+# persistence, so one published while Bow is restarting is simply lost; the
+# next cycle heals it.
+advertise_interval_seconds: 60

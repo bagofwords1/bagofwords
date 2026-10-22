@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     TESTING: bool = False
     TEST_DATABASE_URL: str = "sqlite:///db/test_{}.db".format(os.getpid())
     ENVIRONMENT: str = os.environ.get("ENVIRONMENT", "development")
+    # Secure data tunnel to on-prem edge agents (design B3/B4/A11) lives in the
+    # structured config as `bow_config.data_tunnel` (see bow_config.DataTunnel):
+    # endpoint + mTLS certs, each overridable by a BOW_DATA_TUNNEL_* env var.
+    # main.py reads settings.bow_config.data_tunnel to open the worker's NATS
+    # connection.
     bow_config: BowConfig | None = None
     email_client: FastMail | None = None
 

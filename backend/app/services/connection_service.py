@@ -2055,6 +2055,24 @@ class ConnectionService:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {redact_error(e)}")
 
+    async def _resolve_tunnel_user_credentials(self, db, connection, current_user):
+        """Per-user credentials for a tunneled connection, and nothing else (B2).
+
+        Deliberately NOT resolve_credentials(): that answers with *system*
+        credentials for system_only and falls back to them for user_required on
+        the indexing path (current_user=None). Either would put a tunneled
+        connection's system credentials on the control plane — the one thing the
+        tunnel branch exists to prevent. Returning None makes the edge agent use
+        its own locally-stored credentials, which is A7's indexing fallback.
+        """
+        if getattr(connection, "auth_policy", "system_only") != "user_required" or current_user is None:
+            return None
+        try:
+            creds = await self.resolve_credentials(db, connection, current_user)
+            return creds or None
+        except Exception:
+            return None
+
     async def construct_client(
         self,
         db: AsyncSession,
@@ -2067,6 +2085,23 @@ class ConnectionService:
         logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
         ClientClass = resolve_client_class(connection.type)
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
+
+        # Secure data tunnel (design B1/B2). A tunnel_mode connection is served
+        # by a remote edge agent — the control plane holds no credentials and
+        # opens no connection; every operation is proxied over NATS. The branch
+        # is taken before resolve_credentials(), so there is no code path on
+        # which a tunneled connection's system credentials are fetched here.
+        if getattr(connection, "tunnel_mode", False):
+            from app.services.tunnel_client import get_tunnel_client
+            from app.data_sources.clients.tunneled_client import TunneledClient
+            tunnel = get_tunnel_client()
+            if tunnel is None:
+                raise RuntimeError(
+                    "Tunnel not connected; cannot reach the edge agent for "
+                    f"connection '{connection.name}'"
+                )
+            user_creds = await self._resolve_tunnel_user_credentials(db, connection, current_user)
+            return TunneledClient(connection, ClientClass, tunnel, user_credentials=user_creds)
 
         config = json.loads(connection.config) if isinstance(connection.config, str) else dict(connection.config or {})
         # Merge config overrides (non-empty values win)
