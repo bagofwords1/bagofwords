@@ -140,12 +140,19 @@ export default defineNuxtConfig({
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive',
-                // changeOrigin rewrites Host to the upstream, so the backend
-                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
-                // NGINX sets these in production; mirror that in dev.
-                'X-Forwarded-Host': 'localhost:3000',
-                'X-Forwarded-Proto': 'http'
+                'Connection': 'keep-alive'
+            },
+            // changeOrigin rewrites Host to the upstream, so the backend would
+            // otherwise derive OAuth redirect_uri from 127.0.0.1:8000. Pass the
+            // X-Forwarded-Host/Proto of a proxy in front of us (ingress, tunnel)
+            // through unchanged, and only default to localhost:3000 over http
+            // for direct local dev. Set on proxyReq because static `headers`
+            // would overwrite the incoming values.
+            configure: (proxy) => {
+                proxy.on('proxyReq', (proxyReq, req) => {
+                    proxyReq.setHeader('X-Forwarded-Host', req.headers['x-forwarded-host'] || 'localhost:3000')
+                    proxyReq.setHeader('X-Forwarded-Proto', req.headers['x-forwarded-proto'] || 'http')
+                })
             }
         }
     }
