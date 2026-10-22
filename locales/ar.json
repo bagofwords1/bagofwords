@@ -4542,6 +4542,7 @@
       "queryAria": "الاستعلام",
       "toFocus": "للتركيز",
       "toRun": "للتشغيل",
+      "clearQuery": "مسح كل الفلاتر",
       "didYouMean": "هل تقصد",
       "suggestFields": "الحقول",
       "suggestValues": "قيم {field}",
