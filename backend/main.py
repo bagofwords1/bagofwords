@@ -122,6 +122,11 @@ from app.ee.license import get_license_info, has_feature
 # Initialize logging
 loggers = setup_logging()
 logger = get_logger(__name__)
+# Process-wide TLS verification policy. Must run before any HTTPS client or
+# OTEL exporter builds its SSL context (they are built lazily, but the shared
+# context in app.core.tls is cached on first use).
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
 # Read configuration
