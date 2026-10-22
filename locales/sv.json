@@ -3007,6 +3007,10 @@
           "name": "Maximalt antal instruktioner i kontexten",
           "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
         },
+        "smart_instructions_on_demand": {
+          "name": "Agenten väljer smarta instruktioner",
+          "description": "Agenten läser bara de smarta instruktioner den behöver, i stället för att ladda alla träffar."
+        },
         "allow_report_webhooks": {
           "name": "Rapport-webhooks",
           "description": "Låter externa system (GitHub, Jira, generiska tjänster) skicka händelser till rapporter via inkommande webhooks. Huvudströmbrytare för hela funktionen."

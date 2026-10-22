@@ -3007,6 +3007,10 @@
           "name": "Nombre maximal d'instructions dans le contexte",
           "description": "Nombre maximal d'instructions à inclure dans le contexte de l'IA. Les instructions « toujours » sont chargées en premier, puis les instructions « intelligentes » remplissent les emplacements restants."
         },
+        "smart_instructions_on_demand": {
+          "name": "L'agent choisit les instructions intelligentes",
+          "description": "L'agent lit uniquement les instructions intelligentes dont il a besoin, au lieu de charger toutes les correspondances."
+        },
         "allow_report_webhooks": {
           "name": "Webhooks de rapport",
           "description": "Permet à des systèmes externes (GitHub, Jira, services génériques) d'envoyer des événements aux rapports via des webhooks entrants. Interrupteur principal de toute la fonctionnalité."

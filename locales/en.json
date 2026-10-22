@@ -3317,6 +3317,10 @@
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
         },
+        "smart_instructions_on_demand": {
+          "name": "Agent chooses smart instructions",
+          "description": "The agent reads only the smart instructions it needs, instead of loading every match."
+        },
         "allow_report_webhooks": {
           "name": "Report Webhooks",
           "description": "Allow external systems (GitHub, Jira, generic services) to send events to reports via inbound webhooks. Master switch for the whole feature."

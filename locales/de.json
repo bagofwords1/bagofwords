@@ -3007,6 +3007,10 @@
           "name": "Maximale Anweisungen im Kontext",
           "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
         },
+        "smart_instructions_on_demand": {
+          "name": "Agent wählt smarte Anweisungen",
+          "description": "Der Agent liest nur die smarten Anweisungen, die er braucht, statt alle Treffer zu laden."
+        },
         "allow_report_webhooks": {
           "name": "Bericht-Webhooks",
           "description": "Erlaubt externen Systemen (GitHub, Jira, generische Dienste), über eingehende Webhooks Ereignisse an Berichte zu senden. Hauptschalter für die gesamte Funktion."

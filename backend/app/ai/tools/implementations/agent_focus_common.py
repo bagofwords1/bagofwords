@@ -206,7 +206,9 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
         from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
         ib = InstructionContextBuilder(db, organization, current_user=user, data_source_ids=ds_ids)
         isec = await ib.build(query=None, data_source_ids=ds_ids)
-        inst_xml = isec.render(include_catalog=False)
+        # On demand nothing smart is inlined, so the planner (which reads this
+        # and can call read_instruction) needs the catalog. Off: unchanged.
+        inst_xml = isec.render(include_catalog=isec.on_demand)
         if inst_xml and inst_xml.strip():
             parts.append(inst_xml)
     except Exception:

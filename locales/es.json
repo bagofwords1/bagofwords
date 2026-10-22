@@ -3237,6 +3237,10 @@
           "name": "Máximo de instrucciones en el contexto",
           "description": "Número máximo de instrucciones que se incluyen en el contexto de la IA. Primero se cargan las instrucciones de tipo 'siempre' y después las 'inteligentes' ocupan los huecos restantes."
         },
+        "smart_instructions_on_demand": {
+          "name": "El agente elige las instrucciones inteligentes",
+          "description": "El agente lee solo las instrucciones inteligentes que necesita, en lugar de cargar todas las coincidencias."
+        },
         "allow_report_webhooks": {
           "name": "Webhooks de informes",
           "description": "Permite que sistemas externos (GitHub, Jira, servicios genéricos) envíen eventos a los informes mediante webhooks entrantes. Interruptor principal de toda la funcionalidad."
