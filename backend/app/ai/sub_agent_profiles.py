@@ -16,7 +16,8 @@ from typing import Dict, FrozenSet, Optional
 # Agent Lists are the exception on purpose: a child writes rows into the
 # parent's lists through ``submit_<slug>`` (the ``submit_list`` gateway), the
 # typed sink a fan-out extraction exists for. Defining or reshaping a list
-# (create_list / edit_list) stays with the parent and its review card.
+# (create_list / edit_list) or deleting its rows (delete_list_rows) stays
+# with the parent and its review card.
 BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "delegate", "read_sub_agent", "stop_sub_agent",
     "clarify", "wait", "cancel_wait",
@@ -29,14 +30,14 @@ BLOCKED_IN_SUB_AGENTS: FrozenSet[str] = frozenset({
     "create_eval", "edit_eval", "run_eval", "stop_eval_run",
     "create_agent", "set_report_agents", "create_demo_dataset",
     "route_model", "generate_image", "write_officejs_code", "write_to_excel",
-    "create_list", "edit_list",
+    "create_list", "edit_list", "delete_list_rows",
 })
 
 _RESEARCH = (
     "describe_tables", "inspect_data", "read_query", "run_query", "describe_entity",
     "read_resources", "read_file", "grep_files", "search_files", "list_files",
     "read_excel_as_csv", "read_excel_range",
-    "list_mcp_resources", "read_mcp_resource", "execute_mcp", "search_mcps",
+    "list_mcp_resources", "read_mcp_resource", "execute_mcp", "search_tools", "call_tool",
     "search_instructions", "read_instruction", "search_agents", "read_report", "search_reports",
     "web_fetch", "web_search",
     "create_note", "edit_note",
@@ -49,8 +50,9 @@ class SubAgentProfile:
     key: str
     title: str
     tools: FrozenSet[str]
-    # "small" | "default": which org model the child plans on under
-    # sub_agent_model=auto.
+    # "small" | "default": which model the child plans on under
+    # sub_agent_model=auto. "default" = the parent turn's model (the report's
+    # model when one is pinned).
     model_pref: str
     addendum: str
     # Tools added when the org allows sub-agents to create tracked queries.
@@ -62,7 +64,7 @@ PROFILES: Dict[str, SubAgentProfile] = {
         key="investigate",
         title="Investigate",
         tools=frozenset(_RESEARCH),
-        model_pref="small",
+        model_pref="default",
         addendum=(
             "PROFILE: investigate. You test one hypothesis or answer one bounded question. "
             "Verify names against the schema before querying; peek with inspect_data; prefer a few "

@@ -1897,6 +1897,7 @@
     "permissions": {
       "manage_files": "Hantera filer",
       "create_data_source": "Skapa agent",
+      "create_connections": "Skapa anslutningar",
       "manage_connections": "Hantera anslutningar",
       "manage_instructions": "Hantera instruktioner",
       "manage_entities": "Hantera entiteter",
@@ -2960,21 +2961,9 @@
           "name": "MCP- och egna API-verktyg",
           "description": "Gör det möjligt att koppla externa MCP-servrar och egna API-slutpunkter till datakällor som verktygsleverantörer"
         },
-        "enable_mcp_native_tools": {
-          "name": "Inbyggd registrering av MCP-verktyg",
-          "description": "Registrerar varje externt MCP- eller eget API-verktyg som ett eget, direkt anropbart agentverktyg i stället för att dirigera varje anrop genom det generiska verktyget execute_mcp. Träder i kraft först när en rapports verktygskatalog når tröskelvärdet nedan."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Tröskel för inbyggda MCP-verktyg",
-          "description": "Hur många aktiverade MCP- eller egna API-verktyg en rapport behöver innan inbyggd registrering används. Under den gränsen mäter inbyggd registrering likvärdigt med den generiska vägen, så den generiska vägen behålls. Ange 0 för att alltid registrera inbyggt."
-        },
-        "mcp_native_tools_max": {
-          "name": "Maximalt antal inbyggda MCP-verktyg",
-          "description": "Övre gräns för hur många verktyg som registreras inbyggt för en rapport. Verktyg utöver taket ligger kvar på den generiska execute_mcp-vägen, så att en mycket stor katalog inte fyller varje förfrågan med permanenta verktygsdefinitioner."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Inbäddad storlek på MCP-resultat",
-          "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
+        "tools_max": {
+          "name": "Max antal verktyg",
+          "description": "Hur många externa MCP- / anpassade API-verktyg agenten får som egna verktyg i en körning. Över detta antal behålls de mest använda och resten nås via verktygssökning, så att en mycket stor katalog inte fyller varje förfrågan med verktygsdefinitioner."
         },
         "mcp_create_data_preview_rows": {
           "name": "Förhandsgranskningsrader för MCP-data",
@@ -3019,6 +3008,10 @@
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
           "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
+        },
+        "smart_instructions_on_demand": {
+          "name": "Agenten väljer smarta instruktioner",
+          "description": "Agenten läser bara de smarta instruktioner den behöver, i stället för att ladda alla träffar."
         },
         "allow_report_webhooks": {
           "name": "Rapport-webhooks",

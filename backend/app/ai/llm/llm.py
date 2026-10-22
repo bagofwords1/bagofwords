@@ -1532,6 +1532,19 @@ class LLM:
             return
         context.run_blocking(context.check_tokens(requested_tokens))
 
+    async def preconnect(self) -> bool:
+        """Open a connection to the provider ahead of the first call, so the
+        call does not pay for TCP + TLS (app.core.llm_transport.preconnect).
+        Best effort; False when the client has no shared pool."""
+        try:
+            from app.core.llm_transport import preconnect
+            sdk = getattr(getattr(self, "client", None), "async_client", None)
+            http = getattr(sdk, "_client", None)
+            base = str(getattr(sdk, "base_url", "") or "")
+            return await preconnect(http, base)
+        except Exception:
+            return False
+
     async def _check_usage_limit_async(self, requested_tokens: int, *, should_record: bool) -> None:
         """Async variant of the cache-aware quota check."""
         context = self._usage_limit_context

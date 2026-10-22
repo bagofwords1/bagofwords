@@ -97,7 +97,7 @@ def main() -> int:
                 titles.append((te.get("tool_name"), (te.get("arguments_json") or {}).get("title")))
     print("tool calls + titles:", json.dumps(titles, indent=1))
     print(json.dumps({"report_url": f"http://localhost:3000/reports/{report_id}", "report_id": report_id}))
-    ok = any(tn in ("web_fetch", "execute_mcp", "search_mcps") and t for tn, t in titles)
+    ok = any(tn in ("web_fetch", "execute_mcp", "search_tools", "call_tool") and t for tn, t in titles)
     return 0 if ok else 1
 
 

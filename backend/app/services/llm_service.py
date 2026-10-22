@@ -1094,8 +1094,10 @@ class LLMService:
 
         Sets an explicit override so the choice survives catalog re-syncs, and
         updates the effective `supports_image_generation` flag that gates the
-        generate_image tool. An image model is never a chat default, so enabling
-        it also clears any default/small-default flag on that model.
+        generate_image tool. An image model is never a chat default, so a model
+        that is the default or small default cannot be marked — the admin picks
+        another default first (mirrors toggle_model). Silently clearing the flag
+        here used to leave the org with no default at all.
         """
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
@@ -1108,12 +1110,14 @@ class LLMService:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
 
+        if enabled and (model.is_default or model.is_small_default):
+            raise HTTPException(
+                status_code=400,
+                detail="Default and small default models cannot be marked as image-generation models. Set another default first.",
+            )
+
         model.supports_image_generation_override = enabled
         model.supports_image_generation = enabled
-        if enabled:
-            # Image models can never be the org's default / small default.
-            model.is_default = False
-            model.is_small_default = False
         await db.commit()
 
         logger.info("LLM model image-generation toggled: id=%s, name=%s, model_id=%s, supports_image_generation=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
@@ -2330,14 +2334,33 @@ class LLMService:
         if default_model:
             return default_model
         
-        # Fallback: return first enabled model (for custom providers without is_default set)
-        first_enabled = await db.execute(
+        # Fallback when the org has no usable default (e.g. custom providers
+        # without is_default set): the first enabled chat model the caller may
+        # use. Only the org default is exempt from access control, so this
+        # pick must not hand out a restricted model the caller has no grant
+        # for. Unrestricted models come first; with no user (system jobs)
+        # only unrestricted models qualify.
+        candidates = await db.execute(
             select(LLMModel)
+            .join(LLMModel.provider)
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_enabled == True)
-            .limit(1)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMProvider.is_enabled == True)
+            .filter(LLMProvider.deleted_at == None)
+            .order_by(LLMModel.is_restricted.asc(), LLMModel.created_at.asc(), LLMModel.id.asc())
         )
-        return first_enabled.scalar_one_or_none()
+        from app.core.permission_resolver import llm_access_control_active, user_can_use_model
+        enforce = llm_access_control_active()
+        for model in candidates.unique().scalars().all():
+            if not enforce or not model.is_restricted:
+                return model
+            if current_user is not None and await user_can_use_model(
+                db, current_user.id, organization.id, model
+            ):
+                return model
+        return None
 
     async def get_user_default_model_id(
         self,

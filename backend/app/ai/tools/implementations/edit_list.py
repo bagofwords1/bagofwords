@@ -23,6 +23,7 @@ from app.ai.tools.implementations._list_tool_common import (
     card_fields,
     declined_output,
     end_event,
+    find_list,
     manageable_report_agents,
     mark_lists_changed,
     output_for,
@@ -38,26 +39,6 @@ from app.ai.tools.schemas.events import ToolErrorEvent, ToolEvent, ToolStartEven
 logger = logging.getLogger(__name__)
 
 TOOL_NAME = "edit_list"
-
-
-def _find_list(lists, ref: str):
-    """Resolve by id, then slug, exact name (case-insensitive) or submit_<slug> tool name."""
-    ref = (ref or "").strip()
-    if not ref:
-        return None
-    for l in lists:
-        if str(l.id) == ref:
-            return l
-    low = ref.casefold()
-    for l in lists:
-        if l.slug == low or l.name.strip().casefold() == low:
-            return l
-    if low.startswith("submit_"):
-        rest = low[len("submit_"):]
-        hits = [l for l in lists if rest == l.slug or rest.startswith(l.slug + "_")]
-        if len(hits) == 1:
-            return hits[0]
-    return None
 
 
 def apply_edits(current: List[Dict[str, Any]], data: EditListInput) -> Tuple[List[Dict[str, Any]], Dict[str, str], List[str]]:
@@ -201,7 +182,7 @@ class EditListTool(Tool):
             return
         by_agent = {str(d.id): d for d in agents}
         lists = await svc.live_lists_for_agents(db, list(by_agent))
-        lst = _find_list(lists, data.list_id)
+        lst = find_list(lists, data.list_id)
         if lst is None:
             available = ", ".join(f"'{l.name}' (id {l.id}, agent {by_agent[str(l.data_source_id)].name})" for l in lists) or "none"
             yield end_event(

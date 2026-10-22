@@ -1878,6 +1878,25 @@
       "versionBumped": "Ahora es la versión {v}: las filas anteriores se marcan como obsoletas",
       "open": "Abrir lista"
     },
+    "deleteListRows": {
+      "finding": "Buscando filas para eliminar en {name}…",
+      "confirm": "Confirma la eliminación de filas",
+      "waiting": "Esperando confirmación",
+      "deleting": "Eliminando filas…",
+      "deleted": "Se eliminó {n} fila de {name} | Se eliminaron {n} filas de {name}",
+      "cancelled": "Eliminación cancelada: no se eliminó nada",
+      "timedOut": "No se confirmó a tiempo: no se eliminó nada",
+      "noMatch": "Ninguna fila coincide: nada que eliminar",
+      "failed": "No se eliminaron las filas",
+      "badgeClear": "Vaciar todas las filas",
+      "badgeCount": "{n} de {total} fila | {n} de {total} filas",
+      "permanent": "Las filas eliminadas no se pueden recuperar.",
+      "andMore": "y {n} fila más | y {n} filas más",
+      "notFound": "No encontrado: {list}",
+      "cancel": "Cancelar",
+      "approve": "Eliminar {n} fila | Eliminar {n} filas",
+      "remaining": "Queda {n} fila | Quedan {n} filas"
+    },
     "delegate": {
       "label": "Subagente",
       "refused": "No iniciada",
@@ -2034,6 +2053,7 @@
     "permissions": {
       "manage_files": "Gestionar archivos",
       "create_data_source": "Crear agente",
+      "create_connections": "Crear conexiones",
       "manage_connections": "Gestionar conexiones",
       "manage_instructions": "Gestionar instrucciones",
       "manage_entities": "Gestionar entidades",
@@ -3171,21 +3191,9 @@
           "name": "Herramientas MCP y de API personalizada",
           "description": "Permite conectar servidores MCP externos y puntos finales de API personalizados a las fuentes de datos como proveedores de herramientas"
         },
-        "enable_mcp_native_tools": {
-          "name": "Registro nativo de herramientas MCP",
-          "description": "Registra cada herramienta MCP o de API personalizada como una herramienta de agente propia e invocable directamente, en lugar de enrutar cada llamada a través de la herramienta genérica execute_mcp. Solo surte efecto cuando el catálogo de herramientas de un informe alcanza el umbral indicado abajo."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Umbral de herramientas MCP nativas",
-          "description": "Cuántas herramientas MCP o de API personalizada activas necesita un informe antes de usar el registro nativo. Por debajo de ese umbral, el registro nativo resulta equivalente a la vía genérica, así que se mantiene la vía genérica. Ponlo en 0 para registrar siempre de forma nativa."
-        },
-        "mcp_native_tools_max": {
-          "name": "Máximo de herramientas MCP nativas",
-          "description": "Límite superior de cuántas herramientas se registran de forma nativa para un informe. Las herramientas que superan el tope permanecen en la vía genérica execute_mcp, de modo que un catálogo muy grande no llene cada petición con definiciones de herramientas permanentes."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Tamaño en línea del resultado MCP",
-          "description": "Cuánto del resultado de una herramienta MCP o de API personalizada ve el agente directamente en su contexto, en caracteres. La respuesta completa siempre se guarda en un archivo, sea cual sea este valor; este ajuste solo decide cuánto puede leer el modelo sin abrir ese archivo. Súbelo para que el agente responda a partir de un conjunto de resultados completo en lugar de una muestra; bájalo para gastar menos tokens por llamada. Ponlo en 0 para obtener una muestra de 3 registros. Limitado a 0-500000."
+        "tools_max": {
+          "name": "Máximo de herramientas",
+          "description": "Cuántas herramientas externas de MCP / API personalizada recibe el agente como herramientas propias en una ejecución. Por encima de este número se conservan las más usadas y el resto sigue disponible mediante la búsqueda de herramientas, para que un catálogo muy grande no llene cada solicitud con definiciones de herramientas."
         },
         "mcp_create_data_preview_rows": {
           "name": "Filas de vista previa de datos MCP",
@@ -3230,6 +3238,10 @@
         "max_instructions_in_context": {
           "name": "Máximo de instrucciones en el contexto",
           "description": "Número máximo de instrucciones que se incluyen en el contexto de la IA. Primero se cargan las instrucciones de tipo 'siempre' y después las 'inteligentes' ocupan los huecos restantes."
+        },
+        "smart_instructions_on_demand": {
+          "name": "El agente elige las instrucciones inteligentes",
+          "description": "El agente lee solo las instrucciones inteligentes que necesita, en lugar de cargar todas las coincidencias."
         },
         "allow_report_webhooks": {
           "name": "Webhooks de informes",
@@ -3309,7 +3321,7 @@
         },
         "sub_agent_model": {
           "name": "Modelo de subagentes",
-          "description": "Modelo con el que planifican los subagentes. 'auto' = el modelo pequeño por defecto para el perfil investigate y el modelo por defecto para validate; 'small' o 'default' fuerzan uno; o un id de modelo de la página de LLM."
+          "description": "Modelo con el que planifican los subagentes. 'auto' = el mismo modelo que la conversación principal (el modelo del informe cuando hay uno); 'small' fuerza el modelo pequeño por defecto; o un id de modelo de la página de LLM."
         },
         "sub_agent_allow_model_override": {
           "name": "Permitir cambiar el modelo de un subagente",

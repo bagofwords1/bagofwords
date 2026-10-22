@@ -29,7 +29,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select, update
 
@@ -279,7 +279,7 @@ class SubAgentService:
                 row = await self._lookup_model(db, organization, user, override)
                 if row is not None:
                     return row, None
-                note = f"model override '{override}' ignored: not a model this user may use"
+                note = f"model override '{override}' ignored: not one of the models this user may use (see the delegate tool's model list)"
         setting = (limits["model"] or "auto").lower()
         if setting not in ("auto", "small", "default"):
             row = await self._lookup_model(db, organization, user, limits["model"])
@@ -291,28 +291,35 @@ class SubAgentService:
         return parent_model, note
 
     async def _lookup_model(self, db, organization, user, spec: str):
-        """Resolve '<provider>/<model_id>', a model_id, or a db id — only among
-        enabled models the user may use (per-model RBAC)."""
-        from app.models.llm_model import LLMModel
-        from app.models.llm_provider import LLMProvider
-        from app.core.permission_resolver import user_can_use_model
+        """Resolve a model spec to an enabled chat model this user may use.
+
+        Accepts, in order: a label from the delegate tool's model list, a db
+        id, a full model_id (Bedrock ARNs and Vertex ids contain '/' and ':',
+        so the whole spec is tried before any provider split), a display
+        name, then '<provider>/<model_id or name>'. Only models the user may
+        use are candidates (see delegate_model_options), so a name shared by
+        several rows resolves to the one the user is granted.
+        """
         spec = (spec or "").strip()
         if not spec:
             return None
+        options = await delegate_model_options(db, organization, user)
+        if not options:
+            return None
+        low = spec.lower()
         provider_part, _, model_part = spec.partition("/")
-        if not model_part:
-            provider_part, model_part = None, spec
-        rows = (await db.execute(
-            select(LLMModel).where(LLMModel.organization_id == organization.id, LLMModel.is_enabled == True)  # noqa: E712
-        )).scalars().all()
-        for m in rows:
-            if str(m.id) == spec or (m.model_id == model_part and (provider_part is None or _provider_matches(m, provider_part))):
-                try:
-                    if user is not None and not await user_can_use_model(db, user.id, organization.id, m):
-                        return None
-                except Exception:
-                    return None
-                return m
+        tiers = (
+            lambda label, m: label.lower() == low,
+            lambda label, m: str(m.id) == spec,
+            lambda label, m: str(m.model_id or "") == spec,
+            lambda label, m: str(m.model_id or "").lower() == low or str(m.name or "").lower() == low,
+            lambda label, m: bool(model_part) and _provider_matches(m, provider_part)
+            and model_part.lower() in {str(m.model_id or "").lower(), str(m.name or "").lower()},
+        )
+        for matches in tiers:
+            for label, m in options:
+                if matches(label, m):
+                    return m
         return None
 
     async def launch_pending(self, *, report_id: str, parent_completion_id: str, settings, sigkilled: bool = False) -> Optional[str]:
@@ -1040,6 +1047,123 @@ async def _sigkill_completion(db, completion_id: str) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 # Rendering helpers
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Most options rendered into the delegate tool's schema (~12 tokens each, in
+# the cached tools block). Orgs with a few providers already pass 30 models,
+# so this is sized to list them all; past it the list is advisory and the
+# lookup still accepts every usable model.
+MAX_DELEGATE_MODEL_OPTIONS = 100
+
+
+async def delegate_model_options(db, organization, user) -> List[Tuple[str, Any]]:
+    """(label, LLMModel) for every chat model this user may run a sub-agent on.
+
+    Enabled models on a live provider, minus image-generation models, gated
+    by per-model access (user None = system path, no gate). The label is the
+    model's display name, prefixed '<provider name>/' when several usable
+    models share that name; any remaining clash gets the db id appended, so
+    labels are unique and the lookup maps each back to exactly one row.
+    """
+    from app.models.llm_model import LLMModel
+    from app.models.llm_provider import LLMProvider
+    from app.core.permission_resolver import model_open_to_all, filter_models_user_can_use
+    rows = (await db.execute(
+        select(LLMModel)
+        .join(LLMModel.provider)
+        .where(
+            LLMModel.organization_id == organization.id,
+            LLMModel.is_enabled == True,  # noqa: E712
+            LLMModel.deleted_at == None,  # noqa: E711
+            LLMModel.supports_image_generation == False,  # noqa: E712
+            LLMProvider.is_enabled == True,  # noqa: E712
+            LLMProvider.deleted_at == None,  # noqa: E711
+        )
+        .order_by(LLMModel.created_at.asc(), LLMModel.id.asc())
+    )).scalars().unique().all()
+
+    if user is None:
+        usable = list(rows)
+    else:
+        try:
+            usable = await filter_models_user_can_use(db, user.id, organization.id, rows)
+        except Exception:
+            # Fail closed for restricted models only; open ones need no check.
+            logger.exception("sub-agent model options: access check failed; offering open models only")
+            usable = [m for m in rows if model_open_to_all(m)]
+
+    def _name(m) -> str:
+        return (str(m.name or "").strip() or str(m.model_id or "").strip() or str(m.id))
+
+    counts: Dict[str, int] = {}
+    for m in usable:
+        counts[_name(m).lower()] = counts.get(_name(m).lower(), 0) + 1
+    out: List[Tuple[str, Any]] = []
+    seen = set()
+    for m in usable:
+        label = _name(m)
+        if counts[label.lower()] > 1:
+            prov = getattr(m, "provider", None)
+            label = f"{str(getattr(prov, 'name', '') or getattr(prov, 'provider_type', '') or '').strip()}/{label}"
+        if label.lower() in seen:
+            label = f"{label} ({m.id})"
+        seen.add(label.lower())
+        out.append((label, m))
+    return out
+
+
+def build_delegate_schema(base_schema: Optional[Dict[str, Any]], options: List[Tuple[str, Any]], *,
+                          current_model_id: Optional[str] = None) -> Dict[str, Any]:
+    """The delegate tool's input schema with this user's models as the `model` enum.
+
+    Returns a new dict (the registry's schema is shared). No options → the
+    `model` property is removed, so the planner never guesses an id.
+    """
+    import copy
+    schema = copy.deepcopy(base_schema or {"type": "object", "properties": {}})
+    props = schema.setdefault("properties", {})
+    if not options:
+        props.pop("model", None)
+        if isinstance(schema.get("required"), list):
+            schema["required"] = [k for k in schema["required"] if k != "model"]
+        return schema
+
+    def _rank(item):
+        _, m = item
+        current = 0 if current_model_id and str(m.id) == str(current_model_id) else 1
+        default = 0 if getattr(m, "is_default", False) else 1
+        small = 0 if getattr(m, "is_small_default", False) else 1
+        return (current, default, small, item[0].lower())
+
+    shown = sorted(options, key=_rank)[:MAX_DELEGATE_MODEL_OPTIONS]
+    lines = []
+    for label, m in shown:
+        prov = getattr(m, "provider", None)
+        tags = []
+        if current_model_id and str(m.id) == str(current_model_id):
+            tags.append("current conversation model")
+        if getattr(m, "is_default", False):
+            tags.append("org default")
+        if getattr(m, "is_small_default", False):
+            tags.append("small default")
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        lines.append(f"- {label} ({getattr(prov, 'provider_type', '') or '?'}){tag_str}")
+    more = "" if len(options) <= len(shown) else (
+        f"\n({len(options) - len(shown)} more usable models are not listed; their exact name or model id is also accepted.)"
+    )
+    prop: Dict[str, Any] = {"type": "string"}
+    if len(options) <= len(shown):
+        # Complete list: constrain to it. A capped list stays advisory.
+        prop["enum"] = [label for label, _ in shown]
+    props["model"] = {
+        **prop,
+        "description": (
+            "Override the child's model. Leave unset unless the user asked for a model or an instruction "
+            "names one: by default the child runs on the current conversation model. Pick the value exactly "
+            "as listed; these are the models this user may use:\n" + "\n".join(lines) + more
+        ),
+    }
+    return schema
+
 
 def _provider_matches(model, provider_part: str) -> bool:
     prov = getattr(model, "provider", None)

@@ -2495,8 +2495,17 @@ class DataSourceService:
                     all_success = False
                     last_status = {"success": False, "message": str(e)}
 
-            # Reflect connectivity on org-wide flag only for system creds
-            if persist and getattr(data_source, "auth_policy", "system_only") == "system_only":
+            # Reflect connectivity on the org-wide flag only when every
+            # connection is shared (system_only): then a failed probe means the
+            # agent is broken for everybody. On a per-user connection it says
+            # something about the caller only (not signed in, an expired
+            # token). The policy lives on the connection; the agent no longer
+            # carries one, so reading it there always saw the default.
+            shared_only = all(
+                (getattr(conn, "auth_policy", None) or "system_only") == "system_only"
+                for conn in data_source.connections
+            )
+            if persist and shared_only:
                 if not all_success:
                     data_source.is_active = False
                 elif data_source.is_active == False:

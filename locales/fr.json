@@ -1897,6 +1897,7 @@
     "permissions": {
       "manage_files": "Gérer les fichiers",
       "create_data_source": "Créer un agent",
+      "create_connections": "Créer des connexions",
       "manage_connections": "Gérer les connexions",
       "manage_instructions": "Gérer les instructions",
       "manage_entities": "Gérer les entités",
@@ -2960,21 +2961,9 @@
           "name": "Outils MCP et API personnalisées",
           "description": "Permet de connecter des serveurs MCP externes et des points de terminaison d'API personnalisés aux sources de données en tant que fournisseurs d'outils"
         },
-        "enable_mcp_native_tools": {
-          "name": "Enregistrement natif des outils MCP",
-          "description": "Enregistre chaque outil MCP ou API personnalisée comme un outil d'agent à part entière, appelable directement, au lieu d'acheminer chaque appel via l'outil générique execute_mcp. Ne prend effet que lorsque le catalogue d'outils d'un rapport atteint le seuil ci-dessous."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Seuil des outils MCP natifs",
-          "description": "Combien d'outils MCP ou d'API personnalisées activés un rapport doit compter avant que l'enregistrement natif soit utilisé. En dessous, l'enregistrement natif équivaut, à la mesure, à la voie générique ; celle-ci est donc conservée. Mettez 0 pour toujours enregistrer nativement."
-        },
-        "mcp_native_tools_max": {
-          "name": "Nombre maximal d'outils MCP natifs",
-          "description": "Limite supérieure du nombre d'outils enregistrés nativement pour un rapport. Les outils au-delà du plafond restent sur la voie générique execute_mcp, afin qu'un très grand catalogue ne remplisse pas chaque requête de définitions d'outils permanentes."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Taille en ligne du résultat MCP",
-          "description": "Quelle part du résultat d'un outil MCP ou d'API personnalisée l'agent voit directement dans son contexte, en caractères. La réponse complète est toujours enregistrée dans un fichier quelle que soit cette valeur ; ce réglage détermine seulement ce que le modèle peut lire sans ouvrir ce fichier. Augmentez-le pour que l'agent réponde à partir d'un jeu de résultats complet plutôt que d'un échantillon ; diminuez-le pour dépenser moins de tokens par appel. Mettez 0 pour un échantillon de 3 enregistrements. Borné entre 0 et 500000."
+        "tools_max": {
+          "name": "Nombre maximal d'outils",
+          "description": "Nombre d'outils MCP / API personnalisée externes donnés à l'agent comme ses propres outils dans une exécution. Au-delà, les plus utilisés sont conservés et les autres restent accessibles via la recherche d'outils, afin qu'un très grand catalogue ne remplisse pas chaque requête de définitions d'outils."
         },
         "mcp_create_data_preview_rows": {
           "name": "Lignes d'aperçu des données MCP",
@@ -3019,6 +3008,10 @@
         "max_instructions_in_context": {
           "name": "Nombre maximal d'instructions dans le contexte",
           "description": "Nombre maximal d'instructions à inclure dans le contexte de l'IA. Les instructions « toujours » sont chargées en premier, puis les instructions « intelligentes » remplissent les emplacements restants."
+        },
+        "smart_instructions_on_demand": {
+          "name": "L'agent choisit les instructions intelligentes",
+          "description": "L'agent lit uniquement les instructions intelligentes dont il a besoin, au lieu de charger toutes les correspondances."
         },
         "allow_report_webhooks": {
           "name": "Webhooks de rapport",

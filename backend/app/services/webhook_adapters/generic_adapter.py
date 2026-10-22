@@ -36,14 +36,17 @@ class GenericAdapter(WebhookAdapter):
         return headers.get("x-bow-delivery") or headers.get("x-webhook-id")
 
     def normalize(self, headers: dict, payload: dict) -> dict:
-        event_key = (
-            payload.get("type")
-            or payload.get("event")
-            or payload.get("action")
-            or "event"
-        )
-        title = payload.get("title") or payload.get("name") or payload.get("message") or ""
-        summary = f"{event_key}: {title}".strip(": ").strip() or f"Webhook event: {event_key}"
+        def first(*keys) -> str:
+            for k in keys:
+                text = self._text(payload.get(k))
+                if text:
+                    return text
+            return ""
+
+        event_key = first("type", "event", "action") or "event"
+        title = first("title", "name", "short_description", "summary", "subject", "message")
+        summary = f"{event_key}: {title}" if title else f"Webhook event: {event_key}"
+        summary = summary[:200]
         try:
             details = json.dumps(payload, indent=1, default=str)[:2000]
         except Exception:

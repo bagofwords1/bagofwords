@@ -1,3 +1,4 @@
+import contextlib
 import time
 from collections import defaultdict, deque
 from datetime import datetime
@@ -458,6 +459,30 @@ class WebhookService:
         bucket.append(now)
         return True
 
+    async def _apply_fallback_title(self, db, report_id, title: str) -> None:
+        """Name a still-untitled spawned report. Non-fatal by contract."""
+        if not (title or "").strip():
+            return
+        from sqlalchemy import update as sa_update
+
+        from app.ai.agent_v2 import PLACEHOLDER_REPORT_TITLES
+        try:
+            await db.execute(
+                sa_update(Report)
+                .where(
+                    Report.id == str(report_id),
+                    func.lower(func.trim(func.coalesce(Report.title, ""))).in_(
+                        PLACEHOLDER_REPORT_TITLES
+                    ),
+                )
+                .values(title=title.strip())
+            )
+            await db.commit()
+        except Exception as e:
+            logger.warning("Trigger report %s: fallback title failed: %s", report_id, e)
+            with contextlib.suppress(Exception):
+                await db.rollback()
+
     # Header names whose values can carry credentials — never stored/echoed.
     _SENSITIVE_HEADER_MARKERS = ("auth", "token", "secret", "key", "signature", "cookie", "password")
     # Non-`x-` headers worth keeping for debugging a delivery.
@@ -766,7 +791,13 @@ class WebhookService:
         #    access to each agent at spawn time (access drift → dropped).
         from app.services.report_service import ReportService
         from app.schemas.report_schema import ReportCreate
-        title = (norm.get("summary") or wh.name or "Trigger run")[:120]
+        # Spawn untitled: the agent's own title generator (agent_v2
+        # _start_title_generation) only names placeholder-titled reports, and
+        # an LLM reads a raw event far better than any per-source template —
+        # e.g. ServiceNow's nested {value, display_value} reference fields.
+        # A run that dies before titling falls back to the summary below.
+        title = ""
+        fallback_title = (norm.get("summary") or wh.name or "Trigger run")[:120]
         # Sessions land in the trigger's project when it has one. If the owner
         # lost access to that project since setup, spawn at the root rather than
         # dropping the delivery — the run still belongs to them either way.
@@ -869,6 +900,11 @@ class WebhookService:
             logger.error("Trigger %s: agent run failed on spawned report %s: %s", wh.id, report.id, e)
             event.status = "error"
             await db.commit()
+
+        # A run that failed before its title landed must not leave the
+        # session nameless in the sidebar. Conditional so a generated title
+        # (or a user rename) always wins.
+        await self._apply_fallback_title(db, report.id, fallback_title)
 
         # 5) Owner notification — acted deliveries only (declined/noise events
         #    stay silent). A failure goes down the shared automation-failure path

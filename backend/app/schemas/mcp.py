@@ -3,7 +3,7 @@ from app.schemas.artifact_resource_schema import ResourceDefinition
 
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Literal, Optional, List, TYPE_CHECKING
 
 # Reuse existing schemas
 from app.ai.tools.schemas.create_widget import TablesBySource
@@ -271,6 +271,165 @@ class MCPDeleteInstructionInput(BaseModel):
 class MCPDeleteInstructionOutput(BaseModel):
     """Output for delete_instruction MCP tool."""
     success: bool
+    error_message: Optional[str] = None
+
+
+# === read_instruction / edit_instruction ===
+
+class MCPReadInstructionInput(BaseModel):
+    """Input for read_instruction MCP tool."""
+    instruction_id: str = Field(..., description="ID of the instruction (from list_instructions)")
+
+
+class MCPInstructionAgentRef(BaseModel):
+    id: str
+    name: Optional[str] = None
+
+
+class MCPInstructionDetail(BaseModel):
+    id: str
+    title: Optional[str] = None
+    text: str
+    category: Optional[str] = None
+    status: Optional[str] = None
+    load_mode: Optional[str] = None
+    kind: Optional[str] = None
+    state: Optional[str] = Field(default=None, description="active or inactive — what edit_instruction's status takes")
+    agents: List[MCPInstructionAgentRef] = Field(
+        default_factory=list, description="Agents this applies to. Empty means global (every agent).",
+    )
+    pending_review: bool = Field(default=False, description="True while a change waits for admin review")
+    can_edit: bool = Field(default=False, description="Whether the caller may edit or delete it")
+
+
+class MCPReadInstructionOutput(BaseModel):
+    success: bool
+    instruction: Optional[MCPInstructionDetail] = None
+    error_message: Optional[str] = None
+
+
+class MCPEditInstructionInput(BaseModel):
+    """Input for edit_instruction MCP tool — the in-app agent's anchored edit contract.
+
+    Omitted fields stay unchanged. Unlike the in-app agent (which stages edits
+    as suggestions for review), an MCP edit is published directly, exactly as
+    if the caller saved it in the web app — so the caller needs the same rights.
+    """
+    instruction_id: str = Field(..., description="ID of the instruction to edit")
+    old_text: Optional[str] = Field(
+        default=None,
+        description=(
+            "REQUIRED whenever you pass `text`: an exact snippet of the CURRENT text, which `text` "
+            "replaces. Must match exactly once — use a short unique phrase or sentence, not the "
+            "whole instruction. \"\" is not an anchor. To ADD a rule, anchor the sentence it "
+            "belongs after and repeat it verbatim at the start of `text`, then your addition. "
+            "Several small anchored edits beat one rewrite."
+        ),
+    )
+    replace_entire_text: bool = Field(
+        default=False,
+        description=(
+            "Opt in to replacing the WHOLE instruction with `text`. Only for an explicit rewrite "
+            "request; everything else uses `old_text`."
+        ),
+    )
+    text: Optional[str] = Field(
+        default=None, max_length=20000,
+        description="Replacement for `old_text` (or the whole text with replace_entire_text). Write only the change asked for.",
+    )
+    title: Optional[str] = Field(default=None, max_length=200, description="New title")
+    category: Optional[str] = Field(
+        default=None, description="general, code_gen, visualization, dashboard or system",
+    )
+    load_mode: Optional[str] = Field(
+        default=None,
+        description="'always' or 'intelligent' (load when its tables are relevant). Not an off switch — use status.",
+    )
+    status: Optional[Literal["active", "inactive"]] = Field(
+        default=None,
+        description="Turn the instruction on ('active') or off ('inactive', kept but no longer loaded). Omit to leave unchanged.",
+    )
+    data_source_ids: Optional[List[str]] = Field(
+        default=None,
+        description="New agent scope (replaces it). [] makes it global, which needs org-level instruction admin.",
+    )
+
+
+class MCPEditInstructionOutput(BaseModel):
+    success: bool
+    instruction_id: Optional[str] = None
+    build_status: Optional[str] = Field(default=None, description="approved (live) or pending_approval")
+    requires_approval: bool = False
+    previous_text: Optional[str] = None
+    new_text: Optional[str] = Field(default=None, description="Full text after the edit — anchor your next edit on it")
+    previous_status: Optional[str] = None
+    new_status: Optional[str] = None
+    instruction: Optional[MCPInstructionDetail] = None
+    rejected_reason: Optional[str] = Field(
+        default=None,
+        description="anchor_required, anchor_not_found, ambiguous_anchor, result_too_short, invalid_*, "
+                    "no_change, status_change_not_allowed, not_found, permission_denied",
+    )
+    current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
+    error_message: Optional[str] = None
+
+
+# === describe_tables / edit_schema ===
+
+class MCPDescribeTablesInput(BaseModel):
+    """Input for describe_tables MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    search: Optional[str] = Field(default=None, description="Filter tables by name")
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+    include_columns: bool = Field(default=True, description="Include column names and types")
+
+
+class MCPTableColumn(BaseModel):
+    name: str
+    dtype: Optional[str] = None
+    description: Optional[str] = None
+
+
+class MCPTableItem(BaseModel):
+    id: Optional[str] = None
+    name: str
+    is_active: bool
+    rows: Optional[int] = None
+    connection_name: Optional[str] = None
+    columns: Optional[List[MCPTableColumn]] = None
+    excluded_columns: Optional[List[str]] = None
+
+
+class MCPDescribeTablesOutput(BaseModel):
+    success: bool
+    data_source_id: Optional[str] = None
+    can_edit_schema: bool = False
+    tables: List[MCPTableItem] = Field(default_factory=list)
+    total: int = 0
+    selected_count: int = 0
+    page: int = 1
+    has_more: bool = False
+    error_message: Optional[str] = None
+
+
+class MCPEditSchemaInput(BaseModel):
+    """Input for edit_schema MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    activate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should use")
+    deactivate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should stop using")
+    excluded_columns: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Table id → COMPLETE list of column names to hide from the agent (replaces; [] shows all)",
+    )
+
+
+class MCPEditSchemaOutput(BaseModel):
+    success: bool
+    activated_count: int = 0
+    deactivated_count: int = 0
+    columns_updated_count: int = 0
+    selected_count: Optional[int] = None
     error_message: Optional[str] = None
 
 

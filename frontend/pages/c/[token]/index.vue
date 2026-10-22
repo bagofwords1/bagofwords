@@ -273,6 +273,7 @@ import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
+import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -579,6 +580,9 @@ function getToolComponent(toolName: string) {
     // Native per-list tools (submit_<list>) stream under their own name
     // before the gateway rewrite to submit_list.
     if (toolName?.startsWith('submit_')) return SubmitListTool
+    // Native MCP tools (mcp__<connection>__<tool>) and call_tool stream under
+    // their own name before the rewrite to execute_mcp.
+    if (toolName?.startsWith('mcp__')) return MCPTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -640,6 +644,8 @@ function getToolComponent(toolName: string) {
         case 'write_officejs_code':
             return WriteOfficeJsCodeTool
         case 'search_mcps':
+        case 'search_tools':
+        case 'call_tool':
         case 'execute_mcp':
             return MCPTool
         case 'search_reports':
@@ -747,6 +753,8 @@ function getToolComponent(toolName: string) {
         case 'create_list':
         case 'edit_list':
             return ListSchemaTool
+        case 'delete_list_rows':
+            return DeleteListRowsTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by

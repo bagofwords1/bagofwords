@@ -1,5 +1,35 @@
 # Release Notes
 
+## Version 0.0.595 (October 21, 2026)
+- Added a "Create connections" role permission: members create connections and manage only their own, plus the agents on them (#1447) — `create_connections`
+- Added deleting list rows from chat, after confirming the rows on a card (#1443)
+- Changed sub-agents to run on the main conversation's model by default instead of the small model (#1444) — set `sub_agent_model` to `small` to keep the old behavior
+- Fixed result filters not applying to the table in the side pane (#1446)
+- Fixed trigger-spawned sessions titled with raw event data instead of a readable name (#1445)
+- Fixed sub-agents refused a model the user can use when several providers offer it (#1444)
+- Fixed the dashboard ⓘ icon showing as an empty box under some dashboard styles, and covering short labels (#1442)
+
+## Version 0.0.594 (October 20, 2026)
+- Added scheduling dashboard refreshes at any minute, not only on the hour (#1436)
+- Fixed dashboard refreshes running on the server clock instead of the organization's timezone (#1437) — existing schedules move to the org timezone on upgrade
+
+## Version 0.0.593 (October 19, 2026)
+- Added instruction and table-selection tools to the BOW MCP server for agent managers (#1427) — `read_instruction`, `edit_instruction`, `describe_tables`, `edit_schema`
+- Added a cap on MCP tools offered to the agent, with tool search for the rest (#1426) — `tools_max` in AI Settings → Tools & MCP (default 50)
+- Added Priority form and column titles to the agent's context and to result headers (#1396)
+- Changed agent replies to arrive faster: shared LLM and MCP connections, fewer context rebuilds, and earlier non-streaming API responses (#1426)
+- Changed MCP tools to follow the agents a run uses, in Auto and pinned agents (#1426)
+- Fixed MCP instruction tools ignoring agent permissions: members could attach rules to agents they can't see, and owners couldn't delete them (#1427)
+- Fixed users without a grant getting a restricted model when the org has no default model (#1430)
+- Fixed a failed Test connection on a per-user agent turning the agent off for the whole org (#1425)
+- Fixed chat streams stalling behind buffering proxies (#1424)
+- Fixed overflow recovery not running when OpenAI reports a context overflow mid-stream (#1416)
+- Fixed Priority subform reads hanging on large companies (#1417)
+- Fixed slow Priority queries when a line column only breaks ties (#1418)
+- Fixed the training Summary showing the wrong review state for instructions (#1419)
+- Fixed the trigger modal disappearing when switching to Edit (#1423)
+- Fixed browser-tool pages failing to embed public iframes such as reCAPTCHA (#1428)
+
 ## Version 0.0.592 (October 17, 2026)
 - Added paging through long files with `offset`/`length` on every file connection and on chat uploads (#1401)
 - Added reading and searching .eml and Outlook .msg emails, including their attachments, on every file connection (#1402)

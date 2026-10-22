@@ -1726,7 +1726,7 @@ class MessageContextBuilder:
                                         digest_parts.append(f"{dur}ms")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('search_mcps', 'search_tools') and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     obs = rj.get('observation') or rj
                                     digest_parts = []
@@ -2432,7 +2432,7 @@ class MessageContextBuilder:
                                     digest_parts.append(f"{dur}ms")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('search_mcps', 'search_tools') and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 obs = rj.get('observation') or rj
                                 digest_parts = []

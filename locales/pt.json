@@ -1897,6 +1897,7 @@
     "permissions": {
       "manage_files": "Gerenciar arquivos",
       "create_data_source": "Criar agente",
+      "create_connections": "Criar conexões",
       "manage_connections": "Gerenciar conexões",
       "manage_instructions": "Gerenciar instruções",
       "manage_entities": "Gerenciar entidades",
@@ -2960,21 +2961,9 @@
           "name": "Ferramentas MCP e de API personalizada",
           "description": "Permite conectar servidores MCP externos e endpoints de API personalizados às fontes de dados como provedores de ferramentas"
         },
-        "enable_mcp_native_tools": {
-          "name": "Registro nativo de ferramentas MCP",
-          "description": "Registra cada ferramenta MCP ou de API personalizada como uma ferramenta de agente própria, chamável diretamente, em vez de encaminhar cada chamada pela ferramenta genérica execute_mcp. Só entra em vigor quando o catálogo de ferramentas de um relatório atinge o limiar abaixo."
-        },
-        "mcp_native_tools_threshold": {
-          "name": "Limiar de ferramentas MCP nativas",
-          "description": "Quantas ferramentas MCP ou de API personalizada ativas um relatório precisa ter antes de usar o registro nativo. Abaixo disso, o registro nativo se equivale ao caminho genérico na medição, então o caminho genérico é mantido. Defina 0 para sempre registrar nativamente."
-        },
-        "mcp_native_tools_max": {
-          "name": "Máximo de ferramentas MCP nativas",
-          "description": "Limite superior de quantas ferramentas são registradas nativamente para um relatório. As ferramentas acima do teto permanecem no caminho genérico execute_mcp, para que um catálogo muito grande não preencha cada solicitação com definições de ferramentas permanentes."
-        },
-        "mcp_result_inline_chars": {
-          "name": "Tamanho embutido do resultado MCP",
-          "description": "Quanto do resultado de uma ferramenta MCP ou de API personalizada o agente vê diretamente em seu contexto, em caracteres. A resposta completa é sempre salva em um arquivo, qualquer que seja este valor; esta configuração decide apenas quanto o modelo pode ler sem abrir esse arquivo. Aumente para que o agente responda a partir de um conjunto de resultados inteiro em vez de uma amostra; diminua para gastar menos tokens por chamada. Defina 0 para uma amostra de 3 registros. Limitado a 0-500000."
+        "tools_max": {
+          "name": "Máximo de ferramentas",
+          "description": "Quantas ferramentas externas de MCP / API personalizada o agente recebe como ferramentas próprias numa execução. Acima desse número, as mais usadas são mantidas e o restante continua acessível pela pesquisa de ferramentas, para que um catálogo muito grande não encha cada pedido de definições de ferramentas."
         },
         "mcp_create_data_preview_rows": {
           "name": "Linhas de pré-visualização de dados MCP",
@@ -3019,6 +3008,10 @@
         "max_instructions_in_context": {
           "name": "Máximo de instruções no contexto",
           "description": "Número máximo de instruções a incluir no contexto da IA. As instruções do tipo 'sempre' são carregadas primeiro e depois as 'inteligentes' preenchem as vagas restantes."
+        },
+        "smart_instructions_on_demand": {
+          "name": "O agente escolhe as instruções inteligentes",
+          "description": "O agente lê apenas as instruções inteligentes de que precisa, em vez de carregar todas as correspondências."
         },
         "allow_report_webhooks": {
           "name": "Webhooks de relatório",

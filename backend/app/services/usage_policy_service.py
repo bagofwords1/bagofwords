@@ -300,6 +300,32 @@ class UsageLimitContext:
         import time as _time
         self._cache_loaded_at = _time.monotonic()
 
+    async def _ensure_fresh(self) -> None:
+        import time as _time
+        now = _time.monotonic()
+        # Need a refresh? First call ever, or TTL expired.
+        if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+            # Serialize concurrent refreshers — only one DB roundtrip even
+            # when N tasks race here at the same agent run's first call.
+            if self._cache_lock is None:
+                self._cache_lock = asyncio.Lock()
+            async with self._cache_lock:
+                if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+                    await self._refresh_quota_cache()
+
+    async def prefetch(self) -> None:
+        """Load the quota cache ahead of the first LLM call, so that call's
+        check_tokens does not wait on the DB. Enforces nothing; errors are
+        left for check_tokens to meet."""
+        if self._parent is not None:
+            return await self._root().prefetch()
+        if not has_feature("usage_limits") or self.session_maker is None:
+            return
+        try:
+            await self._ensure_fresh()
+        except Exception:
+            pass
+
     async def check_tokens(self, requested_tokens: int) -> None:
         """Cheap pre-LLM-call quota check. Hits the DB at most once per
         TTL window; otherwise compares against the cached limit/used.
@@ -315,17 +341,7 @@ class UsageLimitContext:
         if requested_tokens <= 0:
             requested_tokens = 1
 
-        import time as _time
-        now = _time.monotonic()
-        # Need a refresh? First call ever, or TTL expired.
-        if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
-            # Serialize concurrent refreshers — only one DB roundtrip even
-            # when N tasks race here at the same agent run's first call.
-            if self._cache_lock is None:
-                self._cache_lock = asyncio.Lock()
-            async with self._cache_lock:
-                if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
-                    await self._refresh_quota_cache()
+        await self._ensure_fresh()
 
         # Spend cap: this call's dollar cost isn't known until after the
         # provider responds, so we can't project it. Instead we stop once

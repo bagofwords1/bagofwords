@@ -1,3 +1,4 @@
+from pydantic.json_schema import SkipJsonSchema
 from typing import Dict, Any, Optional, List, Literal
 from pydantic import BaseModel, Field, field_validator
 
@@ -32,7 +33,11 @@ class CreateDataInput(BaseModel):
     """
 
     title: str = Field(..., description="Title for the data artifact to create. Should be in the same language of the user/prompt")
-    user_prompt: str = Field(..., description="Original user instruction")
+    # Filled by the tool from the user's message, not written by the model:
+    # having the model restate the question cost ~25 output tokens per call
+    # for text the run already has. Hidden from the schema the model sees;
+    # internal callers (the external MCP create_data) may still pass it.
+    user_prompt: SkipJsonSchema[Optional[str]] = None
     interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt. "
     "Be prescriptive: name specific tables, target columns, and additional columns for filtering. "
     "Prefer a single wide master table with multiple metrics and dimensions over many narrow queries. "

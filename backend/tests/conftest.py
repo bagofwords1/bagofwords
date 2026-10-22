@@ -138,6 +138,12 @@ from app.settings.database import create_async_database_engine, create_async_ses
 # Ensure the application uses the test database/engine during tests
 settings.TESTING = True
 
+# The suite's client runs each request on its own event loop, which would
+# cancel a non-streaming run's post-answer tail along with the request. Tests
+# of that early return opt back in with a long-lived client.
+from app.services.completion_service import CompletionService as _CompletionService
+_CompletionService.RETURN_ON_ANSWER_ENABLED = False
+
 
 def pytest_addoption(parser):
     """Add --db CLI option for selecting test database backend."""

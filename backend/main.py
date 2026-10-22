@@ -24,6 +24,15 @@ args, _ = parser.parse_known_args()
 if args.config:
     os.environ['BOW_CONFIG_PATH'] = args.config
 
+# Process-wide TLS verification policy. Must run after --config is exported
+# above (settings are built on first import) and before any other app import:
+# aiohttp (pulled in by the route modules) builds and caches its SSL context
+# at import, and the shared httpx context is cached on first use. Loading
+# settings here imports nothing that builds a context.
+from app.settings.config import settings
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
+
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
@@ -739,10 +748,17 @@ async def startup_event():
     scheduler.start()
 
     if is_scheduler_leader:
-        # Re-register scheduled prompt jobs (only the leader flushes these to
-        # the jobstore; non-leaders would duplicate the set).
+        # Re-register scheduled prompt jobs and move dashboard refresh jobs onto
+        # their org timezone (only the leader flushes these to the jobstore;
+        # non-leaders would duplicate the set).
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
+        # Best effort: a failure here must not stop the app from starting.
+        try:
+            from app.services.report_service import ReportService
+            await ReportService().register_schedule_timezones()
+        except Exception as e:
+            logger.error(f"Failed to move dashboard refresh jobs to their org timezone: {e}")
         # Published dashboards' schedules (phase 6), rebuilt from the table.
         try:
             from app.services.dashboard_refresh import register_all_jobs as register_dashboard_jobs

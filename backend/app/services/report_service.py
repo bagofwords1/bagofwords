@@ -29,6 +29,7 @@ from logging import getLogger
 import asyncio
 
 from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
+from app.models.organization_settings import OrganizationSettings
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
@@ -49,6 +50,29 @@ tracer = get_tracer(__name__)
 # Making it configurable would reintroduce the need for a separate per-report
 # ceiling, since an owner could otherwise set it to a few seconds.
 REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS = 300
+
+
+def _org_timezone_from_config(config) -> str | None:
+    """The org's IANA timezone from its settings config; None when unset or not a valid zone."""
+    import json
+    from zoneinfo import ZoneInfo
+
+    if isinstance(config, str):  # some drivers hand JSON columns back as text
+        config = json.loads(config or "{}")
+    tz = (config or {}).get("timezone") or None
+    if tz is None:
+        return None
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        logger.warning(f"Ignoring invalid org timezone {tz!r}; refresh uses the server clock")
+        return None
+    return tz
+
+
+def _tz_key(tz) -> str:
+    """Comparable name of a tzinfo (IANA key when it has one)."""
+    return getattr(tz, "key", None) or str(tz)
 
 
 class ReportService:
@@ -3587,6 +3611,66 @@ class ReportService:
         run["skipped"] = False
         return run
 
+    def _refresh_trigger_args(self, cron_expression, tz: str | None) -> dict | None:
+        """APScheduler cron kwargs for a dashboard refresh: the cron fields, plus the
+        org timezone when it has one (else APScheduler uses the server clock)."""
+        params = self._parse_cron_expression(cron_expression)
+        if params is not None and tz:
+            params = {**params, "timezone": tz}
+        return params
+
+    async def register_schedule_timezones(self):
+        """Move dashboard refresh jobs onto their org's current timezone. Call on app startup.
+
+        A refresh job lives in the job store with the timezone it was registered
+        with, and set_report_schedule only runs when the owner saves. Jobs saved
+        before the org timezone was honoured (or before the org changed it) would
+        otherwise keep firing on the old clock forever. Jobs already on the right
+        timezone are left untouched, so a restart does not reset their next run.
+
+        Best effort: if the reports/settings lookup fails, no job is touched — a
+        failed read must never be mistaken for "this org has no timezone" and
+        move a correct job onto the server clock.
+        """
+        from app.dependencies import async_session_maker
+
+        prefix = "report_"
+        jobs = [job for job in scheduler.get_jobs() if job.id.startswith(prefix)]
+        if not jobs:
+            return
+        try:
+            async with async_session_maker() as db:
+                rows = (await db.execute(
+                    select(Report.id, Report.cron_schedule, OrganizationSettings.config)
+                    .outerjoin(OrganizationSettings, OrganizationSettings.organization_id == Report.organization_id)
+                    # Every scheduled report rather than an IN list of job ids:
+                    # no bound-parameter ceiling however many dashboards exist.
+                    .where(Report.cron_schedule.isnot(None))
+                )).all()
+        except Exception:
+            logger.exception("Could not read dashboard schedules; leaving refresh jobs on their current timezone")
+            return
+        found = {str(row.id): row for row in rows}
+
+        moved = 0
+        for job in jobs:
+            report_id = job.id[len(prefix):]
+            row = found.get(report_id)
+            if row is None:
+                continue
+            try:
+                tz = _org_timezone_from_config(row.config)
+                params = self._refresh_trigger_args(row.cron_schedule, tz)
+                if params is None:
+                    continue
+                if _tz_key(getattr(job.trigger, "timezone", "")) == _tz_key(tz or scheduler.timezone):
+                    continue
+                scheduler.reschedule_job(job.id, trigger="cron", **params)
+                moved += 1
+            except Exception:
+                logger.exception(f"Failed to move refresh job for report {report_id} to its org timezone")
+        logger.info(f"Moved {moved} of {len(jobs)} dashboard refresh jobs to their org timezone on startup")
+
     async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization, notification_subscribers: list = None, refresh_on_view: bool | None = None) -> Report:
         
         result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -3610,15 +3694,23 @@ class ReportService:
                                                           current_user=current_user, organization=organization)
             await db.refresh(report)
             return await conversation_dashboard.as_report_schema(db, report)
+
+        # Fire at the chosen wall-clock time in the org's timezone (Settings →
+        # General); without one, APScheduler uses the server clock as before.
+        # Read before the old job is removed: if this read fails the request
+        # fails and the existing schedule stays as it was.
+        org_config = (await db.execute(
+            select(OrganizationSettings.config)
+            .where(OrganizationSettings.organization_id == report.organization_id)
+        )).scalar_one_or_none()
+        cron_expression_parsed = self._refresh_trigger_args(cron_expression, _org_timezone_from_config(org_config))
+
         try:
             # Try to remove existing job if it exists
             scheduler.remove_job(job_id=f"report_{report_id}")
         except JobLookupError:
             # Job doesn't exist yet, that's fine
             pass
-        
-        # Continue with scheduling the new job (only if a valid cron is provided)
-        cron_expression_parsed = self._parse_cron_expression(cron_expression)
 
         if cron_expression_parsed is not None:
             job = scheduler.add_job(

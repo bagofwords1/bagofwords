@@ -43,7 +43,7 @@ ANSWER = "Revenue grew 12% month over month, led by the enterprise plan."
 QUESTION = "How did monthly revenue change across the last quarter?"
 CORRECTION = "No, I meant net revenue instead of gross revenue for that quarter"
 CLARIFY_ARGS = {"questions": [{"text": "Which revenue definition?", "options": ["gross", "net"]}]}
-MCP_TOOLS = {"execute_mcp", "search_mcps", "list_mcp_resources", "read_mcp_resource"}
+MCP_TOOLS = {"execute_mcp", "search_tools", "call_tool", "list_mcp_resources", "read_mcp_resource"}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -442,10 +442,6 @@ def tool_agent(test_client, env, enable_mcp, create_mcp_connection, create_domai
     also owns an Agent List (one submit_<list> tool)."""
     token, org_id, h = env["token"], env["org_id"], env["headers"]
     enable_mcp(user_token=token, org_id=org_id)
-    update_organization_settings(
-        {"enable_mcp_native_tools": {"value": True}, "mcp_native_tools_threshold": {"value": 0}},
-        user_token=token, org_id=org_id,
-    )
     conn = create_mcp_connection(name="Mock MCP", server_url="http://mock:3000/mcp", user_token=token, org_id=org_id)
     with _mock_mcp_provider():
         r = test_client.post(f"/api/connections/{conn['id']}/refresh-tools", headers=h)
@@ -496,7 +492,8 @@ def test_mcp_off_on_one_conversation_does_not_leak_into_another(test_client, env
     MCP tools must not hand that trimmed schema to another conversation."""
     _turn_on(test_client, env, llm, tool_agent["ds_id"], tools={"mcp": False})
     call = _turn_on(test_client, env, llm, tool_agent["ds_id"])
-    assert "execute_mcp" in call["tools"] and any(n.startswith("mcp__") for n in call["tools"])
+    # MCP tools come back as native tools; the execute_mcp gateway is never offered.
+    assert any(n.startswith("mcp__") for n in call["tools"]) and "execute_mcp" not in call["tools"]
     assert "<mcp_tools" in call["text"]
 
 

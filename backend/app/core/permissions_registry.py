@@ -14,8 +14,10 @@ reason: attaching a file to a chat and reading it back is what an ordinary
 member does, not an admin privilege.
 
 Connection view is derived from data_source access; connection write is
-gated by the org-level `manage_connections` permission. There are no
-connection or report resource grants.
+gated by the org-level `manage_connections` permission or a per-connection
+`manage_connection` grant. A member with `create_connections` may create
+connections; creating one grants them ownership of it
+(`grant_connection_owner`: manage it and every agent on it).
 """
 
 # ── Org-level Permission Categories (visible in UI) ──────────────────────
@@ -24,6 +26,7 @@ connection or report resource grants.
 PERMISSION_CATEGORIES = {
     "Data & Connections": [
         "create_data_source",
+        "create_connections",
         "manage_connections",
     ],
     "Instructions": [
