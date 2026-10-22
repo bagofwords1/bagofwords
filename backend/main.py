@@ -24,6 +24,15 @@ args, _ = parser.parse_known_args()
 if args.config:
     os.environ['BOW_CONFIG_PATH'] = args.config
 
+# Process-wide TLS verification policy. Must run after --config is exported
+# above (settings are built on first import) and before any other app import:
+# aiohttp (pulled in by the route modules) builds and caches its SSL context
+# at import, and the shared httpx context is cached on first use. Loading
+# settings here imports nothing that builds a context.
+from app.settings.config import settings
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
+
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
