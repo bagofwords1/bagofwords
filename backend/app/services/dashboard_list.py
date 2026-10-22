@@ -122,6 +122,10 @@ def not_an_older_legacy_version():
 
 async def list_dashboards(db, user, organization, *, filter: str = "my", search: str | None = None,
                           mode: str | None = None, page: int = 1, limit: int = 15) -> dict:
+    """One tab of the dashboards page. `meta.total` is an upper bound: it
+    counts the SQL narrowing, and admit_reader can still leave a card out of
+    its page (a release not ready yet, a monitoring dashboard the reader
+    lacks the scope for), so a page may hold fewer than `limit` cards."""
     from app.services import dashboard_access
 
     conditions = [Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
