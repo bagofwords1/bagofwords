@@ -144,9 +144,10 @@ Commits `d8419b388` (initial) and the review follow-up on
   context cache. Idempotent and reversible; the original factory is captured
   once at import. Logs a WARNING so the relaxed mode is visible in every pod
   log.
-- `backend/main.py` — applied as the first app import, before the route
-  modules pull in aiohttp. Loading `app.settings.config` that early imports
-  httpx only, nothing that builds a context.
+- `backend/main.py` — applied right after the `--config` argparse block and
+  before any other app import, so the route modules have not yet pulled in
+  aiohttp. Loading `app.settings.config` that early imports httpx only,
+  nothing that builds a context.
 - `bow-config.yaml` — commented `security.tls_strict_x509` example.
 
 Loop A after the fix:
@@ -196,6 +197,19 @@ libraries and against a real tenant through an inspecting proxy:
 All three are fixed above; the probe gained a `requests` leg and the tests
 gained urllib3 and aiohttp cases so the class of gap, not just the two
 instances, is covered.
+
+The fix for (2) introduced a regression the reviewer caught on the second
+pass: moving the settings import to the top of `main.py` put it **above** the
+argparse block that copies `--config` into `BOW_CONFIG_PATH`, so
+`python main.py --config custom.yaml` silently loaded the default file for
+the whole config. `BOW_CONFIG_PATH` deployments (Helm, compose) were not
+affected. Fixed by placing the TLS block after the argparse block (argparse
+builds no SSL context, so the aiohttp ordering still holds), with
+`backend/tests/unit/test_main_config_flag.py` booting the module in a
+subprocess with `--config` on argv and asserting that a value only the custom
+file sets is what the process runs with and that the TLS policy came from it.
+The test fails on the broken order with "the --config file was not the one
+loaded".
 
 ### Rollout for the affected customer
 
