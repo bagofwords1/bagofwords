@@ -55,6 +55,9 @@ class PublishedDashboardSchema(BaseModel):
     # This reader's exports cannot hold the shared snapshot: a page or doc
     # holds their own run's rows (and needs one), a deck is refused.
     exports_own_rows: bool = False
+    # What this reader may do with the dashboard (collab01):
+    # dashboard_access.capabilities -- the page shows only those buttons.
+    capabilities: list[str] = []
 
 
 class DraftDashboardSchema(BaseModel):
@@ -73,6 +76,16 @@ class DraftDashboardSchema(BaseModel):
     # The owner, whose rows are the shared ones; anyone else runs it for
     # their own (POST /api/r/{report}/run, as on main's /r).
     is_owner: bool = False
+    # collab01: what this reader may do, the version shown (its number, its
+    # conversation's author), the reader's own editing conversation if any,
+    # and the dashboard's drafts.
+    capabilities: list[str] = []
+    version_number: int | None = None
+    version_author: "DashboardPerson | None" = None
+    version_is_mine: bool = False
+    my_report_id: str | None = None
+    draft: "DashboardDraftSchema | None" = None
+    drafts: list["DashboardDraftSchema"] = []
 
 
 class DashboardSharingSchema(BaseModel):
@@ -82,13 +95,25 @@ class DashboardSharingSchema(BaseModel):
     published: bool
     user_ids: list[str]
     group_ids: list[str]
+    # Editors (collab01): granted 'edit', whatever the visibility.
+    editor_user_ids: list[str] = []
+    editor_group_ids: list[str] = []
+    editors_can_share: bool = True
+    owner_id: str | None = None
+    project_id: str | None = None
 
 
 class DashboardSharingUpdate(BaseModel):
-    """None leaves that kind of grant as it is; leaving 'shared' clears all."""
+    """None leaves that kind of grant as it is. View grants count only while
+    the visibility is 'shared' (leaving it clears them); edit grants stand
+    whatever the visibility, and before the first publish too. Someone in
+    both lists is an editor. editors_can_share: the owner's switch."""
     visibility: Visibility
     user_ids: list[str] | None = None
     group_ids: list[str] | None = None
+    editor_user_ids: list[str] | None = None
+    editor_group_ids: list[str] | None = None
+    editors_can_share: bool | None = None
 
 
 class DashboardSettingsSchema(BaseModel):
@@ -101,6 +126,7 @@ class DashboardSettingsSchema(BaseModel):
     refresh_on_view: bool = True
     notification_subscribers: list[dict] | None = None
     slug: str | None = None  # the name in its link (phase 8)
+    notes: str | None = None  # the dashboard's README (collab01)
 
 
 class DashboardSettingsUpdate(BaseModel):
@@ -118,6 +144,8 @@ class DashboardSettingsUpdate(BaseModel):
     notification_subscribers: list[NotificationSubscriber] | None = None
     # The name in its link (phase 8); "" removes it.
     slug: str | None = Field(default=None, max_length=255)
+    # The dashboard's notes (collab01); "" clears them.
+    notes: str | None = Field(default=None, max_length=20000)
 
 
 class DashboardReleaseSchema(BaseModel):
@@ -153,8 +181,11 @@ class DashboardForkRequest(BaseModel):
 
 
 class DashboardPublishRequest(BaseModel):
-    """None publishes the newest completed version."""
+    """None publishes the newest completed version. `force`: publish even
+    though the live release is not part of this version's history (someone
+    published since this draft started; collab01)."""
     version_id: str | None = None
+    force: bool = False
 
 
 DashboardPublishStatusSchema.model_rebuild()
@@ -180,6 +211,8 @@ class DashboardListItem(BaseModel):
     mode: str
     published: bool
     is_owner: bool
+    # 'owner' | 'edit' | 'view' (collab01)
+    role: str = "view"
     report_id: str | None = None
     owner: DashboardListOwner | None = None
     thumbnail_url: str | None = None
@@ -198,3 +231,150 @@ class DashboardListMeta(BaseModel):
 class DashboardListResponse(BaseModel):
     dashboards: list[DashboardListItem]
     meta: DashboardListMeta
+
+
+# ── collaboration (collab01) ─────────────────────────────────────────────
+
+class DashboardPerson(BaseModel):
+    id: str
+    name: str | None = None
+
+
+class DashboardDraftSchema(BaseModel):
+    id: str | None = None  # None: the dashboard's implicit draft
+    name: str
+    slug: str | None = None
+    status: str = "open"
+    head_version_id: str | None = None
+    head_version_number: int | None = None
+    updated_at: datetime | None = None
+    created_by: DashboardPerson | None = None
+
+
+class DashboardDraftCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    # The version to start from; None: the newest of the implicit draft.
+    from_version_id: str | None = None
+
+
+class DashboardJoinRequest(BaseModel):
+    """Open the dashboard in a conversation of the caller's own: theirs if
+    they have one, else a new one copied from `draft` (a draft's slug; None:
+    the implicit one) or, with nothing to copy, the live release."""
+    draft: str | None = None
+
+
+class DashboardJoinResponse(BaseModel):
+    report_id: str
+    created: bool
+    # Every chart is running again with the caller's credentials.
+    rerunning: bool = False
+
+
+class DashboardConversationSchema(BaseModel):
+    report_id: str
+    user: DashboardPerson | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    versions: int = 0
+    draft: str | None = None
+    # Only for people who can open that conversation themselves.
+    can_open: bool = False
+
+
+class DashboardHistoryRelease(BaseModel):
+    id: str
+    status: str
+    live: bool
+    version_id: str | None = None
+    version_number: int | None = None
+    published_by: DashboardPerson | None = None
+    published_at: datetime | None = None
+    error: str | None = None
+
+
+class DashboardHistoryVersion(BaseModel):
+    id: str
+    number: int
+    author: DashboardPerson | None = None
+    created_at: datetime | None = None
+    report_id: str
+    draft: str | None = None
+    published: bool = False
+
+
+class DashboardHistorySchema(BaseModel):
+    conversations: list[DashboardConversationSchema]
+    releases: list[DashboardHistoryRelease]
+    versions: list[DashboardHistoryVersion]
+    drafts: list[DashboardDraftSchema]
+
+
+class DashboardRollbackRequest(BaseModel):
+    release_id: str
+
+
+class DashboardTransferRequest(BaseModel):
+    user_id: str
+
+
+class DashboardElementChange(BaseModel):
+    key: str
+    title: str | None = None
+    changed_by: DashboardPerson | None = None
+    changed_at: datetime | None = None
+    version_number: int | None = None
+    # vs the live release: added | changed | unchanged; removed ones are listed apart
+    vs_live: str = "unchanged"
+
+
+class DashboardChangesSchema(BaseModel):
+    version_id: str | None = None
+    elements: list[DashboardElementChange]
+    removed_since_live: list[DashboardElementChange] = []
+    live_version_id: str | None = None
+    # The live release is not part of this version's history: someone
+    # published since it started.
+    published_since: "DashboardPublishedSince | None" = None
+
+
+class DashboardPublishedSince(BaseModel):
+    by: DashboardPerson | None = None
+    at: datetime | None = None
+    release_id: str | None = None
+
+
+class DashboardPresenceUpdate(BaseModel):
+    report_id: str | None = None
+
+
+class DashboardPresenceEntry(BaseModel):
+    user: DashboardPerson
+    report_id: str | None = None
+    state: str
+    element_keys: list[str] = []
+    seen_at: datetime | None = None
+    is_me: bool = False
+
+
+class DashboardPresenceSchema(BaseModel):
+    entries: list[DashboardPresenceEntry]
+
+
+class DashboardConversationContext(BaseModel):
+    """What a conversation editing a dashboard shows on top: the card
+    "Continued from ...", and the summary the agent got."""
+    artifact_id: str
+    title: str | None = None
+    slug: str | None = None
+    continued_from: DashboardPerson | None = None
+    continued_from_report_id: str | None = None
+    can_open_previous: bool = False
+    started_at: datetime | None = None
+    base_version_number: int | None = None
+    summary: dict | None = None
+    rerunning: bool = False
+
+
+DashboardChangesSchema.model_rebuild()
+DraftDashboardSchema.model_rebuild()

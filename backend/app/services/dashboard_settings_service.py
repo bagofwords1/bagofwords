@@ -28,9 +28,12 @@ from app.services.dashboard_access import published_release
 logger = logging.getLogger(__name__)
 
 
-async def owned_dashboard(db, dashboard_id: str, user: User, organization) -> Artifact:
-    """The caller's own dashboard in this organization, if they may still
-    read what it is built on (monitoring access, as on the conversation)."""
+async def dashboard_for(db, dashboard_id: str, user: User, organization, need: str) -> Artifact:
+    """The dashboard, if `user` holds the capability `need` on it
+    (dashboard_access.capabilities, collab01) and may still read what it is
+    built on (monitoring access, as on the conversation). A publish refused
+    only because the dashboard runs as its creator says so."""
+    from app.services import dashboard_access
     from app.services.bow_source_access import assert_read, report_access
 
     artifact = (await db.execute(
@@ -42,45 +45,69 @@ async def owned_dashboard(db, dashboard_id: str, user: User, organization) -> Ar
     )).scalar_one_or_none()
     if artifact is None:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
-    if artifact.owner_id is None or str(artifact.owner_id) != str(user.id):
+    caps = await dashboard_access.capabilities(db, artifact, user)
+    if need not in caps:
+        if (need == dashboard_access.CAP_PUBLISH and dashboard_access.CAP_EDIT in caps
+                and (artifact.shared_run_identity or "viewer") == "creator"):
+            raise AppError.forbidden(ErrorCode.DASHBOARD_CREATOR_PUBLISH_OWNER_ONLY,
+                                     "Only the owner can publish a dashboard that runs with the owner's credentials")
         raise AppError.forbidden()
     release = await published_release(db, artifact)
-    access = release.bow_source_access if release is not None else await report_access(db, artifact.report_id)
+    access = release.bow_source_access if release is not None else (
+        await report_access(db, artifact.report_id) if artifact.report_id else None)
     await assert_read(db, access, user)
     return artifact
 
 
+async def owned_dashboard(db, dashboard_id: str, user: User, organization) -> Artifact:
+    """The caller's own dashboard: what only the owner may do."""
+    from app.services.dashboard_access import CAP_RUN_IDENTITY
+
+    return await dashboard_for(db, dashboard_id, user, organization, CAP_RUN_IDENTITY)
+
+
 # ── sharing ──────────────────────────────────────────────────────────────
 
-async def _grants(db, artifact) -> tuple[list[str], list[str]]:
-    """The grants that still count: people still in the organization, groups
-    not deleted. A grant to someone who left (or to an LDAP group synced
-    away) stays in the table, opens nothing, and goes on the next save."""
+async def _grants(db, artifact) -> dict:
+    """The grants that still count, by role: people still in the
+    organization, groups not deleted. A grant to someone who left (or to an
+    LDAP group synced away) stays in the table, opens nothing, and goes on
+    the next save. {"view": (users, groups), "edit": (users, groups)}."""
     from app.models.group import Group
     from app.models.membership import Membership
 
     users = (await db.execute(
-        select(ArtifactShare.user_id)
+        select(ArtifactShare.user_id, ArtifactShare.role)
         .join(Membership, (Membership.user_id == ArtifactShare.user_id)
               & (Membership.organization_id == str(artifact.organization_id))
               & Membership.deleted_at.is_(None))
         .where(ArtifactShare.artifact_id == str(artifact.id))
-    )).scalars().all()
+    )).all()
     groups = (await db.execute(
-        select(ArtifactShare.group_id)
+        select(ArtifactShare.group_id, ArtifactShare.role)
         .join(Group, (Group.id == ArtifactShare.group_id)
               & (Group.organization_id == str(artifact.organization_id))
               & Group.deleted_at.is_(None))
         .where(ArtifactShare.artifact_id == str(artifact.id))
-    )).scalars().all()
-    return sorted({str(u) for u in users}), sorted({str(g) for g in groups})
+    )).all()
+
+    def pick(rows, role):
+        return sorted({str(p) for p, r in rows if (r or "view") == role})
+    return {"view": (pick(users, "view"), pick(groups, "view")),
+            "edit": (pick(users, "edit"), pick(groups, "edit"))}
 
 
 async def get_sharing(db, artifact) -> dict:
-    users, groups = await _grants(db, artifact)
+    grants = await _grants(db, artifact)
+    users, groups = grants["view"]
+    editor_users, editor_groups = grants["edit"]
     return {"visibility": artifact.visibility or "none",
             "published": await published_release(db, artifact) is not None,
-            "user_ids": users, "group_ids": groups}
+            "user_ids": users, "group_ids": groups,
+            "editor_user_ids": editor_users, "editor_group_ids": editor_groups,
+            "editors_can_share": bool(artifact.editors_can_share),
+            "owner_id": str(artifact.owner_id) if artifact.owner_id else None,
+            "project_id": str(artifact.project_id) if artifact.project_id else None}
 
 
 async def _check_members(db, organization, user_ids: list[str]) -> None:
@@ -117,13 +144,30 @@ async def _check_groups(db, organization, group_ids: list[str]) -> None:
 
 async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | None,
                       group_ids: list[str] | None, current_user: User, organization,
-                      before_publish: bool = False) -> dict:
+                      before_publish: bool = False, editor_user_ids: list[str] | None = None,
+                      editor_group_ids: list[str] | None = None,
+                      editors_can_share: bool | None = None) -> dict:
     """`before_publish`: the conversation's old publish call (phase 9) saves
     the sharing and then publishes; /d serves only a ready release, so it
-    takes effect when that one is ready."""
+    takes effect when that one is ready.
+
+    Roles (collab01): view grants count while the visibility is 'shared';
+    edit grants stand whatever the visibility, before the first publish too
+    (people edit a draft together before anyone else sees it). Someone in
+    both lists is an editor; the owner is never a grant. Only the owner makes
+    a dashboard public or changes whether editors may share."""
+    from app.services.dashboard_access import CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, capabilities
+
+    caps = await capabilities(db, artifact, current_user)
     release = await published_release(db, artifact)
     if visibility != "none" and release is None and not before_publish:
         raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
+    if visibility == "public" and artifact.visibility != "public" and CAP_MAKE_PUBLIC not in caps:
+        raise AppError.forbidden(ErrorCode.DASHBOARD_PUBLIC_OWNER_ONLY,
+                                 "Only the owner can make this dashboard public")
+    if editors_can_share is not None and bool(editors_can_share) != bool(artifact.editors_can_share) \
+            and CAP_RUN_IDENTITY not in caps:
+        raise AppError.forbidden()
     if visibility == "public":
         if release is not None:
             monitoring = release.bow_source_access
@@ -133,37 +177,64 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
         if monitoring:
             # A monitoring dashboard is never public (bow_source_access.assert_shareable).
             raise AppError.forbidden()
-    user_ids = list(dict.fromkeys(str(u) for u in user_ids)) if user_ids is not None else None
-    group_ids = list(dict.fromkeys(str(g) for g in group_ids)) if group_ids is not None else None
-    await _check_members(db, organization, user_ids or [])
-    await _check_groups(db, organization, group_ids or [])
+    owner = str(artifact.owner_id) if artifact.owner_id else None
 
-    old_users, old_groups = await _grants(db, artifact)
+    def clean(ids):
+        return [i for i in dict.fromkeys(str(x) for x in ids) if i != owner] if ids is not None else None
+
+    user_ids, group_ids = clean(user_ids), clean(group_ids)
+    editor_user_ids, editor_group_ids = clean(editor_user_ids), clean(editor_group_ids)
+    await _check_members(db, organization, [*(user_ids or []), *(editor_user_ids or [])])
+    await _check_groups(db, organization, [*(group_ids or []), *(editor_group_ids or [])])
+
+    old = await _grants(db, artifact)
+    old_users = set(old["view"][0]) | set(old["edit"][0])
+    old_groups = set(old["view"][1]) | set(old["edit"][1])
     previous = artifact.visibility
     artifact.visibility = visibility
-    added_users: list[str] = []
-    added_groups: list[str] = []
+    if editors_can_share is not None:
+        artifact.editors_can_share = bool(editors_can_share)
+    aid = str(artifact.id)
+
+    async def replace(column, role, ids):
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid, column.isnot(None),
+                                                     ArtifactShare.role == role))
+        for i in ids:
+            db.add(ArtifactShare(artifact_id=aid, role=role, **{column.key: i}))
+
+    # Editors first: someone in both lists is an editor, never twice.
+    if editor_user_ids is not None:
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
+                                                     ArtifactShare.user_id.in_(editor_user_ids)))
+        await replace(ArtifactShare.user_id, "edit", editor_user_ids)
+    if editor_group_ids is not None:
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
+                                                     ArtifactShare.group_id.in_(editor_group_ids)))
+        await replace(ArtifactShare.group_id, "edit", editor_group_ids)
+    await db.flush()
+    editors_now = await _grants(db, artifact) if (editor_user_ids is None or editor_group_ids is None) else None
+    edit_users = set(editor_user_ids if editor_user_ids is not None else editors_now["edit"][0])
+    edit_groups = set(editor_group_ids if editor_group_ids is not None else editors_now["edit"][1])
     if visibility == "shared":
         # A list left out keeps that kind of grant as it is.
         if user_ids is not None:
-            await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
-                                                         ArtifactShare.user_id.isnot(None)))
-            db.add_all(ArtifactShare(artifact_id=str(artifact.id), user_id=u) for u in user_ids)
-            added_users = [u for u in user_ids if u not in old_users]
+            await replace(ArtifactShare.user_id, "view", [u for u in user_ids if u not in edit_users])
         if group_ids is not None:
-            await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
-                                                         ArtifactShare.group_id.isnot(None)))
-            db.add_all(ArtifactShare(artifact_id=str(artifact.id), group_id=g) for g in group_ids)
-            added_groups = [g for g in group_ids if g not in old_groups]
+            await replace(ArtifactShare.group_id, "view", [g for g in group_ids if g not in edit_groups])
     else:
-        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id)))
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == aid,
+                                                     ArtifactShare.role == "view"))
     await db.commit()
     await db.refresh(artifact)
 
-    await _notify(db, artifact, added_users, added_groups, current_user)
-    if previous != visibility or user_ids is not None or group_ids is not None:
+    now = await _grants(db, artifact)
+    new_users = set(now["view"][0]) | set(now["edit"][0])
+    new_groups = set(now["view"][1]) | set(now["edit"][1])
+    await _notify(db, artifact, sorted(new_users - old_users), sorted(new_groups - old_groups), current_user)
+    if (previous != visibility or user_ids is not None or group_ids is not None
+            or editor_user_ids is not None or editor_group_ids is not None or editors_can_share is not None):
         await _audit(db, organization, current_user, artifact, "dashboard.sharing_changed",
-                     {"visibility": visibility})
+                     {"visibility": visibility, "editors": len(now["edit"][0]) + len(now["edit"][1])})
     return await get_sharing(db, artifact)
 
 
@@ -216,7 +287,8 @@ def get_settings(artifact) -> dict:
             "cron_schedule": artifact.cron_schedule,
             "refresh_on_view": bool(artifact.refresh_on_view),
             "notification_subscribers": artifact.notification_subscribers,
-            "slug": artifact.slug}
+            "slug": artifact.slug,
+            "notes": artifact.notes}
 
 
 async def _data_source_ids(db, artifact) -> list[str]:
@@ -252,6 +324,13 @@ async def check_settings(db, artifact, changes: dict, *, current_user: User, org
     conversation's old sharing call, phase 9) checks them first."""
     identity = changes.get("shared_run_identity")
     switch_identity = identity is not None and identity != artifact.shared_run_identity
+    if switch_identity:
+        # Viewers would run with the owner's credentials: the owner's call
+        # alone (collab01).
+        from app.services.dashboard_access import CAP_RUN_IDENTITY, capabilities
+
+        if CAP_RUN_IDENTITY not in await capabilities(db, artifact, current_user):
+            raise AppError.forbidden()
     if switch_identity and identity == "creator":
         from app.services.viewer_data_policy import _any_rls_relation
 
@@ -331,6 +410,8 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         from app.services.dashboard_slug import set_slug
 
         await set_slug(db, artifact, changes["slug"])
+    if changes.get("notes") is not None:
+        artifact.notes = changes["notes"].strip() or None
 
     try:
         await db.commit()

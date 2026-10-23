@@ -387,8 +387,14 @@ class ForkService:
         user_id: str,
         organization_id: str,
         pending_code: Dict[str, str],
+        retire: bool = True,
     ) -> dict:
         """Run a delegated-source fork's queries as the forker, then keep what worked.
+
+        `retire` False (collab01): a dashboard editor's own copy of someone
+        else's charts -- run again as the editor the same way, but never
+        retired, and worded as their copy rather than a fork: the
+        conversation is where they edit the dashboard.
 
         A fork of a `user_required` source is created empty: no rows (they are
         the creator's slice) and no SQL (the share withholds it from a reader
@@ -642,6 +648,9 @@ class ForkService:
                             "This query failed when it was run for you, so it was "
                             "not copied into your fork. If it runs on the source "
                             "report, fork it again."
+                        ) if retire else (
+                            "This query failed when it was run with your credentials. "
+                            "Ask the agent to fix it, or check your access to its data source."
                         ),
                     )
                 )
@@ -677,7 +686,8 @@ class ForkService:
             # carrying its own reason and the forker can retry, not re-fork.
             no_usable_identity = sources_attempted > 0 and not db_clients
             nothing_ran = (
-                not succeeded
+                retire
+                and not succeeded
                 and bool(failed)
                 and (no_usable_identity or (bool(refused) and not broke))
             )

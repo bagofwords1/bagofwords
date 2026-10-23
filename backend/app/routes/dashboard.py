@@ -32,6 +32,7 @@ from app.schemas.dashboard_schema import (
     DashboardSharingSchema,
     DashboardSharingUpdate,
     DashboardSourceKind,
+    DashboardJoinRequest,
     DraftDashboardSchema,
     PublicGeneralSettings,
     PublishedDashboardSchema,
@@ -80,34 +81,44 @@ async def get_published_dashboard(
         refresh_on_view=bool(artifact.refresh_on_view), data_sources=sources,
         exports_own_rows=await _withheld_from(db, artifact, release, user,
                                               baked=(artifact.mode or "page") == "slides"),
+        capabilities=sorted(await dashboard_access.capabilities(db, artifact, user)),
     )
 
 
 @router.get("/d/{ref}/draft", response_model=DraftDashboardSchema)
 async def get_draft_dashboard(
     ref: str,
+    version: int | None = Query(None, ge=1, description="A version number to preview (collab01)"),
+    draft: str | None = Query(None, max_length=120, description="A named draft's slug; none: the implicit draft"),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
     from app.models.report import Report
+    from app.services import dashboard_collab
 
-    from app.services.dashboard_data import draft_version
-
-    artifact = await dashboard_access.open_draft(db, ref, user)
-    draft = await draft_version(db, artifact, light=True)
-    version_id = draft.id if draft else None
-    theme = (await db.execute(
-        select(Report.theme_name, Report.theme_overrides).where(Report.id == str(artifact.report_id))
-    )).first() if artifact.report_id else None
+    artifact, shown, named = await _draft(db, ref, user, version=version, draft=draft, light=True)
+    report_id = str(shown.report_id) if shown is not None else (
+        str(artifact.report_id) if artifact.report_id else None)
+    report = (await db.execute(
+        select(Report.theme_name, Report.theme_overrides, Report.user_id).where(Report.id == report_id)
+    )).first() if report_id else None
+    drafts = await dashboard_collab.list_drafts(db, artifact)
+    current = next((d for d in drafts if d["id"] == (str(named.id) if named is not None else None)), None)
     return DraftDashboardSchema(
         id=str(artifact.id), slug=artifact.slug, title=artifact.title, mode=artifact.mode,
-        report_id=str(artifact.report_id) if artifact.report_id else None,
-        version_id=str(version_id) if version_id else None,
+        report_id=report_id,
+        version_id=str(shown.id) if shown is not None else None,
         published=await dashboard_access.published_release(db, artifact) is not None,
-        theme_name=theme[0] if theme else None, theme_overrides=theme[1] if theme else None,
+        theme_name=report[0] if report else None, theme_overrides=report[1] if report else None,
         general=await _general(db, artifact.organization_id),
         can_edit=await dashboard_access.can_edit(db, artifact, user),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
+        capabilities=sorted(await dashboard_access.capabilities(db, artifact, user)),
+        version_number=shown.version if shown is not None else None,
+        version_author=await dashboard_collab.person(db, report[2]) if report else None,
+        version_is_mine=bool(report and user is not None and str(report[2]) == str(user.id)),
+        my_report_id=await dashboard_collab.my_conversation(db, artifact, user),
+        draft=current, drafts=drafts,
     )
 
 
@@ -139,7 +150,7 @@ async def get_dashboard_sharing(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return await dashboard_settings_service.get_sharing(db, artifact)
 
 
@@ -152,10 +163,11 @@ async def set_dashboard_sharing(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_SHARE)
     return await dashboard_settings_service.set_sharing(
         db, artifact, visibility=payload.visibility, user_ids=payload.user_ids, group_ids=payload.group_ids,
-        current_user=current_user, organization=organization,
+        current_user=current_user, organization=organization, editor_user_ids=payload.editor_user_ids,
+        editor_group_ids=payload.editor_group_ids, editors_can_share=payload.editors_can_share,
     )
 
 
@@ -181,7 +193,7 @@ async def notify_dashboard_share(
     from app.services.notification_service import notification_service
     from app.settings.config import settings as app_settings
 
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_SHARE)
     if await dashboard_access.published_release(db, artifact) is None:
         raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
     if NotificationChannel.EMAIL in payload.channels and not await is_outbound_available(
@@ -253,9 +265,10 @@ async def publish_dashboard(
     from app.core import fire_and_forget
     from app.services import dashboard_publish
 
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_PUBLISH)
     release = await dashboard_publish.start_publish(db, artifact, current_user, organization,
-                                                    version_id=payload.version_id if payload else None)
+                                                    version_id=payload.version_id if payload else None,
+                                                    force=bool(payload and payload.force))
     fire_and_forget.spawn(dashboard_publish.run_publish(str(release.id)))
     return await dashboard_publish.publish_status(db, artifact)
 
@@ -270,7 +283,7 @@ async def get_dashboard_publish_status(
 ):
     from app.services import dashboard_publish
 
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return await dashboard_publish.publish_status(db, artifact)
 
 
@@ -278,16 +291,34 @@ async def get_dashboard_publish_status(
 @requires_permission("publish_reports")
 async def edit_dashboard(
     dashboard_id: str,
+    payload: DashboardJoinRequest | None = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """The owner's Edit: the conversation the draft is edited in -- a new
-    one from the published release when it was deleted (phase 7)."""
-    from app.services import dashboard_lifecycle
+    """Edit: the caller's own conversation editing the dashboard (collab01)
+    -- theirs if they have one, else a new copy of the draft (`draft`: a
+    named one), or of the published release when no draft is left. A copy
+    of someone else's work runs again with the caller's credentials."""
+    from app.core import fire_and_forget
+    from app.services import dashboard_collab, dashboard_lifecycle
+    from app.services.fork_service import fork_service
 
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
-    return await dashboard_lifecycle.edit_dashboard(db, artifact, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(
+        db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
+    draft = await dashboard_collab.draft_by_slug(db, artifact, payload.draft if payload else None)
+    if (draft is None and not await dashboard_collab.editing_report_ids(db, artifact)
+            and await dashboard_access.counts_as_owner(db, artifact, current_user)):
+        # The owner's Edit of a dashboard whose conversations were all
+        # deleted (phase 7): one conversation however many click at once.
+        result = await dashboard_lifecycle.edit_dashboard(db, artifact, current_user, organization)
+    else:
+        result = await dashboard_collab.join(db, artifact, current_user, organization, draft=draft)
+    pending = result.get("pending_code") or {}
+    if pending:
+        fire_and_forget.spawn(fork_service.hydrate_fork(result["report_id"], str(current_user.id),
+                                                       str(organization.id), pending, retire=False))
+    return {"report_id": result["report_id"], "created": bool(result.get("created")), "rerunning": bool(pending)}
 
 
 @router.post("/dashboards/{dashboard_id}/refresh")
@@ -302,7 +333,7 @@ async def refresh_dashboard(
     with their credentials; all of the new rows are written, or none."""
     from app.services import dashboard_refresh
 
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_PUBLISH)
     return await dashboard_refresh.owner_refresh(db, artifact, current_user, organization)
 
 
@@ -314,7 +345,7 @@ async def get_dashboard_settings(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return dashboard_settings_service.get_settings(artifact)
 
 
@@ -327,7 +358,7 @@ async def set_dashboard_settings(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    artifact = await dashboard_settings_service.owned_dashboard(db, dashboard_id, current_user, organization)
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, dashboard_access.CAP_SETTINGS)
     return await dashboard_settings_service.set_settings(
         db, artifact, payload.model_dump(), current_user=current_user, organization=organization,
     )
@@ -868,23 +899,46 @@ async def run_published_query(
 
 # ── Reading the draft (part B) ───────────────────────────────────────────
 
-async def _draft(db, ref, user):
-    from app.services import dashboard_data
+async def _draft(db, ref, user, *, version: int | None = None, draft: str | None = None, light: bool = False):
+    """The draft door, and the version shown: `version` (a number) when it
+    is one of a live editing conversation's, else `draft`'s newest (None:
+    the implicit draft's). Returns (artifact, version, named draft)."""
+    from app.services import dashboard_collab, dashboard_data
 
     artifact = await dashboard_access.open_draft(db, ref, user)
-    version = await dashboard_data.draft_version(db, artifact)
-    return artifact, version
+    named = await dashboard_collab.draft_by_slug(db, artifact, draft)
+    if version is not None:
+        from sqlalchemy.orm import lazyload
+
+        from app.models.artifact import ArtifactVersion
+
+        stmt = select(ArtifactVersion)
+        if light:
+            stmt = stmt.options(lazyload("*"))
+        shown = (await db.execute(stmt.where(
+            ArtifactVersion.artifact_id == str(artifact.id), ArtifactVersion.version == int(version),
+            ArtifactVersion.status == "completed", ArtifactVersion.deleted_at.is_(None),
+            ArtifactVersion.report_id.in_(await dashboard_collab.editing_report_ids(db, artifact)),
+        ))).scalar_one_or_none()
+        if shown is None:
+            raise dashboard_data.not_found()
+        return artifact, shown, named
+    shown = await dashboard_data.draft_version(db, artifact, light=light,
+                                               draft_id=str(named.id) if named is not None else None)
+    return artifact, shown, named
 
 
 @router.get("/d/{ref}/draft/content")
 async def get_draft_content(
     ref: str,
+    version: int | None = Query(None, ge=1),
+    draft: str | None = Query(None, max_length=120),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
     from app.services import dashboard_data
 
-    artifact, version = await _draft(db, ref, user)
+    artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
     if version is None:
         raise dashboard_data.not_found()
     return {"mode": artifact.mode, "version_id": str(version.id), "content": version.content or {}}
@@ -893,6 +947,8 @@ async def get_draft_content(
 @router.get("/d/{ref}/draft/queries")
 async def list_draft_queries(
     ref: str,
+    version: int | None = Query(None, ge=1),
+    draft: str | None = Query(None, max_length=120),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -903,15 +959,19 @@ async def list_draft_queries(
     from app.schemas.query_schema import PublicQuerySchema
     from app.services import dashboard_data
 
-    artifact, version = await _draft(db, ref, user)
+    artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
     ids = await dashboard_data.draft_query_ids(db, version)
     if not ids:
         return []
+    from app.services.fork_service import FORK_PENDING_STATUS
+
     queries = (await db.execute(
         select(QueryModel).join(Step, Step.id == QueryModel.default_step_id)
         .options(lazyload("*"), selectinload(QueryModel.visualizations).options(lazyload("*")))
-        .where(QueryModel.id.in_(ids), QueryModel.report_id == str(artifact.report_id),
-               QueryModel.deleted_at.is_(None), Step.status == "success")
+        # A joining editor's copies are 'pending' until they ran with their
+        # credentials (collab01): listed, so the page waits on them.
+        .where(QueryModel.id.in_(ids), QueryModel.report_id == str(version.report_id),
+               QueryModel.deleted_at.is_(None), Step.status.in_(("success", FORK_PENDING_STATUS)))
     )).scalars().all()
     return [PublicQuerySchema.model_validate(q) for q in queries]
 
@@ -920,6 +980,8 @@ async def list_draft_queries(
 async def get_draft_step(
     ref: str,
     query_id: str,
+    version: int | None = Query(None, ge=1),
+    draft: str | None = Query(None, max_length=120),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -929,17 +991,24 @@ async def get_draft_step(
     from app.services import dashboard_data
     from app.services.viewer_data_policy import resolve_step_data
 
-    artifact, version = await _draft(db, ref, user)
+    artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
     if str(query_id) not in await dashboard_data.draft_query_ids(db, version):
         raise dashboard_data.not_found()
     query = (await db.execute(
         select(QueryModel).options(lazyload("*")).where(QueryModel.id == str(query_id),
-                                                        QueryModel.report_id == str(artifact.report_id))
+                                                        QueryModel.report_id == str(version.report_id))
     )).scalar_one_or_none()
     step = await dashboard_data.default_step(db, query) if query is not None else None
     if step is None:
+        pending = await dashboard_data.pending_step(db, query) if query is not None else None
+        if pending is not None:
+            # Still running with this editor's credentials (collab01): the
+            # chart waits instead of showing nothing.
+            return {"id": str(pending.id), "title": pending.title or "", "type": pending.type or "table",
+                    "code": None, "data_model": {}, "data": {}, "view": {}, "viewer_result": None,
+                    "snapshot_withheld": False, "applied_params": None, "pending": True}
         raise dashboard_data.not_found()
-    report = await dashboard_data.draft_report(db, artifact)
+    report = await dashboard_data.version_report(db, version)
     resolution = await resolve_step_data(db, step, report, user)
     return await dashboard_data.public_step(db, step, query, resolution,
                                             organization_id=artifact.organization_id, user=user)
@@ -955,7 +1024,7 @@ async def get_draft_file_embed_token(
     from app.core.file_tokens import file_embed_url, mint_file_token
     from app.services import dashboard_data
 
-    _, version = await _draft(db, ref, user)
+    _, version, _ = await _draft(db, ref, user)
     if version is None or str(file_id) not in dashboard_data.file_ids(version.content or {}):
         raise dashboard_data.not_found()
     # The draft lives in its conversation: bound to it, as /r embeds are.

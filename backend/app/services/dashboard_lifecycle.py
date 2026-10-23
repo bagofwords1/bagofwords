@@ -28,14 +28,12 @@ logger = logging.getLogger(__name__)
 
 
 async def _dashboards(db, report_ids: list[str], *, lock: bool = False) -> list[Artifact]:
-    if not report_ids:
-        return []
-    stmt = select(Artifact).where(Artifact.report_id.in_([str(r) for r in report_ids]),
-                                  Artifact.deleted_at.is_(None))
-    if lock:
-        # Serializes with start_publish, which locks the dashboard too.
-        stmt = stmt.with_for_update().execution_options(populate_existing=True)
-    return list((await db.execute(stmt)).scalars().all())
+    """The dashboards these conversations edit, as their own conversation or
+    joined (collab01). `lock` serializes with start_publish, which locks the
+    dashboard too."""
+    from app.services.dashboard_collab import dashboards_of_conversations
+
+    return await dashboards_of_conversations(db, report_ids, lock=lock)
 
 
 async def _live_release(db, artifact: Artifact) -> ArtifactRelease | None:
@@ -64,9 +62,17 @@ async def delete_outcomes(db, report_ids: list[str]) -> list[dict]:
     counted = {str(i) for (i,) in (await db.execute(
         select(Artifact.id).where(Artifact.id.in_([str(a.id) for a in dashboards]), not_an_older_legacy_version())
     )).all()} if dashboards else set()
+    from app.services.dashboard_collab import editing_report_ids
+
     out = []
+    gone = {str(r) for r in report_ids}
     for artifact in dashboards:
         if str(artifact.id) not in counted:
+            continue
+        if await editing_report_ids(db, artifact, exclude=gone):
+            # Other conversations keep editing it (collab01): nothing happens to it.
+            out.append({"id": str(artifact.id), "title": artifact.title, "mode": artifact.mode,
+                        "outcome": "others_editing"})
             continue
         release = await _live_release(db, artifact)
         if release is None:
@@ -88,10 +94,15 @@ async def settle_dashboards(db, report_ids: list[str]) -> None:
     something to guess. Each dashboard is locked, as start_publish locks it,
     so the two never interleave. Not committed: part of the caller's
     archive."""
+    from app.services.dashboard_collab import end_conversations
     from app.services.dashboard_publish import _publishing, reap_stale
 
     now = datetime.utcnow()
     for artifact in await _dashboards(db, report_ids, lock=True):
+        # These conversations stop editing it; when others still do, it stays
+        # as it is -- in their hands (collab01).
+        if await end_conversations(db, artifact, [str(r) for r in report_ids]):
+            continue
         await reap_stale(db, artifact, commit=False)  # with the caller's archive, or not at all
         if await _publishing(db, artifact) is not None:
             raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_IN_PROGRESS,
@@ -128,15 +139,34 @@ async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelea
     conversation is readable by whoever can view it, and a Fork, like the
     conversation's Fork, links none). Returns (report, copy maps). Not
     committed."""
-    import copy
-    import uuid
-
     from app.models.artifact_release import (
         artifact_release_data_source_association as release_sources,
     )
     from app.models.artifact_release import (
         artifact_release_file_association as release_files,
     )
+
+    ds_ids = [str(i) for (i,) in (await db.execute(select(release_sources.c.data_source_id).where(
+        release_sources.c.artifact_release_id == str(release.id)))).all()]
+    file_ids = [str(i) for (i,) in (await db.execute(select(release_files.c.file_id).where(
+        release_files.c.artifact_release_id == str(release.id)))).all()] if link_files else []
+    return await rows_to_conversation(
+        db, artifact, queries=await _release_queries(db, str(release.id)), data_source_ids=ds_ids,
+        file_ids=file_ids, theme_name=release.theme_name, theme_overrides=release.theme_overrides,
+        bow_source_access=release.bow_source_access, user=user, title=title, project_id=project_id,
+        slug_prefix=slug_prefix, step_overrides=step_overrides, copy_source_refs=copy_source_refs)
+
+
+async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_source_ids: list[str],
+                               file_ids: list[str], theme_name, theme_overrides, bow_source_access, user,
+                               title: str, project_id: str | None, slug_prefix: str, step_overrides=None,
+                               copy_source_refs: bool = True, option_target=None):
+    """A new conversation of `user` holding copies of `queries` (default
+    steps and charts, references re-pointed), these sources and files, the
+    theme and monitoring access. Returns (report, copy maps). Not committed."""
+    import copy
+    import uuid
+
     from app.models.report import Report
     from app.models.report_data_source_association import report_data_source_association
     from app.models.report_file_association import report_file_association
@@ -145,21 +175,17 @@ async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelea
 
     report = Report(
         title=title, slug=f"{slug_prefix}-{uuid.uuid4().hex[:8]}", status="draft", report_type="regular",
-        theme_name=release.theme_name, theme_overrides=copy.deepcopy(release.theme_overrides),
+        theme_name=theme_name, theme_overrides=copy.deepcopy(theme_overrides),
         user_id=str(user.id), organization_id=str(artifact.organization_id), project_id=project_id,
-        bow_source_access=copy.deepcopy(release.bow_source_access) if copy_source_refs else None,
+        bow_source_access=copy.deepcopy(bow_source_access) if copy_source_refs else None,
     )
     db.add(report)
     await db.flush()
-    for (ds_id,) in (await db.execute(select(release_sources.c.data_source_id).where(
-            release_sources.c.artifact_release_id == str(release.id)))).all():
+    for ds_id in dict.fromkeys(data_source_ids):
         await db.execute(report_data_source_association.insert().values(report_id=str(report.id),
                                                                          data_source_id=str(ds_id)))
-    if link_files:
-        for (file_id,) in (await db.execute(select(release_files.c.file_id).where(
-                release_files.c.artifact_release_id == str(release.id)))).all():
-            await db.execute(report_file_association.insert().values(report_id=str(report.id),
-                                                                     file_id=str(file_id)))
+    for file_id in dict.fromkeys(file_ids):
+        await db.execute(report_file_association.insert().values(report_id=str(report.id), file_id=str(file_id)))
 
     async def widget_for(query) -> str:
         # A conversation's query has a widget; a release's copy has none.
@@ -170,10 +196,10 @@ async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelea
         return str(widget.id)
 
     maps = await copy_query_rows(
-        db, await _release_queries(db, str(release.id)),
+        db, queries,
         placement=Placement(report_id=str(report.id), widget_for=widget_for, slug_prefix=slug_prefix),
         organization_id=str(artifact.organization_id), user_id=str(user.id),
-        step_overrides=step_overrides, copy_source_refs=copy_source_refs,
+        step_overrides=step_overrides, copy_source_refs=copy_source_refs, option_target=option_target,
     )
     return report, maps
 
@@ -243,23 +269,35 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
     """The owner's "Edit": the conversation the draft is edited in; when it
     was deleted, a new one from the published release, with a new draft
     version of the same dashboard there (link, sharing, schedule and chat
-    stay). The rows are copied as they are: they are the owner's. The live
-    release now matches that version (no unpublished changes yet). Two Edits
-    at once: one wins, the other gets the winner's conversation."""
+    stay). The rows are copied as they are when they are the owner's (the
+    owner published the release); published by another editor (collab01),
+    every step arrives empty and runs again as the owner -- returned as
+    `pending_code` for the caller to spawn. The live release now matches
+    that version (no unpublished changes yet). Two Edits at once: one wins,
+    the other gets the winner's conversation."""
     from app.ee.audit.service import audit_service
     from app.services.artifact_service import new_version
 
+    from app.services.dashboard_collab import _rerun_overrides, check_join_access
+
     editing = await _editing_conversation(db, artifact)
     if editing is not None:
-        return {"report_id": str(editing.id), "created": False}
+        return {"report_id": str(editing.id), "created": False, "pending_code": {}}
     release = await _live_release(db, artifact)
     if release is None:
         raise AppError.conflict(ErrorCode.DASHBOARD_NOT_PUBLISHED, "Nothing published to edit from")
     artifact_id, was = str(artifact.id), (str(artifact.report_id) if artifact.report_id else None)
+    own_rows = str(release.published_by or "") == str(owner.id)
+    if not own_rows:
+        from app.models.artifact_release import artifact_release_data_source_association as rassoc
+
+        await check_join_access(db, artifact, owner, bow_source_access=release.bow_source_access, ds_ids=[
+            str(i) for (i,) in (await db.execute(select(rassoc.c.data_source_id).where(
+                rassoc.c.artifact_release_id == str(release.id)))).all()])
 
     report, maps = await release_to_conversation(
         db, artifact, release, user=owner, title=artifact.title or "Untitled", project_id=artifact.project_id,
-        slug_prefix="edit")
+        slug_prefix="edit", step_overrides=None if own_rows else _rerun_overrides, link_files=own_rows)
     source = (await db.execute(
         select(ArtifactVersion).where(ArtifactVersion.artifact_id == artifact_id)
         .order_by(ArtifactVersion.version.desc()).limit(1)
@@ -267,10 +305,12 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
     stem = f"edit-{report.id}"
     deck = thumbnail = None
     try:
-        content, deck, previews = _content_for(release, maps, stem)
+        content, deck, previews = _content_for(release, maps, stem, baked=own_rows)
         version = await new_version(db, source, content=content, user_id=str(owner.id), report_id=str(report.id),
-                                    status="completed", **({"pptx_path": deck} if deck else {}))
-        thumbnail = _copy_thumbnail(release, str(version.id), previews)
+                                    status="completed", base_version_id=(
+                                        str(release.source_version_id) if release.source_version_id else None),
+                                    draft_id=None, **({"pptx_path": deck} if deck else {}))
+        thumbnail = _copy_thumbnail(release, str(version.id), previews) if own_rows else None
         if thumbnail:
             version.thumbnail_path = thumbnail
         moved = await db.execute(
@@ -288,9 +328,17 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
         editing = await _editing_conversation(db, winner)
         if editing is None:
             raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "The dashboard changed meanwhile; try again")
-        return {"report_id": str(editing.id), "created": False}
+        return {"report_id": str(editing.id), "created": False, "pending_code": {}}
     await db.execute(update(ArtifactRelease).where(ArtifactRelease.id == str(release.id))
                      .values(source_version_id=str(version.id)))
+    pending = {}
+    if not own_rows:
+        from app.models.step import Step
+
+        for new_step_id in maps.step_map.values():
+            code = (await db.execute(select(Step.code).where(Step.id == new_step_id))).scalar()
+            if (code or "").strip():
+                pending[new_step_id] = code
     await db.commit()
     try:
         await audit_service.log(db=db, organization_id=str(organization.id), action="dashboard.edit_started",
@@ -298,7 +346,7 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
                                 details={"report_id": str(report.id), "release_id": str(release.id)})
     except Exception:
         pass
-    return {"report_id": str(report.id), "created": True}
+    return {"report_id": str(report.id), "created": True, "pending_code": pending}
 
 
 _FORK_REFUSALS = {

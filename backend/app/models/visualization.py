@@ -28,4 +28,10 @@ class Visualization(BaseSchema):
     # Visualization configuration
     view = Column(JSON, nullable=True, default=dict)
 
+    # The chart's key across copies (collab01): Publish, Edit and a joining
+    # conversation copy a chart under a new id, and the copy keeps its
+    # source's key, so "who changed this chart" can follow it. NULL reads as
+    # the chart's own id (element_key()).
+    element_key = Column(String(36), nullable=True)
+
 

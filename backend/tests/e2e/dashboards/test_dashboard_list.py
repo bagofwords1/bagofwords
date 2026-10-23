@@ -70,7 +70,10 @@ def test_a_projects_dashboards_are_shared_with_its_members(corpus, corpus_rows, 
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales", project="private")
     body = _list(test_client, corpus, "proj_viewer", filter="shared")
     assert _ids(body) == [aid]  # its editors open it, published or not (the draft)
-    assert body["dashboards"][0]["report_id"] == corpus.reports[CONV]
+    # The pencil opens the reader's own editing conversation (collab01): the
+    # project member has none yet, so the page asks /edit for one.
+    card = body["dashboards"][0]
+    assert card["report_id"] is None and card["role"] == "edit"
     assert _ids(_list(test_client, corpus, "member", filter="shared")) == []
 
 

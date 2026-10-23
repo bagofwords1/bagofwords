@@ -577,6 +577,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     "outline or slice before authoring edit_artifact ops)</code>"
                 )
 
+        collaboration = artifact.get("collaboration")
+        if collaboration:
+            # Other people edit this dashboard too (collab01): what it is for,
+            # and what changed before this conversation picked it up.
+            lines.append(f"  <collaboration>{_esc(collaboration)}</collaboration>")
+
         lines.append("</current_artifact>")
         return "\n".join(lines)
 

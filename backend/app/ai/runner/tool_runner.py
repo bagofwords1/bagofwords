@@ -38,6 +38,28 @@ def is_non_recoverable_error(message: str | None) -> bool:
     return any(p in m for p in NON_RECOVERABLE_ERROR_PATTERNS)
 
 
+
+# Tools that change a chart: while one runs, the charts its input names are
+# outlined for the dashboard's other editors (collab01, dashboard_presence).
+_CHART_EDITING_TOOLS = frozenset({
+    "create_data", "run_query", "add_parameter", "edit_artifact", "create_artifact", "create_dashboard",
+    "create_widget", "edit_doc",
+})
+
+
+def _note_chart_edit(runtime_ctx, arguments) -> None:
+    """Best effort and detached: presence never slows or fails a tool."""
+    try:
+        report = (runtime_ctx or {}).get("report")
+        if report is None:
+            return
+        from app.core import fire_and_forget
+        from app.services.dashboard_presence import agent_touched
+
+        fire_and_forget.spawn(agent_touched(str(report.id), arguments))
+    except Exception:
+        pass
+
 class ToolRunner:
     """Executes a tool with retries, timeouts, and structured observations.
 
@@ -254,6 +276,8 @@ class ToolRunner:
             try:
                 # envelope start
                 await emit({"type": "tool.start", "payload": {"attempt": attempt}})
+                if attempt == 1 and getattr(tool, "name", None) in _CHART_EDITING_TOOLS:
+                    _note_chart_edit(runtime_ctx, arguments)
 
                 last_observation = None
                 last_output = None

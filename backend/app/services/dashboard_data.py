@@ -180,6 +180,19 @@ async def default_step(db, query: Query) -> Step | None:
     )).scalar_one_or_none()
 
 
+async def pending_step(db, query: Query) -> Step | None:
+    """The default step while it waits to run with its new owner's
+    credentials (a joining editor's copy, collab01)."""
+    from app.services.fork_service import FORK_PENDING_STATUS
+
+    if not query.default_step_id:
+        return None
+    return (await db.execute(
+        select(Step).options(lazyload("*")).where(Step.id == query.default_step_id,
+                                                  Step.status == FORK_PENDING_STATUS)
+    )).scalar_one_or_none()
+
+
 async def public_step(db, step: Step, query: Query, resolution: StepDataResolution, *,
                       organization_id, user):
     """The step as /r serves it: no code when withheld, identity values
@@ -209,19 +222,30 @@ def file_ids(content: dict) -> set[str]:
 
 # ── the draft of one dashboard ───────────────────────────────────────────
 
-async def draft_version(db, artifact: Artifact, *, light: bool = False) -> ArtifactVersion | None:
+async def draft_version(db, artifact: Artifact, *, light: bool = False,
+                        draft_id: str | None = None) -> ArtifactVersion | None:
     """The dashboard's draft: its newest completed version. `light`: without
-    the version's eager relationships (its conversation, user, ...)."""
+    the version's eager relationships (its conversation, user, ...).
+
+    Collaboration (collab01): a draft is the implicit one (`draft_id` None)
+    or a named one, and its versions count only in a live conversation
+    editing the dashboard -- when the dashboard has one at all (with none,
+    every version counts, as before)."""
+    from app.services.dashboard_collab import editing_report_ids
+
     stmt = select(ArtifactVersion)
     if light:
         stmt = stmt.options(lazyload("*"))
-    return (await db.execute(
-        stmt.where(
-            ArtifactVersion.artifact_id == str(artifact.id),
-            ArtifactVersion.deleted_at.is_(None),
-            ArtifactVersion.status == "completed",
-        ).order_by(ArtifactVersion.version.desc()).limit(1)
-    )).scalar_one_or_none()
+    stmt = stmt.where(
+        ArtifactVersion.artifact_id == str(artifact.id),
+        ArtifactVersion.deleted_at.is_(None),
+        ArtifactVersion.status == "completed",
+        ArtifactVersion.draft_id.is_(None) if draft_id is None else ArtifactVersion.draft_id == str(draft_id),
+    )
+    editing = await editing_report_ids(db, artifact)
+    if editing:
+        stmt = stmt.where(ArtifactVersion.report_id.in_(editing))
+    return (await db.execute(stmt.order_by(ArtifactVersion.version.desc()).limit(1))).scalar_one_or_none()
 
 
 async def draft_query_ids(db, version: ArtifactVersion | None) -> set[str]:
@@ -231,8 +255,21 @@ async def draft_query_ids(db, version: ArtifactVersion | None) -> set[str]:
         return set()
     from app.services.dashboard_copy import collect_dashboard_deps
 
-    deps = await collect_dashboard_deps(db, version)
+    deps = await collect_dashboard_deps(db, version, include_pending=True)
     return {str(q) for q in deps.query_ids} | {str(q) for q in deps.hidden_query_ids}
+
+
+async def version_report(db, version: ArtifactVersion):
+    """The conversation a draft version was made in (collab01: one of
+    several editing the dashboard)."""
+    from app.models.report import Report
+
+    report = (await db.execute(
+        select(Report).options(lazyload("*")).where(Report.id == str(version.report_id))
+    )).scalar_one_or_none() if version is not None else None
+    if report is None:
+        raise not_found()
+    return report
 
 
 async def draft_report(db, artifact: Artifact):

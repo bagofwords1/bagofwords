@@ -286,6 +286,24 @@ async def _audit(db, audit_service, organization_id, user_id, artifact_id, trigg
                                          **({"error": error[:500]} if error else {})})
 
 
+async def refresh_identity(db, artifact: Artifact) -> User | None:
+    """Whose credentials refresh the published dashboard (collab01): the
+    last publisher -- Publish checked their access to everything it runs on,
+    and another editor may have added a source the owner cannot use -- while
+    they can still edit it; else the owner while still a member; else no one."""
+    from app.services.dashboard_access import can_edit, counts_as_owner, published_release
+
+    release = await published_release(db, artifact)
+    if release is not None and release.published_by:
+        publisher = await db.get(User, str(release.published_by))
+        if publisher is not None and await can_edit(db, artifact, publisher):
+            return publisher
+    owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
+    if owner is not None and await counts_as_owner(db, artifact, owner):
+        return owner
+    return None
+
+
 async def owner_refresh(db, artifact: Artifact, owner: User, organization) -> dict:
     """The owner's Refresh: now, with the thumbnail; nothing published or a
     publish running is refused."""
@@ -316,8 +334,8 @@ async def refresh_on_view(db, artifact: Artifact) -> dict:
         return skipped("fresh")
     if not await asyncio.to_thread(claim_scheduled_run, f"dashboard_view_{artifact.id}", interval):
         return skipped("running")
-    owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
-    if owner is None or not await counts_as_owner(db, artifact, owner):
+    owner = await refresh_identity(db, artifact)
+    if owner is None:
         return skipped("owner")
     organization = await db.get(Organization, str(artifact.organization_id))
     result = await refresh(db, artifact, owner, organization, trigger="view", thumbnail=False)
@@ -342,8 +360,12 @@ async def scheduled_refresh(artifact_id: str) -> None:
             remove_job(artifact_id)
             return
         organization = await db.get(Organization, str(artifact.organization_id))
-        owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
-        if owner is None or organization is None or not await counts_as_owner(db, artifact, owner):
+        # The last publisher while they can still edit it, else the owner
+        # (collab01); the owner always hears of a failure too.
+        owner = await refresh_identity(db, artifact) if artifact.published_release_id else (
+            await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None)
+        if owner is None or organization is None or (
+                not artifact.published_release_id and not await counts_as_owner(db, artifact, owner)):
             await _record_failure(db, str(artifact_id), None,
                                   "The dashboard's owner is no longer a member of the organization")
             return
@@ -378,6 +400,17 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
         # what it showed; a draft's link opens for its editors only.
         link = f"/r/{report.id}"
     version = await draft_version(db, artifact)
+    if version is not None and str(version.report_id) != str(artifact.report_id or ""):
+        # The newest draft was made in another editor's conversation
+        # (collab01): that conversation refreshes, with its own user's
+        # credentials -- never one person's rows in another's conversation.
+        report = await db.get(Report, str(version.report_id))
+        runner = await db.get(User, str(report.user_id)) if report is not None else None
+        from app.services.dashboard_access import can_edit
+
+        if runner is None or not await can_edit(db, artifact, runner):
+            return
+        owner = runner
     if report is None or report.deleted_at is not None or report.status == "archived" or version is None:
         return  # nothing to refresh: no live conversation, or no finished version
     try:
@@ -475,14 +508,26 @@ async def _tell_failure(db, artifact_id: str, title: str, owner: User, organizat
     from app.settings.config import settings
 
     link = link or f"/d/{artifact_id}"
+    # The run's user (the last publisher) and the dashboard's owner both get
+    # the Notifications row (collab01).
+    alerted = [owner]
     try:
-        await automation_alerts.notify_owner_of_failure(
-            db, kind="dashboard", automation_id=artifact_id, automation_name=title, owner=owner,
-            organization=organization, outcome=automation_alerts.RunOutcome(ok=False, error_message=error),
-            link=link, email=False,
-        )
+        dashboard = await db.get(Artifact, str(artifact_id))
+        if dashboard is not None and dashboard.owner_id and str(dashboard.owner_id) != str(owner.id):
+            the_owner = await db.get(UserModel, str(dashboard.owner_id))
+            if the_owner is not None:
+                alerted.append(the_owner)
     except Exception:
-        logger.warning("Dashboard %s: failure alert not sent", artifact_id, exc_info=True)
+        pass
+    for person in alerted:
+        try:
+            await automation_alerts.notify_owner_of_failure(
+                db, kind="dashboard", automation_id=artifact_id, automation_name=title, owner=person,
+                organization=organization, outcome=automation_alerts.RunOutcome(ok=False, error_message=error),
+                link=link, email=False,
+            )
+        except Exception:
+            logger.warning("Dashboard %s: failure alert not sent", artifact_id, exc_info=True)
     addresses = []
     for sub in subscribers or []:
         if sub.get("type") == "email" and sub.get("address"):

@@ -1641,8 +1641,14 @@ class ReportService:
         current_user: User,
         artifact_id: str | None = None,
         only_identity_scoped: bool = False,
+        admitted_editor: bool = False,
     ) -> dict:
         """Re-execute a shared artifact's steps for a viewer.
+
+        `admitted_editor` (collab01): a dashboard editor previewing a version
+        made in someone else's conversation. The caller opened the dashboard's
+        draft door instead of this conversation's sharing, and the run is
+        always the caller's own credentials.
 
         `only_identity_scoped` limits the run to steps whose rows depend on
         who runs them (step_identity_scope) — the per-recipient email render
@@ -1666,7 +1672,8 @@ class ReportService:
         report = await self._load_report_for_rerun(db, report_id)
 
         # Must be allowed to view the shared artifact (owner/shared/internal/public)
-        await self._check_visibility(db, report, 'artifact_visibility', current_user)
+        if not admitted_editor:
+            await self._check_visibility(db, report, 'artifact_visibility', current_user)
 
         if str(current_user.id) == str(report.user_id):
             # The owner's refresh updates the shared snapshot via
@@ -1676,7 +1683,7 @@ class ReportService:
 
         identity = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
         from app.services.bow_source_access import report_access
-        if await report_access(db, report.id):
+        if admitted_editor or await report_access(db, report.id):
             identity = "viewer"
         # Defense in depth: RLS reports always run under the viewer's own
         # identity. set_visibility blocks setting creator mode on them, but a

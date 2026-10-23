@@ -107,7 +107,31 @@ def downgrade_test_db_to_base() -> None:
     assert current_revisions(url) == (MAIN_BASE_REVISION,)
 
 
+# Schema-only revisions that come after the data migration (dashfc08). The
+# code at head reads their tables and columns, so a corpus stopped before the
+# data migration gets them too: their upgrade() runs on its own, unstamped,
+# and is idempotent, so a later `upgrade head` finds it done.
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01",)
+
+
+def apply_schema_only_revisions(url: str) -> None:
+    from alembic.operations import Operations
+
+    script = script_directory()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            context = MigrationContext.configure(conn)
+            with Operations.context(context):
+                for revision in SCHEMA_ONLY_AFTER_DATA_MIGRATION:
+                    script.get_revision(revision).module.upgrade()
+    finally:
+        engine.dispose()
+
+
 def upgrade_test_db_to_head(target: str = "head") -> None:
     url = sync_test_url()
     with alembic_pointed_at(url) as cfg:
         command.upgrade(cfg, target)
+    if target != "head" and target not in SCHEMA_ONLY_AFTER_DATA_MIGRATION:
+        apply_schema_only_revisions(url)

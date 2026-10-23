@@ -40,7 +40,10 @@ def test_a_dashboard_is_shared_only_once_it_is_published(corpus, corpus_rows, te
         assert resp.json()["error_code"] == "dashboard.share_requires_publish"
     assert share(test_client, corpus, aid, "none").status_code == 200
     body = _sharing(test_client, corpus, aid).json()
-    assert body == {"visibility": "none", "published": False, "user_ids": [], "group_ids": []}
+    assert {k: body[k] for k in ("visibility", "published", "user_ids", "group_ids", "editor_user_ids",
+                                 "editor_group_ids")} == {
+        "visibility": "none", "published": False, "user_ids": [], "group_ids": [],
+        "editor_user_ids": [], "editor_group_ids": []}
     publish(aid)
     assert share(test_client, corpus, aid, "internal").status_code == 200
 

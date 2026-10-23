@@ -104,6 +104,8 @@ class ArtifactShare(BaseSchema):
                      nullable=True, index=True)
     group_id = Column(String(36), ForeignKey("groups.id", name="fk_artifact_shares_group_id", ondelete="CASCADE"),
                       nullable=True, index=True)
+    # 'view' or 'edit' (collab01); every grant made before is 'view'.
+    role = Column(String(10), nullable=False, default="view", server_default="view")
 
 
 class ArtifactSlugHistory(BaseSchema):
@@ -119,3 +121,68 @@ class ArtifactSlugHistory(BaseSchema):
     slug = Column(String(255), nullable=False)
     artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_slug_history_artifact_id",
                                                 ondelete="CASCADE"), nullable=False, index=True)
+
+
+class ArtifactDraft(BaseSchema):
+    """A named draft of a dashboard (collab01), next to its implicit one: a
+    version whose draft_id is NULL is on the implicit draft, so a dashboard
+    needs a row here only once someone starts a separate draft."""
+    __tablename__ = "artifact_drafts"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_artifact_drafts"),
+        UniqueConstraint("artifact_id", "slug", name="uq_artifact_drafts_slug"),
+    )
+
+    artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_drafts_artifact_id",
+                                                ondelete="CASCADE"), nullable=False, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id", name="fk_artifact_drafts_organization_id"),
+                             nullable=False)
+    name = Column(String(120), nullable=False)
+    slug = Column(String(120), nullable=False)
+    # open | promoted | abandoned
+    status = Column(String(20), nullable=False, default="open", server_default="open")
+    created_by = Column(String(36), ForeignKey("users.id", name="fk_artifact_drafts_created_by"), nullable=True)
+    promoted_release_id = Column(String(36), nullable=True)
+
+
+class ArtifactConversation(BaseSchema):
+    """A conversation editing a dashboard (collab01). The dashboard's own
+    `artifacts.report_id` always counts as one; a row here adds another --
+    an editor who joined, with what they started from and the summary they
+    got. `ended_at`: the conversation was deleted (its versions stay)."""
+    __tablename__ = "artifact_conversations"
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_artifact_conversations"),
+        UniqueConstraint("artifact_id", "report_id", name="uq_artifact_conversations_report"),
+    )
+
+    artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_conversations_artifact_id",
+                                                ondelete="CASCADE"), nullable=False, index=True)
+    report_id = Column(String(36), ForeignKey("reports.id", name="fk_artifact_conversations_report_id"),
+                       nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", name="fk_artifact_conversations_user_id"), nullable=False)
+    draft_id = Column(String(36), ForeignKey("artifact_drafts.id", name="fk_artifact_conversations_draft_id",
+                                             ondelete="SET NULL"), nullable=True)
+    base_version_id = Column(String(36), nullable=True)
+    summary = Column(JSON, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    ended_at = Column(DateTime, nullable=True)
+
+
+class ArtifactPresence(BaseSchema):
+    """Who has a dashboard open in a conversation right now (collab01): one
+    row per person and conversation, kept alive by the browser's heartbeat
+    and moved by the agent's run (dashboard_presence)."""
+    __tablename__ = "artifact_presence"
+    __table_args__ = (PrimaryKeyConstraint("id", name="pk_artifact_presence"),)
+
+    artifact_id = Column(String(36), ForeignKey("artifacts.id", name="fk_artifact_presence_artifact_id",
+                                                ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id", name="fk_artifact_presence_user_id", ondelete="CASCADE"),
+                     nullable=False)
+    report_id = Column(String(36), nullable=True)
+    # viewing | agent_editing
+    state = Column(String(20), nullable=False, default="viewing", server_default="viewing")
+    element_keys = Column(JSON, nullable=True)
+    completion_id = Column(String(36), nullable=True, index=True)
+    seen_at = Column(DateTime, nullable=False)

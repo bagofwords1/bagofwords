@@ -38,8 +38,12 @@ async def _shared_with(db, user, organization):
         ArtifactShare.artifact_id == Artifact.id,
         or_(ArtifactShare.user_id == str(user.id), ArtifactShare.group_id.in_(groups))))
     published = Artifact.published_release_id.isnot(None)
+    # An editor (collab01) sees the dashboard published or not.
+    edit_granted = exists(select(ArtifactShare.id).where(
+        ArtifactShare.artifact_id == Artifact.id, ArtifactShare.role == "edit",
+        or_(ArtifactShare.user_id == str(user.id), ArtifactShare.group_id.in_(groups))))
     terms = [and_(published, Artifact.visibility.in_(("internal", "public"))),
-             and_(published, Artifact.visibility == "shared", granted)]
+             and_(published, Artifact.visibility == "shared", granted), edit_granted]
     projects = await project_service.get_visible_project_ids(db, user, organization)
     if projects:
         terms.append(Artifact.project_id.in_([str(p) for p in projects]))
@@ -69,10 +73,12 @@ async def _card(db, artifact: Artifact, user) -> dict:
     release = await published_release(db, artifact)
     editor = await can_edit(db, artifact, user)
     report_id = None
-    if editor and artifact.report_id:
-        editing = await db.get(Report, str(artifact.report_id))
-        if editing is not None and editing.deleted_at is None and editing.status != "archived":
-            report_id = str(editing.id)
+    if editor:
+        # The card's pencil opens the reader's own editing conversation
+        # (collab01): several people edit a dashboard, each in their own.
+        from app.services.dashboard_collab import my_conversation
+
+        report_id = await my_conversation(db, artifact, user)
     thumbnail = release.thumbnail_path if release is not None else (
         await _draft_thumbnail(db, artifact) if editor else None)
     owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
@@ -80,6 +86,7 @@ async def _card(db, artifact: Artifact, user) -> dict:
         "id": str(artifact.id), "slug": artifact.slug, "title": await _card_title(db, artifact),
         "mode": artifact.mode,
         "published": release is not None, "is_owner": is_owner(artifact, user), "report_id": report_id,
+        "role": "owner" if is_owner(artifact, user) else ("edit" if editor else "view"),
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
         "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at,
     }
