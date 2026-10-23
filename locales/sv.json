@@ -5899,5 +5899,21 @@
   },
   "trackedChanges": {
     "noChanges": "Inga ändringar"
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} redigerar också",
+      "alsoEditingMany": "{name} och {count} till redigerar också",
+      "agentEditing": "{name}s agent redigerar",
+      "you": "Du"
+    },
+    "publishSince": {
+      "title": "Publicerad sedan ditt utkast startade",
+      "body": "{name} publicerade den här instrumentpanelen {when}. Din version innehåller inte deras ändringar. Att publicera ersätter det som läsarna ser nu.",
+      "someone": "Någon",
+      "publishAnyway": "Publicera ändå",
+      "review": "Granska ändringar",
+      "cancel": "Avbryt"
+    }
   }
 }

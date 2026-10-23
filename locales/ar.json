@@ -5899,5 +5899,21 @@
   },
   "trackedChanges": {
     "noChanges": "لا توجد تغييرات"
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} يحرر أيضًا",
+      "alsoEditingMany": "{name} و{count} آخرون يحررون أيضًا",
+      "agentEditing": "وكيل {name} يحرر",
+      "you": "أنت"
+    },
+    "publishSince": {
+      "title": "نُشرت منذ بدء مسودتك",
+      "body": "نشر {name} لوحة المعلومات هذه {when}. لا تتضمن نسختك تغييراته. سيستبدل النشر ما يراه القراء الآن.",
+      "someone": "شخص ما",
+      "publishAnyway": "النشر على أي حال",
+      "review": "مراجعة التغييرات",
+      "cancel": "إلغاء"
+    }
   }
 }

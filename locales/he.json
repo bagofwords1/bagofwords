@@ -6266,5 +6266,21 @@
     "notFound": "החיבור לא נמצא.",
     "forbidden": "אין לך גישה לחיבור זה.",
     "loadFailed": "טעינת החיבור נכשלה. נסו שוב מאוחר יותר."
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} עורך/ת גם כן",
+      "alsoEditingMany": "{name} ועוד {count} עורכים גם כן",
+      "agentEditing": "הסוכן של {name} עורך",
+      "you": "את/ה"
+    },
+    "publishSince": {
+      "title": "פורסם מאז שהטיוטה שלך התחילה",
+      "body": "{name} פרסם/ה את הגלריה {when}. הגרסה שלך לא כוללת את השינויים שלו/ה. פרסום יחליף את מה שהקוראים רואים עכשיו.",
+      "someone": "מישהו",
+      "publishAnyway": "לפרסם בכל זאת",
+      "review": "לסקור את השינויים",
+      "cancel": "ביטול"
+    }
   }
 }

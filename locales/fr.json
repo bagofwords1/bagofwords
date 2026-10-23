@@ -5899,5 +5899,21 @@
   },
   "trackedChanges": {
     "noChanges": "Aucune modification"
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} modifie aussi",
+      "alsoEditingMany": "{name} et {count} autres modifient aussi",
+      "agentEditing": "L'agent de {name} modifie",
+      "you": "Vous"
+    },
+    "publishSince": {
+      "title": "Publié depuis le début de votre brouillon",
+      "body": "{name} a publié ce tableau de bord {when}. Votre version n'inclut pas ses modifications. Publier remplacera ce que les lecteurs voient maintenant.",
+      "someone": "Quelqu'un",
+      "publishAnyway": "Publier quand même",
+      "review": "Voir les modifications",
+      "cancel": "Annuler"
+    }
   }
 }

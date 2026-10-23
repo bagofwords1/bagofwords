@@ -6246,5 +6246,21 @@
     "notFound": "No se encontró esta conexión.",
     "forbidden": "No tienes acceso a esta conexión.",
     "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} también está editando",
+      "alsoEditingMany": "{name} y {count} más también están editando",
+      "agentEditing": "El agente de {name} está editando",
+      "you": "Tú"
+    },
+    "publishSince": {
+      "title": "Publicado desde que empezó tu borrador",
+      "body": "{name} publicó este panel {when}. Tu versión no incluye sus cambios. Al publicar, reemplazarás lo que ven los lectores ahora.",
+      "someone": "Alguien",
+      "publishAnyway": "Publicar de todos modos",
+      "review": "Revisar cambios",
+      "cancel": "Cancelar"
+    }
   }
 }

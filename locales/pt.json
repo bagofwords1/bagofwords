@@ -5899,5 +5899,21 @@
   },
   "trackedChanges": {
     "noChanges": "Sem alterações"
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} também está editando",
+      "alsoEditingMany": "{name} e mais {count} também estão editando",
+      "agentEditing": "O agente de {name} está editando",
+      "you": "Você"
+    },
+    "publishSince": {
+      "title": "Publicado desde que seu rascunho começou",
+      "body": "{name} publicou este painel {when}. Sua versão não inclui as alterações dele. Publicar substituirá o que os leitores veem agora.",
+      "someone": "Alguém",
+      "publishAnyway": "Publicar mesmo assim",
+      "review": "Revisar alterações",
+      "cancel": "Cancelar"
+    }
   }
 }

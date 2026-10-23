@@ -6275,5 +6275,21 @@
     "notFound": "This connection could not be found.",
     "forbidden": "You don't have access to this connection.",
     "loadFailed": "Failed to load the connection. Try again later."
+  },
+  "dashboardCollab": {
+    "presence": {
+      "alsoEditing": "{name} is also editing",
+      "alsoEditingMany": "{name} and {count} others are also editing",
+      "agentEditing": "{name}'s agent is editing",
+      "you": "You"
+    },
+    "publishSince": {
+      "title": "Published since your draft started",
+      "body": "{name} published this dashboard {when}. Your version doesn't include their changes. Publishing will replace what readers see now.",
+      "someone": "Someone",
+      "publishAnyway": "Publish anyway",
+      "review": "Review changes",
+      "cancel": "Cancel"
+    }
   }
 }
