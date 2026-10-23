@@ -280,10 +280,15 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
-import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
+import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 
 const route = useRoute();
 const report_id = route.params.id;
+
+// Start downloading the artifact iframe's libraries now, in parallel with the
+// report/artifact/data requests below (see utils/artifactLibs.ts).
+ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
 const { data: currentUser } = useAuth();
 
 const report = ref<any>({
@@ -741,6 +746,9 @@ async function loadArtifact() {
             // page — same rule as the backend's get_latest_by_report.
             const rows = data.value as any[];
             const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
+            // The dashboard's queries + steps only need the artifact id — fetch
+            // them alongside the artifact detail instead of after it.
+            initialQueries = { artifactId: latestArtifactId, promise: fetchQueriesWithSteps(latestArtifactId) };
             // Use public artifact endpoint
             const { data: fullArtifact, error: detailError } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
             if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
@@ -758,20 +766,51 @@ async function loadArtifact() {
     }
 }
 
+// The artifact's queries, each with the default step this viewer may see, in
+// ONE request (GET /r/{id}/queries_with_steps). Null on failure — callers then
+// fall back to the list + per-query step endpoints.
+async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
+    try {
+        const queryParams = artifactId ? `?artifact_id=${artifactId}` : '';
+        const { data, error } = await useMyFetch(`/api/r/${report_id}/queries_with_steps${queryParams}`);
+        if (error.value || !Array.isArray(data.value)) return null;
+        return data.value as any[];
+    } catch {
+        return null;
+    }
+}
+// Started by loadArtifact in parallel with the artifact detail request.
+let initialQueries: { artifactId: string; promise: Promise<any[] | null> } | null = null;
+
 // Fetch visualization data for the artifact (using public endpoints)
 async function loadVisualizationData(artifactId?: string) {
     try {
         // Use public endpoint - no auth required
         // If artifactId provided, filter to only queries used by that artifact
-        const queryParams = artifactId ? `?artifact_id=${artifactId}` : '';
-        const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
-        const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+        let bundled: any[] | null = null;
+        if (initialQueries && initialQueries.artifactId === artifactId) {
+            bundled = await initialQueries.promise;
+            initialQueries = null; // first load only — later loads must refetch
+        } else {
+            bundled = await fetchQueriesWithSteps(artifactId);
+        }
 
-        // Fetch all steps in parallel — awaiting each one serially made the
-        // page's time-to-render scale linearly with the number of queries.
-        const stepResults = await Promise.all(
-            queries.map((query) => useMyFetch(`/api/r/${report_id}/queries/${(query as any).id}/step`))
-        );
+        let queries: any[];
+        let stepResults: Array<{ data: { value: any } }>;
+        if (bundled) {
+            queries = bundled;
+            stepResults = bundled.map((q) => ({ data: { value: q.default_step ?? null } }));
+        } else {
+            const queryParams = artifactId ? `?artifact_id=${artifactId}` : '';
+            const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
+            queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+
+            // Fetch all steps in parallel — awaiting each one serially made the
+            // page's time-to-render scale linearly with the number of queries.
+            stepResults = await Promise.all(
+                queries.map((query) => useMyFetch(`/api/r/${report_id}/queries/${(query as any).id}/step`))
+            ) as any;
+        }
 
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
@@ -1220,14 +1259,23 @@ const iframeSrcdoc = computed(() => {
         params: paramsPayload(),
         runtime: artifactRuntime()
     };
-    return buildArtifactIframeHtml({
-        data: seed,
-        code: artifactCode,
-        mode: artifact.value?.mode || 'page',
-        resourceApp: artifact.value?.content?.sdk_version === 1,
-        colorMode: artifactColorMode,
-    });
+    const opts = iframeOptions(artifact.value, seed);
+    // Wait for the host-fetched libraries (failed ones fall back to <script src>).
+    const inlineLibs = artifactLibSources(inlineableArtifactLibs(opts));
+    if (inlineLibs === null) return null;
+    return buildArtifactIframeHtml({ ...opts, inlineLibs });
 });
+
+function iframeOptions(art: any, seed: any) {
+    return {
+        data: seed,
+        code: art?.content?.code || '',
+        mode: art?.mode || 'page',
+        resourceApp: art?.content?.sdk_version === 1,
+        colorMode: artifactColorMode,
+        precompiled: { js: art?.compiled_js, key: art?.compiled_js_key },
+    };
+}
 
 // A new srcdoc is a new document — deliveries wait for its load again.
 watch(() => iframeSrcdoc.value, () => { artifactIframeLoaded.value = false; });
@@ -1331,6 +1379,13 @@ onMounted(async () => {
         params: paramsPayload(),
         runtime: artifactRuntime()
     }));
+
+    // The iframe libraries were requested at setup, in parallel with the data
+    // above; usually they are already here. Waiting before flipping the flags
+    // keeps the Loading state up instead of an empty frame.
+    if (artifact.value) {
+        await whenArtifactLibsSettled(inlineableArtifactLibs(iframeOptions(artifact.value, srcdocSeed.value)));
+    }
 
     // Mark data as ready - this triggers iframeSrcdoc to compute once with all data
     dataReady.value = true;

@@ -9,6 +9,8 @@ server on :3000 still proxies to uvicorn on :8000.
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -16,6 +18,7 @@ from fastapi.responses import FileResponse
 
 
 IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable"
+_LIB_HASH_RE = re.compile(r"[0-9a-f]{8,64}")
 SPA_INDEX_CACHE_CONTROL = "no-cache"
 
 API_PREFIXES = (
@@ -62,7 +65,9 @@ ARTIFACT_SHELL_HEADERS = {
 }
 
 
-def _cache_headers(spa_path: str, resolved: str, index_file: str) -> dict[str, str]:
+def _cache_headers(
+    spa_path: str, resolved: str, index_file: str, query: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     # Match on the resolved file, not the request path, so path variants
     # ("/mcp-artifact-app.html/", "/./mcp-artifact-app.html") get it too.
     if os.path.basename(resolved) in ARTIFACT_SHELL_FILES:
@@ -78,6 +83,17 @@ def _cache_headers(spa_path: str, resolved: str, index_file: str) -> dict[str, s
     # artifact frames require CORS even when hosted by this same server.
     if spa_path.lstrip('/').startswith('libs/fonts/') and Path(resolved).suffix in {'.woff', '.woff2', '.ttf', '.otf'}:
         return {"Access-Control-Allow-Origin": "*"}
+
+    # Vendored artifact libraries. The app references them with a build-time
+    # content hash (`?h=`, frontend/utils/artifactIframe.ts libUrl): that URL
+    # changes whenever the file does, so it can be cached for good. Anything
+    # else (no hash: MCP shells, older bundles) must revalidate — the files are
+    # replaced in place on upgrade, and a heuristically cached old runtime
+    # paired with new artifact code breaks dashboards.
+    if spa_path.lstrip('/').startswith('libs/') and Path(resolved).suffix in {'.js', '.css'}:
+        if query and _LIB_HASH_RE.fullmatch(query.get('h') or ''):
+            return {"Cache-Control": IMMUTABLE_ASSET_CACHE_CONTROL}
+        return {"Cache-Control": "no-cache"}
     return {}
 
 
@@ -126,7 +142,7 @@ def mount_spa(app: FastAPI) -> None:
         if os.path.isfile(resolved):
             return FileResponse(
                 resolved,
-                headers=_cache_headers(spa_path, resolved, index_file_str),
+                headers=_cache_headers(spa_path, resolved, index_file_str, request.query_params),
             )
 
         return FileResponse(

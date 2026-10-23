@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from app.schemas.visualization_schema import VisualizationSchema, PublicVisualizationSchema
-from app.schemas.step_schema import StepSchema
+from app.schemas.step_schema import StepSchema, PublicStepSchema
 
 
 class QueryCreate(BaseModel):
@@ -89,5 +89,14 @@ class PublicQuerySchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PublicQueryWithStepSchema(PublicQuerySchema):
+    """A shared report's query plus the default step this reader may see.
+
+    `default_step` is exactly what GET /r/{report_id}/queries/{id}/step returns
+    for the same reader, or None where that route would 404.
+    """
+    default_step: Optional[PublicStepSchema] = None
 
 
