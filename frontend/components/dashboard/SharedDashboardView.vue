@@ -184,6 +184,7 @@
             :changes-open="changesOpen"
             :is-running="isRunning"
             :showing-author-data="showingAuthorData"
+            :withheld-count="withheldCharts.length"
             @toggle-changes="toggleChanges"
             @open-history="historyOpen = true"
             @run-as-me="handleRun"

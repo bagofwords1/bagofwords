@@ -6041,7 +6041,8 @@
         "changed": "مُعدّل",
         "removed": "محذوف",
         "unchanged": "بلا تغيير"
-      }
+      },
+      "someNeedYourRun": "تحتاج بعض المخططات إلى تشغيلك أنت لعرض بياناتك"
     },
     "conversation": {
       "continuedFrom": "متابعة لمحادثة {name}",

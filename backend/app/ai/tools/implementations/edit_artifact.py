@@ -324,7 +324,7 @@ class EditArtifactTool(Tool):
             from sqlalchemy import update, func
             from datetime import datetime
             await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
-            latest = await db.scalar(select(func.max(ArtifactVersion.version)).where(ArtifactVersion.artifact_id == artifact.artifact_id))
+            latest = await latest_version_in_conversation(db, artifact)
             if latest != data.expected_latest_version:
                 yield self._fail(artifact, 'version_conflict', 'A newer UI version exists. Read it before editing.', {'latest_version': latest})
                 return
@@ -433,3 +433,15 @@ from app.ai.tools.implementations.edit_artifact_legacy import (  # noqa: E402,F4
     build_pinned_decisions,
     _find_closest_match as _find_closest_match_legacy,
 )
+
+
+async def latest_version_in_conversation(db, version) -> int | None:
+    """The newest version number this conversation made of `version`'s
+    dashboard -- the guard's "newer than what you read". Other editors'
+    conversations (collab01) add versions of the same dashboard that this
+    one never read and does not build on; they are not a conflict."""
+    from sqlalchemy import func, select
+
+    return await db.scalar(select(func.max(ArtifactVersion.version)).where(
+        ArtifactVersion.artifact_id == version.artifact_id,
+        ArtifactVersion.report_id == version.report_id))

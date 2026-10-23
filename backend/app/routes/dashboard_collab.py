@@ -219,8 +219,12 @@ async def run_draft_version(
     owner = (await db.execute(select(Report.user_id).where(Report.id == str(shown.report_id)))).scalar()
     if str(owner) == str(user.id):
         return {"steps_total": 0, "steps_succeeded": 0, "steps_failed": 0, "own": True}
+    # Every query the version needs, filter options included (the version's
+    # own conversation: draft_query_ids reads only shown.report_id's rows).
+    needed = sorted(await dashboard_data.draft_query_ids(db, shown))
     return await ReportService().viewer_rerun_report_steps(db, str(shown.report_id), user,
-                                                           artifact_id=str(shown.id), admitted_editor=True)
+                                                           artifact_id=str(shown.id), admitted_editor=True,
+                                                           query_ids=needed)
 
 
 @router.get("/dashboards/conversations/{report_id}", response_model=list[DashboardConversationContext])

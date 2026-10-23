@@ -6041,7 +6041,8 @@
         "changed": "Geändert",
         "removed": "Entfernt",
         "unchanged": "Unverändert"
-      }
+      },
+      "someNeedYourRun": "Einige Diagramme musst du selbst ausführen, um deine Daten zu sehen"
     },
     "conversation": {
       "continuedFrom": "Fortsetzung der Unterhaltung von {name}",

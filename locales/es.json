@@ -6388,7 +6388,8 @@
         "changed": "Cambiados",
         "removed": "Eliminados",
         "unchanged": "Sin cambios"
-      }
+      },
+      "someNeedYourRun": "Algunos gráficos necesitan tu propia ejecución para mostrar tus datos"
     },
     "conversation": {
       "continuedFrom": "Continuación de la conversación de {name}",

@@ -6041,7 +6041,8 @@
         "changed": "Ändrade",
         "removed": "Borttagna",
         "unchanged": "Oförändrade"
-      }
+      },
+      "someNeedYourRun": "Vissa diagram behöver köras av dig för att visa dina data"
     },
     "conversation": {
       "continuedFrom": "Fortsättning på {name}s konversation",

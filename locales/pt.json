@@ -6041,7 +6041,8 @@
         "changed": "Alterados",
         "removed": "Removidos",
         "unchanged": "Sem alterações"
-      }
+      },
+      "someNeedYourRun": "Alguns gráficos precisam da sua própria execução para mostrar os seus dados"
     },
     "conversation": {
       "continuedFrom": "Continuação da conversa de {name}",

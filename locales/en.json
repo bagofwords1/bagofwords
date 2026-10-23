@@ -6417,7 +6417,8 @@
         "changed": "Changed",
         "removed": "Removed",
         "unchanged": "Unchanged"
-      }
+      },
+      "someNeedYourRun": "Some charts need your own run to show your data"
     },
     "conversation": {
       "continuedFrom": "Continued from {name}'s conversation",

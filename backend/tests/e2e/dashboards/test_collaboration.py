@@ -574,3 +574,34 @@ def test_editors_read_the_analytics_and_their_visits_are_not_counted(corpus, cor
     stats = test_client.get(f"{base}/analytics", headers=as_(corpus, "member"))
     assert stats.status_code == 200 and stats.json()["views"] == 1
     assert test_client.get(f"{base}/analytics", headers=as_(corpus, "direct_share")).status_code == 403
+
+
+@pytest.mark.e2e
+def test_an_editors_own_run_covers_the_filter_option_queries(corpus, corpus_rows, test_client, monkeypatch):
+    """"Run as me" runs every query the version needs: an option query feeds
+    a filter and has no chart of its own, so the charts alone never name it
+    -- without it the filter stays withheld for the editor (seen live, over a
+    connection with row-level security)."""
+    from app.services.report_service import ReportService
+
+    aid = own(corpus_rows, corpus, "options_sources/dash")
+    ids = corpus.ids
+    vid = ids["options_sources/dash/v1"]
+    raw = _rows(corpus_rows, "SELECT content FROM artifact_versions WHERE id = :v", v=vid)[0]["content"]
+    content = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    content["visualization_ids"] = [ids["options_sources/q_by_id/viz"]]  # the genre list is a filter only
+    corpus_rows.update("artifact_versions", vid, content=content)
+    _grant_editor(test_client, corpus, aid, "member")
+
+    seen = {}
+
+    async def spy(self, db, report_id, user, **kw):
+        seen.update(kw)
+        return {"steps_total": len(kw.get("query_ids") or []), "steps_succeeded": 0, "steps_failed": 0}
+
+    monkeypatch.setattr(ReportService, "viewer_rerun_report_steps", spy)
+    ran = test_client.post(f"/api/d/{aid}/draft/run?version=1", headers=as_(corpus, "member"))
+    assert ran.status_code == 200, ran.text
+    assert ids["options_sources/q_genres"] in seen["query_ids"]
+    assert ids["options_sources/q_by_id"] in seen["query_ids"]
+    assert seen["admitted_editor"] is True

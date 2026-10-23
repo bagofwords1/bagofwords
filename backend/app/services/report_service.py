@@ -1642,8 +1642,13 @@ class ReportService:
         artifact_id: str | None = None,
         only_identity_scoped: bool = False,
         admitted_editor: bool = False,
+        query_ids: list[str] | None = None,
     ) -> dict:
         """Re-execute a shared artifact's steps for a viewer.
+
+        `query_ids` (collab01's draft run): exactly the queries the version on
+        screen needs -- its charts and its filter-option queries -- instead of
+        those its charts name alone (an option query has no chart).
 
         `admitted_editor` (collab01): a dashboard editor previewing a version
         made in someone else's conversation. The caller opened the dashboard's
@@ -1778,7 +1783,8 @@ class ReportService:
         steps_succeeded = 0
         steps_failed = 0
 
-        query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
+        if query_ids is None:
+            query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
         if only_identity_scoped:
             from app.services.report_bursting import identity_scoped_step_ids

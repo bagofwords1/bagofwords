@@ -6408,7 +6408,8 @@
         "changed": "שונו",
         "removed": "הוסרו",
         "unchanged": "ללא שינוי"
-      }
+      },
+      "someNeedYourRun": "חלק מהתרשימים צריכים הרצה שלך כדי להציג את הנתונים שלך"
     },
     "conversation": {
       "continuedFrom": "בהמשך לשיחה של {name}",

@@ -53,15 +53,15 @@
         >{{ $t('dashboardCollab.page.newDraft') }}</button>
 
         <!-- Someone else's version: the charts are yours to run -->
-        <div v-if="meta.version_is_mine === false && showingAuthorData" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+        <div v-if="meta.version_is_mine === false && (showingAuthorData || withheldCount)" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
             <Icon name="heroicons:user-circle" class="w-3.5 h-3.5 shrink-0" />
-            <span class="hidden md:inline">{{ $t('dashboardCollab.page.notYourVersion', { name: authorName || '—' }) }}</span>
+            <span class="hidden md:inline">{{ runHint }}</span>
             <button
                 type="button"
                 data-testid="run-as-me"
                 :disabled="isRunning"
                 class="flex items-center gap-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-900 px-1.5 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/40 disabled:opacity-60"
-                :title="$t('dashboardCollab.page.notYourVersion', { name: authorName || '—' })"
+                :title="runHint"
                 @click="$emit('run-as-me')"
             >
                 <Icon name="heroicons:arrow-path" :class="['w-3 h-3', isRunning ? 'animate-spin' : '']" />
@@ -115,6 +115,8 @@ const props = defineProps<{
     isRunning: boolean;
     // Some chart shows the author's results rather than the reader's own run.
     showingAuthorData?: boolean;
+    // Charts withheld from the reader until they run them (e.g. RLS).
+    withheldCount?: number;
 }>();
 defineEmits<{
     (e: 'toggle-changes'): void;
@@ -132,6 +134,9 @@ const { relativeTime } = useRelativeTime();
 const canEdit = computed(() => props.capabilities.includes('edit'));
 const canPublish = computed(() => props.capabilities.includes('publish'));
 const authorName = computed(() => props.meta?.version_author?.name || '');
+const runHint = computed(() => props.showingAuthorData
+    ? t('dashboardCollab.page.notYourVersion', { name: authorName.value || '—' })
+    : t('dashboardCollab.page.someNeedYourRun', { count: props.withheldCount || 0 }));
 const drafts = computed<any[]>(() => props.meta?.drafts || []);
 
 const selectedVersion = computed(() => (typeof route.query.version === 'string' ? route.query.version : ''));
