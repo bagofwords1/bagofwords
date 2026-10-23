@@ -36,6 +36,16 @@ Status: plan, not started. Base: `feat/dashboards` @ `ab5840c`.
 - **Attribution:** "Changed by …" on each chart, and live outlines while an
   agent edits, as in Figma.
 - **Analytics:** reuse the existing artifact analytics. No new system.
+- **Live vs work in progress:** the published version is live. Drafts pile up
+  versions (v1…v23) until someone publishes. Viewers never see a draft.
+- **Drafts stay invisible by default:** every dashboard has one draft that
+  people never have to name or pick. A named second draft (for example
+  "Hotfix" next to "Redesign v2") is opt-in, and only then does a draft picker
+  appear.
+- **Preview:** editors open any version on the real page:
+  `/d/sales/draft?version=23`, each with their own data.
+- **Rollback:** the last few releases are kept. Rolling back moves live to an
+  older release instantly, with nothing re-run.
 
 ---
 
@@ -192,16 +202,52 @@ a viewer the connection already lets see it.
 - **A stable key per chart:** every content block gets an `element_key` that
   `remap_ids` keeps.
 - **Changed by:** hovering a chart shows *"Changed by Avi's agent, 2 h ago"*.
-  It comes from comparing versions by `element_key`.
+  It comes from comparing versions by `element_key`, so it is history, not
+  presence.
 - **Unpublished changes:** outlines every block that differs from the live
   release.
 - **Live, own agent:** the edit tools add `element_key` to the existing SSE
   progress. The chart is outlined: *"Yochay's agent: editing"*.
 - **Live, other editors:** avatars (*"Avi is also editing"*) and outlines on
-  charts other drafts changed.
-  - Built on an `artifact_presence` heartbeat row, polled every few seconds.
-  - Works across several servers.
-- **Who sees it:** editors only. Viewers see none of it.
+  the charts another person's agent is changing now.
+- **Who sees it:** editors only. Viewers of `/d` get no presence row.
+
+**`artifact_presence`: who is editing right now** (one row per person per
+conversation):
+
+| Field | Meaning |
+|---|---|
+| `artifact_id` | the dashboard |
+| `user_id` | who |
+| `report_id` | their conversation |
+| `state` | `viewing` / `agent_editing` |
+| `element_keys` | charts the agent is changing now |
+| `completion_id` | the agent run doing it |
+| `seen_at` | last heartbeat |
+
+**When the row changes:**
+
+| Moment | Written by | Change |
+|---|---|---|
+| Editor opens the dashboard in a conversation | browser | create, `viewing` |
+| Every ~15 s while open | browser | `seen_at` |
+| Agent run starts | run-start hook | `agent_editing` + `completion_id` |
+| An edit tool is about to change charts | one shared helper | `element_keys` |
+| Agent run ends (done, error, cancel) | run-end hook | back to `viewing`, keys cleared |
+| Tab closes | browser | delete |
+| No heartbeat for ~30 s | cleanup job | treated as gone, deleted later |
+
+- **The tool hook lives in one place:** at the shared version write
+  (`new_version`) or in a common tool wrapper, not in each of the ~10 edit
+  tools, so a new tool can't forget it.
+- **Why the table and not hooks alone:**
+  - The hook event bus runs inside one server process
+    (`completion_event_bus.py`). Another user's browser may be on a different
+    server.
+  - So hooks write the state, and the table shares it across servers.
+- **Delivery:** through the existing cross-user stream
+  `GET /reports/activity/stream` (`report_activity_hub.py`, which re-reads the
+  DB each tick). No new poller or websocket.
 
 ### 6. Analytics (existing system)
 
@@ -212,26 +258,130 @@ a viewer the connection already lets see it.
 4. **Optional:** a `release_id` on the day counter, for views per published
    version.
 
-### 7. Data model
+### 7. Drafts, preview, promotion and rollback
+
+The flow: a dashboard is live, people work on it for weeks (v1…v23), editors
+preview it, and someone promotes it.
+
+```
+artifacts (dashboard)
+ ├─ published_release_id ──► artifact_releases   = live
+ │                             (last few kept, for rollback)
+ ├─ artifact_drafts          = "Main" (implicit), "Redesign v2" (optional)
+ │    └─ artifact_conversations  = who works on that draft
+ │         └─ artifact_versions  = v1 … v23
+ └─ step_user_results        = previews, each person's own rows
+```
+
+**Invisible unless needed**
+- Every dashboard has one implicit draft. Editing, joining, preview and Publish
+  use it, and the word "draft" never needs to appear.
+- "Start a separate draft" (for example a hotfix next to a redesign) is
+  opt-in. Only when a dashboard has more than one open draft do the draft
+  picker and the draft name on Publish appear.
+
+**`artifact_drafts` (new)**
+
+| Field | Purpose |
+|---|---|
+| `id`, `artifact_id` | the dashboard |
+| `name`, `slug` | "Redesign v2" → `?draft=redesign-v2`; the implicit one is "Main" |
+| `base_release_id` | the live release it started from |
+| `status` | `open` / `promoted` / `abandoned` |
+| `promoted_release_id` | the release it became |
+| `created_by`, `created_at` | who and when |
+
+- `artifact_conversations.draft_id`: each conversation works on one draft.
+- `artifact_versions.draft_id`: a draft's head is its newest completed version.
+  Joining a draft copies from its head.
+
+**Preview**
+- `/d/sales/draft?version=23` (and `?draft=redesign-v2`) shows that version on
+  the real page. It builds on #1455's editor-only draft page; everyone else
+  gets "not found".
+- **Your own version:** its results as they are.
+- **Someone else's version:** its steps re-run with your credentials on open,
+  stored per step and per person in `step_user_results` (exists for viewer
+  runs).
+- The page has a **Publish this version** button.
+
+**Promote = Publish**
+1. A release is built from the chosen version by #1455's copy engine,
+   all-or-nothing.
+2. When it's ready, `published_release_id` moves to it, and the previous
+   release is kept.
+3. The draft becomes `promoted`. The implicit draft simply continues.
+4. Another open draft still has the old `base_release_id`. When it publishes,
+   it gets the "live changed since you started" warning.
+
+**Rollback**
+- Today #1455 deletes the previous release's rows and files at the next
+  publish. Change: keep the last 5 ready releases.
+- Rollback moves `published_release_id` to an older ready release. It's
+  instant, nothing re-runs, and the data is the same as it was.
+- Editors and the owner can roll back. It is audited (`dashboard.rolled_back`).
+
+**Later, not in this PR** (what Power BI deployment pipelines add):
+- a test stage for non-editors (reviewer previews);
+- different data per stage.
+
+### 8. UI changes
+
+- **Share:**
+  - "Can view" / "Can edit" per person and group;
+  - an "Editors can share" switch for the owner;
+  - "Everyone in project Sales can edit".
+- **Toolbar** (`/d` and in the conversation):
+  - "Edit in my conversation";
+  - avatars of who's editing;
+  - Analytics for editors.
+- **Publish:**
+  - the warning *"Avi published 2 h ago: Review changes / Publish anyway"*;
+  - disabled, with the reason, for editors of a run-as-creator dashboard;
+  - the draft name only when there are several drafts.
+- **Charts:**
+  - "Changed by …" on hover;
+  - a live "…'s agent: editing" outline;
+  - a Review changes view against live.
+- **Joining:**
+  - charts show "Running as you…";
+  - a "Continued from Dana's conversation" card.
+- **Preview page:** a version picker, a draft picker (only with several
+  drafts), and "Publish this version".
+- **Settings:**
+  - Notes;
+  - History (conversations, versions, releases, with **Roll back**);
+  - transfer ownership;
+  - credentials and public visibility locked for editors.
+- **Everywhere else:** schedule, settings and delete show or hide by role.
+- **Delete conversation dialog:** says when other conversations keep editing.
+- **Dashboards page:** a "Can edit" / "Can view" label on shared cards.
+- **Analytics panel:** the existing one, opened to editors.
+
+### 9. Data model
 
 | Where | Change |
 |---|---|
 | `artifact_shares` | + `role` (`view`/`edit`, default `view`) |
 | `artifacts` | + `editors_can_share`, + `notes` |
-| `artifact_versions` | + `base_version_id` |
+| `artifact_versions` | + `base_version_id`, + `draft_id` |
 | version/release `content` | + `element_key` per block |
-| `artifact_conversations` (new) | dashboard, conversation, user, base version, summary, started/ended |
-| `artifact_presence` (new) | dashboard, user, conversation, element keys, seen_at |
+| `artifact_releases` | kept (last 5 ready), not deleted at next publish |
+| `artifact_drafts` (new) | name, slug, base release, status, promoted release |
+| `artifact_conversations` (new) | dashboard, conversation, user, draft, base version, summary, started/ended |
+| `artifact_presence` (new) | dashboard, user, conversation, state, element keys, run, seen_at |
 
-### 8. Migration (`collab01…`, after `dashfc08`)
+### 10. Migration (`collab01…`, after `dashfc08`)
 
 1. Add `role`. Existing grants become `view`, so no one's access changes.
 2. Add `editors_can_share` (default on) and `notes`.
-3. Fill `artifact_conversations` from the conversations existing versions
-   name.
-4. Set `element_key` = the current block id in existing versions and
+3. Create one "Main" draft per dashboard. Its `base_release_id` is the current
+   live release.
+4. Fill `artifact_conversations` from the conversations existing versions
+   name, all on "Main". Set `draft_id` on existing versions.
+5. Set `element_key` = the current block id in existing versions and
    releases.
-5. Create `artifact_presence` empty.
+6. Create `artifact_presence` empty.
 
 The downgrade drops all of it. No query, step or result row is touched.
 
@@ -262,6 +412,11 @@ in Dana's results.
 | Run-as-creator: only the owner publishes | `test_run_as_creator_owner_only` |
 | Schedule runs as the last publisher; the owner if they left | `test_schedule_identity` |
 | Draft and editor views are not counted; editors read analytics | `test_analytics_editors` |
+| A dashboard with one draft never asks for a draft; a second draft is opt-in | `test_implicit_draft` |
+| Preview of another editor's version re-runs as me; I never see their rows | `test_preview_runs_as_me` |
+| Promote moves live only when ready; the previous release is kept | `test_promote_keeps_previous` |
+| Rollback is instant, runs nothing, and serves the old data | `test_rollback` |
+| Presence: set on run start, cleared on run end, gone after 30 s with no heartbeat | `test_presence_lifecycle` |
 | Before/after migration: everyone sees and can do the same; downgrade exact | `test_migration_before_after.py` |
 
 **Before:** every test fails (no roles, no join, no `artifact_conversations`).
@@ -309,12 +464,16 @@ questions).
 5. **Credentials:** schedule and refresh as the last publisher,
    run-as-creator owner-only, failure alerts.
 6. **Context:** summary, notes, History.
-7. **Publish check:** `base_version_id`, the 409, Review changes.
-8. **Attribution:** `element_key`, "Changed by", the unpublished-changes view,
+7. **Drafts and the publish check:** the implicit draft, opt-in named
+   drafts, `base_version_id` / `base_release_id`, the 409, Review changes.
+8. **Preview, promote, rollback:** `?version=` / `?draft=`, re-run as the
+   viewing editor, "Publish this version", kept releases, Roll back.
+9. **Attribution:** `element_key`, "Changed by", the unpublished-changes view,
    and the live outline.
-9. **Presence:** heartbeat, polled endpoint, avatars and outlines.
-10. **Analytics:** editor access, clean numbers, the `/d` entry.
-11. **Finish:** locales, screenshots, ui-audit, PR description, release notes,
+10. **Presence:** the table, the run and tool hooks, the heartbeat, delivery on
+    the activity stream, avatars and outlines.
+11. **Analytics:** editor access, clean numbers, the `/d` entry.
+12. **Finish:** locales, screenshots, ui-audit, PR description, release notes,
     docs.
 
 Steps 1–5 are the safety core: a review can stop there.
@@ -347,6 +506,16 @@ The PR is done when **every** box is ticked.
       alerts reach the owner and the last publisher.
 - [ ] Editors can open Analytics from `/d`. Draft and editor views are not
       counted.
+- [ ] Drafts are invisible by default. A user with one draft never sees the
+      word or a picker. "Start a separate draft" works, and the picker
+      appears only then.
+- [ ] Editors preview any version at `/d/<name>/draft?version=N`, with their
+      own data, and can publish it from there.
+- [ ] Viewers keep the live version through weeks of draft work. They switch
+      only when a publish succeeds.
+- [ ] Rollback to any of the last 5 releases is instant and audited.
+- [ ] Presence clears when the agent run ends, and within ~30 s after a crash
+      or a closed tab.
 
 **Safety**
 - [ ] `test_join_never_carries_rows` and `test_summary_has_no_data` pass on
@@ -390,5 +559,8 @@ The PR is done when **every** box is ticked.
 - [ ] **Analytics:** add `release_id` to the view counter now or later?
 - [ ] **Transfer:** can the owner hand a dashboard over alone, or only an org
       admin?
+- [ ] **Kept releases:** is 5 the right number, or should it be per-org?
+- [ ] **Next PR:** a test stage for non-editor reviewers, and different data
+      per stage (as Power BI deployment pipelines do). Wanted?
 - [ ] **Loop B users:** two Entra test users with different Power BI access.
       Who provides them?
