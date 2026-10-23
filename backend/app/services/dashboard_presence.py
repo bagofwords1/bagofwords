@@ -61,9 +61,10 @@ async def entries(db, artifact, user) -> list[dict]:
     from app.services.dashboard_collab import person
 
     now = datetime.utcnow()
-    await db.execute(delete(ArtifactPresence).where(ArtifactPresence.artifact_id == str(artifact.id),
-                                                    ArtifactPresence.seen_at < now - _PURGE_AFTER))
-    await db.commit()
+    purged = await db.execute(delete(ArtifactPresence).where(ArtifactPresence.artifact_id == str(artifact.id),
+                                                             ArtifactPresence.seen_at < now - _PURGE_AFTER))
+    if purged.rowcount:
+        await db.commit()
     rows = (await db.execute(
         select(ArtifactPresence).where(
             ArtifactPresence.artifact_id == str(artifact.id),
