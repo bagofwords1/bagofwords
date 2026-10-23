@@ -6414,7 +6414,8 @@
       "sourcesHeading": "Fuentes de datos:",
       "notesHeading": "Notas",
       "history": "Historial",
-      "deleteOthersEditing": "Otras conversaciones siguen editando estos paneles, así que quedan como están: {names}"
+      "deleteOthersEditing": "Otras conversaciones siguen editando estos paneles, así que quedan como están: {names}",
+      "draftChip": "Borrador: {name}"
     },
     "list": {
       "canEdit": "Puede editar",

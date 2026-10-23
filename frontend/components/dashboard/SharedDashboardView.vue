@@ -183,6 +183,7 @@
             :capabilities="capabilities"
             :changes-open="changesOpen"
             :is-running="isRunning"
+            :showing-author-data="showingAuthorData"
             @toggle-changes="toggleChanges"
             @open-history="historyOpen = true"
             @run-as-me="handleRun"
@@ -547,6 +548,7 @@ const isRefreshingOnView = ref(false);
 
 // Viewer run state ("Run" button — signed-in non-owner viewers only)
 const isRunning = ref(false);
+const showingAuthorData = ref(false);
 const runError = ref<string | null>(null);
 // Newest per-viewer result timestamp seen while loading step data
 const viewerLastRunAt = ref<Date | null>(null);
@@ -1081,6 +1083,9 @@ async function loadVisualizationData(artifactId?: string) {
         let anyNoAccess = false;
         let anyNeedsConnect = false;
         let anyOwnSuccess = false;
+        // A chart drawn from the version author's snapshot, not the reader's
+        // own run (collab01): the version bar says whose results these are.
+        let anyAuthorSnapshot = false;
         const nextPending: Array<{ id: string; title: string; vizIds: string[] }> = [];
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
@@ -1107,6 +1112,7 @@ async function loadVisualizationData(artifactId?: string) {
                     noAccess: vr?.error_code === 'no_access',
                 });
             } else if (step.value) {
+                if (!(step.value as any).pending && vr?.status !== 'success') anyAuthorSnapshot = true;
                 // Only a step that actually loaded counts as viewable — see
                 // the matching guard in ArtifactFrame. A null step (failed
                 // fetch, or no default step) has an undefined
@@ -1184,6 +1190,7 @@ async function loadVisualizationData(artifactId?: string) {
         viewerRunNoAccess.value = anyNoAccess;
         viewerRunNeedsConnect.value = anyNeedsConnect;
         viewerHasOwnSuccess.value = anyOwnSuccess;
+        showingAuthorData.value = anyAuthorSnapshot;
         hasOwnResult.value = anyOwnResult;
         viewerRunFailedReason.value = failedReason;
         pendingQueries.value = nextPending;

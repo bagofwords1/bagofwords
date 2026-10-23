@@ -53,7 +53,7 @@
         >{{ $t('dashboardCollab.page.newDraft') }}</button>
 
         <!-- Someone else's version: the charts are yours to run -->
-        <div v-if="meta.version_is_mine === false" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+        <div v-if="meta.version_is_mine === false && showingAuthorData" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
             <Icon name="heroicons:user-circle" class="w-3.5 h-3.5 shrink-0" />
             <span class="hidden md:inline">{{ $t('dashboardCollab.page.notYourVersion', { name: authorName || '—' }) }}</span>
             <button
@@ -113,6 +113,8 @@ const props = defineProps<{
     capabilities: string[];
     changesOpen: boolean;
     isRunning: boolean;
+    // Some chart shows the author's results rather than the reader's own run.
+    showingAuthorData?: boolean;
 }>();
 defineEmits<{
     (e: 'toggle-changes'): void;

@@ -6067,7 +6067,8 @@
       "sourcesHeading": "مصادر البيانات:",
       "notesHeading": "ملاحظات",
       "history": "السجل",
-      "deleteOthersEditing": "تواصل محادثات أخرى تحرير لوحات المعلومات هذه، لذا تبقى كما هي: {names}"
+      "deleteOthersEditing": "تواصل محادثات أخرى تحرير لوحات المعلومات هذه، لذا تبقى كما هي: {names}",
+      "draftChip": "مسودة: {name}"
     },
     "list": {
       "canEdit": "يمكنه التعديل",

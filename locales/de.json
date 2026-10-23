@@ -6067,7 +6067,8 @@
       "sourcesHeading": "Datenquellen:",
       "notesHeading": "Notizen",
       "history": "Verlauf",
-      "deleteOthersEditing": "Andere Unterhaltungen bearbeiten diese Dashboards weiter, daher bleiben sie unverändert: {names}"
+      "deleteOthersEditing": "Andere Unterhaltungen bearbeiten diese Dashboards weiter, daher bleiben sie unverändert: {names}",
+      "draftChip": "Entwurf: {name}"
     },
     "list": {
       "canEdit": "Kann bearbeiten",

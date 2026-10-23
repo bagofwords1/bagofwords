@@ -6443,7 +6443,8 @@
       "sourcesHeading": "Data sources:",
       "notesHeading": "Notes",
       "history": "History",
-      "deleteOthersEditing": "Other conversations keep editing these dashboards, so they stay as they are: {names}"
+      "deleteOthersEditing": "Other conversations keep editing these dashboards, so they stay as they are: {names}",
+      "draftChip": "Draft: {name}"
     },
     "list": {
       "canEdit": "Can edit",

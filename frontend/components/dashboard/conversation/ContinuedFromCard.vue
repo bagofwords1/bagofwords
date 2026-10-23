@@ -26,6 +26,16 @@
                 <Icon name="heroicons:squares-2x2" class="w-3 h-3 flex-shrink-0" />
                 <span class="truncate max-w-[16rem]">{{ card.title || $t('dashboardCollab.conversation.untitled') }}</span>
             </NuxtLink>
+            <!-- A separate draft (e.g. a redesign next to the main one) -->
+            <NuxtLink
+                v-if="card.draft"
+                :to="`/d/${card.slug || card.artifact_id}/draft?draft=${encodeURIComponent(card.draft.slug)}`"
+                class="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-900/60 px-2 py-0.5 hover:bg-violet-200 dark:hover:bg-violet-800 transition-colors"
+                data-testid="continued-from-draft"
+            >
+                <Icon name="heroicons:beaker" class="w-3 h-3 flex-shrink-0" />
+                <span class="truncate max-w-[12rem]">{{ $t('dashboardCollab.conversation.draftChip', { name: card.draft.name }) }}</span>
+            </NuxtLink>
             <button
                 v-if="hasDetails(card)"
                 type="button"
@@ -110,6 +120,7 @@ interface ConversationCard {
         notes?: string | null
     } | null
     rerunning?: boolean
+    draft?: { id: string; name: string; slug: string } | null
 }
 
 const props = defineProps<{ reportId: string }>()

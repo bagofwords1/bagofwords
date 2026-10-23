@@ -6067,7 +6067,8 @@
       "sourcesHeading": "Origini dati:",
       "notesHeading": "Note",
       "history": "Cronologia",
-      "deleteOthersEditing": "Altre conversazioni continuano a modificare queste dashboard, quindi restano come sono: {names}"
+      "deleteOthersEditing": "Altre conversazioni continuano a modificare queste dashboard, quindi restano come sono: {names}",
+      "draftChip": "Bozza: {name}"
     },
     "list": {
       "canEdit": "Può modificare",

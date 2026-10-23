@@ -6067,7 +6067,8 @@
       "sourcesHeading": "Datakällor:",
       "notesHeading": "Anteckningar",
       "history": "Historik",
-      "deleteOthersEditing": "Andra konversationer fortsätter att redigera dessa instrumentpaneler, så de förblir som de är: {names}"
+      "deleteOthersEditing": "Andra konversationer fortsätter att redigera dessa instrumentpaneler, så de förblir som de är: {names}",
+      "draftChip": "Utkast: {name}"
     },
     "list": {
       "canEdit": "Kan redigera",

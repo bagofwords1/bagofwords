@@ -233,7 +233,7 @@ async def get_conversation_dashboards(
     from Dana's conversation", with the summary it started from. Only the
     conversation's own user gets it; anyone else gets nothing."""
     from app.models.artifact import Artifact, ArtifactVersion
-    from app.models.artifact_release import ArtifactConversation
+    from app.models.artifact_release import ArtifactConversation, ArtifactDraft
     from app.models.report import Report
     from app.models.step import Step
     from app.models.query import Query as QueryModel
@@ -269,5 +269,15 @@ async def get_conversation_dashboards(
             "can_open_previous": can_open, "started_at": row.started_at,
             "base_version_number": base.version if base is not None else None,
             "summary": summary, "rerunning": rerunning,
+            "draft": await _draft_ref(db, ArtifactDraft, row.draft_id),
         })
     return out
+
+
+async def _draft_ref(db, ArtifactDraft, draft_id) -> dict | None:
+    if not draft_id:
+        return None
+    d = await db.get(ArtifactDraft, str(draft_id))
+    if d is None or d.deleted_at is not None:
+        return None
+    return {"id": str(d.id), "name": d.name, "slug": d.slug}

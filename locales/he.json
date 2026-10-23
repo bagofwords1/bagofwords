@@ -6434,7 +6434,8 @@
       "sourcesHeading": "מקורות נתונים:",
       "notesHeading": "הערות",
       "history": "היסטוריה",
-      "deleteOthersEditing": "שיחות אחרות ממשיכות לערוך את הגלריות האלה, ולכן הן נשארות כפי שהן: {names}"
+      "deleteOthersEditing": "שיחות אחרות ממשיכות לערוך את הגלריות האלה, ולכן הן נשארות כפי שהן: {names}",
+      "draftChip": "טיוטה: {name}"
     },
     "list": {
       "canEdit": "הרשאת עריכה",

@@ -6067,7 +6067,8 @@
       "sourcesHeading": "Sources de données :",
       "notesHeading": "Notes",
       "history": "Historique",
-      "deleteOthersEditing": "D'autres conversations continuent de modifier ces tableaux de bord, ils restent donc tels quels : {names}"
+      "deleteOthersEditing": "D'autres conversations continuent de modifier ces tableaux de bord, ils restent donc tels quels : {names}",
+      "draftChip": "Brouillon : {name}"
     },
     "list": {
       "canEdit": "Peut modifier",

@@ -374,6 +374,8 @@ class DashboardConversationContext(BaseModel):
     base_version_number: int | None = None
     summary: dict | None = None
     rerunning: bool = False
+    # A separate (named) draft this conversation works in; None for the main one.
+    draft: dict | None = None
 
 
 DashboardChangesSchema.model_rebuild()

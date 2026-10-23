@@ -6067,7 +6067,8 @@
       "sourcesHeading": "Fontes de dados:",
       "notesHeading": "Notas",
       "history": "Histórico",
-      "deleteOthersEditing": "Outras conversas continuam editando estes painéis, então eles permanecem como estão: {names}"
+      "deleteOthersEditing": "Outras conversas continuam editando estes painéis, então eles permanecem como estão: {names}",
+      "draftChip": "Rascunho: {name}"
     },
     "list": {
       "canEdit": "Pode editar",
