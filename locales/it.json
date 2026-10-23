@@ -6042,6 +6042,38 @@
         "removed": "Rimossi",
         "unchanged": "Invariati"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Continua la conversazione di {name}",
+      "continuedFromVersion": "Continua la conversazione di {name} · versione {version}",
+      "continuedFromYours": "Continua la tua conversazione precedente",
+      "continuedFromYoursVersion": "Continua la tua conversazione precedente · versione {version}",
+      "continuedFromPublished": "Continua la dashboard pubblicata",
+      "continuedFromPublishedVersion": "Continua la dashboard pubblicata · versione {version}",
+      "openTheirConversation": "Apri la sua conversazione",
+      "untitled": "Senza titolo",
+      "whatChangedBefore": "Cosa è cambiato prima",
+      "rerunning": "I grafici vengono rieseguiti con le tue credenziali…",
+      "historyHeading": "Modifiche",
+      "historyEntry": "v{version} di {name}: {changes}",
+      "historyAdded": "ha aggiunto {items}",
+      "historyChanged": "ha modificato {items}",
+      "historyRemoved": "ha rimosso {items}",
+      "historySeparator": "; ",
+      "historyFirst": "prima versione",
+      "someone": "qualcuno",
+      "chartsHeading": "Grafici",
+      "chartFilters": "filtri: {filters}",
+      "sourcesHeading": "Origini dati:",
+      "notesHeading": "Note",
+      "history": "Cronologia",
+      "deleteOthersEditing": "Altre conversazioni continuano a modificare queste dashboard, quindi restano come sono: {names}"
+    },
+    "list": {
+      "canEdit": "Può modificare",
+      "canView": "Può visualizzare",
+      "edit": "Modifica",
+      "editFailed": "Impossibile aprire la dashboard per la modifica"
     }
   }
 }

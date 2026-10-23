@@ -6389,6 +6389,38 @@
         "removed": "Eliminados",
         "unchanged": "Sin cambios"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Continuación de la conversación de {name}",
+      "continuedFromVersion": "Continuación de la conversación de {name} · versión {version}",
+      "continuedFromYours": "Continuación de tu conversación anterior",
+      "continuedFromYoursVersion": "Continuación de tu conversación anterior · versión {version}",
+      "continuedFromPublished": "Continuación del panel publicado",
+      "continuedFromPublishedVersion": "Continuación del panel publicado · versión {version}",
+      "openTheirConversation": "Abrir su conversación",
+      "untitled": "Sin título",
+      "whatChangedBefore": "Qué cambió antes",
+      "rerunning": "Los gráficos se están ejecutando de nuevo con tus credenciales…",
+      "historyHeading": "Cambios",
+      "historyEntry": "v{version} por {name}: {changes}",
+      "historyAdded": "añadió {items}",
+      "historyChanged": "cambió {items}",
+      "historyRemoved": "quitó {items}",
+      "historySeparator": "; ",
+      "historyFirst": "primera versión",
+      "someone": "alguien",
+      "chartsHeading": "Gráficos",
+      "chartFilters": "filtros: {filters}",
+      "sourcesHeading": "Fuentes de datos:",
+      "notesHeading": "Notas",
+      "history": "Historial",
+      "deleteOthersEditing": "Otras conversaciones siguen editando estos paneles, así que quedan como están: {names}"
+    },
+    "list": {
+      "canEdit": "Puede editar",
+      "canView": "Puede ver",
+      "edit": "Editar",
+      "editFailed": "No se pudo abrir el panel para editarlo"
     }
   }
 }

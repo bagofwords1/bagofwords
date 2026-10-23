@@ -6409,6 +6409,38 @@
         "removed": "הוסרו",
         "unchanged": "ללא שינוי"
       }
+    },
+    "conversation": {
+      "continuedFrom": "בהמשך לשיחה של {name}",
+      "continuedFromVersion": "בהמשך לשיחה של {name} · גרסה {version}",
+      "continuedFromYours": "בהמשך לשיחה קודמת שלך",
+      "continuedFromYoursVersion": "בהמשך לשיחה קודמת שלך · גרסה {version}",
+      "continuedFromPublished": "בהמשך לגלריה שפורסמה",
+      "continuedFromPublishedVersion": "בהמשך לגלריה שפורסמה · גרסה {version}",
+      "openTheirConversation": "פתיחת השיחה הקודמת",
+      "untitled": "ללא שם",
+      "whatChangedBefore": "מה השתנה קודם",
+      "rerunning": "התרשימים רצים מחדש עם פרטי ההתחברות שלך…",
+      "historyHeading": "שינויים",
+      "historyEntry": "גרסה {version} מאת {name}: {changes}",
+      "historyAdded": "נוספו {items}",
+      "historyChanged": "שונו {items}",
+      "historyRemoved": "הוסרו {items}",
+      "historySeparator": "; ",
+      "historyFirst": "גרסה ראשונה",
+      "someone": "מישהו",
+      "chartsHeading": "תרשימים",
+      "chartFilters": "מסננים: {filters}",
+      "sourcesHeading": "מקורות נתונים:",
+      "notesHeading": "הערות",
+      "history": "היסטוריה",
+      "deleteOthersEditing": "שיחות אחרות ממשיכות לערוך את הגלריות האלה, ולכן הן נשארות כפי שהן: {names}"
+    },
+    "list": {
+      "canEdit": "הרשאת עריכה",
+      "canView": "הרשאת צפייה",
+      "edit": "עריכה",
+      "editFailed": "לא ניתן לפתוח את הגלריה לעריכה"
     }
   }
 }

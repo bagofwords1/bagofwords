@@ -6042,6 +6042,38 @@
         "removed": "Borttagna",
         "unchanged": "Oförändrade"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Fortsättning på {name}s konversation",
+      "continuedFromVersion": "Fortsättning på {name}s konversation · version {version}",
+      "continuedFromYours": "Fortsättning på din tidigare konversation",
+      "continuedFromYoursVersion": "Fortsättning på din tidigare konversation · version {version}",
+      "continuedFromPublished": "Fortsättning på den publicerade instrumentpanelen",
+      "continuedFromPublishedVersion": "Fortsättning på den publicerade instrumentpanelen · version {version}",
+      "openTheirConversation": "Öppna deras konversation",
+      "untitled": "Namnlös",
+      "whatChangedBefore": "Vad som ändrats tidigare",
+      "rerunning": "Diagrammen körs igen med dina inloggningsuppgifter…",
+      "historyHeading": "Ändringar",
+      "historyEntry": "v{version} av {name}: {changes}",
+      "historyAdded": "lade till {items}",
+      "historyChanged": "ändrade {items}",
+      "historyRemoved": "tog bort {items}",
+      "historySeparator": "; ",
+      "historyFirst": "första versionen",
+      "someone": "någon",
+      "chartsHeading": "Diagram",
+      "chartFilters": "filter: {filters}",
+      "sourcesHeading": "Datakällor:",
+      "notesHeading": "Anteckningar",
+      "history": "Historik",
+      "deleteOthersEditing": "Andra konversationer fortsätter att redigera dessa instrumentpaneler, så de förblir som de är: {names}"
+    },
+    "list": {
+      "canEdit": "Kan redigera",
+      "canView": "Kan visa",
+      "edit": "Redigera",
+      "editFailed": "Det gick inte att öppna instrumentpanelen för redigering"
     }
   }
 }

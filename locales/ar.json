@@ -6042,6 +6042,38 @@
         "removed": "محذوف",
         "unchanged": "بلا تغيير"
       }
+    },
+    "conversation": {
+      "continuedFrom": "متابعة لمحادثة {name}",
+      "continuedFromVersion": "متابعة لمحادثة {name} · الإصدار {version}",
+      "continuedFromYours": "متابعة لمحادثتك السابقة",
+      "continuedFromYoursVersion": "متابعة لمحادثتك السابقة · الإصدار {version}",
+      "continuedFromPublished": "متابعة للوحة المعلومات المنشورة",
+      "continuedFromPublishedVersion": "متابعة للوحة المعلومات المنشورة · الإصدار {version}",
+      "openTheirConversation": "فتح المحادثة السابقة",
+      "untitled": "بلا عنوان",
+      "whatChangedBefore": "ما الذي تغيّر من قبل",
+      "rerunning": "يُعاد تشغيل المخططات ببيانات الاعتماد الخاصة بك…",
+      "historyHeading": "التغييرات",
+      "historyEntry": "الإصدار {version} بواسطة {name}: {changes}",
+      "historyAdded": "أضاف {items}",
+      "historyChanged": "غيّر {items}",
+      "historyRemoved": "أزال {items}",
+      "historySeparator": "؛ ",
+      "historyFirst": "الإصدار الأول",
+      "someone": "شخص ما",
+      "chartsHeading": "المخططات",
+      "chartFilters": "عوامل التصفية: {filters}",
+      "sourcesHeading": "مصادر البيانات:",
+      "notesHeading": "ملاحظات",
+      "history": "السجل",
+      "deleteOthersEditing": "تواصل محادثات أخرى تحرير لوحات المعلومات هذه، لذا تبقى كما هي: {names}"
+    },
+    "list": {
+      "canEdit": "يمكنه التعديل",
+      "canView": "يمكنه العرض",
+      "edit": "تعديل",
+      "editFailed": "تعذّر فتح لوحة المعلومات للتعديل"
     }
   }
 }

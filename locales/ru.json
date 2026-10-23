@@ -6042,6 +6042,38 @@
         "removed": "Удалены",
         "unchanged": "Без изменений"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Продолжение беседы {name}",
+      "continuedFromVersion": "Продолжение беседы {name} · версия {version}",
+      "continuedFromYours": "Продолжение вашей предыдущей беседы",
+      "continuedFromYoursVersion": "Продолжение вашей предыдущей беседы · версия {version}",
+      "continuedFromPublished": "Продолжение опубликованного дашборда",
+      "continuedFromPublishedVersion": "Продолжение опубликованного дашборда · версия {version}",
+      "openTheirConversation": "Открыть предыдущую беседу",
+      "untitled": "Без названия",
+      "whatChangedBefore": "Что менялось раньше",
+      "rerunning": "Графики снова запускаются с вашими учётными данными…",
+      "historyHeading": "Изменения",
+      "historyEntry": "v{version}, {name}: {changes}",
+      "historyAdded": "добавлено: {items}",
+      "historyChanged": "изменено: {items}",
+      "historyRemoved": "удалено: {items}",
+      "historySeparator": "; ",
+      "historyFirst": "первая версия",
+      "someone": "кто-то",
+      "chartsHeading": "Графики",
+      "chartFilters": "фильтры: {filters}",
+      "sourcesHeading": "Источники данных:",
+      "notesHeading": "Заметки",
+      "history": "История",
+      "deleteOthersEditing": "Другие беседы продолжают редактировать эти дашборды, поэтому они останутся без изменений: {names}"
+    },
+    "list": {
+      "canEdit": "Может редактировать",
+      "canView": "Может просматривать",
+      "edit": "Редактировать",
+      "editFailed": "Не удалось открыть дашборд для редактирования"
     }
   }
 }

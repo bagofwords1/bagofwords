@@ -6042,6 +6042,38 @@
         "removed": "Entfernt",
         "unchanged": "Unverändert"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Fortsetzung der Unterhaltung von {name}",
+      "continuedFromVersion": "Fortsetzung der Unterhaltung von {name} · Version {version}",
+      "continuedFromYours": "Fortsetzung Ihrer früheren Unterhaltung",
+      "continuedFromYoursVersion": "Fortsetzung Ihrer früheren Unterhaltung · Version {version}",
+      "continuedFromPublished": "Fortsetzung des veröffentlichten Dashboards",
+      "continuedFromPublishedVersion": "Fortsetzung des veröffentlichten Dashboards · Version {version}",
+      "openTheirConversation": "Deren Unterhaltung öffnen",
+      "untitled": "Ohne Titel",
+      "whatChangedBefore": "Was sich vorher geändert hat",
+      "rerunning": "Die Diagramme laufen erneut mit Ihren Zugangsdaten…",
+      "historyHeading": "Änderungen",
+      "historyEntry": "v{version} von {name}: {changes}",
+      "historyAdded": "hinzugefügt: {items}",
+      "historyChanged": "geändert: {items}",
+      "historyRemoved": "entfernt: {items}",
+      "historySeparator": "; ",
+      "historyFirst": "erste Version",
+      "someone": "jemand",
+      "chartsHeading": "Diagramme",
+      "chartFilters": "Filter: {filters}",
+      "sourcesHeading": "Datenquellen:",
+      "notesHeading": "Notizen",
+      "history": "Verlauf",
+      "deleteOthersEditing": "Andere Unterhaltungen bearbeiten diese Dashboards weiter, daher bleiben sie unverändert: {names}"
+    },
+    "list": {
+      "canEdit": "Kann bearbeiten",
+      "canView": "Kann ansehen",
+      "edit": "Bearbeiten",
+      "editFailed": "Das Dashboard konnte nicht zum Bearbeiten geöffnet werden"
     }
   }
 }

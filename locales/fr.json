@@ -6042,6 +6042,38 @@
         "removed": "Supprimés",
         "unchanged": "Inchangés"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Suite de la conversation de {name}",
+      "continuedFromVersion": "Suite de la conversation de {name} · version {version}",
+      "continuedFromYours": "Suite de votre conversation précédente",
+      "continuedFromYoursVersion": "Suite de votre conversation précédente · version {version}",
+      "continuedFromPublished": "Suite du tableau de bord publié",
+      "continuedFromPublishedVersion": "Suite du tableau de bord publié · version {version}",
+      "openTheirConversation": "Ouvrir sa conversation",
+      "untitled": "Sans titre",
+      "whatChangedBefore": "Ce qui a changé avant",
+      "rerunning": "Les graphiques sont réexécutés avec vos identifiants…",
+      "historyHeading": "Modifications",
+      "historyEntry": "v{version} par {name} : {changes}",
+      "historyAdded": "a ajouté {items}",
+      "historyChanged": "a modifié {items}",
+      "historyRemoved": "a supprimé {items}",
+      "historySeparator": " ; ",
+      "historyFirst": "première version",
+      "someone": "quelqu'un",
+      "chartsHeading": "Graphiques",
+      "chartFilters": "filtres : {filters}",
+      "sourcesHeading": "Sources de données :",
+      "notesHeading": "Notes",
+      "history": "Historique",
+      "deleteOthersEditing": "D'autres conversations continuent de modifier ces tableaux de bord, ils restent donc tels quels : {names}"
+    },
+    "list": {
+      "canEdit": "Peut modifier",
+      "canView": "Peut consulter",
+      "edit": "Modifier",
+      "editFailed": "Impossible d'ouvrir le tableau de bord pour le modifier"
     }
   }
 }

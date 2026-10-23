@@ -6418,6 +6418,38 @@
         "removed": "Removed",
         "unchanged": "Unchanged"
       }
+    },
+    "conversation": {
+      "continuedFrom": "Continued from {name}'s conversation",
+      "continuedFromVersion": "Continued from {name}'s conversation · version {version}",
+      "continuedFromYours": "Continued from your earlier conversation",
+      "continuedFromYoursVersion": "Continued from your earlier conversation · version {version}",
+      "continuedFromPublished": "Continued from the published dashboard",
+      "continuedFromPublishedVersion": "Continued from the published dashboard · version {version}",
+      "openTheirConversation": "Open their conversation",
+      "untitled": "Untitled",
+      "whatChangedBefore": "What changed before",
+      "rerunning": "Charts are running again with your credentials…",
+      "historyHeading": "Changes",
+      "historyEntry": "v{version} by {name}: {changes}",
+      "historyAdded": "added {items}",
+      "historyChanged": "changed {items}",
+      "historyRemoved": "removed {items}",
+      "historySeparator": "; ",
+      "historyFirst": "first version",
+      "someone": "someone",
+      "chartsHeading": "Charts",
+      "chartFilters": "filters: {filters}",
+      "sourcesHeading": "Data sources:",
+      "notesHeading": "Notes",
+      "history": "History",
+      "deleteOthersEditing": "Other conversations keep editing these dashboards, so they stay as they are: {names}"
+    },
+    "list": {
+      "canEdit": "Can edit",
+      "canView": "Can view",
+      "edit": "Edit",
+      "editFailed": "Couldn't open the dashboard for editing"
     }
   }
 }
