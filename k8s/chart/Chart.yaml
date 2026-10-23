@@ -1,6 +1,6 @@
 apiVersion: v2
 name: bagofwords
-description: Bag of words - a new ai data tool
+description: BOW - a new ai data tool
 type: application
 version: 2.0.0
 appVersion: 1.0.1

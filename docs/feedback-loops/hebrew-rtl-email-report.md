@@ -25,7 +25,7 @@ Email clients default to LTR when no `dir` is declared, so a Hebrew body renders
 LTR. The `send_email` tool description even instructs the model to write simple
 HTML with "no wrapper divs" (`backend/app/ai/tools/implementations/send_email.py:54-62`),
 so the model never sets `dir` itself. This is the email in the report — the
-`_append_report_link` footer ("Open this in Bag of words:") is its signature.
+`_append_report_link` footer ("Open this in BOW:") is its signature.
 
 ## Loop A — deterministic reproduction (no external services)
 

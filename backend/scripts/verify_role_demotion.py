@@ -1,6 +1,6 @@
 """End-to-end reproduction of the role-management / RBAC divergence bug.
 
-Bag of Words keeps a user's role in TWO places that are written by different
+BOW keeps a user's role in TWO places that are written by different
 code paths and can drift apart:
 
   * legacy  ``Membership.role``  ('admin' | 'member') — a plain string column

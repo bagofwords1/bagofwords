@@ -456,7 +456,7 @@ def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
 # shows the admin the exact manifest they are about to apply (a cluster-wide
 # read-only role deserves to be read before it is granted) instead of pointing
 # at a remote file. Pinned to the file by a unit test.
-KUBERNETES_RBAC_MANIFEST = r"""# Bag of Words — Kubernetes connector access.
+KUBERNETES_RBAC_MANIFEST = r"""# BOW — Kubernetes connector access.
 #
 # Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
 # minus the write verbs) and a long-lived token Secret. One wildcard rule, so
@@ -518,7 +518,7 @@ type: kubernetes.io/service-account-token
 """
 
 KUBERNETES_PRINT_ACCESS_FILE_SCRIPT = r"""#!/usr/bin/env bash
-# Prints the Bag of Words cluster access file for the bagofwords-reader service account.
+# Prints the BOW cluster access file for the bagofwords-reader service account.
 set -euo pipefail
 NS="${BOW_NAMESPACE:-bagofwords}"; SECRET="${BOW_SECRET:-bagofwords-reader-token}"
 TOKEN=""
@@ -899,7 +899,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
             SetupStep(
                 title="Print the access file",
-                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach.",
+                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this BOW instance can reach.",
                 code=KUBERNETES_PRINT_ACCESS_FILE_SCRIPT,
             ),
             SetupStep(

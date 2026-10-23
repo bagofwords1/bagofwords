@@ -77,7 +77,7 @@ export const FIELDS: FieldSpec[] = [
   f('turn', 'number', 'run', 'Position of the run in its report (1 = first prompt)', { sortable: true }),
   f('report_id', 'id', 'run', 'Report id', { builder: false }),
   f('run_id', 'id', 'run', 'Run id', { builder: false }),
-  f('version', 'text', 'run', 'Bag of words version that ran it', { facetable: true, builder: false }),
+  f('version', 'text', 'run', 'BOW version that ran it', { facetable: true, builder: false }),
   f('created', 'date', 'run', 'When the run started', { sortable: true }),
   f('eval', 'boolean', 'run', 'Runs spawned by evals (hidden unless mentioned)', { builder: false }),
   f('error', 'text', 'run', 'Run error message'),

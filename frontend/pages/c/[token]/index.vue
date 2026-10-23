@@ -259,7 +259,7 @@
             <!-- Footer -->
             <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
                 <a href="https://bagofwords.com" target="_blank" class="text-[10px] text-gray-300 dark:text-gray-600 hover:text-gray-400 transition-colors">
-                    Powered by Bag of Words
+                    Powered by BOW
                 </a>
             </footer>
         </template>

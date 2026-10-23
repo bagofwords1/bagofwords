@@ -2127,7 +2127,7 @@
       "integrate": "Integrieren",
       "setup": "Einrichten",
       "excelAddinName": "Excel-Add-In",
-      "excelAddinDescription": "Laden Sie das Bag-of-Words-Add-In direkt von dieser Instanz",
+      "excelAddinDescription": "Laden Sie das BOW-Add-In direkt von dieser Instanz",
       "mcpName": "BOW MCP-Server",
       "mcpDescription": "Aktivieren Sie den MCP-Endpunkt zur Integration mit KI-Assistenten wie Cursor, Claude oder anderen",
       "channels": {
@@ -2398,9 +2398,9 @@
           "trustedConnecting": "Connecting to your trusted app…",
           "authorizationLoading": "Checking the authorization request…",
           "authorizationError": "Unable to authorize",
-          "goBack": "Go back to Bag of Words",
+          "goBack": "Go back to BOW",
           "authorizationTitle": "Authorize access",
-          "wantsAccess": "{name} wants to access your Bag of Words account.",
+          "wantsAccess": "{name} wants to access your BOW account.",
           "permissionsRequested": "Permissions requested",
           "appPermission": "Create and read reports, run completions, and use artifacts under your existing BOW permissions.",
           "mcpPermission": "Use the MCP tool surface under your existing BOW permissions.",
@@ -2425,7 +2425,7 @@
         },
         "excel": {
           "title": "Excel-Add-in",
-          "subtitle": "Laden Sie das Bag of Words-Add-in direkt aus dieser Instanz per Sideload.",
+          "subtitle": "Laden Sie das BOW-Add-in direkt aus dieser Instanz per Sideload.",
           "loading": "Wird geladen...",
           "setup": "Einrichtung",
           "step1": "Laden Sie die Manifestdatei unten herunter",
@@ -2475,7 +2475,7 @@
           "title": "Google-Chat-Integration"
         }
       },
-      "emptyTitle": "Bringen Sie Bag of Words mit Ihren Tools zum Einsatz",
+      "emptyTitle": "Bringen Sie BOW mit Ihren Tools zum Einsatz",
       "emptySubtitle": "Verbinden Sie Slack, Teams, E-Mail und mehr, damit Ihr Team den KI-Analysten dort erreichen kann, wo es bereits arbeitet. Wählen Sie eine Integration aus, um zu beginnen.",
       "selectHint": "Wählen Sie eine Integration aus",
       "slackDescription": "Lassen Sie Ihr Team aus Slack-Kanälen und DMs mit dem KI-Analysten chatten.",
@@ -2572,7 +2572,7 @@
     "uploadIcon": "Symbol hochladen",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Name des KI-Analysten",
-    "showCredit": "„Made with Bag of words“-Hinweis anzeigen",
+    "showCredit": "„Made with BOW“-Hinweis anzeigen",
     "language": {
       "title": "Sprache",
       "description": "Legt die Standardsprache für die gesamte Organisation fest. Benutzer sehen die Oberfläche in dieser Sprache und die KI antwortet darin.",
@@ -3755,7 +3755,7 @@
         },
         {
           "title": "Zugriffsdatei ausgeben",
-          "body": "Als print_access_file.sh speichern und ausführen. Das Skript wartet auf das Token und gibt dann eine einzelne, eigenständige Datei aus (API-Server-URL, Cluster-CA, Token). Prüfen mit: kubectl --kubeconfig access.yaml get nodes. Ist die Server-URL nur in Ihrem Netzwerk erreichbar, ersetzen Sie sie durch die Adresse, die diese Bag-of-Words-Instanz erreichen kann."
+          "body": "Als print_access_file.sh speichern und ausführen. Das Skript wartet auf das Token und gibt dann eine einzelne, eigenständige Datei aus (API-Server-URL, Cluster-CA, Token). Prüfen mit: kubectl --kubeconfig access.yaml get nodes. Ist die Server-URL nur in Ihrem Netzwerk erreichbar, ersetzen Sie sie durch die Adresse, die diese BOW-Instanz erreichen kann."
         },
         {
           "title": "Unten einfügen und Verbindung testen",
@@ -4300,7 +4300,7 @@
   "onboarding": {
     "loading": "Lädt ...",
     "skip": "Onboarding überspringen",
-    "welcome": "Willkommen bei Bag of words! 🎉",
+    "welcome": "Willkommen bei BOW! 🎉",
     "welcomeSubtitle": "Chatten Sie mit Ihren Daten, führen Sie tiefgehende Analysen durch und erstellen Sie Dashboards in Sekunden",
     "next": "Weiter",
     "fallbackTitle": "Loslegen",
@@ -4310,7 +4310,7 @@
     "intro1": "Der Einstieg geht schnell: Verbinden Sie einfach Ihr Modell und Ihre Datenquelle, und Sie können Ihre erste Frage stellen.",
     "intro2": "👉 Lassen Sie uns alles einrichten!",
     "steps": {
-      "onboardingTitle": "Willkommen bei Bag of words! 🎉",
+      "onboardingTitle": "Willkommen bei BOW! 🎉",
       "onboardingDescription": "Chatten Sie mit Ihren Daten, führen Sie tiefgehende Analysen durch und erstellen Sie Dashboards in Sekunden",
       "onboardingButton": "Willkommen",
       "llmTitle": "LLM konfigurieren",
@@ -4920,8 +4920,8 @@
     }
   },
   "mcpServerModal": {
-    "title": "Bag of words MCP-Server",
-    "subtitle": "Verbinden Sie Claude, Cursor oder einen beliebigen MCP-Client, um Ihre Daten über den Bag of words MCP-Server abzufragen.",
+    "title": "BOW MCP-Server",
+    "subtitle": "Verbinden Sie Claude, Cursor oder einen beliebigen MCP-Client, um Ihre Daten über den BOW MCP-Server abzufragen.",
     "loading": "Lädt ...",
     "tabMcpClients": "MCP-Clients",
     "tabOauth": "OAuth",

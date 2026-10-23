@@ -1,4 +1,4 @@
-"""Built-in PII detection rules shipped with Bag of Words.
+"""Built-in PII detection rules shipped with BOW.
 
 Each rule is a logical entity (email, credit card, ...) with *multiple* regex
 patterns so the different real-world shapes of the same entity match under one

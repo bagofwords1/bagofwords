@@ -137,7 +137,7 @@ subject: Rock's January revenue share fell below the 30% cutoff
 The newest invoice month is January 2026, and Rock's revenue share is 16.7%,
 down from 76.9% in December 2025. This is below your 30% cutoff; review the
 Rock promo budget for a reduction.
-— Open this in Bag of words:
+— Open this in BOW:
 http://localhost:3000/reports/8c3bb028-…
 ```
 

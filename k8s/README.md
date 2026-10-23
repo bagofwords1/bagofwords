@@ -1,6 +1,6 @@
 ## Install with Kubernetes
 ---
-You can install Bag of Words on a Kubernetes cluster. The Helm chart can deploy the app with a bundled PostgreSQL instance **or** connect to an external managed database such as AWS Aurora with IAM authentication.
+You can install BOW on a Kubernetes cluster. The Helm chart can deploy the app with a bundled PostgreSQL instance **or** connect to an external managed database such as AWS Aurora with IAM authentication.
 
 ### 1. Add the Helm Repository
 
@@ -11,7 +11,7 @@ helm repo update
 
 ### 2. Install or Upgrade the Chart
 
-Here are a few examples of how to install or upgrade the Bag of Words Helm chart:
+Here are a few examples of how to install or upgrade the BOW Helm chart:
 
 ### Deploy with a bundled PostgreSQL instance
 ```bash

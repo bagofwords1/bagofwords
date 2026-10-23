@@ -31,7 +31,7 @@ def make_message_id(domain: Optional[str] = None) -> str:
 
 
 def _normalize_subject(subject: Optional[str], is_reply: bool) -> str:
-    subject = (subject or "").strip() or "Bag of words"
+    subject = (subject or "").strip() or "BOW"
     if is_reply and not subject.lower().startswith("re:"):
         subject = f"Re: {subject}"
     return subject
