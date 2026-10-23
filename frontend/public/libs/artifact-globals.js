@@ -2066,8 +2066,55 @@
         return _origReact(api, Object.assign({}, opts, { runtime: 'classic' }), dir);
       };
     }
+    // Artifact code runs as a classic script, where `import` is a syntax
+    // error, so import statements are removed before it runs. Most imports
+    // only name things that already exist as sandbox globals (React,
+    // useState, echarts, …) and removing them is enough. An import that
+    // introduces a NEW local name — `{ useState as useLocal }`,
+    // `import R from 'react'`, `import * as E from 'echarts'` — is replaced
+    // with a declaration bound to the matching global instead; removing it
+    // left that name undefined. Plain imports keep being removed (declaring
+    // them could clash with code that defines the same name itself).
+    var IMPORT_GLOBALS = { 'react': 'React', 'react-dom': 'ReactDOM', 'react-dom/client': 'ReactDOM', 'echarts': 'echarts', 'lucide': 'lucide' };
+    window.__bowResolveImport = function(mod, name) {
+      var g = IMPORT_GLOBALS[mod];
+      var ns = g ? window[g] : undefined;
+      if (name === 'default' || name === '*') return ns;
+      if (ns && ns[name] !== undefined) return ns[name];
+      return window[name];
+    };
+    function importBindings(clause, mod) {
+      var canonical = IMPORT_GLOBALS[mod];
+      var decls = [];
+      var c = clause;
+      function bind(local, name) {
+        decls.push(local + ' = window.__bowResolveImport(' + JSON.stringify(mod) + ', ' + JSON.stringify(name) + ')');
+      }
+      var braces = c.match(/\{([\s\S]*)\}/);
+      if (braces) {
+        braces[1].split(',').forEach(function(part) {
+          var m = part.trim().match(/^([\w$]+)(?:\s+as\s+([\w$]+))?$/);
+          if (!m) return;
+          var imported = m[1], local = m[2] || m[1];
+          if (imported === 'default') { if (canonical && local !== canonical) bind(local, 'default'); }
+          else if (local !== imported) bind(local, imported);
+        });
+        c = c.replace(braces[0], '');
+      }
+      var ns = c.match(/\*\s*as\s+([\w$]+)/);
+      if (ns) {
+        if (canonical && ns[1] !== canonical) bind(ns[1], '*');
+        c = c.replace(ns[0], '');
+      }
+      var def = c.replace(/,/g, ' ').trim();
+      if (/^[\w$]+$/.test(def) && canonical && def !== canonical) bind(def, 'default');
+      return decls.length ? 'var ' + decls.join(', ') + ';' : '';
+    }
     function stripImports(code) {
-      var s = code.replace(/import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '');
+      var s = code.replace(/^[ \t]*import\s+([^'";]+?)\s+from\s*(['"])([^'"]+)\2[ \t]*;?/gm, function(_, clause, _q, mod) {
+        return importBindings(clause, mod);
+      });
+      s = s.replace(/import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '');
       return s.replace(/^[ \t]*import\b(?!\s*\().*$/gm, '');
     }
     var _origAppendChild = Node.prototype.appendChild;
