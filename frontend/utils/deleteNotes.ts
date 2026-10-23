@@ -10,9 +10,11 @@ export interface DeleteNotes {
   // Published, with changes not yet published: the published version stays,
   // the changes go with the conversation.
   losesChanges: string[]
+  // Other conversations keep editing it (collab01): nothing happens to it.
+  othersEditing: string[]
 }
 
-// The delete confirmation's two small lines, from delete_preview outcomes.
+// The delete confirmation's small lines, from delete_preview outcomes.
 // Each dashboard once (by id); two that share a name are said with a count.
 export function deleteNotes(dashboards: DeleteOutcome[]): DeleteNotes {
   const names = (outcome: string) => {
@@ -28,5 +30,5 @@ export function deleteNotes(dashboards: DeleteOutcome[]): DeleteNotes {
     }
     return [...counts].map(([name, n]) => (n > 1 ? `${name} (${n})` : name))
   }
-  return { deleted: names('deleted'), losesChanges: names('loses_changes') }
+  return { deleted: names('deleted'), losesChanges: names('loses_changes'), othersEditing: names('others_editing') }
 }

@@ -1,0 +1,362 @@
+{
+  "en": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Continued from {name}'s conversation",
+        "continuedFromVersion": "Continued from {name}'s conversation · version {version}",
+        "continuedFromYours": "Continued from your earlier conversation",
+        "continuedFromYoursVersion": "Continued from your earlier conversation · version {version}",
+        "continuedFromPublished": "Continued from the published dashboard",
+        "continuedFromPublishedVersion": "Continued from the published dashboard · version {version}",
+        "openTheirConversation": "Open their conversation",
+        "untitled": "Untitled",
+        "whatChangedBefore": "What changed before",
+        "rerunning": "Charts are running again with your credentials…",
+        "historyHeading": "Changes",
+        "historyEntry": "v{version} by {name}: {changes}",
+        "historyAdded": "added {items}",
+        "historyChanged": "changed {items}",
+        "historyRemoved": "removed {items}",
+        "historySeparator": "; ",
+        "historyFirst": "first version",
+        "someone": "someone",
+        "chartsHeading": "Charts",
+        "chartFilters": "filters: {filters}",
+        "sourcesHeading": "Data sources:",
+        "notesHeading": "Notes",
+        "history": "History",
+        "deleteOthersEditing": "Other conversations keep editing these dashboards, so they stay as they are: {names}"
+      },
+      "list": {
+        "canEdit": "Can edit",
+        "canView": "Can view",
+        "edit": "Edit",
+        "editFailed": "Couldn't open the dashboard for editing"
+      }
+    }
+  },
+  "es": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Continuación de la conversación de {name}",
+        "continuedFromVersion": "Continuación de la conversación de {name} · versión {version}",
+        "continuedFromYours": "Continuación de tu conversación anterior",
+        "continuedFromYoursVersion": "Continuación de tu conversación anterior · versión {version}",
+        "continuedFromPublished": "Continuación del panel publicado",
+        "continuedFromPublishedVersion": "Continuación del panel publicado · versión {version}",
+        "openTheirConversation": "Abrir su conversación",
+        "untitled": "Sin título",
+        "whatChangedBefore": "Qué cambió antes",
+        "rerunning": "Los gráficos se están ejecutando de nuevo con tus credenciales…",
+        "historyHeading": "Cambios",
+        "historyEntry": "v{version} por {name}: {changes}",
+        "historyAdded": "añadió {items}",
+        "historyChanged": "cambió {items}",
+        "historyRemoved": "quitó {items}",
+        "historySeparator": "; ",
+        "historyFirst": "primera versión",
+        "someone": "alguien",
+        "chartsHeading": "Gráficos",
+        "chartFilters": "filtros: {filters}",
+        "sourcesHeading": "Fuentes de datos:",
+        "notesHeading": "Notas",
+        "history": "Historial",
+        "deleteOthersEditing": "Otras conversaciones siguen editando estos paneles, así que quedan como están: {names}"
+      },
+      "list": {
+        "canEdit": "Puede editar",
+        "canView": "Puede ver",
+        "edit": "Editar",
+        "editFailed": "No se pudo abrir el panel para editarlo"
+      }
+    }
+  },
+  "he": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "בהמשך לשיחה של {name}",
+        "continuedFromVersion": "בהמשך לשיחה של {name} · גרסה {version}",
+        "continuedFromYours": "בהמשך לשיחה קודמת שלך",
+        "continuedFromYoursVersion": "בהמשך לשיחה קודמת שלך · גרסה {version}",
+        "continuedFromPublished": "בהמשך לגלריה שפורסמה",
+        "continuedFromPublishedVersion": "בהמשך לגלריה שפורסמה · גרסה {version}",
+        "openTheirConversation": "פתיחת השיחה הקודמת",
+        "untitled": "ללא שם",
+        "whatChangedBefore": "מה השתנה קודם",
+        "rerunning": "התרשימים רצים מחדש עם פרטי ההתחברות שלך…",
+        "historyHeading": "שינויים",
+        "historyEntry": "גרסה {version} מאת {name}: {changes}",
+        "historyAdded": "נוספו {items}",
+        "historyChanged": "שונו {items}",
+        "historyRemoved": "הוסרו {items}",
+        "historySeparator": "; ",
+        "historyFirst": "גרסה ראשונה",
+        "someone": "מישהו",
+        "chartsHeading": "תרשימים",
+        "chartFilters": "מסננים: {filters}",
+        "sourcesHeading": "מקורות נתונים:",
+        "notesHeading": "הערות",
+        "history": "היסטוריה",
+        "deleteOthersEditing": "שיחות אחרות ממשיכות לערוך את הגלריות האלה, ולכן הן נשארות כפי שהן: {names}"
+      },
+      "list": {
+        "canEdit": "הרשאת עריכה",
+        "canView": "הרשאת צפייה",
+        "edit": "עריכה",
+        "editFailed": "לא ניתן לפתוח את הגלריה לעריכה"
+      }
+    }
+  },
+  "fr": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Suite de la conversation de {name}",
+        "continuedFromVersion": "Suite de la conversation de {name} · version {version}",
+        "continuedFromYours": "Suite de votre conversation précédente",
+        "continuedFromYoursVersion": "Suite de votre conversation précédente · version {version}",
+        "continuedFromPublished": "Suite du tableau de bord publié",
+        "continuedFromPublishedVersion": "Suite du tableau de bord publié · version {version}",
+        "openTheirConversation": "Ouvrir sa conversation",
+        "untitled": "Sans titre",
+        "whatChangedBefore": "Ce qui a changé avant",
+        "rerunning": "Les graphiques sont réexécutés avec vos identifiants…",
+        "historyHeading": "Modifications",
+        "historyEntry": "v{version} par {name} : {changes}",
+        "historyAdded": "a ajouté {items}",
+        "historyChanged": "a modifié {items}",
+        "historyRemoved": "a supprimé {items}",
+        "historySeparator": " ; ",
+        "historyFirst": "première version",
+        "someone": "quelqu'un",
+        "chartsHeading": "Graphiques",
+        "chartFilters": "filtres : {filters}",
+        "sourcesHeading": "Sources de données :",
+        "notesHeading": "Notes",
+        "history": "Historique",
+        "deleteOthersEditing": "D'autres conversations continuent de modifier ces tableaux de bord, ils restent donc tels quels : {names}"
+      },
+      "list": {
+        "canEdit": "Peut modifier",
+        "canView": "Peut consulter",
+        "edit": "Modifier",
+        "editFailed": "Impossible d'ouvrir le tableau de bord pour le modifier"
+      }
+    }
+  },
+  "sv": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Fortsättning på {name}s konversation",
+        "continuedFromVersion": "Fortsättning på {name}s konversation · version {version}",
+        "continuedFromYours": "Fortsättning på din tidigare konversation",
+        "continuedFromYoursVersion": "Fortsättning på din tidigare konversation · version {version}",
+        "continuedFromPublished": "Fortsättning på den publicerade instrumentpanelen",
+        "continuedFromPublishedVersion": "Fortsättning på den publicerade instrumentpanelen · version {version}",
+        "openTheirConversation": "Öppna deras konversation",
+        "untitled": "Namnlös",
+        "whatChangedBefore": "Vad som ändrats tidigare",
+        "rerunning": "Diagrammen körs igen med dina inloggningsuppgifter…",
+        "historyHeading": "Ändringar",
+        "historyEntry": "v{version} av {name}: {changes}",
+        "historyAdded": "lade till {items}",
+        "historyChanged": "ändrade {items}",
+        "historyRemoved": "tog bort {items}",
+        "historySeparator": "; ",
+        "historyFirst": "första versionen",
+        "someone": "någon",
+        "chartsHeading": "Diagram",
+        "chartFilters": "filter: {filters}",
+        "sourcesHeading": "Datakällor:",
+        "notesHeading": "Anteckningar",
+        "history": "Historik",
+        "deleteOthersEditing": "Andra konversationer fortsätter att redigera dessa instrumentpaneler, så de förblir som de är: {names}"
+      },
+      "list": {
+        "canEdit": "Kan redigera",
+        "canView": "Kan visa",
+        "edit": "Redigera",
+        "editFailed": "Det gick inte att öppna instrumentpanelen för redigering"
+      }
+    }
+  },
+  "ar": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "متابعة لمحادثة {name}",
+        "continuedFromVersion": "متابعة لمحادثة {name} · الإصدار {version}",
+        "continuedFromYours": "متابعة لمحادثتك السابقة",
+        "continuedFromYoursVersion": "متابعة لمحادثتك السابقة · الإصدار {version}",
+        "continuedFromPublished": "متابعة للوحة المعلومات المنشورة",
+        "continuedFromPublishedVersion": "متابعة للوحة المعلومات المنشورة · الإصدار {version}",
+        "openTheirConversation": "فتح المحادثة السابقة",
+        "untitled": "بلا عنوان",
+        "whatChangedBefore": "ما الذي تغيّر من قبل",
+        "rerunning": "يُعاد تشغيل المخططات ببيانات الاعتماد الخاصة بك…",
+        "historyHeading": "التغييرات",
+        "historyEntry": "الإصدار {version} بواسطة {name}: {changes}",
+        "historyAdded": "أضاف {items}",
+        "historyChanged": "غيّر {items}",
+        "historyRemoved": "أزال {items}",
+        "historySeparator": "؛ ",
+        "historyFirst": "الإصدار الأول",
+        "someone": "شخص ما",
+        "chartsHeading": "المخططات",
+        "chartFilters": "عوامل التصفية: {filters}",
+        "sourcesHeading": "مصادر البيانات:",
+        "notesHeading": "ملاحظات",
+        "history": "السجل",
+        "deleteOthersEditing": "تواصل محادثات أخرى تحرير لوحات المعلومات هذه، لذا تبقى كما هي: {names}"
+      },
+      "list": {
+        "canEdit": "يمكنه التعديل",
+        "canView": "يمكنه العرض",
+        "edit": "تعديل",
+        "editFailed": "تعذّر فتح لوحة المعلومات للتعديل"
+      }
+    }
+  },
+  "ru": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Продолжение беседы {name}",
+        "continuedFromVersion": "Продолжение беседы {name} · версия {version}",
+        "continuedFromYours": "Продолжение вашей предыдущей беседы",
+        "continuedFromYoursVersion": "Продолжение вашей предыдущей беседы · версия {version}",
+        "continuedFromPublished": "Продолжение опубликованного дашборда",
+        "continuedFromPublishedVersion": "Продолжение опубликованного дашборда · версия {version}",
+        "openTheirConversation": "Открыть предыдущую беседу",
+        "untitled": "Без названия",
+        "whatChangedBefore": "Что менялось раньше",
+        "rerunning": "Графики снова запускаются с вашими учётными данными…",
+        "historyHeading": "Изменения",
+        "historyEntry": "v{version}, {name}: {changes}",
+        "historyAdded": "добавлено: {items}",
+        "historyChanged": "изменено: {items}",
+        "historyRemoved": "удалено: {items}",
+        "historySeparator": "; ",
+        "historyFirst": "первая версия",
+        "someone": "кто-то",
+        "chartsHeading": "Графики",
+        "chartFilters": "фильтры: {filters}",
+        "sourcesHeading": "Источники данных:",
+        "notesHeading": "Заметки",
+        "history": "История",
+        "deleteOthersEditing": "Другие беседы продолжают редактировать эти дашборды, поэтому они останутся без изменений: {names}"
+      },
+      "list": {
+        "canEdit": "Может редактировать",
+        "canView": "Может просматривать",
+        "edit": "Редактировать",
+        "editFailed": "Не удалось открыть дашборд для редактирования"
+      }
+    }
+  },
+  "de": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Fortsetzung der Unterhaltung von {name}",
+        "continuedFromVersion": "Fortsetzung der Unterhaltung von {name} · Version {version}",
+        "continuedFromYours": "Fortsetzung Ihrer früheren Unterhaltung",
+        "continuedFromYoursVersion": "Fortsetzung Ihrer früheren Unterhaltung · Version {version}",
+        "continuedFromPublished": "Fortsetzung des veröffentlichten Dashboards",
+        "continuedFromPublishedVersion": "Fortsetzung des veröffentlichten Dashboards · Version {version}",
+        "openTheirConversation": "Deren Unterhaltung öffnen",
+        "untitled": "Ohne Titel",
+        "whatChangedBefore": "Was sich vorher geändert hat",
+        "rerunning": "Die Diagramme laufen erneut mit Ihren Zugangsdaten…",
+        "historyHeading": "Änderungen",
+        "historyEntry": "v{version} von {name}: {changes}",
+        "historyAdded": "hinzugefügt: {items}",
+        "historyChanged": "geändert: {items}",
+        "historyRemoved": "entfernt: {items}",
+        "historySeparator": "; ",
+        "historyFirst": "erste Version",
+        "someone": "jemand",
+        "chartsHeading": "Diagramme",
+        "chartFilters": "Filter: {filters}",
+        "sourcesHeading": "Datenquellen:",
+        "notesHeading": "Notizen",
+        "history": "Verlauf",
+        "deleteOthersEditing": "Andere Unterhaltungen bearbeiten diese Dashboards weiter, daher bleiben sie unverändert: {names}"
+      },
+      "list": {
+        "canEdit": "Kann bearbeiten",
+        "canView": "Kann ansehen",
+        "edit": "Bearbeiten",
+        "editFailed": "Das Dashboard konnte nicht zum Bearbeiten geöffnet werden"
+      }
+    }
+  },
+  "pt": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Continuação da conversa de {name}",
+        "continuedFromVersion": "Continuação da conversa de {name} · versão {version}",
+        "continuedFromYours": "Continuação da sua conversa anterior",
+        "continuedFromYoursVersion": "Continuação da sua conversa anterior · versão {version}",
+        "continuedFromPublished": "Continuação do painel publicado",
+        "continuedFromPublishedVersion": "Continuação do painel publicado · versão {version}",
+        "openTheirConversation": "Abrir a conversa anterior",
+        "untitled": "Sem título",
+        "whatChangedBefore": "O que mudou antes",
+        "rerunning": "Os gráficos estão sendo executados novamente com suas credenciais…",
+        "historyHeading": "Alterações",
+        "historyEntry": "v{version} por {name}: {changes}",
+        "historyAdded": "adicionou {items}",
+        "historyChanged": "alterou {items}",
+        "historyRemoved": "removeu {items}",
+        "historySeparator": "; ",
+        "historyFirst": "primeira versão",
+        "someone": "alguém",
+        "chartsHeading": "Gráficos",
+        "chartFilters": "filtros: {filters}",
+        "sourcesHeading": "Fontes de dados:",
+        "notesHeading": "Notas",
+        "history": "Histórico",
+        "deleteOthersEditing": "Outras conversas continuam editando estes painéis, então eles permanecem como estão: {names}"
+      },
+      "list": {
+        "canEdit": "Pode editar",
+        "canView": "Pode ver",
+        "edit": "Editar",
+        "editFailed": "Não foi possível abrir o painel para edição"
+      }
+    }
+  },
+  "it": {
+    "dashboardCollab": {
+      "conversation": {
+        "continuedFrom": "Continua la conversazione di {name}",
+        "continuedFromVersion": "Continua la conversazione di {name} · versione {version}",
+        "continuedFromYours": "Continua la tua conversazione precedente",
+        "continuedFromYoursVersion": "Continua la tua conversazione precedente · versione {version}",
+        "continuedFromPublished": "Continua la dashboard pubblicata",
+        "continuedFromPublishedVersion": "Continua la dashboard pubblicata · versione {version}",
+        "openTheirConversation": "Apri la sua conversazione",
+        "untitled": "Senza titolo",
+        "whatChangedBefore": "Cosa è cambiato prima",
+        "rerunning": "I grafici vengono rieseguiti con le tue credenziali…",
+        "historyHeading": "Modifiche",
+        "historyEntry": "v{version} di {name}: {changes}",
+        "historyAdded": "ha aggiunto {items}",
+        "historyChanged": "ha modificato {items}",
+        "historyRemoved": "ha rimosso {items}",
+        "historySeparator": "; ",
+        "historyFirst": "prima versione",
+        "someone": "qualcuno",
+        "chartsHeading": "Grafici",
+        "chartFilters": "filtri: {filters}",
+        "sourcesHeading": "Origini dati:",
+        "notesHeading": "Note",
+        "history": "Cronologia",
+        "deleteOthersEditing": "Altre conversazioni continuano a modificare queste dashboard, quindi restano come sono: {names}"
+      },
+      "list": {
+        "canEdit": "Può modificare",
+        "canView": "Può visualizzare",
+        "edit": "Modifica",
+        "editFailed": "Impossibile aprire la dashboard per la modifica"
+      }
+    }
+  }
+}

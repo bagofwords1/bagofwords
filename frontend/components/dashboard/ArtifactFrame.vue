@@ -167,7 +167,7 @@
             </button>
           </UTooltip>
           <template #item="{ item }">
-            <div class="flex items-center gap-2 text-start w-full">
+            <div class="flex items-center gap-2 text-start w-full" :data-testid="item.testid">
               <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
               <span class="text-xs font-medium text-gray-900 dark:text-white">{{ item.label }}</span>
             </div>
@@ -211,8 +211,14 @@
           <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
         </UTooltip>
 
-        <!-- Publish (the version open here) beside Share -->
-        <PublishButton v-if="report && selectedArtifact" :artifact="selectedArtifact" />
+        <!-- Who else is editing this dashboard right now (collab01) -->
+        <div v-if="presenceOthers.length" data-testid="frame-presence">
+          <PresenceAvatars :others="presenceOthers" />
+        </div>
+
+        <!-- Publish (the version open here) beside Share. "Review changes"
+             (someone published since) opens the draft page's changes view. -->
+        <PublishButton v-if="report && selectedArtifact" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges" />
 
         <!-- Share Dashboard -->
         <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
@@ -222,6 +228,18 @@
 
     <!-- Iframe Container -->
     <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+      <!-- This conversation's agent is changing a dashboard others edit too
+           (collab01): outline it, as Figma does, with whose agent it is. -->
+      <div
+        v-if="showAgentOutline"
+        class="absolute inset-0 z-[25] pointer-events-none rounded-sm ring-2 ring-inset ring-violet-500/80 dark:ring-violet-400/80"
+        data-testid="agent-editing-outline"
+      >
+        <span class="absolute top-0 end-0 flex items-center gap-1 rounded-es-md bg-violet-600 text-white ps-2 pe-2.5 py-0.5 text-[11px] font-medium shadow-sm">
+          <Icon name="heroicons:sparkles" class="w-3 h-3" />
+          {{ $t('dashboardCollab.presence.agentEditing', { name: agentOwnerFirstName }) }}
+        </span>
+      </div>
       <!-- View-as switch in flight: cover the pane with a spinner until the
            new identity (and any identity-scoped re-runs) fully settle, so the
            transient anonymous fallback never flashes as the final render. -->
@@ -535,6 +553,15 @@
   </div>
   <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
     :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
+  <!-- The dashboard's history (collab01): conversations, versions, releases. -->
+  <DashboardHistoryModal
+    v-if="historyOpen && selectedArtifact?.artifact_id"
+    v-model="historyOpen"
+    :dashboard-id="selectedArtifact.artifact_id"
+    :capabilities="dashboardCaps"
+    @rolled-back="onHistoryChanged"
+    @transferred="onHistoryChanged"
+  />
 </template>
 
 <script setup lang="ts">
@@ -545,6 +572,8 @@ import CronModal from '../CronModal.vue';
 import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
+import DashboardHistoryModal from './DashboardHistoryModal.vue';
+import PresenceAvatars from './collab/PresenceAvatars.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
@@ -602,6 +631,9 @@ const props = defineProps<{
   requestedDashboardId?: string | null;
   /** Server-brokered preview: no user credential/session enters this page. */
   verificationPreview?: boolean;
+  /** This conversation's own agent is running (collab01): outline the
+   *  dashboard when others edit it too. */
+  agentRunning?: boolean;
 }>();
 
 // The preview's server-side request broker supplies normal authorized API
@@ -1482,6 +1514,68 @@ const isReportOwner = computed(() => {
 const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
 
+// --- Collaboration (collab01) ------------------------------------------
+// What this user may do with the dashboard open here: its draft page's
+// capabilities, asked once per dashboard. Empty while unknown, and for
+// anyone the dashboard does not let edit -- every collaboration control
+// then stays hidden, so a dashboard nobody else edits looks as before.
+const dashboardMeta = ref<{ capabilities: string[]; isOwner: boolean } | null>(null);
+const dashboardCaps = computed<string[]>(() => dashboardMeta.value?.capabilities || []);
+const currentDashboardId = computed<string | null>(() => selectedArtifact.value?.artifact_id || null);
+let dashboardMetaFor: string | null = null;
+async function loadDashboardMeta(force = false) {
+  const id = currentDashboardId.value;
+  if (!force && id === dashboardMetaFor) return;
+  dashboardMetaFor = id;
+  if (!force) dashboardMeta.value = null;
+  if (!id || props.verificationPreview) return;
+  try {
+    const { data, error } = await useMyFetch(`/api/d/${encodeURIComponent(id)}/draft`);
+    if (dashboardMetaFor !== id) return; // switched dashboards meanwhile
+    const meta: any = error.value ? null : data.value;
+    dashboardMeta.value = meta ? { capabilities: meta.capabilities || [], isOwner: !!meta.is_owner } : null;
+  } catch {
+    if (dashboardMetaFor === id) dashboardMeta.value = null;
+  }
+}
+watch(currentDashboardId, () => { loadDashboardMeta(); }, { immediate: true });
+
+// Presence: beat while an editor has a page or slides dashboard open here,
+// with this conversation; get back who else is editing it.
+const presenceEnabled = computed(() =>
+  !props.verificationPreview && !!currentDashboardId.value
+  && ['page', 'slides'].includes(selectedArtifact.value?.mode)
+  && dashboardCaps.value.includes('edit'));
+const { others: presenceOthers } = useDashboardPresence(
+  currentDashboardId, computed(() => props.reportId), presenceEnabled);
+
+// This conversation's agent at work on a dashboard someone else edits too
+// (they have it open now, or it is not this user's own dashboard): outline
+// it with whose agent it is. A dashboard only its owner edits shows nothing.
+const showAgentOutline = computed(() =>
+  !!props.agentRunning && presenceEnabled.value
+  && (presenceOthers.value.length > 0 || dashboardMeta.value?.isOwner === false));
+const agentOwnerFirstName = computed(() => {
+  const me = sessionUser.value as any;
+  const name = String(props.report?.user?.name || me?.user?.name || me?.name || '');
+  return name.split(/[\s@]/)[0] || name;
+});
+
+// "Review changes" from the publish warning: the draft page's changes view.
+function reviewChanges() {
+  const id = currentDashboardId.value;
+  if (id) navigateTo(`/d/${encodeURIComponent(id)}/draft?changes=1`);
+}
+
+const historyOpen = ref(false);
+// Remounting the Publish button re-reads what readers see now.
+const publishKey = ref(0);
+// A roll back changes what is live; a transfer changes who may do what.
+function onHistoryChanged() {
+  publishKey.value += 1;
+  loadDashboardMeta(true);
+}
+
 // --- Rename the dashboard ------------------------------------------------
 // "The dashboard" is two records to the user: the report (its card on
 // /dashboards, the sidebar entry, the browser tab) and the selected artifact
@@ -1575,7 +1669,7 @@ async function saveRename() {
 watch(selectedArtifactId, () => { if (isRenaming.value) cancelRename(); });
 
 // --- Overflow (⋯) menu ---------------------------------------------------
-type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean };
+type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean; testid?: string };
 
 // Groups render with dividers between them (Nuxt UI takes an array of
 // arrays). Empty groups are dropped so no divider ever leads nowhere.
@@ -1617,8 +1711,11 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
     const inspectors = [];
     if (resourcesAvailable.value) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
-    // Analytics has no org switch; the API enforces owner-only on its own.
-    if (isReportOwner.value) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    // Analytics: whoever the dashboard grants it (its owner and editors,
+    // collab01); the API enforces it on its own.
+    if (isReportOwner.value || dashboardCaps.value.includes('analytics')) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    // History: the conversations, versions and releases (Roll back) -- editors.
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { historyOpen.value = true; } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);
