@@ -255,7 +255,14 @@ async def draft_query_ids(db, version: ArtifactVersion | None) -> set[str]:
         return set()
     from app.services.dashboard_copy import collect_dashboard_deps
 
-    deps = await collect_dashboard_deps(db, version, include_pending=True)
+    # A conversation that joined the dashboard (collab01) shows its copies
+    # while they still run with its user's credentials; any other draft as
+    # before (a fork's pending hydration stays out of it).
+    from app.models.artifact_release import ArtifactConversation
+
+    joined = (await db.execute(select(ArtifactConversation.id).where(
+        ArtifactConversation.report_id == str(version.report_id)).limit(1))).first() is not None
+    deps = await collect_dashboard_deps(db, version, include_pending=joined)
     return {str(q) for q in deps.query_ids} | {str(q) for q in deps.hidden_query_ids}
 
 

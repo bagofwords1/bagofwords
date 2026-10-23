@@ -12,6 +12,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.types import JSON
 
 from tests.fixtures.dashboard_corpus.alembic_at import (
+    apply_schema_only_revisions,
+    remove_schema_only_revisions,
     MAIN_BASE_REVISION,
     PRE_MIGRATION_REVISION,
     alembic_pointed_at,
@@ -392,6 +394,7 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
         expected[table]["columns"][column] = (typ, True, default)
     assert _restricted_to(head_schema, main_schema) == expected
 
+    remove_schema_only_revisions(url)  # applied unstamped with the corpus (alembic_at)
     with alembic_pointed_at(url) as cfg:
         command.downgrade(cfg, MAIN_BASE_REVISION)
     assert current_revisions(url) == (MAIN_BASE_REVISION,)
@@ -402,6 +405,7 @@ def test_downgrade_restores_main_exactly_and_upgrade_again_keeps_every_row(corpu
     # Back to where the corpus stands (before the data migration, dashfc08).
     with alembic_pointed_at(url) as cfg:
         command.upgrade(cfg, PRE_MIGRATION_REVISION)
+    apply_schema_only_revisions(url)
     assert _schema(url) == head_schema
     assert _counts(url) == head_counts
 

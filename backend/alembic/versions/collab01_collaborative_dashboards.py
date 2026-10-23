@@ -147,6 +147,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_column("visualizations", "element_key"):
+        return  # idempotent, as the upgrade is
     with op.batch_alter_table("visualizations") as batch:
         batch.drop_column("element_key")
 

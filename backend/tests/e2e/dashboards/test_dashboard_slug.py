@@ -101,12 +101,16 @@ def test_removing_the_name_keeps_every_name_link_working(corpus, corpus_rows, te
 
 
 @pytest.mark.e2e
-def test_only_the_owner_names_the_dashboard(corpus, corpus_rows, test_client):
+def test_only_its_editors_name_the_dashboard(corpus, corpus_rows, test_client):
+    """The owner and its editors (collab01: whoever can open its project
+    edits it -- the project's members, and the admin, who sees every
+    project) name it; a member who only reads it does not."""
     aid = own(corpus_rows, corpus, SALES, project="private")
     publish(aid)
-    for person in ("member", "proj_viewer", "admin"):
-        assert _name(test_client, corpus, aid, "sales", person=person).status_code in (403, 404), person
+    assert _name(test_client, corpus, aid, "sales", person="member").status_code in (403, 404)
     assert _open(test_client, corpus, "sales", person="owner").status_code == 404
+    assert _name(test_client, corpus, aid, "sales", person="proj_viewer").status_code == 200
+    assert _open(test_client, corpus, "sales", person="owner").status_code == 200
 
 
 @pytest.mark.e2e
