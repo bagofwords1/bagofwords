@@ -47,6 +47,25 @@ _CHART_EDITING_TOOLS = frozenset({
 })
 
 
+_VERSION_SAVING_TOOLS = frozenset({"edit_artifact", "create_artifact"})
+
+
+def _note_saved_version(runtime_ctx, output) -> None:
+    """After a tool saved a dashboard version: outline the charts it changed
+    for the other editors (collab01). Best effort and detached."""
+    try:
+        report = (runtime_ctx or {}).get("report")
+        version_id = output.get("artifact_id") if isinstance(output, dict) else None
+        if report is None or not version_id or output.get("success") is False:
+            return
+        from app.core import fire_and_forget
+        from app.services.dashboard_presence import agent_changed_version
+
+        fire_and_forget.spawn(agent_changed_version(str(report.id), str(version_id)))
+    except Exception:
+        pass
+
+
 def _note_chart_edit(runtime_ctx, arguments) -> None:
     """Best effort and detached: presence never slows or fails a tool."""
     try:
@@ -320,6 +339,8 @@ class ToolRunner:
                             if et == "tool.end":
                                 last_observation = payload.get("observation")
                                 last_output = payload.get("output")
+                                if getattr(tool, "name", None) in _VERSION_SAVING_TOOLS:
+                                    _note_saved_version(runtime_ctx, last_output)
                 except TimeoutError as timeout_error:
                     # asyncio.timeout() has an empty message. Idle timeouts
                     # already carry their own label and remain distinguishable.

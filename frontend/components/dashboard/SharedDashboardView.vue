@@ -1732,7 +1732,11 @@ function syncLastRefreshed() {
 // instead of a retry loop.
 async function autoRunForViewer() {
     if (!snapshotWithheld.value || !canRun.value || isRunning.value || autoRunTried.value) return;
-    const needsRun = !hasOwnResult.value || (viewerRunNeedsConnect.value && dataSourceErrors.value.length === 0);
+    // An editor previewing someone else's version (collab01) runs it as
+    // themselves once whenever a chart is withheld -- its newer charts have
+    // no result of theirs yet, though older ones may.
+    const needsRun = !hasOwnResult.value || (viewerRunNeedsConnect.value && dataSourceErrors.value.length === 0)
+        || (props.source === 'draft' && withheldCharts.value.length > 0);
     if (!needsRun) return;
     autoRunTried.value = true;
     await handleRun();

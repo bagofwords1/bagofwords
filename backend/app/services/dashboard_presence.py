@@ -145,6 +145,45 @@ async def agent_touched(report_id: str, tool_input) -> None:
         logger.debug("presence: tool touch not recorded for %s", report_id, exc_info=True)
 
 
+def changed_keys(elements: dict | None, base_elements: dict | None) -> list[str]:
+    """The charts a version added, changed or removed against the one it
+    grew from. A removed one is often replaced (the agent makes a new query
+    for "top 6 instead of 8"): it is the chart the other editors see on
+    screen, so it is outlined too."""
+    new, base = elements or {}, base_elements or {}
+    touched = [str(k) for k, el in new.items()
+               if k not in base or (base.get(k) or {}).get("fp") != (el or {}).get("fp")]
+    return touched + [str(k) for k in base if k not in new]
+
+
+async def agent_changed_version(report_id: str, version_id: str) -> None:
+    """After the agent saved a version: outline the charts it changed. A
+    tool's input rarely names them (an edit is find/replace over the page
+    code), the saved version always does -- its chart fingerprints against
+    the version it grew from."""
+    from app.dependencies import async_session_maker
+    from app.models.artifact import ArtifactVersion
+
+    try:
+        async with async_session_maker() as db:
+            version = await db.get(ArtifactVersion, str(version_id))
+            if version is None or str(version.report_id) != str(report_id):
+                return
+            base = await db.get(ArtifactVersion, str(version.base_version_id)) if version.base_version_id else None
+            keys = changed_keys(version.elements, base.elements if base is not None else None)
+            if not keys:
+                return
+            rows = (await db.execute(select(ArtifactPresence).where(
+                ArtifactPresence.report_id == str(report_id), ArtifactPresence.state == "agent_editing"))).scalars().all()
+            now = datetime.utcnow()
+            for r in rows:
+                r.element_keys = list(dict.fromkeys([*(r.element_keys or []), *keys]))[-50:]
+                r.seen_at = now
+            await db.commit()
+    except Exception:
+        logger.debug("presence: saved version not recorded for %s", report_id, exc_info=True)
+
+
 async def agent_finished(report_id: str, completion_id: str | None) -> None:
     from app.dependencies import async_session_maker
 
