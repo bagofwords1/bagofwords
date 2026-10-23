@@ -1617,6 +1617,11 @@ function toggleChanges() {
     if (changesOpen.value) changesOpen.value = false;
     else openChanges();
 }
+// "Review changes" (someone published since) lands here with ?changes=1:
+// open the panel once the page knows the reader may edit.
+watch(dashboardMeta, (meta) => {
+    if (meta && route.query.changes === '1' && !changesOpen.value && hasCap('edit')) openChanges();
+}, { immediate: true });
 
 function firstName(name: string | null | undefined) {
     return (name || '').split(/[\s@]/)[0] || name || '';

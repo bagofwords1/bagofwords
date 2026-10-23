@@ -149,3 +149,22 @@ def test_the_check_runs_only_on_the_page_shown(migrated_corpus, test_client, mon
     page = _list(test_client, c, "owner", filter="my", limit=2, page=2)
     assert len(page["dashboards"]) == 2 and page["meta"]["total"] == everything
     assert len(checked) <= 2
+
+
+@pytest.mark.e2e
+def test_a_dashboard_whose_every_version_failed_is_not_listed(corpus, corpus_rows, test_client):
+    """create_artifact keeps a dashboard whose render validation failed (its
+    one version `failed`) for debugging; it is not one anyone built, so no
+    card -- until a version works, or something went live from it."""
+    sales = own(corpus_rows, corpus, f"{CONV}/dash_sales")
+    stock = own(corpus_rows, corpus, f"{CONV}/dash_stock")
+    versions = corpus_rows.table("artifact_versions")
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(versions.update().where(versions.c.artifact_id == sales).values(status="failed"))
+        ids = [r[0] for r in conn.execute(versions.select().with_only_columns(versions.c.id)
+                                          .where(versions.c.artifact_id == sales))]
+    assert ids  # the dashboard has versions, all failed
+    assert sales not in _ids(_list(test_client, corpus, "owner", filter="my"))
+    assert stock in _ids(_list(test_client, corpus, "owner", filter="my"))
+    corpus_rows.update("artifact_versions", ids[0], status="completed")
+    assert sales in _ids(_list(test_client, corpus, "owner", filter="my"))

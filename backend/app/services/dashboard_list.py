@@ -127,6 +127,17 @@ def not_an_older_legacy_version():
     return ~and_(is_legacy, newer_legacy, Artifact.legacy_report_id.is_(None), ~in_use)
 
 
+def not_only_failed():
+    """A create_artifact whose render validation failed keeps its row (and a
+    `failed` version) for debugging; it is not a dashboard anyone built, so
+    no card -- unless something did go live from it."""
+    any_version, working = aliased(ArtifactVersion), aliased(ArtifactVersion)
+    has_versions = exists().where(any_version.artifact_id == Artifact.id, any_version.deleted_at.is_(None))
+    has_working = exists().where(working.artifact_id == Artifact.id, working.deleted_at.is_(None),
+                                 working.status != "failed")
+    return or_(~has_versions, has_working, Artifact.published_release_id.isnot(None))
+
+
 async def list_dashboards(db, user, organization, *, filter: str = "my", search: str | None = None,
                           mode: str | None = None, page: int = 1, limit: int = 15) -> dict:
     """One tab of the dashboards page. `meta.total` is an upper bound: it
@@ -136,7 +147,7 @@ async def list_dashboards(db, user, organization, *, filter: str = "my", search:
     from app.services import dashboard_access
 
     conditions = [Artifact.organization_id == str(organization.id), Artifact.deleted_at.is_(None),
-                  Artifact.owner_id.isnot(None), not_an_older_legacy_version()]
+                  Artifact.owner_id.isnot(None), not_an_older_legacy_version(), not_only_failed()]
     if filter == "my":
         conditions.append(Artifact.owner_id == str(user.id))
     else:

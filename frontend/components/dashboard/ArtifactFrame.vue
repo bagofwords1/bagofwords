@@ -1,8 +1,10 @@
 <template>
   <div class="h-full w-full flex flex-col bg-white dark:bg-gray-900">
     <!-- Header / Toolbar -->
-    <div v-if="!verificationPreview" class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
-      <div class="flex items-center gap-3">
+    <!-- Wraps rather than clips: with presence, Publish and Share the
+         right-hand group can outgrow a narrow pane. -->
+    <div v-if="!verificationPreview" class="flex-shrink-0 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
+      <div class="flex items-center gap-3 min-w-0 grow basis-52">
         <UTooltip :text="$t('artifactFrame.backToChat')">
           <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
             <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -10,7 +12,7 @@
         </UTooltip>
 
         <!-- Artifact Selector Dropdown -->
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
           <!-- Rename (owner only): the selector becomes an input in place so
                the toolbar keeps its width. Enter saves, Escape cancels. -->
           <form
@@ -56,7 +58,7 @@
             value-attribute="value"
             option-attribute="label"
             size="xs"
-            class="min-w-[280px]"
+            class="w-full max-w-[280px] min-w-0"
             :placeholder="$t('artifactFrame.selectArtifact')"
             :ui="{ option: { base: 'py-2' } }"
           >
@@ -115,7 +117,7 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-2 ms-auto shrink-0 max-w-full">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
         <!-- Refresh Dashboard (rerun + refresh). Everyday action, so it stays
@@ -1562,9 +1564,13 @@ const agentOwnerFirstName = computed(() => {
 });
 
 // "Review changes" from the publish warning: the draft page's changes view.
+// "Review changes" (someone published since): the version open here against
+// what readers see now -- not the newest version, which may be theirs.
 function reviewChanges() {
   const id = currentDashboardId.value;
-  if (id) navigateTo(`/d/${encodeURIComponent(id)}/draft?changes=1`);
+  if (!id) return;
+  const n = selectedArtifact.value?.version;
+  navigateTo(`/d/${encodeURIComponent(id)}/draft?${n ? `version=${n}&` : ''}changes=1`);
 }
 
 const historyOpen = ref(false);

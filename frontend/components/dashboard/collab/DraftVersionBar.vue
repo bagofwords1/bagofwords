@@ -22,7 +22,7 @@
                 :value="selectedVersion"
                 data-testid="version-picker"
                 :aria-label="$t('dashboardCollab.page.versionPicker')"
-                class="h-6 max-w-[220px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 text-xs ps-1.5 pe-6 py-0"
+                class="h-6 max-w-[200px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 text-xs ps-1.5 pe-6 py-0"
                 @change="onVersion(($event.target as HTMLSelectElement).value)"
             >
                 <option value="">{{ $t('dashboardCollab.page.latest') }}</option>
@@ -55,13 +55,13 @@
         <!-- Someone else's version: the charts are yours to run -->
         <div v-if="meta.version_is_mine === false" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
             <Icon name="heroicons:user-circle" class="w-3.5 h-3.5 shrink-0" />
-            <span class="hidden md:inline">{{ $t('dashboardCollab.page.notYourVersion') }}</span>
+            <span class="hidden md:inline">{{ $t('dashboardCollab.page.notYourVersion', { name: authorName || '—' }) }}</span>
             <button
                 type="button"
                 data-testid="run-as-me"
                 :disabled="isRunning"
                 class="flex items-center gap-1 rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-900 px-1.5 py-0.5 hover:bg-amber-50 dark:hover:bg-amber-900/40 disabled:opacity-60"
-                :title="$t('dashboardCollab.page.notYourVersion')"
+                :title="$t('dashboardCollab.page.notYourVersion', { name: authorName || '—' })"
                 @click="$emit('run-as-me')"
             >
                 <Icon name="heroicons:arrow-path" :class="['w-3 h-3', isRunning ? 'animate-spin' : '']" />
