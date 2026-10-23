@@ -85,11 +85,14 @@
                  bar always reserves the cluster's width — no overlap however
                  many buttons are visible) -->
             <div class="flex-shrink-0 h-full pe-2 sm:pe-4 flex items-center gap-1 sm:gap-2">
+                <!-- Who else is editing (collab01): editors only -->
+                <PresenceAvatars v-if="presenceEnabled" :others="presenceOthers" class="hidden sm:flex" />
                 <!-- Run button: signed-in non-owner viewers re-run the dashboard's
                      queries into their own per-user results (whose credentials run
-                     is the owner's share setting; never touches the shared data) -->
+                     is the owner's share setting; never touches the shared data).
+                     The draft page's bar has its own "Run as me". -->
                 <button
-                    v-if="canRun"
+                    v-if="canRun && source !== 'draft'"
                     @click="handleRun"
                     :disabled="isRunning"
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
@@ -128,24 +131,41 @@
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
                 </span>
+                <!-- View analytics (collab01): the existing artifact analytics,
+                     for whoever holds the `analytics` capability -->
+                <button
+                    v-if="hasCap('analytics')"
+                    type="button"
+                    data-testid="analytics-button"
+                    @click="analyticsOpen = true"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    :title="$t('artifactResources.analytics')"
+                >
+                    <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
+                    <span class="hidden sm:inline">{{ $t('artifactResources.analytics') }}</span>
+                </button>
                 <NuxtLink
-                    v-if="isOwner && editPath"
+                    v-if="source === 'report' && isOwner && editPath"
                     :to="editPath"
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
                 >
                     <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
                     <span class="hidden sm:inline">Edit Report</span>
                 </NuxtLink>
-                <!-- A published dashboard's owner: Edit opens the conversation
-                     its draft is edited in, a new one when that was deleted -->
+                <!-- A dashboard's editors (collab01): Edit opens their own
+                     conversation on it -- the one they have, else a new copy
+                     of the draft (the named draft on screen, if any) -->
                 <button
-                    v-else-if="isOwner && source === 'dashboard'"
+                    v-else-if="source !== 'report' && hasCap('edit')"
+                    type="button"
+                    data-testid="edit-in-my-conversation"
                     @click="handleEdit"
                     :disabled="isOpeningEditor"
                     class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    :title="$t('dashboardCollab.page.editInMyConversation')"
                 >
-                    <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
-                    <span class="hidden sm:inline">Edit Report</span>
+                    <Icon :name="isOpeningEditor ? 'heroicons:arrow-path' : 'heroicons:pencil-square'" :class="['w-3.5 h-3.5', isOpeningEditor ? 'animate-spin' : '']" />
+                    <span class="hidden sm:inline">{{ $t('dashboardCollab.page.editInMyConversation') }}</span>
                 </button>
                 <button
                     @click="showTopBar = false"
@@ -155,6 +175,21 @@
                 </button>
             </div>
         </div>
+
+        <!-- The draft page: which version is previewed, and what to do with it -->
+        <DraftVersionBar
+            v-if="source === 'draft' && showTopBar && reportLoaded && dashboardMeta"
+            :meta="dashboardMeta"
+            :capabilities="capabilities"
+            :changes-open="changesOpen"
+            :is-running="isRunning"
+            @toggle-changes="toggleChanges"
+            @open-history="historyOpen = true"
+            @run-as-me="handleRun"
+            @published="emit('reload')"
+            @review="openChanges"
+            @new-draft="newDraftOpen = true"
+        />
 
         <!-- Made with Bag of words badge -->
         <a v-if="report.general?.bow_credit !== false"
@@ -272,6 +307,28 @@
                     />
                 </div>
             </div>
+
+            <!-- Charts still running with this editor's credentials (a joined
+                 copy): they fill in as they land -->
+            <div v-if="activeTab === 'report' && pendingQueries.length"
+                 data-testid="chart-pending"
+                 :title="pendingQueries.map(q => q.title).filter(Boolean).join(', ')"
+                 class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-900/50 border border-sky-200 dark:border-sky-700 text-sky-800 dark:text-sky-200 shadow text-[11px] whitespace-nowrap">
+                <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 animate-spin shrink-0" />
+                {{ $t('dashboardCollab.page.runningAsYou') }}
+                <span class="tabular-nums text-sky-600 dark:text-sky-300">({{ pendingQueries.length }})</span>
+            </div>
+
+            <DashboardChangesPanel
+                v-if="changesOpen"
+                :changes="changes"
+                :loading="changesLoading"
+                :error="changesError"
+                :located="locatedKeys"
+                :active-key="activeChangeKey"
+                @close="changesOpen = false"
+                @highlight="activeChangeKey = $event"
+            />
         </div>
 
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
@@ -283,6 +340,30 @@
             :raised="report.general?.bow_credit !== false"
             :lift="cornerLift"
         />
+
+        <ArtifactResourceExplorer
+            v-if="analyticsOpen && dashboardMeta?.id"
+            :artifact-id="dashboardMeta.id"
+            view="analytics"
+            @close="analyticsOpen = false"
+        />
+        <DashboardHistoryModal
+            v-if="source === 'draft' && dashboardMeta?.id"
+            v-model="historyOpen"
+            :dashboard-id="dashboardMeta.id"
+            :capabilities="capabilities"
+            @rolled-back="emit('reload')"
+            @transferred="emit('reload')"
+        />
+        <NewDraftModal
+            v-if="source === 'draft' && dashboardMeta?.id && hasCap('edit')"
+            v-model="newDraftOpen"
+            :dashboard-id="dashboardMeta.id"
+            :from-version-id="previewedVersion ? dashboardMeta.version_id : null"
+            :from-version-number="previewedVersion ? dashboardMeta.version_number : null"
+        />
+        <!-- This page has no layout: Publish and Edit report through toasts -->
+        <UNotifications v-if="source !== 'report'" />
     </div>
 </template>
 
@@ -296,14 +377,67 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
+import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue';
+import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
+import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
+import DraftVersionBar from '~/components/dashboard/collab/DraftVersionBar.vue';
+import DashboardChangesPanel from '~/components/dashboard/collab/DashboardChangesPanel.vue';
+import NewDraftModal from '~/components/dashboard/collab/NewDraftModal.vue';
+import {
+    chartOverlayScriptTag, vizIdsForKey, COLLAB_MARKS_MESSAGE, COLLAB_LOCATED_MESSAGE, type ChartMark,
+} from '~/components/dashboard/collab/chartOverlay';
 
 // The shared dashboard page: a conversation's /r/{id}, a published
 // dashboard's /d/{id}, or its draft for its editors (/d/{id}/draft) -- the
 // same page over each one's endpoints (utils/sharedDashboardApi).
 const props = defineProps<{ source: SharedDashboardSource; id: string }>();
+// `reload`: the page (keyed) mounts this view afresh -- after a publish, a
+// roll back or a transfer changed what it shows or what the reader may do.
+const emit = defineEmits<{ (e: 'reload'): void }>();
 const api = sharedDashboardApi(props.source, props.id);
 const route = useRoute();
 const { data: currentUser } = useAuth();
+const { t } = useI18n();
+const toast = useToast();
+const { getErrorMessage } = useErrorMessage();
+const { relativeTime } = useRelativeTime();
+
+// The draft page previews any version (?version=N) or named draft
+// (?draft=slug, collab01). Every draft read takes the same two params, so
+// they are threaded into each draft URL here, once (the page is keyed on its
+// full path: another version is another mount).
+const draftQuery = (() => {
+    if (props.source !== 'draft') return '';
+    const qs = new URLSearchParams();
+    const version = route.query.version;
+    if (typeof version === 'string' && /^\d{1,9}$/.test(version)) qs.set('version', version);
+    const draft = route.query.draft;
+    if (typeof draft === 'string' && draft) qs.set('draft', draft.slice(0, 120));
+    return qs.toString();
+})();
+const previewedVersion = props.source === 'draft' && typeof route.query.version === 'string' && !!route.query.version;
+function withDraftQuery(url: string, query = draftQuery) {
+    return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url;
+}
+if (draftQuery) {
+    const { queries, step, embedToken } = api;
+    api.meta = withDraftQuery(api.meta);
+    if (api.content) api.content = withDraftQuery(api.content);
+    api.queries = (artifactId?: string) => withDraftQuery(queries(artifactId));
+    api.step = (queryId: string) => withDraftQuery(step(queryId));
+    api.embedToken = (fileId: string) => withDraftQuery(embedToken(fileId));
+}
+
+// What the reader may do here (collab01): the page meta's capabilities, not
+// ownership. A conversation's /r page has none of these buttons.
+const capabilities = computed<string[]>(() =>
+    (props.source === 'report' ? [] : (dashboardMeta.value?.capabilities || [])) as string[]);
+function hasCap(cap: string) {
+    return capabilities.value.includes(cap);
+}
+const analyticsOpen = ref(false);
+const historyOpen = ref(false);
+const newDraftOpen = ref(false);
 
 const report = ref<any>({
     title: '',
@@ -357,14 +491,29 @@ const editPath = computed(() => {
     return null;
 });
 const isOpeningEditor = ref(false);
+// "Edit in my conversation" (collab01): the reader's own conversation on this
+// dashboard -- theirs if they have one, else a new copy of the draft (the
+// named draft on screen, when one is). A copy of someone else's work re-runs
+// with the reader's credentials; the conversation shows that itself.
 async function handleEdit() {
     if (isOpeningEditor.value) return;
     isOpeningEditor.value = true;
     try {
-        const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(report.value.id)}/edit`,
-            { method: 'POST' });
-        if (!error.value && (data.value as any)?.report_id) {
-            navigateTo(`/reports/${(data.value as any).report_id}`);
+        const dashboardId = dashboardMeta.value?.id || report.value.id;
+        const named = props.source === 'draft' ? dashboardMeta.value?.draft : null;
+        const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(dashboardId)}/edit`, {
+            method: 'POST',
+            ...(named?.id && named?.slug ? { body: { draft: named.slug } } : {}),
+        });
+        if (error.value) {
+            const message = getErrorMessage(error.value);
+            runError.value = message;
+            toast.add({ title: t('dashboardCollab.page.editFailed'), description: message, color: 'red' });
+            return;
+        }
+        const reportId = (data.value as any)?.report_id;
+        if (reportId) {
+            navigateTo(`/reports/${reportId}?dashboard=${encodeURIComponent(dashboardId)}`);
         }
     } catch (e) {
         console.error('Failed to open the editor:', e);
@@ -782,6 +931,11 @@ async function loadReport() {
             // The draft is its editors' only (or its conversation is gone):
             // anyone else gets the published page, which applies its own check.
             if (props.source === 'draft' && status === 404) {
+                // A version or draft that is gone: the plain draft first.
+                if (draftQuery) {
+                    navigateTo(`/d/${props.id}/draft`, { replace: true });
+                    return;
+                }
                 navigateTo(`/d/${props.id}?from=draft`, { replace: true });
                 return;
             }
@@ -816,12 +970,16 @@ function asReport(meta: any) {
     if (props.source === 'draft') dashboardOwner.value = !!meta.can_edit;
     if (props.source === 'draft') {
         draftReportId.value = meta.report_id || null;
-        draftDataOwner.value = !!meta.is_owner;
-        // The draft is its conversation: someone who is not its owner runs it
-        // for their own rows there, as main's /r let them.
-        if (meta.report_id && !meta.is_owner) {
-            const r = `/api/r/${encodeURIComponent(meta.report_id)}`;
-            api.run = (artifactId?: string) => `${r}/run${artifactId ? `?artifact_id=${encodeURIComponent(artifactId)}` : ''}`;
+        // Whose rows the version shows (collab01): the reader's own version
+        // holds theirs; anyone else's they run for themselves ("Run as me"),
+        // kept as theirs alone. The run is pinned to the version on screen.
+        draftDataOwner.value = typeof meta.version_is_mine === 'boolean' ? meta.version_is_mine : !!meta.is_owner;
+        if (meta.report_id && !draftDataOwner.value) {
+            const qs = new URLSearchParams();
+            if (meta.version_number) qs.set('version', String(meta.version_number));
+            if (meta.draft?.id && meta.draft?.slug) qs.set('draft', meta.draft.slug);
+            const runUrl = withDraftQuery(`/api/d/${encodeURIComponent(props.id)}/draft/run`, qs.toString());
+            api.run = () => runUrl;
         }
     }
     dashboardMeta.value = meta;
@@ -923,10 +1081,20 @@ async function loadVisualizationData(artifactId?: string) {
         let anyNoAccess = false;
         let anyNeedsConnect = false;
         let anyOwnSuccess = false;
+        const nextPending: Array<{ id: string; title: string; vizIds: string[] }> = [];
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
             const { data: step } = stepResults[qi];
+            // Still running with this editor's credentials (a joined copy,
+            // collab01): the chart says so and the page asks again.
+            if ((step.value as any)?.pending) {
+                nextPending.push({
+                    id: String((query as any).id),
+                    title: (query as any).title || '',
+                    vizIds: ((query as any).visualizations || []).map((v: any) => String(v.id)),
+                });
+            }
 
             // Steps the viewer re-ran carry their per-user result row — its
             // presence gates auto-run (first-time viewers only), and a failed
@@ -1018,9 +1186,38 @@ async function loadVisualizationData(artifactId?: string) {
         viewerHasOwnSuccess.value = anyOwnSuccess;
         hasOwnResult.value = anyOwnResult;
         viewerRunFailedReason.value = failedReason;
+        pendingQueries.value = nextPending;
     } catch (e) {
         console.error('Failed to load visualization data:', e);
+    } finally {
+        schedulePendingPoll();
     }
+}
+
+// ── Charts still running as this editor (collab01) ──────────────────────────
+// Ask for those steps every few seconds; once one has landed, reload the data
+// and push it into the page. Stops when none is pending, or on unmount.
+const PENDING_POLL_MS = 4000;
+const pendingQueries = ref<Array<{ id: string; title: string; vizIds: string[] }>>([]);
+let pendingTimer: ReturnType<typeof setTimeout> | null = null;
+let unmounted = false;
+function schedulePendingPoll() {
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = null;
+    if (unmounted || !pendingQueries.value.length) return;
+    pendingTimer = setTimeout(pollPending, PENDING_POLL_MS);
+}
+async function pollPending() {
+    pendingTimer = null;
+    if (unmounted) return;
+    const results = await Promise.all(pendingQueries.value.map((q) =>
+        useMyFetch(api.step(q.id)).catch(() => null)));
+    if (unmounted) return;
+    const landed = results.some((r: any) => !r || r.error?.value || !(r.data?.value as any)?.pending);
+    if (!landed) { schedulePendingPoll(); return; }
+    await loadVisualizationData(artifact.value?.id);
+    if (unmounted) return;
+    if (dataReady.value) deliverArtifactData();
 }
 
 
@@ -1030,7 +1227,9 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
-useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id}));
+// The draft page counts no view (collab01): editors at work are not readers.
+useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id,
+    recordViews: props.source !== 'draft'}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.
@@ -1338,6 +1537,8 @@ function handleArtifactParamsMessage(event: MessageEvent) {
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});
     } else if (event.data.type === 'ARTIFACT_REFRESH_PARAMS') {
         runParamQueries(null, event.data.targets || null, { force: true });
+    } else if (event.data.type === COLLAB_LOCATED_MESSAGE && Array.isArray(event.data.keys)) {
+        locatedKeys.value = new Set(event.data.keys.filter((k: unknown) => typeof k === 'string').slice(0, 500));
     }
 }
 
@@ -1363,9 +1564,11 @@ const iframeSrcdoc = computed(() => {
         params: paramsPayload(),
         runtime: artifactRuntime()
     };
+    // Editors' pages carry the chart-marks listener (collab01).
+    const pageMode = (artifact.value?.mode || 'page') === 'page';
     return buildArtifactIframeHtml({
         data: seed,
-        code: artifactCode,
+        code: overlaysEnabled.value && pageMode ? artifactCode + chartOverlayScriptTag() : artifactCode,
         mode: artifact.value?.mode || 'page',
         resourceApp: artifact.value?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
@@ -1374,6 +1577,103 @@ const iframeSrcdoc = computed(() => {
 
 // A new srcdoc is a new document — deliveries wait for its load again.
 watch(() => iframeSrcdoc.value, () => { artifactIframeLoaded.value = false; });
+
+// ── Presence, attribution, review changes (collab01) ────────────────────────
+// Editors only: viewers and anonymous readers get none of it.
+const overlaysEnabled = computed(() => props.source !== 'report' && hasCap('edit'));
+const presenceEnabled = computed(() => overlaysEnabled.value && reportLoaded.value);
+const presence = useDashboardPresence(
+    computed(() => (props.source !== 'report' ? dashboardMeta.value?.id || null : null)),
+    ref(null),
+    presenceEnabled,
+);
+const presenceOthers = presence.others;
+
+const changesOpen = ref(false);
+const changes = ref<any>(null);
+const changesLoading = ref(false);
+const changesError = ref<string | null>(null);
+const activeChangeKey = ref<string | null>(null);
+const locatedKeys = ref<Set<string>>(new Set());
+
+async function loadChanges() {
+    if (props.source !== 'draft' || !hasCap('edit') || changesLoading.value) return;
+    changesLoading.value = true;
+    changesError.value = null;
+    try {
+        const { data, error } = await useMyFetch(withDraftQuery(`/api/d/${encodeURIComponent(props.id)}/draft/changes`));
+        if (unmounted) return;
+        if (error.value) { changesError.value = getErrorMessage(error.value, t('dashboardCollab.page.changesFailed')); return; }
+        changes.value = data.value || null;
+    } finally {
+        changesLoading.value = false;
+    }
+}
+function openChanges() {
+    changesOpen.value = true;
+    loadChanges();
+}
+function toggleChanges() {
+    if (changesOpen.value) changesOpen.value = false;
+    else openChanges();
+}
+
+function firstName(name: string | null | undefined) {
+    return (name || '').split(/[\s@]/)[0] || name || '';
+}
+
+// The marks drawn over the charts in the page (chartOverlay.ts): charts
+// still running as you, charts another editor's agent is changing now, and
+// "Changed by" on hover (or while the panel points at one).
+const chartMarks = computed<ChartMark[]>(() => {
+    if (!overlaysEnabled.value) return [];
+    const vizList = visualizationsData.value as Array<{ id: string; title?: string }>;
+    const titles = new Map<string, string>();
+    for (const el of (changes.value?.elements || [])) titles.set(String(el.key), el.title || '');
+    const marks: ChartMark[] = [];
+    for (const q of pendingQueries.value) {
+        marks.push({ key: `pending:${q.id}`, ids: q.vizIds, tone: 'pending', label: t('dashboardCollab.page.runningAsYou') });
+    }
+    const agentCharts = new Set<string>();
+    for (const entry of presence.agentEditors.value) {
+        for (const key of entry.element_keys || []) {
+            agentCharts.add(String(key));
+            marks.push({
+                key: `agent:${entry.user.id}:${key}`,
+                ids: vizIdsForKey(String(key), titles.get(String(key)), vizList),
+                tone: 'agent',
+                label: t('dashboardCollab.page.agentEditingChart', { name: firstName(entry.user.name) }),
+            });
+        }
+    }
+    for (const el of (changes.value?.elements || [])) {
+        if (!el.changed_by || agentCharts.has(String(el.key))) continue;
+        marks.push({
+            key: String(el.key),
+            ids: vizIdsForKey(String(el.key), el.title, vizList),
+            tone: 'changed',
+            label: t('dashboardCollab.page.changedByShort', {
+                name: el.changed_by.name || t('dashboardCollab.page.someone'),
+                when: el.changed_at ? relativeTime(el.changed_at) : '',
+            }),
+            active: activeChangeKey.value === String(el.key),
+        });
+    }
+    return marks.filter((m) => m.ids.length);
+});
+function postChartMarks() {
+    if (!overlaysEnabled.value || !artifactIframeLoaded.value) return;
+    const rtl = typeof document !== 'undefined' && document.documentElement.getAttribute('dir') === 'rtl';
+    postToArtifactIframe({ type: COLLAB_MARKS_MESSAGE, marks: JSON.parse(JSON.stringify(chartMarks.value)), rtl });
+}
+watch([chartMarks, artifactIframeLoaded], postChartMarks);
+
+onBeforeUnmount(() => {
+    unmounted = true;
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = null;
+    window.removeEventListener('message', handleArtifactParamsMessage);
+});
 
 // Resolve embedded files to PUBLIC, report-scoped token URLs so a non-auth
 // viewer can render generated images / PDFs in the artifact. The token is
@@ -1532,6 +1832,9 @@ onMounted(async () => {
     // Results are cached per viewer (step_user_results), so later opens
     // render immediately without re-running.
     await autoRunForViewer();
+
+    // "Changed by" on hover needs the changes; the panel reuses them.
+    loadChanges();
 
     // Paint first, refresh second: the viewer sees the dashboard immediately and
     // fresh numbers replace the cached ones when the rerun lands, rather than

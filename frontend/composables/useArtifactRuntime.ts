@@ -1,5 +1,7 @@
-/** Trusted transport: fixed operation mapping, per-document channel, no tokens in frames. */
-export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElement | null)[], artifactId?: string, readOnly?: boolean }) {
+/** Trusted transport: fixed operation mapping, per-document channel, no tokens in frames.
+ * `recordViews: false` keeps the page's resources working but counts no view
+ * (a dashboard's draft preview: editors at work are not readers). */
+export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElement | null)[], artifactId?: string, readOnly?: boolean, recordViews?: boolean }) {
   const { token } = useAuth()
   const { getErrorMessage } = useErrorMessage()
   const countedViews = new Set<string>()
@@ -72,7 +74,7 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
     }
     if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>r.ok?r.json():null).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
     channel.port1.start();source.postMessage({type:'BOW_RUNTIME_PORT',nonce:match[1]},'*',[channel.port2])
-    if (!context.readOnly) {
+    if (!context.readOnly && context.recordViews !== false) {
       let initialized = false
       const observer = new IntersectionObserver(async entries => {
         if (!initialized || !entries.some(e => e.isIntersecting)) return
