@@ -485,61 +485,95 @@ Steps 1–5 are the safety core: a review can stop there.
 The PR is done when **every** box is ticked.
 
 **Behaviour**
-- [ ] Share has a view/edit picker for people and groups; existing grants
+- [x] Share has a view/edit picker for people and groups; existing grants
       show as view.
-- [ ] Everyone in a dashboard's project can edit it.
-- [ ] Viewers, editors and the owner see exactly the buttons in the Roles
+- [x] Everyone in a dashboard's project can edit it.
+- [x] Viewers, editors and the owner see exactly the buttons in the Roles
       table, in the UI and the API.
-- [ ] An editor can open the dashboard in their own conversation, and two
+- [x] An editor can open the dashboard in their own conversation, and two
       editors can work at the same time.
-- [ ] A joining editor's charts re-run as them. They never see another
+- [x] A joining editor's charts re-run as them. They never see another
       person's rows, over shared, RLS and personal connections.
-- [ ] The new conversation shows the summary card. The agent receives the
+- [x] The new conversation shows the summary card. The agent receives the
       summary as context. The summary holds no data.
-- [ ] The dashboard has notes and a History of its conversations.
-- [ ] Publish warns when someone published since the draft started.
-- [ ] Charts show "Changed by …". The agent's chart is outlined live.
+- [x] The dashboard has notes and a History of its conversations.
+- [x] Publish warns when someone published since the draft started.
+- [x] Charts show "Changed by …". The agent's chart is outlined live.
       Other editors show as avatars.
-- [ ] Only the owner can publish a run-as-creator dashboard, make a dashboard
+- [x] Only the owner can publish a run-as-creator dashboard, make a dashboard
       public, delete it or transfer it.
-- [ ] Scheduled and on-open refreshes run as the last publisher. Failure
+- [x] Scheduled and on-open refreshes run as the last publisher. Failure
       alerts reach the owner and the last publisher.
-- [ ] Editors can open Analytics from `/d`. Draft and editor views are not
+- [x] Editors can open Analytics from `/d`. Draft and editor views are not
       counted.
-- [ ] Drafts are invisible by default. A user with one draft never sees the
+- [x] Drafts are invisible by default. A user with one draft never sees the
       word or a picker. "Start a separate draft" works, and the picker
       appears only then.
-- [ ] Editors preview any version at `/d/<name>/draft?version=N`, with their
+- [x] Editors preview any version at `/d/<name>/draft?version=N`, with their
       own data, and can publish it from there.
-- [ ] Viewers keep the live version through weeks of draft work. They switch
+- [x] Viewers keep the live version through weeks of draft work. They switch
       only when a publish succeeds.
-- [ ] Rollback to any of the last 5 releases is instant and audited.
-- [ ] Presence clears when the agent run ends, and within ~30 s after a crash
+- [x] Rollback to any of the last 5 releases is instant and audited.
+- [x] Presence clears when the agent run ends, and within ~30 s after a crash
       or a closed tab.
 
 **Safety**
-- [ ] `test_join_never_carries_rows` and `test_summary_has_no_data` pass on
+- [x] `test_join_never_carries_rows` and `test_summary_has_no_data` pass on
       sqlite and Postgres.
-- [ ] Mutation check: each rule's test fails when the rule is removed.
+- [x] Mutation check: each rule's test fails when the rule is removed.
 - [ ] Loop B on Power BI with two Entra users: no row crosses users.
 
 **Upgrade**
-- [ ] The migration changes no one's access (before/after test, every user ×
+- [x] The migration changes no one's access (before/after test, every user ×
       dashboard).
-- [ ] The downgrade restores every row exactly.
-- [ ] Old `/r` and `/d` links behave as in #1455.
+- [x] The downgrade restores every row exactly.
+- [x] Old `/r` and `/d` links behave as in #1455.
 
 **Quality**
 - [ ] Full e2e is green on sqlite and Postgres, except failures that are red
       on the base branch too.
 - [ ] Unit and Playwright tests are green.
-- [ ] New strings are in every locale catalog. Hebrew RTL is checked.
-- [ ] Before/after screenshots (en + he) for Share, the toolbar, the summary
+- [x] New strings are in every locale catalog. Hebrew RTL is checked.
+- [x] Before/after screenshots (en + he) for Share, the toolbar, the summary
       card, History, the publish warning and attribution.
 - [ ] ui-audit pass, role by role, on the dashboard, Share and settings.
 - [ ] The PR description follows `.claude/templates/PR_DESCRIPTION_STANDARD.md`.
-- [ ] `docs/design/dashboards-first-class.md` is updated.
+- [x] `docs/design/dashboards-first-class.md` is updated.
 - [ ] `CHANGELOG.md` and `VERSION` are updated (release-notes skill).
+
+### Status (2026-10-23, live walkthrough + tests)
+
+- **Tests:** dashboards e2e on sqlite 451 passed, 4 skipped; collaboration,
+  list and sharing on Postgres 38/38. Unit: new presence and edit-guard
+  tests pass. Pre-existing failures, red on `main` too:
+  `tests/unit/test_artifact_feedback_loop.py::test_page_edit_prompt_static_reference_lives_in_system_prompt`,
+  `frontend/tests/unit/kickoff-stream.test.mjs`.
+- **Mutation checks (each test fails when its rule is removed):** join
+  copies rows; edit grants ignored; publish skips the published-since
+  check; editor visits counted; rows leak into the summary; a dashboard
+  whose versions all failed is listed; the draft run omits filter-option
+  queries; the edit guard counts other conversations' versions.
+- **Live (Music Store, 5 users, screenshots in `media/pr/collab-dashboards/`):**
+  share with view/edit roles; join re-runs as the joiner; live presence and
+  the agent's chart outline; published-since dialog and Changes panel;
+  History (versions, releases, conversations, notes, owner) and rollback;
+  analytics without editors' visits; project dashboards editable by project
+  members; a separate named draft; the delete note; Hebrew RTL.
+- **RLS, live:** built-in RLS on a Music Store custom table (policy seeded in
+  the sandbox DB — authoring needs an enterprise license): the viewer, the
+  joining editor and the owner each see only their own slice; a preview of
+  someone else's version never shows their slice.
+- **Power BI, live:** service-principal connection to the bow14 tenant; a
+  dashboard on `SalesPush` re-runs as the joining editor. The RLS model is
+  unreadable to the service principal (as documented). Per-user Power BI RLS
+  (demo1/demo2 via OBO) is **not yet run**: it needs those users' passwords.
+- **Deviations from the plan:** presence reaches browsers by polling the
+  presence endpoint (not the activity stream); the agent's chart outline
+  comes from each version it saves (chart fingerprints vs. its base), since
+  a tool's input rarely names charts; no backfill migration (existing
+  dashboards get lineage and fingerprints from their next version).
+- **Open:** per-user Power BI RLS run (Loop B); ui-audit pass; PR
+  description; CHANGELOG/VERSION at release.
 
 ---
 

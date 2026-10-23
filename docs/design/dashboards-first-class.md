@@ -879,3 +879,43 @@ document; plan in six parts.
 | Daily step purge (protects shared conversations by their columns) | Stays: the columns are kept (decision 14); release copies have no widget and are never purged. |
 | Conversation fire-time guard and `set_report_schedule` (`report_*` jobs) | Only widget-era conversations can still have one; removed with the old columns. |
 | Legacy conversation endpoints (`PUT /reports/{id}` status, publish toggle, schedule, artifact sharing, notify) | Migrated conversation: act on its dashboard (`conversation_dashboard`), never writing the conversation's columns. A conversation made since: as main. |
+
+## Collaboration (collab01) — view/edit roles, several conversations
+
+Built on this design in the same PR stack. Full plan, decisions and DoD:
+`docs/feedback-loops/2026-10-23-collaborative-dashboards.md`; endpoints:
+`docs/feedback-loops/2026-10-23-collaborative-dashboards-api.md`.
+
+- **Roles.** `artifact_shares.role` is `view` or `edit`; everyone in the
+  dashboard's project edits it. `dashboard_access.capabilities()` is the one
+  answer to "may this person …" (view, edit, publish, share, settings,
+  analytics, run_identity, make_public, transfer); every route and the UI ask
+  it. Only the owner makes a dashboard public, switches run-as-creator, or
+  transfers it; editors share unless `editors_can_share` is off.
+- **Several conversations.** `artifact_conversations` lists the conversations
+  editing a dashboard. Joining (`POST /dashboards/{id}/edit`) copies the
+  newest draft version into the editor's own conversation; every copied step
+  is `pending` with no rows and re-runs as the joiner
+  (`hydrate_fork(..., retire=False)`). Rows never cross users — the owner
+  rejoining keeps theirs.
+- **Context.** The joiner's conversation starts with a summary built in code
+  from structure and history (charts, filters, sources, notes, change log) —
+  never from rows or the earlier chat. The agent gets it with the notes.
+- **Drafts.** One implicit draft (`draft_id` NULL); "Start a separate draft"
+  adds a named one (`artifact_drafts`). Versions record their lineage
+  (`base_version_id`). Editors preview any version at
+  `/d/{ref}/draft?version=N&draft=slug` with their own data (`/draft/run`
+  runs every query the version needs, filter options included). Publish
+  answers 409 `dashboard.published_since` when someone published since the
+  draft started, unless `force`.
+- **Releases.** The newest five ready releases are kept; Roll back is instant.
+  Scheduled and on-open refreshes run as the last publisher while they can
+  still edit, else the owner.
+- **Attribution and presence.** Each version stores per-chart fingerprints
+  (`elements`, ids masked): "Changed by" and the Changes panel compare
+  them. `artifact_presence` holds who is editing (browser heartbeat 15 s,
+  30 s TTL) and the charts their agent changed (from each saved version);
+  the UI polls it. The edit tool's version guard counts only its own
+  conversation's versions.
+- **Analytics.** The existing artifact analytics, open to editors; editors'
+  own visits are not counted.
