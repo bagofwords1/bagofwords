@@ -34,7 +34,7 @@
                 option-attribute="label"
                 size="xs"
                 class="mb-5"
-                :disabled="dashboardMode && !dashboardPublished"
+                :disabled="dashboardMode && (!dashboardPublished || !canShare)"
                 :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
                 @change="onVisibilityChange"
             >
@@ -45,7 +45,18 @@
                     </div>
                 </template>
                 <template #option="{ option }">
-                    <div class="flex items-start gap-3 py-1 px-1">
+                    <!-- Public without make_public (collab01): listed, off, and says why. -->
+                    <UTooltip v-if="option.disabledReason" :text="option.disabledReason" class="w-full"
+                        data-testid="share-public-locked">
+                        <div class="flex items-start gap-3 py-1 px-1 w-full">
+                            <Icon :name="option.icon" class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                            <div class="flex flex-col">
+                                <span class="text-xs">{{ option.label }}</span>
+                                <span class="text-[11px] text-gray-400">{{ option.disabledReason }}</span>
+                            </div>
+                        </div>
+                    </UTooltip>
+                    <div v-else class="flex items-start gap-3 py-1 px-1">
                         <Icon :name="option.icon" class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
                         <div class="flex flex-col">
                             <span class="text-xs">{{ option.label }}</span>
@@ -55,11 +66,12 @@
                 </template>
             </USelectMenu>
 
-            <!-- A dashboard is shared once published (phase 8): until then the
-                 access list is off and says why. -->
+            <!-- A dashboard is shared with viewers once published (phase 8):
+                 until then its visibility is off and says why. Editors can be
+                 added before (collab01), in the list below. -->
             <p v-if="dashboardMode && !dashboardPublished" class="text-[11px] text-gray-400 -mt-3 mb-5"
                 data-testid="share-requires-publish">
-                {{ $t("errors['dashboard.share_requires_publish']") }}
+                {{ $t('dashboardCollab.share.publishToShareViewers') }}
             </p>
 
             <!-- Public link on a per-user-data dashboard: the link is open to
@@ -95,7 +107,7 @@
                     class="flex-1 h-[32px] px-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 min-w-0"
                     readonly />
                 <!-- The dashboard's name in its link (phase 8) -->
-                <UTooltip v-if="dashboardMode" :text="$t('share.linkNameEdit')">
+                <UTooltip v-if="dashboardMode && canSettings" :text="$t('share.linkNameEdit')">
                     <button @click="startEditingName" data-testid="edit-link-name"
                         class="flex-shrink-0 h-[32px] w-[32px] flex items-center justify-center border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
                         <Icon name="heroicons:pencil" class="w-3.5 h-3.5" />
@@ -115,7 +127,7 @@
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
                     <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
                 </div>
-                <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving || !canSettings" class="flex-shrink-0 mt-0.5"
                     @update:model-value="onIncludeDataTabChange" />
             </div>
 
@@ -129,13 +141,13 @@
                         <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.allowChat') }}</span>
                         <span class="text-[11px] text-gray-400">{{ $t('share.allowChatDesc') }}</span>
                     </div>
-                    <UToggle v-model="chatEnabled" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                    <UToggle v-model="chatEnabled" size="sm" :disabled="isSaving || !canSettings" class="flex-shrink-0 mt-0.5"
                         data-testid="chat-enabled-toggle" @update:model-value="onChatEnabledChange" />
                 </div>
                 <div v-if="chatEnabled" class="mt-3 space-y-2">
                     <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">{{ $t('share.chatScope') }}</label>
                     <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
-                        <input type="radio" value="agents" v-model="chatScope" :disabled="isSaving || reportAgents.length === 0"
+                        <input type="radio" value="agents" v-model="chatScope" :disabled="isSaving || !canSettings || reportAgents.length === 0"
                             class="mt-0.5" @change="onChatScopeChange" />
                         <span class="flex flex-col">
                             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
@@ -144,13 +156,13 @@
                     </label>
                     <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
                         <label v-for="agent in reportAgents" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="isSaving"
+                            <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="isSaving || !canSettings"
                                 @change="onChatAgentsChange" />
                             <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
                         </label>
                     </div>
                     <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
-                        <input type="radio" value="data_only" v-model="chatScope" :disabled="isSaving"
+                        <input type="radio" value="data_only" v-model="chatScope" :disabled="isSaving || !canSettings"
                             class="mt-0.5" @change="onChatScopeChange" />
                         <span class="flex flex-col">
                             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeDataOnly') }}</span>
@@ -169,7 +181,7 @@
                             value-attribute="value"
                             option-attribute="label"
                             size="xs"
-                            :disabled="isSaving"
+                            :disabled="isSaving || !canSettings"
                             :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
                             @change="onChatModelChange"
                         />
@@ -188,14 +200,16 @@
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
                     <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
                 </div>
-                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
+                <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls || !canRunIdentity" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
 
-            <!-- Share with people (only when 'shared' selected) -->
-            <div v-if="currentVisibility === 'shared'">
-                <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.shareWith') }}</label>
-                <div class="flex items-start gap-2 mb-4">
-                    <div class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
+            <!-- Share with people (only when 'shared' selected). A dashboard's
+                 list is always there (collab01): its editors stand whatever
+                 the visibility, before the first publish too. -->
+            <div v-if="currentVisibility === 'shared' || dashboardMode" data-testid="share-people">
+                <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ dashboardMode ? $t('dashboardCollab.share.peopleWithAccess') : $t('share.shareWith') }}</label>
+                <div v-if="!dashboardMode || canShare" :class="dashboardMode ? 'flex flex-wrap items-start gap-2 mb-2' : 'flex items-start gap-2 mb-4'">
+                    <div :class="dashboardMode ? 'min-w-[11rem]' : ''" class="flex-1 flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 min-h-[32px] focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
                         <span v-for="(principal, idx) in pendingPrincipals" :key="principal.kind + ':' + (principal.id || principal.email)"
                             class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950 text-blue-700 text-xs px-2 py-0.5 rounded-full whitespace-nowrap">
                             <Icon v-if="principal.kind === 'group'" name="heroicons:user-group" class="w-3 h-3" />
@@ -232,38 +246,107 @@
                             </div>
                         </div>
                     </div>
-                    <button @click="invitePrincipals" :disabled="pendingPrincipals.length === 0 || isSaving"
-                        class="flex-shrink-0 px-3 h-[32px] text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
-                        {{ $t('share.share') }}
-                    </button>
+                    <div :class="dashboardMode ? 'flex items-start gap-2 ms-auto' : 'contents'">
+                        <!-- The role the picks get (collab01): editors before the
+                             first publish, viewers once it is out. -->
+                        <RoleSelect v-if="dashboardMode" v-model="newRole" :view-disabled-reason="viewDisabledReason"
+                            :disabled="isSaving" data-testid="share-new-role" />
+                        <button @click="invitePrincipals" :disabled="pendingPrincipals.length === 0 || isSaving"
+                            class="flex-shrink-0 px-3 h-[32px] text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                            {{ $t('share.share') }}
+                        </button>
+                    </div>
+                </div>
+                <!-- Why "Can view" is not offered right now (collab01). -->
+                <p v-if="dashboardMode && canShare && viewDisabledReason" class="text-[11px] text-gray-400 mb-4"
+                    data-testid="share-viewers-hint">
+                    {{ viewDisabledReason }}
+                </p>
+                <!-- Someone who may see but not change the list (collab01). -->
+                <p v-if="dashboardMode && !canShare" class="text-[11px] text-gray-400 mb-3 flex items-start gap-1.5"
+                    data-testid="share-read-only">
+                    <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                    <span>{{ editorsCanShare ? $t('dashboardCollab.share.readOnly') : $t('dashboardCollab.share.ownerTurnedOffSharing') }}</span>
+                </p>
+
+                <!-- The owner, at the top, never removable (collab01). -->
+                <div v-if="dashboardMode && ownerId" class="flex items-center justify-between gap-2 py-2 px-2 rounded-lg"
+                    data-testid="share-owner-row">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-7 h-7 flex-shrink-0 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400">
+                            {{ (ownerMember?.name || ownerMember?.email || '?').charAt(0).toUpperCase() }}
+                        </div>
+                        <div class="flex flex-col min-w-0">
+                            <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ ownerLabel }}</span>
+                            <span v-if="ownerMember?.name && ownerMember?.email" class="text-xs text-gray-400 truncate">{{ ownerMember.email }}</span>
+                        </div>
+                    </div>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0 pe-1">{{ $t('dashboardCollab.share.owner') }}</span>
+                </div>
+
+                <!-- Everyone who can open the dashboard's project edits it. -->
+                <div v-if="dashboardMode && projectId" class="flex items-center gap-2.5 py-2 px-2" data-testid="share-project-line">
+                    <div class="w-7 h-7 flex-shrink-0 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400">
+                        <Icon name="heroicons:folder" class="w-4 h-4" />
+                    </div>
+                    <span class="text-xs text-gray-600 dark:text-gray-400">
+                        {{ projectName ? $t('dashboardCollab.share.projectCanEdit', { name: projectName }) : $t('dashboardCollab.share.projectCanEditUnnamed') }}
+                    </span>
                 </div>
 
                 <!-- People and groups with access -->
                 <div v-if="sharedEntries.length > 0" class="space-y-0.5">
                     <div v-for="entry in sharedEntries" :key="entry.id"
-                        class="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 group">
-                        <div class="flex items-center gap-2.5">
-                            <div class="w-7 h-7 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400">
+                        class="flex items-center justify-between gap-2 py-2 px-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 group"
+                        :data-testid="dashboardMode ? `share-entry-${entry.role}` : undefined">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <div class="w-7 h-7 flex-shrink-0 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center text-xs font-medium text-gray-600 dark:text-gray-400">
                                 <Icon v-if="entry.principal_type === 'group'" name="heroicons:user-group" class="w-4 h-4" />
                                 <template v-else>{{ (entry.user_name || entry.user_email || '?').charAt(0).toUpperCase() }}</template>
                             </div>
-                            <div class="flex flex-col">
-                                <span class="text-sm text-gray-700 dark:text-gray-300">{{ entry.principal_type === 'group' ? entry.group_name : (entry.user_name || entry.user_email) }}</span>
-                                <span v-if="entry.principal_type === 'group'" class="text-xs text-gray-400">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
-                                <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-gray-400">{{ entry.user_email }}</span>
+                            <div class="flex flex-col min-w-0">
+                                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ entry.principal_type === 'group' ? (entry.group_name || (dashboardMode ? $t('dashboardCollab.share.unknownGroup') : '')) : (entry.user_name || entry.user_email || (dashboardMode ? $t('dashboardCollab.share.unknownPerson') : '')) }}</span>
+                                <span v-if="entry.principal_type === 'group'" class="text-xs text-gray-400 truncate">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
+                                <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-gray-400 truncate">{{ entry.user_email }}</span>
                             </div>
                         </div>
-                        <button @click="removeSharedEntry(entry)"
+                        <div v-if="dashboardMode" class="flex items-center gap-1 flex-shrink-0">
+                            <RoleSelect v-if="canShare" :model-value="entry.role" :view-disabled-reason="viewDisabledReason"
+                                :disabled="isSaving" @update:model-value="(role) => setEntryRole(entry, role)" />
+                            <span v-else class="text-xs text-gray-500 dark:text-gray-400 pe-1">
+                                {{ entry.role === 'edit' ? $t('dashboardCollab.share.canEdit') : $t('dashboardCollab.share.canView') }}
+                            </span>
+                            <UTooltip v-if="canShare" :text="$t('dashboardCollab.share.removeAccess')">
+                                <button @click="removeSharedEntry(entry)" :disabled="isSaving" :aria-label="$t('dashboardCollab.share.removeAccess')"
+                                    data-testid="share-remove"
+                                    class="sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1 disabled:opacity-40">
+                                    <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
+                                </button>
+                            </UTooltip>
+                        </div>
+                        <button v-else @click="removeSharedEntry(entry)"
                             class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1">
                             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
                         </button>
                     </div>
                 </div>
+
+                <!-- The owner's switch (collab01): whether editors may change
+                     who has access. -->
+                <div v-if="showEditorsCanShare" class="flex items-start justify-between gap-3 mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                    data-testid="editors-can-share">
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('dashboardCollab.share.editorsCanShare') }}</span>
+                        <span class="text-[11px] text-gray-400">{{ $t('dashboardCollab.share.editorsCanShareDesc') }}</span>
+                    </div>
+                    <UToggle v-model="editorsCanShare" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                        data-testid="editors-can-share-toggle" @update:model-value="onEditorsCanShareChange" />
+                </div>
             </div>
 
             <!-- Notify recipients (optional email) -->
             <NotifyRecipientPicker
-                v-if="smtpEnabled && isShared"
+                v-if="smtpEnabled && isShared && (!dashboardMode || canShare)"
                 :report-id="report.id"
                 :notification-type="shareType === 'artifact' ? 'share_dashboard' : 'share_conversation'"
                 :share-url="shareUrl"
@@ -274,6 +357,7 @@
 
 <script lang="ts" setup>
 import { ref, computed, watch, nextTick } from 'vue'
+import RoleSelect from '~/components/dashboard/share/RoleSelect.vue'
 
 const props = withDefaults(defineProps<{
     report: any
@@ -296,6 +380,26 @@ const dashboardPublished = ref(true)
 const dashboardSlug = ref<string | null>(null)
 // The visibility as last saved (the conversation's lives on the report).
 const savedDashboardVisibility = ref('none')
+// Roles (collab01): what the reader may do here (null: not known, the
+// server still decides), the editors, the owner, the dashboard's project.
+const capabilities = ref<string[] | null>(null)
+const hasCap = (cap: string, unknown = true) => (capabilities.value === null ? unknown : capabilities.value.includes(cap))
+const canShare = computed(() => !dashboardMode.value || hasCap('share'))
+const canMakePublic = computed(() => !dashboardMode.value || hasCap('make_public'))
+const canSettings = computed(() => !dashboardMode.value || hasCap('settings'))
+// The owner's: credentials and "Editors can share". While unknown, the
+// credentials switch stays as it was and the editors' switch stays hidden.
+const canRunIdentity = computed(() => !dashboardMode.value || hasCap('run_identity'))
+const showEditorsCanShare = computed(() => dashboardMode.value && hasCap('run_identity', false))
+const editorGrants = ref<{ user_ids: string[]; group_ids: string[] }>({ user_ids: [], group_ids: [] })
+const editorsCanShare = ref(true)
+const ownerId = ref<string | null>(null)
+const projectId = ref<string | null>(null)
+const projectName = ref<string | null>(null)
+// The role new picks get: "Can edit" until viewers can be added.
+const newRole = ref<'view' | 'edit'>('view')
+const { data: authUser } = useAuth()
+const currentUserId = computed(() => (authUser.value as any)?.id || null)
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -372,12 +476,31 @@ const hasRls = ref(false)
 const hasUserScoped = ref(false)
 const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
+// Public is the owner's (collab01): listed but off for an editor, unless
+// the dashboard already is public (they may leave it as it is).
+const publicLocked = computed(() => dashboardMode.value && !canMakePublic.value && savedDashboardVisibility.value !== 'public')
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
     { value: 'shared', label: t('share.visibilityShared'), description: t('share.visibilitySharedDesc'), icon: 'heroicons:user-group' },
     { value: 'internal', label: t('share.visibilityInternal'), description: t('share.visibilityInternalDesc'), icon: 'heroicons:building-office' },
-    { value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDesc'), icon: 'heroicons:globe-alt' },
+    {
+        value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDesc'), icon: 'heroicons:globe-alt',
+        disabled: publicLocked.value,
+        disabledReason: publicLocked.value ? t('dashboardCollab.share.publicOwnerOnly') : '',
+    },
 ])
+
+// Viewers come from a list only while the dashboard is published and its
+// visibility is private or "Specific people" (a pick then switches it to
+// "Specific people"); otherwise "Can view" is off, with the reason.
+const viewDisabledReason = computed<string | null>(() => {
+    if (!dashboardMode.value) return null
+    if (!dashboardPublished.value) return t('dashboardCollab.share.viewersAfterPublish')
+    if (savedDashboardVisibility.value === 'internal') return t('dashboardCollab.share.viewersOrgWide')
+    if (savedDashboardVisibility.value === 'public') return t('dashboardCollab.share.viewersPublic')
+    return null
+})
+watch(viewDisabledReason, (reason) => { if (reason) newRole.value = 'edit' }, { immediate: true })
 
 const visibilityField = computed(() =>
     props.shareType === 'artifact' ? 'artifact_visibility' : 'conversation_visibility'
@@ -386,9 +509,11 @@ const visibilityField = computed(() =>
 const isShared = computed(() => currentVisibility.value !== 'none')
 
 const shareDescription = computed(() =>
-    props.shareType === 'artifact'
-        ? t('share.shareDashboardDesc')
-        : t('share.shareConversationDesc')
+    dashboardMode.value
+        ? t('dashboardCollab.share.description')
+        : props.shareType === 'artifact'
+            ? t('share.shareDashboardDesc')
+            : t('share.shareConversationDesc')
 )
 
 const selectedOption = computed(() =>
@@ -443,6 +568,12 @@ const fetchGroups = async () => {
     } catch { /* silent */ }
 }
 
+const ownerMember = computed(() => members.value.find(m => m.id === ownerId.value) || null)
+const ownerLabel = computed(() => {
+    const name = ownerMember.value?.name || ownerMember.value?.email || t('dashboardCollab.share.unknownPerson')
+    return ownerId.value && ownerId.value === currentUserId.value ? t('dashboardCollab.share.ownerYou', { name }) : name
+})
+
 const filteredOptions = computed(() => {
     const q = inputValue.value.toLowerCase().trim()
     if (!q) return []
@@ -460,6 +591,7 @@ const filteredOptions = computed(() => {
     const userMatches = members.value.filter(
         m => !existingUserIds.has(m.id) &&
             m.id !== props.report?.user?.id &&
+            m.id !== ownerId.value &&
             (m.email.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
     ).map(m => ({ kind: 'user' as const, id: m.id, name: m.name, email: m.email, memberCount: 0 }))
     return [...groupMatches, ...userMatches].slice(0, 6)
@@ -527,10 +659,8 @@ const fetchDashboard = async () => {
     ])
     const sh = (sharing.data.value || {}) as any
     const st = (settings.data.value || {}) as any
-    dashboardPublished.value = sh.published !== false
+    applyDashboardSharing(sh)
     dashboardSlug.value = st.slug || null
-    savedDashboardVisibility.value = sh.visibility || 'none'
-    dashboardGrants.value = { user_ids: sh.user_ids || [], group_ids: sh.group_ids || [] }
     return {
         artifact_visibility: sh.visibility || 'none',
         shared_run_identity: st.shared_run_identity,
@@ -541,6 +671,44 @@ const fetchDashboard = async () => {
     }
 }
 const dashboardGrants = ref<{ user_ids: string[]; group_ids: string[] }>({ user_ids: [], group_ids: [] })
+// A sharing answer (GET or PUT) into the modal's state.
+function applyDashboardSharing(sh: any) {
+    if (!sh) return
+    dashboardPublished.value = sh.published !== false
+    savedDashboardVisibility.value = sh.visibility || 'none'
+    dashboardGrants.value = { user_ids: sh.user_ids || [], group_ids: sh.group_ids || [] }
+    editorGrants.value = { user_ids: sh.editor_user_ids || [], group_ids: sh.editor_group_ids || [] }
+    editorsCanShare.value = sh.editors_can_share !== false
+    ownerId.value = sh.owner_id || null
+    if (projectId.value !== (sh.project_id || null)) {
+        projectId.value = sh.project_id || null
+        projectName.value = null
+    }
+}
+// What the reader may do (collab01): the draft's meta answers editors; a
+// dashboard with no draft for them answers on its published page.
+const fetchCapabilities = async () => {
+    const id = props.dashboardId
+    try {
+        let res = await useMyFetch(`/d/${id}/draft`)
+        if (res.error.value || !res.data.value) res = await useMyFetch(`/d/${id}`)
+        if (id !== props.dashboardId) return
+        const caps = (res.data.value as any)?.capabilities
+        capabilities.value = !res.error.value && Array.isArray(caps) ? caps : null
+    } catch {
+        capabilities.value = null
+    }
+}
+// "Everyone in project <name> can edit": the name when the reader can open
+// the project; else the line says "this dashboard's project".
+const fetchProjectName = async () => {
+    const pid = projectId.value
+    if (!pid || projectName.value) return
+    try {
+        const res = await useMyFetch(`/projects/${pid}`)
+        if (pid === projectId.value && !res.error.value) projectName.value = (res.data.value as any)?.name || null
+    } catch { /* the unnamed line */ }
+}
 // Writes onto the report object only for the conversation's own settings.
 const setOnReport = (key: string, value: any) => {
     if (props.report && !dashboardMode.value) props.report[key] = value
@@ -608,16 +776,23 @@ const fetchVisibility = async () => {
 
 const fetchShares = async () => {
     if (dashboardMode.value) {
-        // The dashboard's grants, named from the organization's lists.
+        // The dashboard's grants, named from the organization's lists:
+        // editors first, then viewers (someone in both is an editor).
+        const user = (id: string, role: 'view' | 'edit') => {
+            const m = members.value.find(x => x.id === id)
+            return { id: `user:${id}`, role, principal_type: 'user', user_id: id, user_name: m?.name || '', user_email: m?.email || '' }
+        }
+        const group = (id: string, role: 'view' | 'edit') => {
+            const g = groups.value.find(x => x.id === id)
+            return { id: `group:${id}`, role, principal_type: 'group', group_id: id, group_name: g?.name || '', member_count: g?.memberCount || 0 }
+        }
+        const editorUsers = new Set(editorGrants.value.user_ids)
+        const editorGroups = new Set(editorGrants.value.group_ids)
         sharedEntries.value = [
-            ...dashboardGrants.value.user_ids.map((id) => {
-                const m = members.value.find(x => x.id === id)
-                return { id: `user:${id}`, principal_type: 'user', user_id: id, user_name: m?.name || '', user_email: m?.email || '' }
-            }),
-            ...dashboardGrants.value.group_ids.map((id) => {
-                const g = groups.value.find(x => x.id === id)
-                return { id: `group:${id}`, principal_type: 'group', group_id: id, group_name: g?.name || '', member_count: g?.memberCount || 0 }
-            }),
+            ...editorGrants.value.user_ids.map(id => user(id, 'edit')),
+            ...editorGrants.value.group_ids.map(id => group(id, 'edit')),
+            ...dashboardGrants.value.user_ids.filter(id => !editorUsers.has(id)).map(id => user(id, 'view')),
+            ...dashboardGrants.value.group_ids.filter(id => !editorGroups.has(id)).map(id => group(id, 'view')),
         ]
         return
     }
@@ -629,35 +804,106 @@ const fetchShares = async () => {
     } catch { /* silent */ }
 }
 
+// Viewers only: a dashboard's editors (role 'edit') are a list of their own.
 const sharedUserIds = () => sharedEntries.value
-    .filter(e => e.principal_type !== 'group')
+    .filter(e => e.principal_type !== 'group' && e.role !== 'edit')
     .map(e => e.user_id)
 const sharedGroupIds = () => sharedEntries.value
-    .filter(e => e.principal_type === 'group')
+    .filter(e => e.principal_type === 'group' && e.role !== 'edit')
     .map(e => e.group_id)
 
-const saveDashboardSharing = async (visibility: string, userIds?: string[], groupIds?: string[]) => {
+type DashboardSharingExtra = { editor_user_ids?: string[]; editor_group_ids?: string[]; editors_can_share?: boolean }
+// One PUT of the dashboard's sharing; a list left out stays as it is.
+const saveDashboardSharing = async (visibility: string, userIds?: string[], groupIds?: string[], extra: DashboardSharingExtra = {}) => {
     isSaving.value = true
+    const before = savedDashboardVisibility.value
     try {
-        const body: any = { visibility }
+        const body: any = { visibility, ...extra }
         if (userIds) body.user_ids = userIds
         if (groupIds) body.group_ids = groupIds
         const res = await useMyFetch(`/dashboards/${props.dashboardId}/sharing`, { method: 'PUT', body })
         if (res.error.value) throw res.error.value
         const data = res.data.value as any
-        savedDashboardVisibility.value = data?.visibility || visibility
-        dashboardGrants.value = { user_ids: data?.user_ids || [], group_ids: data?.group_ids || [] }
+        if (data) applyDashboardSharing({ ...data, visibility: data.visibility || visibility })
+        currentVisibility.value = savedDashboardVisibility.value
         await fetchShares()
         toast.add({
-            title: visibility === 'none' ? t('share.sharingDisabled') : t('share.sharingUpdated'),
+            title: visibility === 'none' && before !== 'none' ? t('share.sharingDisabled') : t('share.sharingUpdated'),
             color: 'green',
         })
+        return true
     } catch (e) {
         currentVisibility.value = savedDashboardVisibility.value
         toast.add({ title: t('share.sharingFailed'), description: getErrorMessage(e), color: 'red' })
+        return false
     } finally {
         isSaving.value = false
     }
+}
+
+// Roles on a dashboard (collab01). Someone in both lists is an editor, so a
+// change of role moves the id from one list to the other in one PUT.
+const principalId = (entry: any): string => (entry.principal_type === 'group' ? entry.group_id : entry.user_id)
+const without = (ids: string[], id: string) => ids.filter(x => x !== id)
+
+const inviteToDashboard = async () => {
+    const users = pendingPrincipals.value.filter(p => p.kind === 'user').map(p => p.id).filter(Boolean) as string[]
+    const groupIds = pendingPrincipals.value.filter(p => p.kind === 'group').map(p => p.id).filter(Boolean) as string[]
+    let ok: boolean
+    if (newRole.value === 'edit' || viewDisabledReason.value) {
+        // Editors stand whatever the visibility, before the first publish too.
+        ok = await saveDashboardSharing(savedDashboardVisibility.value, undefined, undefined, {
+            editor_user_ids: [...editorGrants.value.user_ids, ...users],
+            editor_group_ids: [...editorGrants.value.group_ids, ...groupIds],
+        })
+    } else {
+        // A viewer pick on a private dashboard makes it "Specific people".
+        currentVisibility.value = 'shared'
+        ok = await saveDashboardSharing('shared', [...sharedUserIds(), ...users], [...sharedGroupIds(), ...groupIds])
+    }
+    if (ok) pendingPrincipals.value = []
+}
+
+const setEntryRole = async (entry: any, role: 'view' | 'edit') => {
+    if (role === entry.role) return
+    const id = principalId(entry)
+    const isGroup = entry.principal_type === 'group'
+    const editors = without(isGroup ? editorGrants.value.group_ids : editorGrants.value.user_ids, id)
+    const viewers = without(isGroup ? sharedGroupIds() : sharedUserIds(), id)
+    if (role === 'edit') editors.push(id)
+    else viewers.push(id)
+    const extra: DashboardSharingExtra = isGroup ? { editor_group_ids: editors } : { editor_user_ids: editors }
+    if (role === 'edit') {
+        await saveDashboardSharing(savedDashboardVisibility.value, undefined, undefined, extra)
+        return
+    }
+    // A viewer counts only while the visibility is "Specific people".
+    currentVisibility.value = 'shared'
+    await saveDashboardSharing('shared', isGroup ? undefined : viewers, isGroup ? viewers : undefined, extra)
+}
+
+const removeFromDashboard = async (entry: any) => {
+    const id = principalId(entry)
+    const isGroup = entry.principal_type === 'group'
+    if (entry.role === 'edit') {
+        await saveDashboardSharing(savedDashboardVisibility.value, undefined, undefined,
+            isGroup ? { editor_group_ids: without(editorGrants.value.group_ids, id) } : { editor_user_ids: without(editorGrants.value.user_ids, id) })
+        return
+    }
+    const users = isGroup ? sharedUserIds() : without(sharedUserIds(), id)
+    const groupIds = isGroup ? without(sharedGroupIds(), id) : sharedGroupIds()
+    if (users.length === 0 && groupIds.length === 0 && savedDashboardVisibility.value === 'shared') {
+        // The last viewer: private again, as for a conversation. Editors stay.
+        currentVisibility.value = 'none'
+        await saveDashboardSharing('none')
+    } else {
+        await saveDashboardSharing('shared', users, groupIds)
+    }
+}
+
+const onEditorsCanShareChange = async (value: boolean) => {
+    const ok = await saveDashboardSharing(savedDashboardVisibility.value, undefined, undefined, { editors_can_share: value })
+    if (!ok) editorsCanShare.value = !value
 }
 
 // One PUT per change of a dashboard setting (phase 8).
@@ -852,6 +1098,7 @@ const onVisibilityChange = async (value: string) => {
 
 const invitePrincipals = async () => {
     if (pendingPrincipals.value.length === 0) return
+    if (dashboardMode.value) return inviteToDashboard()
 
     if (currentVisibility.value === 'none') {
         currentVisibility.value = 'shared'
@@ -872,6 +1119,7 @@ const invitePrincipals = async () => {
 }
 
 const removeSharedEntry = async (entry: any) => {
+    if (dashboardMode.value) return removeFromDashboard(entry)
     const remainingUsers = sharedEntries.value
         .filter(e => e.id !== entry.id && e.principal_type !== 'group')
         .map(e => e.user_id)
@@ -930,11 +1178,14 @@ const openModal = async () => {
     editingName.value = false
     if (dashboardMode.value) {
         currentVisibility.value = savedDashboardVisibility.value
+        pendingPrincipals.value = []
         // The grants are named from these lists, so they come first.
-        await Promise.all([fetchMembers(), fetchGroups()])
+        await Promise.all([fetchMembers(), fetchGroups(), fetchCapabilities()])
         await fetchVisibility()
+        currentVisibility.value = savedDashboardVisibility.value
         savedChatModelId.value = chatModelId.value === INHERIT_MODEL ? '' : chatModelId.value
-        await fetchShares()
+        newRole.value = viewDisabledReason.value ? 'edit' : 'view'
+        await Promise.all([fetchShares(), fetchProjectName()])
         return
     }
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
@@ -951,10 +1202,11 @@ const savedChatModelId = ref('')
 // manage it (the modal then shows what the server refuses).
 watch(() => props.dashboardId, async (id) => {
     if (!id || props.shareType !== 'artifact') return
+    // Another dashboard: its own capabilities, read again on open.
+    capabilities.value = null
     const { data, error } = await useMyFetch(`/dashboards/${id}/sharing`)
     if (id !== props.dashboardId || error.value || !data.value) return
-    savedDashboardVisibility.value = (data.value as any).visibility || 'none'
-    dashboardPublished.value = (data.value as any).published !== false
+    applyDashboardSharing(data.value)
     if (!modalOpen.value) currentVisibility.value = savedDashboardVisibility.value
 }, { immediate: true })
 
