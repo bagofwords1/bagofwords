@@ -40,6 +40,19 @@
                     <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />
                     <span>{{ $t('monitoring.diagnosis.toRun') }}</span>
                 </template>
+                <!-- Clears every filter at once; the time range is its own control and stays. -->
+                <button
+                    v-if="modelValue"
+                    type="button"
+                    class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700"
+                    :title="$t('monitoring.diagnosis.clearQuery')"
+                    :aria-label="$t('monitoring.diagnosis.clearQuery')"
+                    data-testid="query-clear"
+                    @mousedown.prevent
+                    @click="clear"
+                >
+                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                </button>
             </div>
         </div>
 
@@ -140,6 +153,13 @@ const segments = computed(() => {
 
 const syncScroll = () => {
     if (mirror.value && input.value) mirror.value.scrollLeft = input.value.scrollLeft
+}
+
+const clear = () => {
+    attempted.value = false
+    open.value = false
+    emit('update:modelValue', '')
+    emit('run')
 }
 
 const onInput = (e: Event) => {

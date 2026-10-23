@@ -4910,6 +4910,7 @@
       "queryAria": "Query",
       "toFocus": "to focus",
       "toRun": "to run",
+      "clearQuery": "Clear all filters",
       "didYouMean": "Did you mean",
       "suggestFields": "Fields",
       "suggestValues": "Values for {field}",

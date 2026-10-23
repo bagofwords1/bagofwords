@@ -4542,6 +4542,7 @@
       "queryAria": "Abfrage",
       "toFocus": "zum Fokussieren",
       "toRun": "zum Ausführen",
+      "clearQuery": "Alle Filter löschen",
       "didYouMean": "Meinten Sie",
       "suggestFields": "Felder",
       "suggestValues": "Werte für {field}",
