@@ -4542,6 +4542,7 @@
       "queryAria": "Requête",
       "toFocus": "pour cibler",
       "toRun": "pour exécuter",
+      "clearQuery": "Effacer tous les filtres",
       "didYouMean": "Vouliez-vous dire",
       "suggestFields": "Champs",
       "suggestValues": "Valeurs pour {field}",

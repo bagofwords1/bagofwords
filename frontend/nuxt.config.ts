@@ -1,4 +1,26 @@
 import { defineNuxtConfig } from "nuxt/config"
+import { createHash } from "node:crypto"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
+
+// Content hash per vendored /libs file, baked into the bundle as
+// __BOW_LIB_HASHES__ (utils/artifactIframe.ts libUrl). The libs are
+// downloaded before `nuxt generate` (Dockerfile, boot_stack.sh), so a hashed
+// URL changes exactly when the file does — which is what lets the backend
+// serve hashed /libs URLs with an immutable Cache-Control (app/core/spa.py).
+function artifactLibHashes(): Record<string, string> {
+  const root = typeof __dirname !== "undefined" ? __dirname : process.cwd()
+  const dir = join(root, "public", "libs")
+  const out: Record<string, string> = {}
+  if (!existsSync(dir)) return out
+  for (const name of readdirSync(dir)) {
+    if (!/\.(js|css)$/.test(name)) continue
+    const file = join(dir, name)
+    if (!statSync(file).isFile()) continue
+    out[name] = createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 16)
+  }
+  return out
+}
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -213,6 +235,9 @@ export default defineNuxtConfig({
 
   // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
   vite: {
+    define: {
+      __BOW_LIB_HASHES__: JSON.stringify(artifactLibHashes()),
+    },
     server: {
       // Vite rejects requests whose Host header is not listed here (dev only).
       // Set BOW_ALLOWED_HOSTS (comma-separated, leading dot = any subdomain) to

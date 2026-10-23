@@ -74,7 +74,20 @@ async def new_artifact(
     await db.flush()
     # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
+    _schedule_precompile(version)
     return version
+
+
+def _schedule_precompile(version: ArtifactVersion) -> None:
+    """Compile a new page version's JSX in the background so its first view
+    can skip in-browser Babel (see app.services.artifact_precompile)."""
+    try:
+        content = version.content if isinstance(version.content, dict) else {}
+        if isinstance(content.get("code"), str):
+            from app.services.artifact_precompile import schedule_compile
+            schedule_compile(content["code"])
+    except Exception:
+        pass
 
 
 async def next_version_number(db: AsyncSession, source: ArtifactVersion) -> int:
@@ -168,6 +181,7 @@ async def new_version(
     await db.flush()
     # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
+    _schedule_precompile(version)
     return version
 
 
@@ -378,6 +392,8 @@ class ArtifactService:
         db.add(artifact)
         await db.commit()
         await db.refresh(artifact)
+        if patch.content is not None:
+            _schedule_precompile(artifact)
         return artifact
 
     async def delete(self, db: AsyncSession, artifact_id: str) -> bool:

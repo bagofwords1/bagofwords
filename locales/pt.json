@@ -4542,6 +4542,7 @@
       "queryAria": "Consulta",
       "toFocus": "para focar",
       "toRun": "para executar",
+      "clearQuery": "Limpar todos os filtros",
       "didYouMean": "Quis dizer",
       "suggestFields": "Campos",
       "suggestValues": "Valores para {field}",
