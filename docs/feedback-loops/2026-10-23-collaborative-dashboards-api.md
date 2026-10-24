@@ -121,6 +121,17 @@ a version with `restore_release_id` gets **Restore**:
 other non-live version gets **Publish this version** (`POST .../publish
 {"version_id", "force": true}`; its queries run again).
 
+**Bring into a conversation**: `POST /artifacts/{id}/bring {"report_id", "version_id"?}`
+(needs `edit`; the conversation must be the caller's) → `{report_id, version_id, version, rerunning, unchanged}`.
+A copy of `version_id` (any conversation's), else of the live version, else the newest: code and
+queries, never rows (they run again as the caller); the build spec comes along; the conversation
+becomes one of the dashboard's (several per person are allowed). Asking for live while the
+conversation already builds on it copies nothing (`unchanged`).
+
+**What to open**: `GET /artifacts/{id}/open-state?report_id=` → `{live, newest_here, behind_live,
+unpublished_here}`. Behind live with no unpublished work here: the frame brings live in (once per
+publish). Behind with work here nobody published: it asks first.
+
 **Name a version**: `PUT /dashboards/{id}/versions/{version_id}/name {"name"}`
 (needs `edit`; `""` removes it) → `{id, number, name}`. The publish status
 carries `published.source_version_number` / `source_version_name` and

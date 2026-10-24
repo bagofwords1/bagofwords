@@ -1,8 +1,8 @@
 <template>
     <!-- The Dashboard tab of a conversation with no dashboard yet: make a new
-         one here, or edit one you own or may edit. Editing opens your own
-         conversation for that dashboard (one per person per dashboard), not
-         a copy in this one. -->
+         one here, or bring in one you own or may edit -- a copy of its live
+         version (else its newest) whose charts run again as you; this
+         conversation then edits that dashboard. -->
     <div class="w-full max-w-2xl px-4 sm:px-6" data-testid="dashboard-start">
         <div class="text-center mb-6">
             <div class="w-10 h-10 mx-auto mb-3 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
@@ -73,8 +73,8 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 
-defineProps<{ chartCount: number }>()
-const emit = defineEmits<{ (e: 'generate'): void }>()
+const props = defineProps<{ chartCount: number; reportId: string }>()
+const emit = defineEmits<{ (e: 'generate'): void; (e: 'brought', versionId: string | null): void }>()
 
 const { t } = useI18n()
 const toast = useToast()
@@ -110,20 +110,19 @@ const shown = computed(() => {
     return q ? items.value.filter(d => (d.title || '').toLowerCase().includes(q)) : items.value
 })
 
-// Your conversation for it if you have one; else Edit makes one (as the
-// Dashboards page's pencil does).
+// Into this conversation: a copy of its live version (else its newest).
 async function open(d: any) {
     if (opening.value) return
-    if (d.report_id) return navigateTo(`/reports/${d.report_id}`)
     opening.value = d.id
     try {
-        const { data, error } = await useMyFetch(`/dashboards/${encodeURIComponent(d.id)}/edit`, { method: 'POST' })
-        const reportId = (data.value as any)?.report_id
-        if (error.value || !reportId) {
-            toast.add({ title: t('dashboardCollab.list.editFailed'), description: getErrorMessage(error.value), color: 'red' })
+        const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(d.id)}/bring`, {
+            method: 'POST', body: { report_id: props.reportId },
+        })
+        if (error.value) {
+            toast.add({ title: t('dashboardCollab.versions.bringFailed'), description: getErrorMessage(error.value), color: 'red' })
             return
         }
-        await navigateTo(`/reports/${reportId}`)
+        emit('brought', (data.value as any)?.version_id || null)
     } finally {
         opening.value = null
     }

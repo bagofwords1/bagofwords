@@ -477,6 +477,8 @@ def summary_text(summary: dict | None, notes: str | None = None) -> str:
                  f"removed {', '.join(h['removed'])}" if h.get("removed") else ""]
         parts = [p for p in parts if p]
         lines.append(f"v{h['version']} by {h.get('by') or 'someone'}: " + ("; ".join(parts) or "first version"))
+    if summary.get("history"):
+        lines.append("(This change log answers questions about what changed in the dashboard and who changed it.)")
     return "\n".join(lines)
 
 
@@ -526,12 +528,18 @@ def _rerun_overrides(old_step, old_query) -> dict:
 
 
 async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDraft | None = None,
-               source_version: ArtifactVersion | None = None, commit: bool = True) -> dict:
+               source_version: ArtifactVersion | None = None, commit: bool = True,
+               into=None, prefer_live: bool = False) -> dict:
     """`user`'s own conversation editing this dashboard (on `draft`): theirs
     if they have one, else a new copy of the draft's newest version -- or,
     with no draft left, of the live release. Returns {report_id, created,
-    rerunning, pending_code}; with pending_code the caller spawns
-    fork_service.hydrate_fork(..., retire=False)."""
+    rerunning, pending_code, version_id, version}; with pending_code the
+    caller spawns fork_service.hydrate_fork(..., retire=False).
+
+    `into` (a conversation of `user`): bring the copy there instead -- the
+    dashboard in a conversation that already exists, as a new version based
+    on `source_version` (or, with `prefer_live` or no draft, the live
+    release). A person may edit one dashboard in several conversations."""
     from app.models.report import Report
     from app.models.report_data_source_association import report_data_source_association as assoc
     from app.services.artifact_service import new_version
@@ -545,10 +553,15 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     )
 
     draft_id = str(draft.id) if draft is not None else None
-    if source_version is None:
-        existing = await my_conversation(db, artifact, user, draft_id=draft_id)
-        if existing is not None:
-            return {"report_id": existing, "created": False, "rerunning": False, "pending_code": {}}
+    if into is not None and str(into.user_id) != str(user.id):
+        raise AppError.forbidden()
+    live_first = into is not None and prefer_live and source_version is None \
+        and await published_release(db, artifact) is not None
+    if source_version is None and not live_first:
+        if into is None:
+            existing = await my_conversation(db, artifact, user, draft_id=draft_id)
+            if existing is not None:
+                return {"report_id": existing, "created": False, "rerunning": False, "pending_code": {}}
         source_version = await head_version(db, artifact, draft_id, light=False)
         if source_version is None and draft_id is not None:
             source_version = await head_version(db, artifact, None, light=False)
@@ -578,7 +591,7 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     if source_version is not None:
         report, maps = await version_to_conversation(
             db, artifact, source_version, user=user, title=title, project_id=artifact.project_id,
-            step_overrides=None if own_rows else _rerun_overrides, link_files=own_rows)
+            step_overrides=None if own_rows else _rerun_overrides, link_files=own_rows, into=into)
         stem = f"edit-{report.id}"
         content, deck, previews = _content_for(_VersionAsRelease(source_version), maps, stem, baked=own_rows)
         base_version_id = str(source_version.id)
@@ -586,7 +599,7 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     else:
         report, maps = await release_to_conversation(
             db, artifact, release, user=user, title=title, project_id=artifact.project_id, slug_prefix="edit",
-            step_overrides=None if own_rows else _rerun_overrides, link_files=own_rows)
+            step_overrides=None if own_rows else _rerun_overrides, link_files=own_rows, into=into)
         stem = f"edit-{report.id}"
         content, deck, previews = _content_for(release, maps, stem, baked=own_rows)
         base_version_id = str(release.source_version_id) if release.source_version_id else None
@@ -597,8 +610,13 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     )).scalars().first()
     thumbnail = None
     try:
+        # The build spec (the request and every edit's note) comes along:
+        # it is the design brief, never rows.
+        spec_source = source_version if source_version is not None else (
+            await db.get(ArtifactVersion, str(release.source_version_id)) if release.source_version_id else None)
         version = await new_version(db, latest, content=content, user_id=str(user.id), report_id=str(report.id),
                                     status="completed", base_version_id=base_version_id, draft_id=draft_id,
+                                    generation_prompt=getattr(spec_source, "generation_prompt", None),
                                     **({"pptx_path": deck} if deck else {}))
         # The charts are the source's, unchanged: their fingerprints carry
         # over, so "changed by" keeps pointing at whoever really changed them.
@@ -615,9 +633,17 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
             if thumbnail:
                 version.thumbnail_path = thumbnail
         summary = await build_summary(db, artifact, source_version=source_version, release=release)
-        db.add(ArtifactConversation(artifact_id=str(artifact.id), report_id=str(report.id), user_id=str(user.id),
-                                    draft_id=draft_id, base_version_id=base_version_id, summary=summary,
-                                    started_at=datetime.utcnow()))
+        row = (await db.execute(select(ArtifactConversation).where(
+            ArtifactConversation.artifact_id == str(artifact.id),
+            ArtifactConversation.report_id == str(report.id)))).scalars().first()
+        if row is not None:
+            # Brought again into a conversation that already edits it.
+            row.base_version_id, row.summary, row.draft_id = base_version_id, summary, draft_id
+            row.started_at, row.ended_at = datetime.utcnow(), None
+        elif str(report.id) != str(artifact.report_id or ""):
+            db.add(ArtifactConversation(artifact_id=str(artifact.id), report_id=str(report.id), user_id=str(user.id),
+                                        draft_id=draft_id, base_version_id=base_version_id, summary=summary,
+                                        started_at=datetime.utcnow()))
         if artifact.report_id is None:
             # A published dashboard whose conversation was deleted: this one
             # is its own now (as the owner's Edit makes it).
@@ -640,9 +666,45 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     pending = await _in_dependency_order(db, str(report.id), pending)
     if commit:
         await db.commit()
-    await _audit(db, artifact, user, "dashboard.joined",
-                 {"report_id": str(report.id), "draft_id": draft_id, "rerun": not own_rows})
-    return {"report_id": str(report.id), "created": True, "rerunning": bool(pending), "pending_code": pending}
+    await _audit(db, artifact, user, "dashboard.brought" if into is not None else "dashboard.joined",
+                 {"report_id": str(report.id), "draft_id": draft_id, "rerun": not own_rows,
+                  "from_version_id": base_version_id})
+    return {"report_id": str(report.id), "created": into is None, "rerunning": bool(pending), "pending_code": pending,
+            "version_id": str(version.id), "version": version.version}
+
+
+async def open_state(db, artifact: Artifact, report_id: str) -> dict:
+    """What a conversation should open on (collab01): the live version, this
+    conversation's newest, whether that newest is behind live (live is not
+    in its lineage), and whether it holds work of its own nobody published
+    (made here, not a copy brought in, never published). Behind with no
+    such work: bring live in. Behind with it: ask."""
+    from app.services.dashboard_access import published_release
+
+    live = await published_release(db, artifact)
+    live_src = str(live.source_version_id) if live is not None and live.source_version_id else None
+    rows = await _version_rows(db, str(artifact.id))
+    here = sorted((r for r in rows.values() if str(r.report_id) == str(report_id) and r.status == "completed"),
+                  key=lambda r: r.version, reverse=True)
+    newest = here[0] if here else None
+    behind = bool(live_src) and (newest is None or live_src not in {str(r.id) for r in _lineage(rows, str(newest.id))})
+    unpublished = False
+    if newest is not None and behind:
+        published = {str(v) for (v,) in (await db.execute(select(ArtifactRelease.source_version_id).where(
+            ArtifactRelease.artifact_id == str(artifact.id), ArtifactRelease.status == "ready",
+            ArtifactRelease.deleted_at.is_(None)))).all() if v}
+        base = rows.get(str(newest.base_version_id)) if newest.base_version_id else None
+        # A copy brought in grows from another conversation's version; work
+        # made here grows from this conversation's (or from nothing).
+        made_here = base is None or str(base.report_id) == str(report_id)
+        unpublished = made_here and str(newest.id) not in published
+    live_row = rows.get(live_src) if live_src else None
+    return {
+        "live": {"version_id": live_src, "version": live_row.version if live_row is not None else None,
+                 "by": await person(db, live.published_by), "at": live.published_at} if live_src else None,
+        "newest_here": {"version_id": str(newest.id), "version": newest.version} if newest is not None else None,
+        "behind_live": behind, "unpublished_here": unpublished,
+    }
 
 
 async def _source_elements(db, source_version, release) -> dict | None:
@@ -735,7 +797,8 @@ class _VersionAsRelease:
 
 
 async def version_to_conversation(db, artifact: Artifact, version: ArtifactVersion, *, user, title: str,
-                                  project_id: str | None, step_overrides=None, link_files: bool = False):
+                                  project_id: str | None, step_overrides=None, link_files: bool = False,
+                                  into=None):
     """A new conversation of `user` holding a copy of what `version` needs
     from its own conversation: the queries it shows and those it reaches,
     their default steps and charts, its sources and theme, its monitoring
@@ -765,7 +828,7 @@ async def version_to_conversation(db, artifact: Artifact, version: ArtifactVersi
         theme_name=src.theme_name, theme_overrides=src.theme_overrides,
         bow_source_access=src.bow_source_access, user=user, title=title, project_id=project_id,
         slug_prefix="edit", step_overrides=step_overrides,
-        option_target=lambda q, ref: deps.option_targets.get((str(q.id), ref)),
+        option_target=lambda q, ref: deps.option_targets.get((str(q.id), ref)), into=into,
     )
 
 

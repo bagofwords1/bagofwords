@@ -5,6 +5,9 @@ docs/feedback-loops/2026-10-23-collaborative-dashboards.md).
 - `/dashboards/{id}/history`: the conversations that edited it, its versions,
   the releases kept for Roll back.
 - `/dashboards/{id}/versions/{version_id}/name`: name a version ("v2").
+- `/artifacts/{id}/open-state`, `/artifacts/{id}/bring`: what a conversation
+  should open on, and a copy of a version (or the live one) brought into a
+  conversation of the caller's.
 - `/dashboards/{id}/rollback`, `/transfer`: readers back to a kept release;
   the dashboard to another editor.
 - `/dashboards/{id}/presence`: who is editing right now.
@@ -25,6 +28,9 @@ from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.dashboard_schema import (
+    DashboardBringRequest,
+    DashboardBringResponse,
+    DashboardOpenStateSchema,
     DashboardChangesSchema,
     DashboardConversationContext,
     DashboardDraftCreate,
@@ -113,6 +119,83 @@ async def name_dashboard_version(
     """Editors name a version; readers see nothing change."""
     artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return await dashboard_collab.name_version(db, artifact, version_id, payload.name)
+
+
+async def _own_conversation(db, report_id: str, user, organization):
+    from app.errors import AppError, ErrorCode
+    from app.models.report import Report
+
+    report = (await db.execute(select(Report).where(
+        Report.id == str(report_id), Report.organization_id == str(organization.id),
+        Report.deleted_at.is_(None)))).scalars().first()
+    if report is None or str(report.user_id) != str(user.id):
+        raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND)
+    return report
+
+
+@router.get("/artifacts/{dashboard_id}/open-state", response_model=DashboardOpenStateSchema)
+@requires_permission("publish_reports")
+async def get_open_state(
+    dashboard_id: str,
+    report_id: str = Query(...),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """What this conversation should open on: live, or its own newer work."""
+    artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
+    await _own_conversation(db, report_id, current_user, organization)
+    return await dashboard_collab.open_state(db, artifact, report_id)
+
+
+_bring_locks: dict = {}
+
+
+@router.post("/artifacts/{dashboard_id}/bring", response_model=DashboardBringResponse)
+@requires_permission("publish_reports")
+async def bring_dashboard(
+    dashboard_id: str,
+    payload: DashboardBringRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """A copy of a version of the dashboard (any conversation's), else of
+    the live one, brought into a conversation of the caller's: code and
+    queries, never rows -- they run again with the caller's credentials. The
+    conversation then edits the dashboard (one of several a person may
+    have). Asking for live while the conversation already builds on it
+    copies nothing."""
+    import asyncio
+
+    from app.errors import AppError, ErrorCode
+    from app.models.artifact import ArtifactVersion
+
+    artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
+    report = await _own_conversation(db, payload.report_id, current_user, organization)
+    key = (str(artifact.id), str(report.id))
+    lock = _bring_locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        source = None
+        if payload.version_id:
+            source = (await db.execute(select(ArtifactVersion).where(
+                ArtifactVersion.id == str(payload.version_id), ArtifactVersion.artifact_id == str(artifact.id),
+                ArtifactVersion.deleted_at.is_(None)))).scalars().first()
+            if source is None or source.status != "completed":
+                raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+        else:
+            # Live, unless this conversation already builds on it (two tabs
+            # opening at once bring it once).
+            state = await dashboard_collab.open_state(db, artifact, str(report.id))
+            if state["live"] and not state["behind_live"]:
+                here = state["newest_here"] or {}
+                return DashboardBringResponse(report_id=str(report.id), version_id=here.get("version_id"),
+                                              version=here.get("version"), unchanged=True)
+        result = await dashboard_collab.join(db, artifact, current_user, organization, source_version=source,
+                                             into=report, prefer_live=source is None)
+    rerunning = _spawn_rerun(result, current_user, organization)
+    return DashboardBringResponse(report_id=str(report.id), version_id=result.get("version_id"),
+                                  version=result.get("version"), rerunning=rerunning)
 
 
 @router.post("/dashboards/{dashboard_id}/rollback", response_model=DashboardPublishStatusSchema)

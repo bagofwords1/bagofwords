@@ -86,14 +86,14 @@
                 <div class="text-[10px] text-gray-400 ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
               </div>
               <div v-else class="flex flex-col w-full min-w-0" :class="option.grouped ? 'ps-5' : ''"
-                :data-testid="option.liveElsewhere ? 'frame-version-live-row' : 'frame-version-row'">
+                :data-testid="option.elsewhere ? 'frame-version-elsewhere' : 'frame-version-row'">
                 <span class="flex items-center gap-1.5 text-xs min-w-0">
                   <span class="font-medium tabular-nums">v{{ option.version }}</span>
                   <span v-if="option.name" class="truncate text-gray-700 dark:text-gray-300">“{{ option.name }}”</span>
                   <span v-if="option.live" class="px-1.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 text-[10px] font-medium">{{ $t('dashboardCollab.versions.live') }}</span>
                 </span>
                 <span class="text-[10px] text-gray-400">
-                  {{ option.liveElsewhere ? $t('dashboardCollab.versions.liveElsewhere') : formatRelativeTime(option.created_at) }}
+                  <template v-if="option.elsewhere">{{ $t('dashboardCollab.versions.elsewhereBy', { name: option.author || $t('dashboardCollab.history.someone') }) }} · </template>{{ formatRelativeTime(option.created_at) }}
                 </span>
               </div>
             </template>
@@ -228,6 +228,39 @@
       </div>
     </div>
 
+    <!-- Live moved on past this conversation's own unpublished work: ask
+         before bringing it in (it would bury that work in history). -->
+    <div v-if="liveAhead && !verificationPreview" class="flex-shrink-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-2 text-xs bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 text-amber-900 dark:text-amber-200"
+      data-testid="frame-live-ahead">
+      <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-4 h-4 shrink-0" />
+      <span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.liveAhead', { name: liveAhead.live.by?.name || $t('dashboardCollab.history.someone'), live: liveAhead.live.version, here: liveAhead.newest_here?.version }) }}</span>
+      <button type="button" class="font-medium underline underline-offset-2" :disabled="bringing" data-testid="frame-live-ahead-bring" @click="bringLiveAhead">
+        {{ $t('dashboardCollab.versions.bringLive', { n: liveAhead.live.version }) }}
+      </button>
+      <button type="button" class="text-amber-700 dark:text-amber-300 hover:underline" data-testid="frame-live-ahead-keep" @click="keepWorkingHere">
+        {{ $t('dashboardCollab.versions.keepWorking', { n: liveAhead.newest_here?.version }) }}
+      </button>
+    </div>
+
+    <!-- A version made in another conversation: preview or bring it here. -->
+    <UModal :model-value="!!elsewhereChoice" :ui="{ width: 'sm:max-w-md' }" @update:model-value="(v: boolean) => { if (!v) elsewhereChoice = null }">
+      <div v-if="elsewhereChoice" class="p-5 space-y-3" data-testid="frame-bring-dialog">
+        <h3 class="text-base font-medium text-gray-900 dark:text-white">
+          {{ $t('dashboardCollab.versions.bringTitle', { n: elsewhereChoice.version, name: elsewhereChoice.author || $t('dashboardCollab.history.someone') }) }}
+        </h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400">{{ $t('dashboardCollab.versions.bringBody') }}</p>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" class="h-9 px-4 text-sm font-medium rounded-full border border-gray-300 dark:border-gray-600 text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950"
+            data-testid="frame-bring-preview" @click="previewElsewhere">{{ $t('dashboardCollab.history.preview') }}</button>
+          <button type="button" class="inline-flex items-center gap-1.5 h-9 px-5 text-sm font-medium rounded-full text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+            :disabled="bringing" data-testid="frame-bring-go" @click="bringElsewhere">
+            <Spinner v-if="bringing" class="w-3.5 h-3.5" />
+            {{ $t('dashboardCollab.versions.bringHere') }}
+          </button>
+        </div>
+      </div>
+    </UModal>
+
     <!-- Iframe Container -->
     <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
       <!-- This conversation's agent is changing a dashboard others edit too
@@ -315,7 +348,8 @@
       <!-- No dashboard here yet: make one (from this conversation's charts,
            or by asking), or open one you may edit. -->
       <div v-else-if="!hasArtifact" class="absolute inset-0 flex items-center justify-center overflow-y-auto py-8 bg-white dark:bg-gray-900">
-        <DashboardStart :chart-count="hasSuccessfulVisualizations ? visualizationsData.length : 0" @generate="generateDashboardPrompt" />
+        <DashboardStart :chart-count="hasSuccessfulVisualizations ? visualizationsData.length : 0" :report-id="reportId"
+          @generate="generateDashboardPrompt" @brought="onBroughtFromStart" />
       </div>
 
       <!-- Pending Artifact State (generating) -->
@@ -1440,7 +1474,18 @@ const selectedDashboardTitle = computed(() => selectedArtifactItem.value?.title 
 const publishStatus = ref<any>(null);
 const liveVersionId = computed<string | null>(() => publishStatus.value?.published?.source_version_id || null);
 const liveNumber = computed<number | null>(() => publishStatus.value?.published?.source_version_number || null);
-const LIVE_ELSEWHERE = '__live__';
+// Every version of the open dashboard, from any conversation (History):
+// ours are picked directly; one made elsewhere offers Preview or Bring here.
+const ELSEWHERE = 'elsewhere:';
+const allVersions = ref<any[]>([]);
+async function loadAllVersions() {
+  const dashboardId = selectedArtifactItem.value?.artifact_id;
+  if (!dashboardId || props.verificationPreview) { allVersions.value = []; return; }
+  const { data, error } = await useMyFetch(`/dashboards/${encodeURIComponent(dashboardId)}/history`);
+  if (dashboardId !== selectedArtifactItem.value?.artifact_id) return;
+  allVersions.value = error.value ? [] : (((data.value as any)?.versions) || []);
+}
+watch(() => [selectedArtifactItem.value?.artifact_id, artifactsList.value.length, liveVersionId.value], loadAllVersions);
 const pickerOptions = computed(() => {
   const several = dashboardGroups.value.length > 1;
   const out: any[] = [];
@@ -1454,15 +1499,76 @@ const pickerOptions = computed(() => {
       value: a.id, label: `${g.title} v${a.version}`, version: a.version, name: a.name || null,
       created_at: a.created_at, grouped: several, live: isSelected && a.id === liveVersionId.value,
     }));
-    // Live, but made in someone else's conversation: listed first, opens its preview.
-    if (isSelected && liveVersionId.value && liveNumber.value && !rows.some(r => r.live)) {
-      rows.unshift({ value: LIVE_ELSEWHERE, label: `v${liveNumber.value}`, version: liveNumber.value, grouped: several,
-                     name: publishStatus.value?.published?.source_version_name || null, live: true, liveElsewhere: true });
+    if (isSelected) {
+      const here = new Set(g.versions.map(a => a.id));
+      for (const v of allVersions.value) {
+        if (here.has(v.id) || String(v.report_id) === String(props.reportId)) continue;
+        rows.push({ value: `${ELSEWHERE}${v.id}`, label: `${g.title} v${v.number}`, version: v.number, name: v.name || null,
+                    created_at: v.created_at, grouped: several, live: !!v.live, elsewhere: true, author: v.author?.name || null,
+                    versionId: v.id });
+      }
+      rows.sort((x, y) => y.version - x.version);
     }
     out.push(...rows);
   }
   return out;
 });
+
+// A version made in another conversation: preview it, or bring it here (a
+// copy whose charts run again as you; the next edit builds on it).
+const elsewhereChoice = ref<any | null>(null);
+const bringing = ref(false);
+async function bringHere(versionId: string | null, opts: { quietLiveNote?: { version: number; by?: string } } = {}) {
+  const dashboardId = selectedArtifactItem.value?.artifact_id;
+  if (!dashboardId || bringing.value) return null;
+  bringing.value = true;
+  try {
+    const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(dashboardId)}/bring`, {
+      method: 'POST', body: { report_id: props.reportId, version_id: versionId },
+    });
+    if (error.value) throw error.value;
+    const res = data.value as any;
+    await fetchArtifactsList(true);
+    if (res?.version_id && artifactsList.value.some(a => a.id === res.version_id)) {
+      await switchToArtifact(res.version_id);
+    }
+    if (opts.quietLiveNote && !res?.unchanged) {
+      toast.add({ title: t('dashboardCollab.versions.broughtLive', { n: opts.quietLiveNote.version, name: opts.quietLiveNote.by || t('dashboardCollab.history.someone') }), color: 'green' });
+    }
+    return res;
+  } catch (e: any) {
+    toast.add({ title: t('dashboardCollab.versions.bringFailed'), description: e?.data?.detail?.message || undefined, color: 'red' });
+    return null;
+  } finally {
+    bringing.value = false;
+  }
+}
+
+// On opening (and when another dashboard is picked): live moved on past this
+// conversation's work -> bring it in, once per publish; with work of its own
+// here nobody published, ask first instead of burying it.
+const liveAhead = ref<any | null>(null);
+const liveAheadDismissed = ref<Set<string>>(new Set());
+async function onBroughtFromStart(versionId: string | null) {
+  await fetchArtifactsList(true);
+  if (versionId && artifactsList.value.some(a => a.id === versionId)) await switchToArtifact(versionId);
+}
+async function checkLiveAhead() {
+  liveAhead.value = null;
+  const dashboardId = selectedArtifactItem.value?.artifact_id;
+  if (!dashboardId || props.verificationPreview) return;
+  const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(dashboardId)}/open-state`, {
+    query: { report_id: props.reportId },
+  });
+  if (error.value || dashboardId !== selectedArtifactItem.value?.artifact_id) return;
+  const st = data.value as any;
+  if (!st?.behind_live || !st.live) return;
+  if (st.unpublished_here) {
+    if (!liveAheadDismissed.value.has(st.live.version_id)) liveAhead.value = st;
+    return;
+  }
+  await bringHere(null, { quietLiveNote: { version: st.live.version, by: st.live.by?.name } });
+}
 // The version open here is what this conversation's next edit builds on
 // (collab01): the prompt sends it, and says so when a newer one exists.
 function announceOpenVersion() {
@@ -1481,10 +1587,32 @@ onBeforeUnmount(() => window.dispatchEvent(new CustomEvent('artifact:open-versio
   detail: { report_id: props.reportId, version_id: null },
 })));
 watch(selectedArtifactId, (id, previous) => {
-  if (id !== LIVE_ELSEWHERE) return;
+  if (!id || !String(id).startsWith(ELSEWHERE)) return;
   selectedArtifactId.value = previous;
-  const dashboardId = selectedArtifact.value?.artifact_id;
-  if (dashboardId && liveNumber.value) window.open(`/d/${dashboardId}/draft?version=${liveNumber.value}`, '_blank', 'noopener');
+  elsewhereChoice.value = pickerOptions.value.find(o => o.value === id) || null;
+});
+function previewElsewhere() {
+  const dashboardId = selectedArtifactItem.value?.artifact_id;
+  if (dashboardId && elsewhereChoice.value) window.open(`/d/${dashboardId}/draft?version=${elsewhereChoice.value.version}`, '_blank', 'noopener');
+}
+async function bringElsewhere() {
+  const choice = elsewhereChoice.value;
+  if (!choice) return;
+  const res = await bringHere(choice.versionId);
+  if (res) elsewhereChoice.value = null;
+}
+async function bringLiveAhead() {
+  const st = liveAhead.value;
+  if (!st) return;
+  const res = await bringHere(st.live.version_id);
+  if (res) liveAhead.value = null;
+}
+function keepWorkingHere() {
+  if (liveAhead.value?.live?.version_id) liveAheadDismissed.value.add(liveAhead.value.live.version_id);
+  liveAhead.value = null;
+}
+watch(() => selectedArtifactItem.value?.artifact_id, (id, previous) => {
+  if (id && id !== previous && !props.verificationPreview) checkLiveAhead();
 });
 
 // "Use this version" appears when the selection is not the newest version of

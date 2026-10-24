@@ -370,6 +370,60 @@ def test_roll_back_is_instant_and_serves_the_old_rows(corpus, corpus_rows, test_
 
 
 @pytest.mark.e2e
+def test_bring_a_dashboard_into_an_existing_conversation(corpus, corpus_rows, test_client, spawned):
+    """An editor's own conversation takes the dashboard in: code and
+    queries, never the owner's rows; the build spec comes along; the
+    conversation becomes one of the dashboard's; asking for live again copies
+    nothing; open-state says when live moved on and when to ask first."""
+    aid = own(corpus_rows, corpus, DASH)
+    _seed_secret(corpus_rows, corpus)
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    _grant_editor(test_client, corpus, aid, "member")
+    member = as_(corpus, "member")
+    mine = test_client.post("/api/reports", json={"title": "Avi's questions"}, headers=member)
+    assert mine.status_code in (200, 201), mine.text
+    report_id = mine.json()["id"]
+
+    state = test_client.get(f"/api/artifacts/{aid}/open-state", params={"report_id": report_id}, headers=member).json()
+    assert state["behind_live"] is True and state["unpublished_here"] is False and state["newest_here"] is None
+
+    # Someone else's conversation is not a target.
+    other = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": corpus.reports[CONV]}, headers=member)
+    assert other.status_code == 404
+    brought = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id}, headers=member)
+    assert brought.status_code == 200, brought.text
+    body = brought.json()
+    assert body["report_id"] == report_id and body["version_id"] and body["rerunning"] is True
+    steps = _steps_of(corpus_rows, report_id)
+    assert steps and all(s["status"] == "pending" for s in steps)
+    assert MARKER not in json.dumps(_rows(corpus_rows, "SELECT data FROM steps s JOIN queries q ON "
+                                                       "q.id = s.query_id WHERE q.report_id = :r", r=report_id),
+                                    ensure_ascii=False, default=str)
+    (copy,) = _rows(corpus_rows, "SELECT generation_prompt, base_version_id FROM artifact_versions WHERE id = :v",
+                    v=body["version_id"])
+    (source,) = _rows(corpus_rows, "SELECT generation_prompt FROM artifact_versions WHERE id = :v",
+                      v=copy["base_version_id"])
+    assert copy["generation_prompt"] == source["generation_prompt"]
+    assert report_id in [c["report_id"] for c in test_client.get(
+        f"/api/dashboards/{aid}/history", headers=as_(corpus, "owner")).json()["conversations"]]
+
+    # Already on live: nothing copied.
+    again = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id}, headers=member).json()
+    assert again["unchanged"] is True and again["version_id"] == body["version_id"]
+    _finish(spawned)
+
+    # Work of its own here, then live moves on: open-state says ask first.
+    asyncio.run(_new_version(aid, report_id, corpus.cast.id("member")))
+    asyncio.run(_new_version(aid, corpus.reports[CONV], corpus.cast.id("owner")))
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    state = test_client.get(f"/api/artifacts/{aid}/open-state", params={"report_id": report_id}, headers=member).json()
+    assert state["behind_live"] is True and state["unpublished_here"] is True
+    assert state["live"]["by"]["id"] == corpus.cast.id("owner")
+
+
+@pytest.mark.e2e
 def test_versions_list_names_live_and_restore(corpus, corpus_rows, test_client, spawned):
     """One list of versions (the toolbar and Settings › Versions): its name,
     whether it is live, how many times it was published, and the kept

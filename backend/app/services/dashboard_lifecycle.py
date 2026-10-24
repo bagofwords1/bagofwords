@@ -131,7 +131,7 @@ async def _release_queries(db, release_id: str) -> list:
 
 async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelease, *, user, title: str,
                                   project_id: str | None, slug_prefix: str, step_overrides=None,
-                                  copy_source_refs: bool = True, link_files: bool = True):
+                                  copy_source_refs: bool = True, link_files: bool = True, into=None):
     """A new conversation of `user` holding a copy of the release: its
     queries, their default steps and charts (references re-pointed by the
     copy engine), its sources, theme and monitoring access, and -- with
@@ -154,16 +154,19 @@ async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelea
         db, artifact, queries=await _release_queries(db, str(release.id)), data_source_ids=ds_ids,
         file_ids=file_ids, theme_name=release.theme_name, theme_overrides=release.theme_overrides,
         bow_source_access=release.bow_source_access, user=user, title=title, project_id=project_id,
-        slug_prefix=slug_prefix, step_overrides=step_overrides, copy_source_refs=copy_source_refs)
+        slug_prefix=slug_prefix, step_overrides=step_overrides, copy_source_refs=copy_source_refs, into=into)
 
 
 async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_source_ids: list[str],
                                file_ids: list[str], theme_name, theme_overrides, bow_source_access, user,
                                title: str, project_id: str | None, slug_prefix: str, step_overrides=None,
-                               copy_source_refs: bool = True, option_target=None):
+                               copy_source_refs: bool = True, option_target=None, into=None):
     """A new conversation of `user` holding copies of `queries` (default
     steps and charts, references re-pointed), these sources and files, the
-    theme and monitoring access. Returns (report, copy maps). Not committed."""
+    theme and monitoring access. With `into`, that existing conversation of
+    `user` takes them instead (sources and files added to its own; its theme
+    and monitoring access kept when it has them). Returns (report, copy
+    maps). Not committed."""
     import copy
     import uuid
 
@@ -173,18 +176,37 @@ async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_so
     from app.models.widget import Widget
     from app.services.dashboard_copy import Placement, copy_query_rows
 
-    report = Report(
-        title=title, slug=f"{slug_prefix}-{uuid.uuid4().hex[:8]}", status="draft", report_type="regular",
-        theme_name=theme_name, theme_overrides=copy.deepcopy(theme_overrides),
-        user_id=str(user.id), organization_id=str(artifact.organization_id), project_id=project_id,
-        bow_source_access=copy.deepcopy(bow_source_access) if copy_source_refs else None,
-    )
-    db.add(report)
-    await db.flush()
+    from sqlalchemy import select as _select
+
+    if into is None:
+        report = Report(
+            title=title, slug=f"{slug_prefix}-{uuid.uuid4().hex[:8]}", status="draft", report_type="regular",
+            theme_name=theme_name, theme_overrides=copy.deepcopy(theme_overrides),
+            user_id=str(user.id), organization_id=str(artifact.organization_id), project_id=project_id,
+            bow_source_access=copy.deepcopy(bow_source_access) if copy_source_refs else None,
+        )
+        db.add(report)
+        await db.flush()
+        have_ds, have_files = set(), set()
+    else:
+        report = into
+        if not report.theme_name and theme_name:
+            report.theme_name = theme_name
+            report.theme_overrides = copy.deepcopy(theme_overrides)
+        if report.bow_source_access is None and bow_source_access and copy_source_refs:
+            report.bow_source_access = copy.deepcopy(bow_source_access)
+        have_ds = {str(r) for (r,) in (await db.execute(_select(report_data_source_association.c.data_source_id).where(
+            report_data_source_association.c.report_id == str(report.id)))).all()}
+        have_files = {str(r) for (r,) in (await db.execute(_select(report_file_association.c.file_id).where(
+            report_file_association.c.report_id == str(report.id)))).all()}
     for ds_id in dict.fromkeys(data_source_ids):
+        if str(ds_id) in have_ds:
+            continue
         await db.execute(report_data_source_association.insert().values(report_id=str(report.id),
                                                                          data_source_id=str(ds_id)))
     for file_id in dict.fromkeys(file_ids):
+        if str(file_id) in have_files:
+            continue
         await db.execute(report_file_association.insert().values(report_id=str(report.id), file_id=str(file_id)))
 
     async def widget_for(query) -> str:

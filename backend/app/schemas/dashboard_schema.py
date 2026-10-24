@@ -275,6 +275,37 @@ class DashboardJoinResponse(BaseModel):
     rerunning: bool = False
 
 
+class DashboardBringRequest(BaseModel):
+    """Bring the dashboard into a conversation of the caller's: a copy of
+    `version_id` (any version of it, from any conversation), else of the
+    live version, else of the newest."""
+    report_id: str
+    version_id: str | None = None
+
+
+class DashboardBringResponse(BaseModel):
+    report_id: str
+    version_id: str | None = None
+    version: int | None = None
+    rerunning: bool = False
+    # Nothing was copied: the conversation already builds on what was asked.
+    unchanged: bool = False
+
+
+class DashboardOpenStateVersion(BaseModel):
+    version_id: str | None = None
+    version: int | None = None
+    by: DashboardPerson | None = None
+    at: datetime | None = None
+
+
+class DashboardOpenStateSchema(BaseModel):
+    live: DashboardOpenStateVersion | None = None
+    newest_here: DashboardOpenStateVersion | None = None
+    behind_live: bool = False
+    unpublished_here: bool = False
+
+
 class DashboardConversationSchema(BaseModel):
     report_id: str
     user: DashboardPerson | None = None
