@@ -87,6 +87,9 @@
                 </div>
                 <div class="text-[10px] text-gray-400 ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
               </div>
+              <div v-else-if="option.allVersions" class="flex items-center gap-1.5 w-full text-xs text-blue-600 dark:text-blue-400" data-testid="frame-version-all">
+                <Icon name="heroicons:clock" class="w-3.5 h-3.5" />{{ $t('dashboardCollab.versions.allVersions') }}
+              </div>
               <div v-else class="flex flex-col w-full min-w-0" :class="option.grouped ? 'ps-5' : ''"
                 :data-testid="option.elsewhere ? 'frame-version-elsewhere' : 'frame-version-row'">
                 <span class="flex items-center gap-1.5 text-xs min-w-0">
@@ -124,7 +127,7 @@
              endpoint takes run_as_user_id, so the rerun would resolve
              identity params as YOU and replace what is on screen while the
              banner still says "Viewing as X". -->
-        <UTooltip :text="isViewAsActive ? $t('artifactFrame.refreshDisabledViewAs') : $t('artifactFrame.refreshData')">
+        <UTooltip v-if="!viewing" :text="isViewAsActive ? $t('artifactFrame.refreshDisabledViewAs') : $t('artifactFrame.refreshData')">
           <button
             @click="refreshDashboard"
             :disabled="isRefreshing || isViewAsActive"
@@ -157,7 +160,7 @@
           v-if="moreMenuItems.length"
           :items="moreMenuItems"
           :popper="{ placement: 'bottom-end' }"
-          :ui="{ width: 'w-auto min-w-[11rem]', item: { padding: 'px-2 py-1.5' } }"
+          :ui="{ width: 'w-auto min-w-[11rem]', item: { padding: 'px-2 py-1.5' }, container: 'z-50 group' }"
         >
           <UTooltip :text="$t('artifactFrame.more')">
             <button
@@ -181,7 +184,7 @@
              viewer — anonymous or any org member, searchable by name/email.
              Identity-only — data is unaffected. -->
         <USelectMenu
-          v-if="canViewAs"
+          v-if="canViewAs && !viewing"
           v-model="viewAsMode"
           :options="viewAsOptions"
           value-attribute="value"
@@ -191,6 +194,7 @@
           :searchable-placeholder="$t('artifactFrame.searchMembers')"
           size="xs"
           class="min-w-[130px]"
+          :ui-menu="{ container: 'z-50 group' }"
         >
           <template #label>
             <span class="flex items-center gap-1 text-xs" :class="viewAsMode !== 'you' ? 'text-indigo-600 font-medium' : ''">
@@ -207,7 +211,7 @@
         </USelectMenu>
         <!-- Delegated-source caveat, visible before a target is even picked -->
         <UTooltip
-          v-if="canViewAs && credentialScoped"
+          v-if="canViewAs && credentialScoped && !viewing"
           :text="$t('artifactFrame.viewAsTooltip')"
           :popper="{ placement: 'bottom' }"
         >
@@ -1483,6 +1487,7 @@ const liveNumber = computed<number | null>(() => publishStatus.value?.published?
 // Every version of the open dashboard, from any conversation (History):
 // ours are picked directly; one made elsewhere offers Preview or Bring here.
 const ELSEWHERE = 'elsewhere:';
+const ALL_VERSIONS = 'all-versions';
 const allVersions = ref<any[]>([]);
 async function loadAllVersions() {
   const dashboardId = selectedArtifactItem.value?.artifact_id;
@@ -1506,9 +1511,13 @@ const pickerOptions = computed(() => {
       created_at: a.created_at, grouped: several, live: isSelected && a.id === liveVersionId.value,
     }));
     if (isSelected) {
+      // From other conversations only live and the newest one there; the
+      // rest stay in Settings > Versions ("All versions…").
       const here = new Set(g.versions.map(a => a.id));
-      for (const v of allVersions.value) {
-        if (here.has(v.id) || String(v.report_id) === String(props.reportId)) continue;
+      const others = allVersions.value.filter(v => !here.has(v.id) && String(v.report_id) !== String(props.reportId));
+      const newestOther = others.reduce((m: any, v: any) => (!m || v.number > m.number ? v : m), null);
+      for (const v of others) {
+        if (!v.live && v !== newestOther && v.id !== viewing.value?.versionId) continue;
         rows.push({ value: `${ELSEWHERE}${v.id}`, label: `${g.title} v${v.number}`, version: v.number, name: v.name || null,
                     created_at: v.created_at, grouped: several, live: !!v.live, elsewhere: true, author: v.author?.name || null,
                     versionId: v.id });
@@ -1516,6 +1525,9 @@ const pickerOptions = computed(() => {
       rows.sort((x, y) => y.version - x.version);
     }
     out.push(...rows);
+    if (isSelected && allVersions.value.length && dashboardCaps.value.includes('edit')) {
+      out.push({ value: ALL_VERSIONS, label: t('dashboardCollab.versions.allVersions'), allVersions: true });
+    }
   }
   return out;
 });
@@ -1531,6 +1543,7 @@ const viewingSrc = computed(() => {
 });
 const pickerValue = computed(() => (viewing.value ? `${ELSEWHERE}${viewing.value.versionId}` : selectedArtifactId.value));
 function onPick(value: string) {
+  if (value === ALL_VERSIONS) { settingsModalRef.value?.open('versions'); return; }
   if (value && String(value).startsWith(ELSEWHERE)) {
     const option = pickerOptions.value.find(o => o.value === value);
     if (option) viewing.value = { versionId: option.versionId, version: option.version, author: option.author, live: option.live };
@@ -1587,6 +1600,14 @@ async function openVersionById(versionId: string) {
   if (v) viewing.value = { versionId: v.id, version: v.number, author: v.author?.name || null, live: !!v.live };
 }
 
+async function viewAskedVersion(n: number) {
+  await loadAllVersions();
+  const v = allVersions.value.find(x => x.number === n);
+  if (!v || artifactsList.value.some(a => a.id === v.id)) return;
+  liveAhead.value = null;
+  viewing.value = { versionId: v.id, version: v.number, author: v.author?.name || null, live: !!v.live };
+}
+
 // On opening (and when another dashboard is picked): live moved on past this
 // conversation's work -> show it, read-only, without copying anything; with
 // work of its own here nobody published, ask first instead.
@@ -1606,7 +1627,7 @@ async function checkLiveAhead() {
   });
   if (error.value || dashboardId !== selectedArtifactItem.value?.artifact_id) return;
   const st = data.value as any;
-  if (!st?.behind_live || !st.live) return;
+  if (viewing.value || !st?.behind_live || !st.live) return;
   if (st.unpublished_here) {
     if (!liveAheadDismissed.value.has(st.live.version_id)) liveAhead.value = st;
     return;
@@ -2310,6 +2331,8 @@ onMounted(async () => {
     const key = selectedDashboardKey.value;
     const hit = artifactsList.value.find(a => dashboardKeyOf(a) === key && a.version === askedVersion);
     if (hit) selectedArtifactId.value = hit.id;
+    // One made in another conversation: view it here, read-only.
+    else if (key) viewAskedVersion(askedVersion);
   }
 
   // Load the selected artifact exactly once after initial selection. The
