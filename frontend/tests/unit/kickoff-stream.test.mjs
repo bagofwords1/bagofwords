@@ -8,9 +8,14 @@ const source = fs.readFileSync(process.env.BOW_REPORT_PAGE || new URL('../../pag
 const start = source.indexOf('async function startStreaming(');
 const code = ts.transpileModule(source.slice(start, source.indexOf('// === SSE resume:', start)), {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
 const tick = () => new Promise(resolve => setImmediate(resolve));
+const transpile = src => ts.transpileModule(src, {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+// startStreaming measures stream delivery with the real tracker from utils/streamDelivery.ts.
+const deliveryCode = transpile(fs.readFileSync(new URL('../../utils/streamDelivery.ts', import.meta.url), 'utf8').replace(/^export /gm, ''));
+const reportStart = source.indexOf('function reportStreamDelivery(');
+const reportCode = transpile(source.slice(reportStart, source.indexOf('function stopKickoffWatchdog', reportStart)));
 function setup() {
   const streams = [];
-  const ctx = {console, Date, Error, TextDecoder, report_id:'report', kickoffStalled:false,
+  const ctx = {console, Date, Error, TextDecoder, performance, report_id:'report', kickoffStalled:false,
     lastKickoffByteAt:0, currentController:new AbortController(),
     isStreaming:{value:true}, isCompletionInProgress:{value:true},
     messages:{value:[{id:'temporary',status:'in_progress'}]}, promptBoxRef:{value:null},
@@ -27,6 +32,8 @@ function setup() {
   vm.createContext(ctx);
   const factoryStart=source.indexOf('function createSystemPlaceholder(');
   if(factoryStart>=0) vm.runInContext(ts.transpileModule(source.slice(factoryStart,source.indexOf('function onSubmitCompletion',factoryStart)),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,ctx);
+  vm.runInContext(deliveryCode,ctx);
+  vm.runInContext(reportCode,ctx);
   vm.runInContext(code,ctx);
   return {ctx,streams,emit(i,type,data){streams[i].enqueue(new TextEncoder().encode(`event: ${type}\ndata: ${JSON.stringify({data})}\n\n`));}};
 }
