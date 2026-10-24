@@ -3876,6 +3876,13 @@
     "close": "إغلاق",
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
+  "sharedReport": {
+    "backToApp": "العودة إلى التطبيق",
+    "tabReport": "التقرير",
+    "tabData": "البيانات ({count})",
+    "refreshedAt": "تم التحديث {time}",
+    "madeWith": "صُنع باستخدام {brand}"
+  },
   "errors": {
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
