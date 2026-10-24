@@ -6473,12 +6473,13 @@
       "publishStarted": "מפרסם את v{n}…",
       "publishFailed": "הפרסום נכשל",
       "liveElsewhere": "נוצרה בשיחה אחרת · פותח תצוגה מקדימה",
-      "continueFrom": "המשך מ־v{n}",
       "publishN": "פרסום v{n}",
       "tipNotPublished": "עדיין לא פורסם. פרסמו כדי לשתף עם צופים.",
       "tipLive": "הצופים רואים את הגרסה הזו. לחצו כדי לפרסם אותה שוב עם נתונים עדכניים.",
       "tipReplace": "הצופים רואים את v{live}. פרסמו את v{n} כדי להחליף אותה.",
-      "createdOn": "נוצרה {when}"
+      "createdOn": "נוצרה {when}",
+      "nextEditBuildsOn": "העריכה הבאה תתבסס על v{n} · v{newest} חדשה יותר",
+      "openNewest": "פתיחת v{n}"
     }
   },
   "dashboardSettings": {

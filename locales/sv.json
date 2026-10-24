@@ -6106,12 +6106,13 @@
       "publishStarted": "Publicerar v{n}…",
       "publishFailed": "Det gick inte att publicera",
       "liveElsewhere": "Skapad i en annan konversation · öppnar en förhandsvisning",
-      "continueFrom": "Fortsätt från v{n}",
       "publishN": "Publicera v{n}",
       "tipNotPublished": "Inte publicerad än. Publicera för att dela med tittare.",
       "tipLive": "Tittarna ser den här versionen. Klicka för att publicera den igen med färska data.",
       "tipReplace": "Tittarna ser v{live}. Publicera v{n} för att ersätta den.",
-      "createdOn": "Skapad {when}"
+      "createdOn": "Skapad {when}",
+      "nextEditBuildsOn": "Din nästa ändring bygger på v{n} · v{newest} är nyare",
+      "openNewest": "Öppna v{n}"
     }
   },
   "dashboardSettings": {

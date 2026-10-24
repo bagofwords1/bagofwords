@@ -325,6 +325,13 @@ class EditArtifactTool(Tool):
             from datetime import datetime
             await db.execute(update(Artifact).where(Artifact.id == artifact.artifact_id).values(updated_at=datetime.utcnow()))
             latest = await latest_version_in_conversation(db, artifact)
+            # The version the user has open in the editor is a deliberate
+            # starting point (collab01): building on it is not a conflict.
+            head = runtime_ctx.get("head_completion")
+            head_prompt = (getattr(head, "prompt", None) or {}) if head is not None else {}
+            chosen = isinstance(head_prompt, dict) and str(head_prompt.get("artifact_version_id") or "") == str(artifact.id)
+            if chosen and data.expected_latest_version == artifact.version:
+                latest = artifact.version
             if latest != data.expected_latest_version:
                 yield self._fail(artifact, 'version_conflict', 'A newer UI version exists. Read it before editing.', {'latest_version': latest})
                 return

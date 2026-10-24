@@ -742,6 +742,17 @@
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+				<!-- An older version is open in the editor: the next edit builds
+				     on it (collab01). Said only then, with the way back. -->
+				<div v-if="openVersion && openVersion.version_id !== openVersion.newest_id"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-open-version">
+					<UIcon name="i-heroicons-information-circle" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditBuildsOn', { n: openVersion.version, newest: openVersion.newest_version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-open-newest" @click="openNewestVersion">
+						{{ $t('dashboardCollab.versions.openNewest', { n: openVersion.newest_version }) }}
+					</button>
+				</div>
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -1265,6 +1276,21 @@ const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
 const router = useRouter()
 const report_id = (route.params.id as string) || ''
+
+// The dashboard version open in the editor (ArtifactFrame announces it): sent
+// with each message, so the next edit builds on it (collab01).
+const openVersion = ref<{ version_id: string; version: number; newest_id: string; newest_version: number } | null>(null)
+function onOpenVersion(e: Event) {
+	const d = (e as CustomEvent).detail || {}
+	if (d.report_id !== report_id) return
+	openVersion.value = d.version_id ? d : null
+}
+function openNewestVersion() {
+	if (!openVersion.value) return
+	window.dispatchEvent(new CustomEvent('artifact:select', { detail: { artifact_id: openVersion.value.newest_id } }))
+}
+onMounted(() => window.addEventListener('artifact:open-version', onOpenVersion))
+onBeforeUnmount(() => window.removeEventListener('artifact:open-version', onOpenVersion))
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
@@ -5355,6 +5381,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					model_id: data.model_id || null,
 					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
+					artifact_version_id: openVersion.value?.version_id || null,
 				},
 				queue: true
 			})
@@ -5538,6 +5565,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			model_id: data.model_id || null,
 			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
+			artifact_version_id: openVersion.value?.version_id || null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,

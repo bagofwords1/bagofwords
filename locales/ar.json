@@ -6106,12 +6106,13 @@
       "publishStarted": "جارٍ نشر v{n}…",
       "publishFailed": "تعذر النشر",
       "liveElsewhere": "أُنشئ في محادثة أخرى · يفتح معاينة",
-      "continueFrom": "المتابعة من v{n}",
       "publishN": "نشر v{n}",
       "tipNotPublished": "لم يُنشر بعد. انشره لمشاركته مع المشاهدين.",
       "tipLive": "يرى المشاهدون هذا الإصدار. انقر لنشره مجددًا ببيانات محدّثة.",
       "tipReplace": "يرى المشاهدون v{live}. انشر v{n} لاستبداله.",
-      "createdOn": "أُنشئ {when}"
+      "createdOn": "أُنشئ {when}",
+      "nextEditBuildsOn": "سيُبنى تعديلك التالي على v{n} · v{newest} أحدث",
+      "openNewest": "فتح v{n}"
     }
   },
   "dashboardSettings": {

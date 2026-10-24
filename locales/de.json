@@ -6106,12 +6106,13 @@
       "publishStarted": "v{n} wird veröffentlicht…",
       "publishFailed": "Veröffentlichen fehlgeschlagen",
       "liveElsewhere": "In einer anderen Unterhaltung erstellt · öffnet eine Vorschau",
-      "continueFrom": "Von v{n} aus weitermachen",
       "publishN": "v{n} veröffentlichen",
       "tipNotPublished": "Noch nicht veröffentlicht. Veröffentlichen, um es mit Betrachtern zu teilen.",
       "tipLive": "Betrachter sehen diese Version. Klicken, um sie mit frischen Daten erneut zu veröffentlichen.",
       "tipReplace": "Betrachter sehen v{live}. v{n} veröffentlichen, um sie zu ersetzen.",
-      "createdOn": "Erstellt {when}"
+      "createdOn": "Erstellt {when}",
+      "nextEditBuildsOn": "Ihre nächste Änderung baut auf v{n} auf · v{newest} ist neuer",
+      "openNewest": "v{n} öffnen"
     }
   },
   "dashboardSettings": {

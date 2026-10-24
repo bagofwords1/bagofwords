@@ -6482,12 +6482,13 @@
       "publishStarted": "Publishing v{n}…",
       "publishFailed": "Couldn't publish",
       "liveElsewhere": "Made in another conversation · opens a preview",
-      "continueFrom": "Continue from v{n}",
       "publishN": "Publish v{n}",
       "tipNotPublished": "Not published yet. Publish to share it with viewers.",
       "tipLive": "Viewers see this version. Click to publish it again with fresh data.",
       "tipReplace": "Viewers see v{live}. Publish v{n} to replace it.",
-      "createdOn": "Created {when}"
+      "createdOn": "Created {when}",
+      "nextEditBuildsOn": "Your next edit builds on v{n} · v{newest} is newer",
+      "openNewest": "Open v{n}"
     }
   },
   "dashboardSettings": {

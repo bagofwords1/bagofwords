@@ -110,19 +110,6 @@
             New artifact — view
           </button>
 
-          <!-- An older version is open: continue editing from it (it becomes
-               the newest version; nothing after it is lost). -->
-          <button
-            v-if="!isLatestSelected && artifactsList.length > 1"
-            data-testid="frame-continue-from"
-            @click="useThisVersion"
-            :disabled="isDuplicating"
-            class="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-950 text-blue-600 hover:bg-blue-100 rounded border border-blue-200 transition-colors disabled:opacity-50 flex items-center gap-1"
-          >
-            <Spinner v-if="isDuplicating" class="w-3 h-3" />
-            <Icon v-else name="heroicons:arrow-uturn-up" class="w-3 h-3" />
-            {{ $t('dashboardCollab.versions.continueFrom', { n: selectedArtifactItem?.version }) }}
-          </button>
         </div>
       </div>
 
@@ -554,7 +541,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
-import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import DashboardStart from './DashboardStart.vue';
@@ -568,7 +555,7 @@ import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
-import { isNewestVersion, newestVersionOf } from '~/utils/artifactVersionLatest';
+import { newestVersionOf } from '~/utils/artifactVersionLatest';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -1476,6 +1463,23 @@ const pickerOptions = computed(() => {
   }
   return out;
 });
+// The version open here is what this conversation's next edit builds on
+// (collab01): the prompt sends it, and says so when a newer one exists.
+function announceOpenVersion() {
+  const item = selectedArtifactItem.value;
+  const group = item ? dashboardGroups.value.find(g => g.key === dashboardKeyOf(item)) : null;
+  const newest = group?.versions[0] || null;
+  window.dispatchEvent(new CustomEvent('artifact:open-version', {
+    detail: item && !props.verificationPreview ? {
+      report_id: props.reportId, version_id: item.id, version: item.version,
+      newest_id: newest?.id || item.id, newest_version: newest?.version || item.version,
+    } : { report_id: props.reportId, version_id: null },
+  }));
+}
+watch([selectedArtifactId, () => artifactsList.value.length], announceOpenVersion);
+onBeforeUnmount(() => window.dispatchEvent(new CustomEvent('artifact:open-version', {
+  detail: { report_id: props.reportId, version_id: null },
+})));
 watch(selectedArtifactId, (id, previous) => {
   if (id !== LIVE_ELSEWHERE) return;
   selectedArtifactId.value = previous;
@@ -1486,7 +1490,6 @@ watch(selectedArtifactId, (id, previous) => {
 // "Use this version" appears when the selection is not the newest version of
 // its dashboard (utils/artifactVersionLatest.ts; old versions with no tie to
 // their dashboard keep the rule by mode).
-const isLatestSelected = computed(() => isNewestVersion(artifactsList.value, selectedArtifactId.value));
 
 // Check if selected artifact is pending (still generating)
 const isPendingArtifact = computed(() => {
@@ -2054,42 +2057,6 @@ function fixRenderError() {
   window.dispatchEvent(new CustomEvent('prompt:prefill', {
     detail: { text: prompt, autoSubmit: false }
   }));
-}
-
-// State for "Use this version" action
-const isDuplicating = ref(false);
-
-// Duplicate the selected artifact to make it the latest/default
-async function useThisVersion() {
-  if (!selectedArtifactId.value || isDuplicating.value) return;
-
-  isDuplicating.value = true;
-  try {
-    const { data, error } = await useMyFetch(`/api/artifacts/${selectedArtifactId.value}/duplicate`, {
-      method: 'POST'
-    });
-
-    if (error.value) throw error.value;
-
-    // Refresh the list and select the new artifact
-    await fetchArtifactsList(true);
-    if (data.value && (data.value as any).id) {
-      selectedArtifactId.value = (data.value as any).id;
-    }
-
-    toast.add({ title: t('artifactFrame.versionSetDefault'), color: 'green' });
-
-    // The revert emits a silent artifact_version_reverted session event
-    // server-side — reload the timeline so its strip appears (no websocket).
-    window.dispatchEvent(new CustomEvent('report:mutated', {
-      detail: { reportId: props.reportId, kind: 'artifact_version' }
-    }));
-  } catch (error: any) {
-    console.error('Failed to set version as default:', error);
-    toast.add({ title: t('artifactFrame.error'), description: t('artifactFrame.versionSetDefaultFailed'), color: 'red' });
-  } finally {
-    isDuplicating.value = false;
-  }
 }
 
 // Handle artifact:select event (select a specific artifact by ID)

@@ -1728,25 +1728,43 @@ class AgentV2:
             from app.models.query import Query
             from app.models.visualization import Visualization
             _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
-            result = await self.db.execute(
-                select(ArtifactVersion)
-                .options(lazyload("*"))
-                # Mode lives on the parent Artifact — explicit join on this
-                # hot path (runs before every planner turn).
-                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
-                .where(
-                    ArtifactVersion.report_id == str(_report_id),
-                    ArtifactVersion.status == "completed",
-                    # Docs (mode='doc') must never occupy the active-artifact slot:
-                    # dashboard continuity rules and edit_artifact routing bind to it.
-                    Artifact.mode.in_(("page", "slides")),
+
+            def _candidates():
+                return (
+                    select(ArtifactVersion)
+                    .options(lazyload("*"))
+                    # Mode lives on the parent Artifact — explicit join on this
+                    # hot path (runs before every planner turn).
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.report_id == str(_report_id),
+                        ArtifactVersion.status == "completed",
+                        # Docs (mode='doc') must never occupy the active-artifact slot:
+                        # dashboard continuity rules and edit_artifact routing bind to it.
+                        Artifact.mode.in_(("page", "slides")),
+                    )
                 )
-                .order_by(ArtifactVersion.created_at.desc())
-                .limit(1)
-            )
+
+            result = await self.db.execute(_candidates().order_by(ArtifactVersion.created_at.desc()).limit(1))
             artifact = result.scalar_one_or_none()
             if not artifact:
                 return None
+            newest = artifact
+            # The version open in the editor is what the next edit builds on
+            # (collab01) -- until this turn saves one: from then on the
+            # newest is this turn's own work.
+            open_version = self._open_artifact_version_id()
+            if open_version and open_version != str(newest.id) and not self._saved_this_turn(newest):
+                chosen = (await self.db.execute(
+                    _candidates().where(ArtifactVersion.id == open_version).limit(1))).scalar_one_or_none()
+                if chosen is not None:
+                    artifact = chosen
+            newer_version = None
+            if artifact is not newest:
+                from app.ai.tools.implementations.edit_artifact import latest_version_in_conversation
+                latest_same = await latest_version_in_conversation(self.db, artifact)
+                if latest_same and latest_same > artifact.version:
+                    newer_version = latest_same
 
             viz_ids = []
             if isinstance(artifact.content, dict):
@@ -1814,6 +1832,9 @@ class AgentV2:
                 "title": artifact.title,
                 "mode": artifact.mode,
                 "version": artifact.version,
+                # Open in the editor although a newer version exists: build on
+                # this one (edit_artifact allows it).
+                "newer_version": newer_version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
                 # The current source: the planner authors artifact code itself
@@ -1829,6 +1850,22 @@ class AgentV2:
         except Exception:
             logger.exception("_get_active_artifact failed")
             return None
+
+    def _open_artifact_version_id(self) -> Optional[str]:
+        prompt = (getattr(self.head_completion, "prompt", None) or {}) if self.head_completion else {}
+        value = prompt.get("artifact_version_id") if isinstance(prompt, dict) else None
+        return str(value) if value else None
+
+    def _saved_this_turn(self, version) -> bool:
+        """Whether `version` was saved after this turn's question was asked."""
+        asked = getattr(self.head_completion, "created_at", None) if self.head_completion else None
+        made = getattr(version, "created_at", None)
+        if asked is None or made is None:
+            return False
+        try:
+            return made.replace(tzinfo=None) >= asked.replace(tzinfo=None)
+        except Exception:
+            return False
 
     async def _dashboard_collaboration(self, artifact_id: str) -> str:
         try:

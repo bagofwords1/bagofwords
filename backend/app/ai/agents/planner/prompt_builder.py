@@ -536,6 +536,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
         if artifact.get("version") is not None:
             lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+        if artifact.get("newer_version") is not None:
+            lines.append(
+                f"  <open_in_editor>The user has this version open and the next edit builds on it, "
+                f"although v{_esc(artifact.get('newer_version'))} is newer: edit this artifact_id with "
+                f"expected_latest_version={_esc(artifact.get('version'))}.</open_in_editor>"
+            )
 
         gen_prompt = artifact.get("generation_prompt")
         if gen_prompt:

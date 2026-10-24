@@ -6106,12 +6106,13 @@
       "publishStarted": "Pubblicazione di v{n}…",
       "publishFailed": "Impossibile pubblicare",
       "liveElsewhere": "Creata in un’altra conversazione · apre un’anteprima",
-      "continueFrom": "Continua da v{n}",
       "publishN": "Pubblica v{n}",
       "tipNotPublished": "Non ancora pubblicata. Pubblica per condividerla con i lettori.",
       "tipLive": "I lettori vedono questa versione. Fai clic per ripubblicarla con dati aggiornati.",
       "tipReplace": "I lettori vedono v{live}. Pubblica v{n} per sostituirla.",
-      "createdOn": "Creata {when}"
+      "createdOn": "Creata {when}",
+      "nextEditBuildsOn": "La prossima modifica parte da v{n} · v{newest} è più recente",
+      "openNewest": "Apri v{n}"
     }
   },
   "dashboardSettings": {

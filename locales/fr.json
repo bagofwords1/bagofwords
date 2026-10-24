@@ -6106,12 +6106,13 @@
       "publishStarted": "Publication de v{n}…",
       "publishFailed": "Impossible de publier",
       "liveElsewhere": "Créée dans une autre conversation · ouvre un aperçu",
-      "continueFrom": "Continuer depuis v{n}",
       "publishN": "Publier v{n}",
       "tipNotPublished": "Pas encore publié. Publiez pour le partager avec les lecteurs.",
       "tipLive": "Les lecteurs voient cette version. Cliquez pour la republier avec des données à jour.",
       "tipReplace": "Les lecteurs voient v{live}. Publiez v{n} pour la remplacer.",
-      "createdOn": "Créé {when}"
+      "createdOn": "Créé {when}",
+      "nextEditBuildsOn": "Votre prochaine modification part de v{n} · v{newest} est plus récente",
+      "openNewest": "Ouvrir v{n}"
     }
   },
   "dashboardSettings": {
