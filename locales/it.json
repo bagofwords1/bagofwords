@@ -3876,6 +3876,13 @@
     "close": "Chiudi",
     "copyClipboardFailed": "Impossibile copiare negli appunti"
   },
+  "sharedReport": {
+    "backToApp": "Torna all’app",
+    "tabReport": "Report",
+    "tabData": "Dati ({count})",
+    "refreshedAt": "Aggiornato {time}",
+    "madeWith": "Realizzato con {brand}"
+  },
   "errors": {
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",

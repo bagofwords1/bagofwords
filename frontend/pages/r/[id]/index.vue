@@ -31,7 +31,7 @@
                 class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5 rtl-flip" />
-                <span class="hidden sm:inline">Back to app</span>
+                <span class="hidden sm:inline">{{ $t('sharedReport.backToApp') }}</span>
             </a>
 
             <!-- Center: Tab Menu + Refreshed. Tabs keep the dashboard content
@@ -50,7 +50,7 @@
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                             ]"
                         >
-                            Report
+                            {{ $t('sharedReport.tabReport') }}
                         </button>
                         <button
                             v-if="showDataTab"
@@ -62,7 +62,7 @@
                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                             ]"
                         >
-                            Data ({{ visualizationsData.length }})
+                            {{ $t('sharedReport.tabData', { count: visualizationsData.length }) }}
                         </button>
                     </div>
 
@@ -76,7 +76,7 @@
                         <span class="truncate">Refreshing...</span>
                     </span>
                     <span v-else-if="lastRefreshedAt" class="hidden sm:inline min-w-0 text-[11px] text-gray-400 truncate">
-                        Refreshed {{ formatTime(lastRefreshedAt) }}
+                        {{ $t('sharedReport.refreshedAt', { time: formatTime(lastRefreshedAt) }) }}
                     </span>
                 </div>
             </div>
@@ -151,7 +151,11 @@
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
            class="fixed z-[1000] end-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
-            Made with <span class="font-bold text-white">Bag of words</span>
+            <!-- The product name stays in English in every locale; <bdi>
+                 keeps it LTR inside the Hebrew/Arabic sentence. -->
+            <i18n-t keypath="sharedReport.madeWith" tag="span">
+                <template #brand><bdi class="font-bold text-white">Bag of words</bdi></template>
+            </i18n-t>
         </a>
 
         <!-- Main Content Area -->
@@ -169,16 +173,17 @@
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
                 <!-- Some charts withheld from this viewer: the rest render; say
-                     which are missing and why. (This page has no i18n context.) -->
+                     which are missing and why. Same strings as the in-app
+                     viewer (ArtifactFrame). -->
                 <div v-else-if="partiallyWithheld"
                      class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]">
                     <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <div>
                         <div v-if="withheldCharts.some(c => c.noAccess)">
-                            You don't have access to the data for: {{ withheldCharts.filter(c => c.noAccess).map(c => c.title).join(', ') }}
+                            {{ $t('artifactFrame.partialNoAccess', { charts: withheldCharts.filter(c => c.noAccess).map(c => c.title).join(', ') }) }}
                         </div>
                         <div v-if="withheldCharts.some(c => !c.noAccess)">
-                            Couldn't load: {{ withheldCharts.filter(c => !c.noAccess).map(c => c.title).join(', ') }}
+                            {{ $t('artifactFrame.partialFailed', { charts: withheldCharts.filter(c => !c.noAccess).map(c => c.title).join(', ') }) }}
                         </div>
                     </div>
                 </div>
@@ -637,9 +642,9 @@ async function handleFork() {
     }
 }
 
-// This page renders unauthenticated, with no i18n context and no org
-// settings — useRelativeTime degrades to English and the viewer's timezone,
-// which is what this page did on its own.
+// This page skips the default layout, so the org locale and timezone are not
+// loaded here: relative times follow the viewer's own locale (bow.locale, else
+// English) and the viewer's timezone.
 const { relativeTime: formatTime } = useRelativeTime()
 
 // Transform visualizationsData to toolExecution format for ToolWidgetPreview

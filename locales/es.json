@@ -4144,6 +4144,13 @@
     "close": "Cerrar",
     "copyClipboardFailed": "No se pudo copiar al portapapeles"
   },
+  "sharedReport": {
+    "backToApp": "Volver a la app",
+    "tabReport": "Informe",
+    "tabData": "Datos ({count})",
+    "refreshedAt": "Actualizado {time}",
+    "madeWith": "Hecho con {brand}"
+  },
   "errors": {
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
