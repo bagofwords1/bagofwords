@@ -327,8 +327,9 @@ async def _dashboard_editor(service) -> bool:
 
 @router.post("/views")
 async def view(payload: ViewInput, service=Depends(visibility_access)):
-    if await _dashboard_editor(service):
-        # Editors' own visits are left out of the numbers (collab01).
+    if not service.owner and await _dashboard_editor(service):
+        # Other editors' own visits are left out of the numbers (collab01);
+        # the owner's count as they always did.
         return {"accepted": True, "counted": False}
     try:
         token = unseal(payload.token)

@@ -51,6 +51,14 @@ async def test_other_conversations_versions_are_not_a_conflict(db):
 
     v2 = await seed_artifact(db, report_id=str(danas.id), user_id=str(dana.id), organization_id=str(org.id),
                              contents=[{"code": "function App() {}"}, {"code": "function App() { return 1 }"}])
+    # Avi is an editor: a member of the organization with an edit grant.
+    from app.models.artifact_release import ArtifactShare
+    from app.models.membership import Membership
+
+    db.add_all([Membership(user_id=str(avi.id), organization_id=str(org.id), role="member"),
+                ArtifactShare(artifact_id=str(v2.artifact_id),
+                              user_id=str(avi.id), role="edit")])
+    await db.flush()
     v3 = await new_version(db, v2, content={"code": "function App() { return 2 }"},
                            user_id=str(avi.id), report_id=str(avis.id))  # Avi joins
     assert v3.version == 3
@@ -60,3 +68,24 @@ async def test_other_conversations_versions_are_not_a_conflict(db):
     # A newer version in her own conversation is still a conflict.
     v4 = await new_version(db, v2, content={"code": "function App() { return 3 }"})
     assert await latest_version_in_conversation(db, v2) == v4.version == 4
+
+
+@pytest.mark.asyncio
+async def test_someone_who_cannot_edit_the_dashboard_adds_no_version(db):
+    """A version changes the shared dashboard: its author must still be able
+    to edit it (a removed editor's agent keeps their conversation)."""
+    from app.errors import AppError
+
+    dana = User(name="Dana", email=f"dana-{uuid.uuid4()}@example.test", hashed_password="x")
+    avi = User(name="Avi", email=f"avi-{uuid.uuid4()}@example.test", hashed_password="x")
+    org = Organization(name=f"org-{uuid.uuid4()}")
+    db.add_all([dana, avi, org])
+    await db.flush()
+    danas, avis = await _report(db, dana, org, "Dana's"), await _report(db, avi, org, "Avi's")
+    v1 = await seed_artifact(db, report_id=str(danas.id), user_id=str(dana.id), organization_id=str(org.id))
+    with pytest.raises(AppError):
+        await new_version(db, v1, content={"code": "function App() { return 9 }"},
+                          user_id=str(avi.id), report_id=str(avis.id))
+    # The owner's own versions are unaffected.
+    v2 = await new_version(db, v1, content={"code": "function App() { return 2 }"})
+    assert v2.version == 2

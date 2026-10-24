@@ -422,12 +422,13 @@ function withDraftQuery(url: string, query = draftQuery) {
     return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url;
 }
 if (draftQuery) {
-    const { queries, step, embedToken } = api;
+    const { queries, step, embedToken, paramRun } = api;
     api.meta = withDraftQuery(api.meta);
     if (api.content) api.content = withDraftQuery(api.content);
     api.queries = (artifactId?: string) => withDraftQuery(queries(artifactId));
     api.step = (queryId: string) => withDraftQuery(step(queryId));
     api.embedToken = (fileId: string) => withDraftQuery(embedToken(fileId));
+    api.paramRun = (queryId: string) => withDraftQuery(paramRun(queryId));
 }
 
 // What the reader may do here (collab01): the page meta's capabilities, not

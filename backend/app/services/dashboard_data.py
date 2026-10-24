@@ -92,13 +92,13 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
     from app.models.step_user_result import StepUserResult
     from app.services.access_errors import viewer_error_code
     from app.services.bow_source_access import can_read
-    from app.services.dashboard_access import counts_as_owner
+    from app.services.dashboard_access import holds_snapshot
     from app.services.identity_taint import step_identity_scope
 
     if release.bow_source_access and not await can_read(db, release.bow_source_access, user):
         return StepDataResolution(data={}, withheld=True)
     shared = step.data or {}
-    if await counts_as_owner(db, artifact, user):
+    if await holds_snapshot(db, artifact, release, user):
         return StepDataResolution(data=shared)
 
     viewer_result = None

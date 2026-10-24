@@ -287,7 +287,9 @@ async def edit_dashboard(db, artifact: Artifact, owner, organization) -> dict:
     if release is None:
         raise AppError.conflict(ErrorCode.DASHBOARD_NOT_PUBLISHED, "Nothing published to edit from")
     artifact_id, was = str(artifact.id), (str(artifact.report_id) if artifact.report_id else None)
-    own_rows = str(release.published_by or "") == str(owner.id)
+    # Whose run the stored rows are (collab01: a refresh may have run as
+    # another editor than the publisher).
+    own_rows = str(getattr(release, "run_by", None) or release.published_by or "") == str(owner.id)
     if not own_rows:
         from app.models.artifact_release import artifact_release_data_source_association as rassoc
 

@@ -917,5 +917,15 @@ Built on this design in the same PR stack. Full plan, decisions and DoD:
   30 s TTL) and the charts their agent changed (from each saved version);
   the UI polls it. The edit tool's version guard counts only its own
   conversation's versions.
-- **Analytics.** The existing artifact analytics, open to editors; editors'
-  own visits are not counted.
+- **Analytics.** The existing artifact analytics, open to editors. Draft
+  views and other editors' own visits are not counted; the owner's count, as
+  before.
+- **Whose rows a release holds.** `artifact_releases.run_by` records whose
+  credentials produced the stored rows (the publisher, then each refresh's
+  runner); only that person reads them unconditionally
+  (`dashboard_access.holds_snapshot`) -- owning the dashboard no longer says
+  whose rows they are.
+- **Writing needs edit rights.** `dashboard_access.assert_may_write` guards
+  every new version (`artifact_service.new_version`: routes and agent tools)
+  and in-place rename/delete: owning a version or its conversation is not
+  enough once someone's edit grant is gone.

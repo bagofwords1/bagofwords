@@ -564,7 +564,8 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
     else:
         from app.models.artifact_release import artifact_release_data_source_association as rassoc
 
-        rows_owner = str(release.published_by) if release.published_by else None
+        runner = release.run_by or release.published_by  # whose run the stored rows are
+        rows_owner = str(runner) if runner else None
         ds_ids = [str(i) for (i,) in (await db.execute(
             select(rassoc.c.data_source_id).where(rassoc.c.artifact_release_id == str(release.id)))).all()]
         monitoring = release.bow_source_access
@@ -626,12 +627,16 @@ async def join(db, artifact: Artifact, user, organization, *, draft: ArtifactDra
         _remove_edit_files(stem, deck, thumbnail)
         raise
     pending = {}
-    if not own_rows:
-        for old_step_id, new_step_id in maps.step_map.items():
-            code = (await db.execute(
-                select(_step_code_column()).where(_step_id_column() == new_step_id))).scalar()
-            if (code or "").strip():
-                pending[new_step_id] = code
+    from app.services.fork_service import FORK_PENDING_STATUS
+
+    for old_step_id, new_step_id in maps.step_map.items():
+        code, status = (await db.execute(
+            select(_step_code_column(), _step_status_column()).where(_step_id_column() == new_step_id))).one()
+        # Someone else's rows re-run as the joiner; so does a step still
+        # pending in the source (a copy that was itself re-running).
+        if (code or "").strip() and (not own_rows or status == FORK_PENDING_STATUS):
+            pending[new_step_id] = code
+    pending = await _in_dependency_order(db, str(report.id), pending)
     if commit:
         await db.commit()
     await _audit(db, artifact, user, "dashboard.joined",
@@ -665,6 +670,58 @@ def _step_id_column():
     return Step.id
 
 
+def _step_status_column():
+    from app.models.step import Step
+    return Step.status
+
+
+async def _in_dependency_order(db, report_id: str, pending: dict) -> dict:
+    """`pending` ({step_id: code}) reordered so a step re-runs after the
+    steps of this conversation it loads (load_step by id, slug or title, as
+    the run resolves it); otherwise in the given order. A cycle keeps the
+    given order -- its load_step fails at run time, as it would anyway."""
+    if len(pending) < 2:
+        return pending
+    from app.ai.code_execution.loadables import extract_loadable_refs
+    from app.models.query import Query
+    from app.models.step import Step
+
+    rows = (await db.execute(
+        select(Step.id, Step.slug, Step.title).join(Query, Query.default_step_id == Step.id)
+        .where(Query.report_id == str(report_id), Query.deleted_at.is_(None))
+        .order_by(Step.created_at.desc())
+    )).all()
+    by_id, by_slug, by_title = {}, {}, {}
+    for sid, slug, title in rows:
+        by_id[str(sid)] = str(sid)
+        if slug:
+            by_slug.setdefault(slug.lower(), str(sid))
+        if title:
+            by_title.setdefault(title.lower(), str(sid))
+
+    def lookup(ref):
+        key = str(ref)
+        return by_id.get(key) or by_slug.get(key.lower()) or by_title.get(key.lower())
+
+    ordered, done, visiting = [], set(), set()
+
+    def visit(sid: str) -> None:
+        if sid in done or sid in visiting:
+            return
+        visiting.add(sid)
+        for ref in extract_loadable_refs(pending.get(sid) or "")[0]:
+            dep = lookup(ref)
+            if dep is not None and dep in pending:
+                visit(dep)
+        visiting.discard(sid)
+        done.add(sid)
+        ordered.append(sid)
+
+    for sid in list(pending):
+        visit(sid)
+    return {sid: pending[sid] for sid in ordered}
+
+
 class _VersionAsRelease:
     """A version in the shape _content_for / _copy_thumbnail read off a
     release: its content, deck, previews' folder and thumbnail."""
@@ -692,7 +749,9 @@ async def version_to_conversation(db, artifact: Artifact, version: ArtifactVersi
                                selectinload(Report.files).options(lazyload("*")))
         .where(Report.id == str(version.report_id))
     )).scalar_one()
-    deps = await collect_dashboard_deps(db, version)
+    # Pending queries too: the source may be a copy still re-running for its
+    # own editor; its queries are the dashboard's all the same.
+    deps = await collect_dashboard_deps(db, version, include_pending=True)
     loaded = {str(q.id): q for q in (await db.execute(
         select(Query).options(lazyload("*"), selectinload(Query.default_step).options(lazyload("*")),
                               selectinload(Query.visualizations).options(lazyload("*")))

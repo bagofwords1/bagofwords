@@ -411,7 +411,7 @@ in Dana's results.
 | Two joins at once: both get their own draft; nothing is lost | `test_concurrent_joins` (Postgres) |
 | Run-as-creator: only the owner publishes | `test_run_as_creator_owner_only` |
 | Schedule runs as the last publisher; the owner if they left | `test_schedule_identity` |
-| Draft and editor views are not counted; editors read analytics | `test_analytics_editors` |
+| Draft views and other editors' views are not counted (the owner's are, as before); editors read analytics | `test_analytics_editors` |
 | A dashboard with one draft never asks for a draft; a second draft is opt-in | `test_implicit_draft` |
 | Preview of another editor's version re-runs as me; I never see their rows | `test_preview_runs_as_me` |
 | Promote moves live only when ready; the previous release is kept | `test_promote_keeps_previous` |

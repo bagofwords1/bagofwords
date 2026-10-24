@@ -178,6 +178,11 @@ async def new_version(
         status=status,
         **version_fields,
     )
+    # A version changes the shared dashboard: its author must still be able
+    # to edit it (collab01; an agent in a removed editor's conversation too).
+    from app.services.dashboard_access import assert_may_write
+
+    await assert_may_write(db, fields["artifact_id"], fields["user_id"])
     for attempt in range(_MINT_ATTEMPTS):
         version = ArtifactVersion(**fields, version=await next_version_number(db, source))
         try:

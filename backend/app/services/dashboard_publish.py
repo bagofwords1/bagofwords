@@ -197,13 +197,7 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     # conversation delete or another Publish on the dashboard's row.
     report, version = await _publish_target(db, artifact, version_id)
     if not force:
-        from app.services.dashboard_collab import published_since
-
-        since = await published_since(db, artifact, version)
-        if since is not None:
-            raise AppError.conflict(
-                ErrorCode.DASHBOARD_PUBLISHED_SINCE, "Someone published this dashboard since this draft started",
-                by=(since["by"] or {}).get("name"), at=since["at"].isoformat() if since["at"] else None)
+        await _refuse_if_published_since(db, artifact, version)
     if artifact.mode != "slides":
         await _check_connections(db, report, version, publisher)
     # Then locked, so a conversation delete (dashboard_lifecycle.settle_
@@ -216,6 +210,10 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     report, version = await _publish_target(db, artifact, version_id)
     if artifact.mode != "slides" and str(version.id) != checked:
         await _check_connections(db, report, version, publisher)  # the draft moved meanwhile
+    if not force:
+        # Again under the lock: someone may have published while the
+        # connections above were being checked (a handshake can take long).
+        await _refuse_if_published_since(db, artifact, version)
     # What is published is the conversation's: the publisher must still read
     # its monitoring data, and a public dashboard may not show it.
     await assert_read(db, report.bow_source_access, publisher)
@@ -248,6 +246,17 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
                                 user_id=str(publisher.id), resource_type="artifact", resource_id=str(artifact.id),
                                 details={"release_id": str(release.id), "version_id": str(version.id)})
     return release
+
+
+async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:
+    """409 when someone published since `version`'s draft started (collab01)."""
+    from app.services.dashboard_collab import published_since
+
+    since = await published_since(db, artifact, version)
+    if since is not None:
+        raise AppError.conflict(
+            ErrorCode.DASHBOARD_PUBLISHED_SINCE, "Someone published this dashboard since this draft started",
+            by=(since["by"] or {}).get("name"), at=since["at"].isoformat() if since["at"] else None)
 
 
 async def _publish_target(db, artifact: Artifact, version_id: str | None):
@@ -544,7 +553,8 @@ async def _go_live(db, release_id: str) -> bool:
     async def switch() -> bool:
         switched = await db.execute(
             update(ArtifactRelease).where(ArtifactRelease.id == release_id, ArtifactRelease.status == "publishing")
-            .values(status="ready", error=None, published_at=datetime.utcnow())
+            .values(status="ready", error=None, published_at=datetime.utcnow(),
+                    run_by=ArtifactRelease.published_by)  # the publisher's run (collab01)
         )
         if switched.rowcount != 1:
             return False

@@ -400,10 +400,10 @@ async def _withheld_from(db, artifact, release, user, *, baked: bool = False) ->
     (the owner always gets their own view). `baked`: the output pictures
     every chart's stored rows (a deck, its PDF, slide images), so one chart
     holding one identity's slice withholds it too."""
-    from app.services.dashboard_access import counts_as_owner
+    from app.services.dashboard_access import holds_snapshot
     from app.services.dashboard_data import any_copy_tainted, release_snapshot_withheld
 
-    if await counts_as_owner(db, artifact, user):
+    if await holds_snapshot(db, artifact, release, user):
         return False
     if await release_snapshot_withheld(db, artifact, release):
         return True
@@ -1012,6 +1012,38 @@ async def get_draft_step(
     resolution = await resolve_step_data(db, step, report, user)
     return await dashboard_data.public_step(db, step, query, resolution,
                                             organization_id=artifact.organization_id, user=user)
+
+
+@router.post("/d/{ref}/draft/queries/{query_id}/run")
+async def run_draft_query(
+    ref: str,
+    query_id: str,
+    payload: QueryRunRequest,
+    version: int | None = Query(None, ge=1),
+    draft: str | None = Query(None, max_length=120),
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """A filter on the draft page (collab01): one chart of the version shown,
+    with the reader's values and credentials, cached as theirs alone. The
+    draft door admits them -- the version may live in another editor's
+    conversation, whose own sharing is not asked."""
+    from app.services import dashboard_data
+    from app.services.query_service import QueryService
+
+    if user is None:
+        raise AppError.unauthorized()
+    artifact, shown, _ = await _draft(db, ref, user, version=version, draft=draft, light=True)
+    if shown is None or str(query_id) not in await dashboard_data.draft_query_ids(db, shown):
+        raise dashboard_data.not_found()
+    # Parameter values only: no code, no view-as.
+    request = payload.model_copy(update={"mode": "viewer", "code": None, "run_as_user_id": None})
+    try:
+        return await QueryService().run_query_viewer(db, str(query_id), request,
+                                                     organization_id=str(artifact.organization_id),
+                                                     user_id=str(user.id), reader_credentials=True)
+    except ValueError as e:
+        raise AppError.bad_request(ErrorCode.VALIDATION, str(e))
 
 
 @router.get("/d/{ref}/draft/files/{file_id}/embed_token")

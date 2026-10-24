@@ -568,11 +568,11 @@ def test_editors_read_the_analytics_and_their_visits_are_not_counted(corpus, cor
         assert token.status_code == 200, token.text
         return test_client.post(f"{base}/views", json={"token": token.json()["token"]}, headers=as_(corpus, person))
 
-    assert visit("member").json().get("counted") is False
-    assert visit("owner").json().get("counted") is False
+    assert visit("member").json().get("counted") is False  # another editor: not the audience
+    assert visit("owner").json() == {"accepted": True}  # the owner counts, as always
     assert visit("direct_share").json() == {"accepted": True}
     stats = test_client.get(f"{base}/analytics", headers=as_(corpus, "member"))
-    assert stats.status_code == 200 and stats.json()["views"] == 1
+    assert stats.status_code == 200 and stats.json()["views"] == 2
     assert test_client.get(f"{base}/analytics", headers=as_(corpus, "direct_share")).status_code == 403
 
 

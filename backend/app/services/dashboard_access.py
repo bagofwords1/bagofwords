@@ -96,6 +96,41 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
     return project is not None and await project_service.user_can_view_project(db, user, project)
 
 
+async def holds_snapshot(db, artifact: Artifact, release, user) -> bool:
+    """Whether a release's stored rows are `user`'s own run (collab01):
+    whoever produced them -- the publisher, then whoever each refresh ran as
+    (`run_by`) -- while still in the organization. Several people publish
+    one dashboard now, so owning it no longer says whose rows these are."""
+    from app.core.permission_resolver import principal_belongs_to_org
+
+    if user is None or release is None:
+        return False
+    runner = getattr(release, "run_by", None) or release.published_by
+    if runner is None:  # nothing records it: the owner published, as before
+        return await counts_as_owner(db, artifact, user)
+    return str(runner) == str(user.id) and await principal_belongs_to_org(db, user, str(artifact.organization_id))
+
+
+async def assert_may_write(db, artifact_id: str | None, user_id: str | None) -> None:
+    """Refuse a change to a dashboard (a new version, a rename, a delete) by
+    someone who can no longer edit it (collab01). Several people edit one
+    dashboard, each through their own conversation: owning a version or the
+    conversation it lives in is no longer permission to change the shared
+    dashboard -- a removed editor keeps both. The owner and a dashboard
+    without an owner (not one any more, or never) keep the conversation's
+    own rules."""
+    if not artifact_id or not user_id:
+        return
+    artifact = await db.get(Artifact, str(artifact_id))
+    if artifact is None or not artifact.owner_id or str(artifact.owner_id) == str(user_id):
+        return
+    from app.models.user import User
+
+    user = await db.get(User, str(user_id))
+    if user is None or not await can_edit(db, artifact, user):
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "You can no longer edit this dashboard")
+
+
 async def _edit_granted(db, artifact: Artifact, user) -> bool:
     """An 'edit' grant to `user` or one of their groups. The caller checked
     the live membership (a grant to someone who left opens nothing)."""

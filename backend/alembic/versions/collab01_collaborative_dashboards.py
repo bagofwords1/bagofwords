@@ -21,6 +21,9 @@ no existing row changes, nothing is backfilled.
 - `visualizations.element_key`: a chart's key kept by its copies; NULL reads
   as the chart's own id.
 - `artifact_presence`: who has the dashboard open in a conversation now.
+- `artifact_releases.run_by`: whose credentials produced the release's
+  stored rows -- its publisher, then whoever its refreshes ran as. NULL (a
+  release from before) reads as its publisher, who was then the owner.
 """
 from collections.abc import Sequence
 
@@ -142,6 +145,9 @@ def upgrade() -> None:
                                  ondelete="SET NULL")
     op.create_index("ix_artifact_versions_draft_id", "artifact_versions", ["draft_id"])
 
+    with op.batch_alter_table("artifact_releases") as batch:
+        batch.add_column(sa.Column("run_by", S36, nullable=True))
+
     with op.batch_alter_table("visualizations") as batch:
         batch.add_column(sa.Column("element_key", S36, nullable=True))
 
@@ -151,6 +157,9 @@ def downgrade() -> None:
         return  # idempotent, as the upgrade is
     with op.batch_alter_table("visualizations") as batch:
         batch.drop_column("element_key")
+
+    with op.batch_alter_table("artifact_releases") as batch:
+        batch.drop_column("run_by")
 
     op.drop_index("ix_artifact_versions_draft_id", table_name="artifact_versions")
     with op.batch_alter_table("artifact_versions") as batch:

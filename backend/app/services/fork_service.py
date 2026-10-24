@@ -565,6 +565,13 @@ class ForkService:
                         organization_settings=org_settings,
                         code_override=code,
                     )
+                    # Settled now, not with the rest at the end: a later step
+                    # of this pass may load_step it, and the loader reads
+                    # successful steps only (the pass runs prerequisites first).
+                    await sdb.execute(
+                        update(Step).where(Step.id == str(step_id), Step.status == FORK_PENDING_STATUS)
+                        .values(status="success", status_reason=None))
+                    await sdb.commit()
                     succeeded.append(step_id)
                 except Exception as e:
                     # Discard the in-memory code assignment — the step keeps

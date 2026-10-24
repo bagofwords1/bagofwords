@@ -48,6 +48,9 @@ class ArtifactRelease(BaseSchema):
     published_by = Column(String(36), ForeignKey("users.id", name="fk_artifact_releases_published_by"),
                           nullable=True)
     published_at = Column(DateTime, nullable=True)
+    # Whose credentials produced the stored rows (collab01): the publisher,
+    # then whoever each refresh ran as. NULL reads as published_by.
+    run_by = Column(String(36), nullable=True)
     bow_source_access = Column(JSON, nullable=True)
     theme_name = Column(String, nullable=True)
     theme_overrides = Column(JSON, nullable=True)

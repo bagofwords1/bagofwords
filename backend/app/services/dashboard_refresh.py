@@ -272,6 +272,9 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
         await db.execute(delete(StepUserResult).where(StepUserResult.step_id.in_(step_ids)))
     now = datetime.utcnow()
     live.last_run_at, live.last_run_status, live.last_run_error = now, "success", None
+    # The stored rows are this runner's now (collab01): only they read them
+    # unconditionally; anyone else gets them only where the policy allows.
+    release.run_by = str(run_user.id)
     await db.commit()
     return _result("success", last_run_at=now, steps=len(results))
 
@@ -400,14 +403,16 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
         # what it showed; a draft's link opens for its editors only.
         link = f"/r/{report.id}"
     version = await draft_version(db, artifact)
-    if version is not None and str(version.report_id) != str(artifact.report_id or ""):
-        # The newest draft was made in another editor's conversation
-        # (collab01): that conversation refreshes, with its own user's
-        # credentials -- never one person's rows in another's conversation.
-        report = await db.get(Report, str(version.report_id))
-        runner = await db.get(User, str(report.user_id)) if report is not None else None
+    if version is not None:
+        # The conversation the newest draft was made in refreshes, with ITS
+        # user's credentials (collab01) -- never one person's rows in
+        # another's conversation. Asked of the conversation's user every
+        # time: which conversation `artifact.report_id` points at says
+        # nothing about whose it is (a delete moves it to another editor's).
         from app.services.dashboard_access import can_edit
 
+        report = await db.get(Report, str(version.report_id))
+        runner = await db.get(User, str(report.user_id)) if report is not None else None
         if runner is None or not await can_edit(db, artifact, runner):
             return
         owner = runner

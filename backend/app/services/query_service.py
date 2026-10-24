@@ -722,8 +722,13 @@ class QueryService:
         request: QueryRunRequest,
         organization_id: Optional[str] = None,
         user_id: Optional[str] = None,
+        reader_credentials: bool = False,
     ) -> dict:
         """Viewer-execute: run the query's default step code with param values.
+
+        `reader_credentials` (collab01's draft page): always the caller's own
+        credentials, whatever the conversation's sharing mode says -- an
+        editor previewing another editor's version runs it as themselves.
 
         Creates NO new Step. The result is cached per
         (step, viewer, params_fingerprint) on step_user_results, so a repeat
@@ -838,6 +843,8 @@ class QueryService:
         # relations force viewer credentials; owners always run as themselves.
         credential_user = caller
         identity_mode = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        if reader_credentials:
+            identity_mode = 'viewer'
         if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
             from app.services.viewer_data_policy import has_rls_relations
             if await has_rls_relations(db, str(report.id)):
