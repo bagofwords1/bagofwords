@@ -360,6 +360,7 @@ class ArtifactService:
                     ArtifactVersion.title,
                     ArtifactVersion.mode,
                     ArtifactVersion.version,
+                    ArtifactVersion.name,
                     ArtifactVersion.status,
                     ArtifactVersion.created_at,
                     ArtifactVersion.updated_at,

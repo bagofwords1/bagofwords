@@ -6545,7 +6545,7 @@ class AgentV2:
                                 # succeeded.
                                 if not artifact_refinement_budget.allow(tool_name, tool_input or {}):
                                     return await _refuse_before_dispatch({
-                                        "summary": "The optional visual refinement was already used. Finish with the saved artifact; requested changes and functional repairs remain available.",
+                                        "summary": "The optional visual refinement was already used (it saved a version). Finish with the saved artifact; requested changes and functional repairs remain available.",
                                         "error": {"code": "visual_refinement_exhausted", "message": "One automatic visual refinement is allowed per request."},
                                     })
 
@@ -7275,6 +7275,12 @@ class AgentV2:
                                     # breaker, the step limit, and the budget cap.
                                     if _tn in ("create_artifact", "edit_artifact"):
                                         total_artifact_calls += 1
+                                        # The optional visual refinement is spent
+                                        # only when it saved a version.
+                                        artifact_refinement_budget.record(
+                                            _tn, _ti_args if isinstance(_ti_args, dict) else {},
+                                            saved=isinstance(_obs, dict) and _obs.get("success") is not False
+                                            and _obs.get("version") is not None)
                                         # Remember what actually landed: a budget
                                         # refusal must be able to name the saved
                                         # state ("v8 is saved") instead of
