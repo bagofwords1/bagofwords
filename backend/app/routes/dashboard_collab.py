@@ -183,6 +183,17 @@ async def bring_dashboard(
                 ArtifactVersion.deleted_at.is_(None)))).scalars().first()
             if source is None or source.status != "completed":
                 raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+            # Already the copy this conversation builds on (a double click,
+            # two tabs): copy nothing.
+            newest = (await db.execute(select(ArtifactVersion).where(
+                ArtifactVersion.artifact_id == str(artifact.id), ArtifactVersion.report_id == str(report.id),
+                ArtifactVersion.deleted_at.is_(None), ArtifactVersion.status == "completed")
+                .order_by(ArtifactVersion.version.desc()).limit(1))).scalars().first()
+            if newest is not None and (str(newest.id) == str(source.id) or (
+                    newest.base_version_id and str(newest.base_version_id) == str(source.id)
+                    and str(source.report_id) != str(report.id))):
+                return DashboardBringResponse(report_id=str(report.id), version_id=str(newest.id),
+                                              version=newest.version, unchanged=True)
         else:
             # Live, unless this conversation already builds on it (two tabs
             # opening at once bring it once).

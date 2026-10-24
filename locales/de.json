@@ -3861,7 +3861,8 @@
     "chatModelReportPlain": "Wie im Bericht",
     "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
     "linkNameEdit": "Linknamen bearbeiten",
-    "linkNameRemove": "Links, die bereits einen Namen verwenden, funktionieren weiter; der Link mit der ID ebenfalls."
+    "linkNameRemove": "Links, die bereits einen Namen verwenden, funktionieren weiter; der Link mit der ID ebenfalls.",
+    "shareConversation": "Unterhaltung teilen"
   },
   "publish": {
     "published": "Veröffentlicht",
@@ -6171,7 +6172,8 @@
     "notesDesc": "Was der Agent jedes Bearbeiters liest, bevor er dieses Dashboard ändert.",
     "versionsDesc": "Jede gespeicherte Version. Live ist, was Betrachter sehen.",
     "conversationsDesc": "Die Unterhaltungen, die dieses Dashboard bearbeitet haben.",
-    "discardConfirm": "Ungespeicherte Änderungen verwerfen?"
+    "discardConfirm": "Ungespeicherte Änderungen verwerfen?",
+    "renameInConversation": "Benenne es in einer deiner Unterhaltungen um, die dieses Dashboard bearbeitet."
   },
   "dashboardStart": {
     "title": "Hier gibt es noch kein Dashboard",

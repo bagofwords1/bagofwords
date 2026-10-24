@@ -65,7 +65,8 @@
                                 <input id="dashboard-settings-name" v-model="nameDraft" type="text" maxlength="255" :disabled="!rename"
                                     :placeholder="$t('artifactFrame.renamePlaceholder')"
                                     class="w-full h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60" />
-                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.ownerOnly') }}</p>
+                                <!-- No rename here: the owner renames it from a conversation of their own. -->
+                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ capabilities?.includes('transfer') ? $t('dashboardSettings.renameInConversation') : $t('dashboardSettings.ownerOnly') }}</p>
                             </div>
 
                             <div data-testid="settings-link">

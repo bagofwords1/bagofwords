@@ -3861,7 +3861,8 @@
     "chatModelReportPlain": "Identique au rapport",
     "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé",
     "linkNameEdit": "Modifier le nom du lien",
-    "linkNameRemove": "Les liens qui utilisent déjà un nom continuent de fonctionner ; le lien avec l'identifiant aussi."
+    "linkNameRemove": "Les liens qui utilisent déjà un nom continuent de fonctionner ; le lien avec l'identifiant aussi.",
+    "shareConversation": "Partager la conversation"
   },
   "publish": {
     "published": "Publié",
@@ -6171,7 +6172,8 @@
     "notesDesc": "Ce que lit l’agent de chaque éditeur avant de modifier ce tableau de bord.",
     "versionsDesc": "Chaque version enregistrée. En ligne : ce que voient les lecteurs.",
     "conversationsDesc": "Les conversations qui ont modifié ce tableau de bord.",
-    "discardConfirm": "Abandonner les modifications non enregistrées ?"
+    "discardConfirm": "Abandonner les modifications non enregistrées ?",
+    "renameInConversation": "Renommez-le depuis une de vos conversations qui modifie ce tableau de bord."
   },
   "dashboardStart": {
     "title": "Pas encore de tableau de bord ici",

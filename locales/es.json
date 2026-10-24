@@ -4129,7 +4129,8 @@
     "chatModelReportPlain": "Igual que el informe",
     "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado",
     "linkNameEdit": "Editar nombre del enlace",
-    "linkNameRemove": "Los enlaces que ya usan un nombre siguen funcionando; el enlace con el id también."
+    "linkNameRemove": "Los enlaces que ya usan un nombre siguen funcionando; el enlace con el id también.",
+    "shareConversation": "Compartir conversación"
   },
   "publish": {
     "published": "Publicado",
@@ -6518,7 +6519,8 @@
     "notesDesc": "Lo que lee el agente de cada editor antes de cambiar este panel.",
     "versionsDesc": "Cada versión guardada. En vivo es lo que ven los lectores.",
     "conversationsDesc": "Las conversaciones que editaron este panel.",
-    "discardConfirm": "¿Descartar los cambios sin guardar?"
+    "discardConfirm": "¿Descartar los cambios sin guardar?",
+    "renameInConversation": "Cámbiale el nombre desde una conversación tuya que edite este tablero."
   },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",

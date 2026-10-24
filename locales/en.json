@@ -4191,7 +4191,8 @@
     "chatModelReportPlain": "Same as report",
     "chatModelUnavailable": "Unavailable model — using default",
     "linkNameEdit": "Edit link name",
-    "linkNameRemove": "Links that already use a name keep working; the link with the id keeps working too."
+    "linkNameRemove": "Links that already use a name keep working; the link with the id keeps working too.",
+    "shareConversation": "Share Conversation"
   },
   "publish": {
     "published": "Published",
@@ -6547,7 +6548,8 @@
     "notesDesc": "What every editor's agent reads before it changes this dashboard.",
     "versionsDesc": "Every saved version. Live is what viewers see.",
     "conversationsDesc": "The conversations that edited this dashboard.",
-    "discardConfirm": "Discard unsaved changes?"
+    "discardConfirm": "Discard unsaved changes?",
+    "renameInConversation": "Rename it from a conversation of yours that edits this dashboard."
   },
   "dashboardStart": {
     "title": "No dashboard here yet",

@@ -419,6 +419,11 @@ def test_bring_a_dashboard_into_an_existing_conversation(corpus, corpus_rows, te
     again = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id}, headers=member).json()
     assert again["unchanged"] is True and again["version_id"] == body["version_id"]
     _finish(spawned)
+    # Naming that version explicitly again (a double click on "Edit vN
+    # here"): nothing copied either.
+    twice = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id,
+                             "version_id": copy["base_version_id"]}, headers=member).json()
+    assert twice["unchanged"] is True and twice["version_id"] == body["version_id"]
 
     # Work of its own here, then live moves on: open-state says ask first.
     asyncio.run(_new_version(aid, report_id, corpus.cast.id("member")))

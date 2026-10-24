@@ -3861,7 +3861,8 @@
     "chatModelReportPlain": "Samma som rapporten",
     "chatModelUnavailable": "Modellen är inte tillgänglig — standard används",
     "linkNameEdit": "Redigera länknamn",
-    "linkNameRemove": "Länkar som redan använder ett namn fortsätter att fungera; länken med id:t också."
+    "linkNameRemove": "Länkar som redan använder ett namn fortsätter att fungera; länken med id:t också.",
+    "shareConversation": "Dela konversation"
   },
   "publish": {
     "published": "Publicerad",
@@ -6171,7 +6172,8 @@
     "notesDesc": "Det som varje redigerares agent läser innan den ändrar instrumentpanelen.",
     "versionsDesc": "Varje sparad version. Live är det tittarna ser.",
     "conversationsDesc": "Konversationerna som redigerade instrumentpanelen.",
-    "discardConfirm": "Släng osparade ändringar?"
+    "discardConfirm": "Släng osparade ändringar?",
+    "renameInConversation": "Byt namn från en av dina konversationer som redigerar den här instrumentpanelen."
   },
   "dashboardStart": {
     "title": "Ingen instrumentpanel här än",

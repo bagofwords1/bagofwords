@@ -3861,7 +3861,8 @@
     "chatModelReportPlain": "Come nel report",
     "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito",
     "linkNameEdit": "Modifica nome del link",
-    "linkNameRemove": "I link che usano già un nome continuano a funzionare; anche il link con l'id."
+    "linkNameRemove": "I link che usano già un nome continuano a funzionare; anche il link con l'id.",
+    "shareConversation": "Condividi conversazione"
   },
   "publish": {
     "published": "Pubblicato",
@@ -6171,7 +6172,8 @@
     "notesDesc": "Ciò che l’agente di ogni editor legge prima di modificare questa dashboard.",
     "versionsDesc": "Ogni versione salvata. Online è ciò che vedono i lettori.",
     "conversationsDesc": "Le conversazioni che hanno modificato questa dashboard.",
-    "discardConfirm": "Annullare le modifiche non salvate?"
+    "discardConfirm": "Annullare le modifiche non salvate?",
+    "renameInConversation": "Rinominalo da una tua conversazione che modifica questa dashboard."
   },
   "dashboardStart": {
     "title": "Ancora nessuna dashboard qui",

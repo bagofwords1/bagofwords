@@ -7,9 +7,9 @@
         <button
             type="button"
             data-testid="publish-dashboard"
-            :disabled="publishing"
+            :disabled="publishing || openIsLive"
             @click="publish()"
-            class="items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-1 text-xs disabled:opacity-60 disabled:cursor-not-allowed"
+            class="items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-1 text-xs disabled:cursor-default" :class="publishing ? 'opacity-60' : ''"
         >
             <div class="relative">
                 <Spinner v-if="publishing" class="w-3.5 h-3.5" />

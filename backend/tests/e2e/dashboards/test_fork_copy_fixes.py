@@ -142,3 +142,15 @@ def test_the_fork_summary_offers_nothing_that_was_deleted(corpus, corpus_rows, t
     refs = _json(row["fork_asset_refs"])
     assert "גרף שנמחק" not in summary and "1 queries were inherited" in summary
     assert "גרף שנמחק" not in {r.get("title") for r in refs}
+
+
+@pytest.mark.e2e
+def test_a_conversations_fork_does_not_copy_rows_an_identity_parameter_scoped(corpus, corpus_rows, test_client):
+    """A query bound to the viewer's email holds one person's slice even over
+    a shared connection: the fork gets the query and its code, never the rows
+    (the same rule as row-level security), and runs it again for its owner."""
+    fork = _fork(test_client, corpus, "identity_param")
+    with corpus_rows.engine.connect() as conn:
+        steps = _rows(conn, "SELECT s.data, s.code FROM queries q JOIN steps s ON s.id = q.default_step_id "
+                            "WHERE q.report_id = :r", r=fork)
+    assert steps and all(_json(s["data"]) in (None, {}) for s in steps)
