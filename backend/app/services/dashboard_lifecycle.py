@@ -434,7 +434,7 @@ async def fork_release(db, artifact: Artifact, release: ArtifactRelease, user, *
     from app.models.artifact_resource import ArtifactResource
     from app.services.artifact_service import new_artifact
     from app.services.dashboard_data import any_copy_tainted, release_run_data_source_ids, release_snapshot_withheld
-    from app.services.fork_service import make_step_overrides
+    from app.services.fork_service import identity_steps, make_step_overrides
     from app.services.viewer_data_policy import _any_rls_relation, _any_user_scoped_connection
 
     await _fork_eligibility(db, artifact, release, user)
@@ -445,7 +445,10 @@ async def fork_release(db, artifact: Artifact, release: ArtifactRelease, user, *
                  or await any_copy_tainted(db, release))
     report, maps = await release_to_conversation(
         db, artifact, release, user=user, title=title or f"Fork of {artifact.title or 'Untitled'}",
-        project_id=None, slug_prefix="fork", step_overrides=make_step_overrides(user_scoped, strict_source),
+        project_id=None, slug_prefix="fork", step_overrides=make_step_overrides(
+            user_scoped, strict_source,
+            await identity_steps(db, [q.default_step for q in await _release_queries(db, str(release.id))
+                                      if q.default_step is not None])),
         copy_source_refs=False, link_files=False)
     # The fork names the dashboard, never the owner's conversation (phase 8):
     # the editor's "Forked from" banner and hydration wait read it.

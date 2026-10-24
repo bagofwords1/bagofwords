@@ -66,7 +66,7 @@
             data-testid="frame-version-picker"
             @update:model-value="onPick"
             :popper="{ placement: 'bottom-start' }"
-            :ui-menu="{ width: 'w-80' }"
+            :ui-menu="{ width: 'w-80', container: 'z-50 group' }"
             :ui="{ option: { base: 'py-1.5' } }"
           >
             <template #label>

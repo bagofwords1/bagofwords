@@ -100,10 +100,27 @@ class DuplicatedAssets(NamedTuple):
     needs_thumbnail: bool = False
 
 
-def make_step_overrides(user_scoped: bool, strict_source: bool):
+async def identity_steps(db, steps) -> frozenset:
+    """Ids of `steps` holding one identity's slice through identity
+    parameters (their own or what they load) -- identity_taint's rule, the
+    one the reader's page withholds by."""
+    from app.services.identity_taint import step_identity_scope
+
+    tainted = set()
+    for step in steps:
+        if (await step_identity_scope(db, step))[0]:
+            tainted.add(str(step.id))
+    return frozenset(tainted)
+
+
+def make_step_overrides(user_scoped: bool, strict_source: bool, tainted_step_ids=frozenset()):
     """Fork's data policy for each copied step (a conversation's Fork, and a
     published dashboard's, phase 7): what of the creator's step the forker
-    may receive. See ForkService._duplicate_assets for the two flags."""
+    may receive. See ForkService._duplicate_assets for the two flags.
+    `tainted_step_ids` (identity_steps) are steps whose rows are one
+    identity's slice through identity parameters -- over a shared
+    connection, so neither flag catches them -- and are never copied
+    either: the reader's page withholds them, so a fork must too."""
     from app.services.viewer_data_policy import redact_applied_params
 
     def step_overrides(old_step, old_query) -> dict:
@@ -134,7 +151,7 @@ def make_step_overrides(user_scoped: bool, strict_source: bool):
             # to the source owner — never copy it into the fork; the
             # forker runs it under their own credentials. System-only
             # data is shared by definition, so copy it as-is.
-            data={} if strict_source else old_step.data,
+            data={} if strict_source or str(old_step.id) in tainted_step_ids else old_step.data,
             # applied_params is the filter state the dashboard was
             # built with — the year, the branch, the agent the creator
             # had selected. It is carried for EVERY source, snapshot or
@@ -846,7 +863,9 @@ class ForkService:
                 widget_id_map[old_widget_id] = new_widget_id
             return new_widget_id
 
-        step_overrides = make_step_overrides(user_scoped, strict_source)
+        step_overrides = make_step_overrides(
+            user_scoped, strict_source,
+            await identity_steps(db, [q.default_step for q in original.queries if q.default_step is not None]))
 
         # Deleted queries stay behind — nothing shows them — unless a step
         # still loads one (load_step reaches deleted queries' steps); that one
