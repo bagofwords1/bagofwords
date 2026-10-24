@@ -4,20 +4,18 @@
         <div class="text-center max-w-md mx-auto px-6">
             <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
+                {{ accessError === 'login' ? t('dashboardCollab.access.signInTitle') : t('dashboardCollab.access.deniedTitle') }}
             </h2>
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                {{ accessError === 'login'
-                    ? 'You need to sign in to view this dashboard.'
-                    : 'You don\'t have permission to view this dashboard. Ask the owner to share it with you.' }}
+                {{ accessError === 'login' ? t('dashboardCollab.access.signInBody') : t('dashboardCollab.access.deniedBody') }}
             </p>
             <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=${api.pagePath}`"
                 class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                Sign in
+                {{ t('dashboardCollab.access.signIn') }}
             </a>
             <a v-else href="/"
                 class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                Go home
+                {{ t('dashboardCollab.access.goHome') }}
             </a>
         </div>
     </div>
@@ -31,7 +29,7 @@
                 class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5 rtl-flip" />
-                <span class="hidden sm:inline">Back to app</span>
+                <span class="hidden sm:inline">{{ t('dashboardCollab.access.backToApp') }}</span>
             </a>
 
             <!-- Center: Tab Menu + Refreshed. Tabs keep the dashboard content

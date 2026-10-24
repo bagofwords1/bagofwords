@@ -6126,6 +6126,15 @@
       "backTo": "Zurück zu v{n}",
       "viewLive": "v{n} ansehen",
       "nextEditViewing": "Ansicht von v{n} (schreibgeschützt) · Ihre nächste Änderung baut auf v{here} auf"
+    },
+    "access": {
+      "signInTitle": "Anmeldung erforderlich",
+      "signInBody": "Melde dich an, um dieses Dashboard zu sehen.",
+      "signIn": "Anmelden",
+      "deniedTitle": "Zugriff verweigert",
+      "deniedBody": "Du hast keinen Zugriff auf dieses Dashboard. Bitte den Eigentümer, es mit dir zu teilen.",
+      "goHome": "Zur Startseite",
+      "backToApp": "Zurück zur App"
     }
   },
   "dashboardSettings": {
@@ -6161,7 +6170,8 @@
     "transferOwnership": "Eigentum übertragen",
     "notesDesc": "Was der Agent jedes Bearbeiters liest, bevor er dieses Dashboard ändert.",
     "versionsDesc": "Jede gespeicherte Version. Live ist, was Betrachter sehen.",
-    "conversationsDesc": "Die Unterhaltungen, die dieses Dashboard bearbeitet haben."
+    "conversationsDesc": "Die Unterhaltungen, die dieses Dashboard bearbeitet haben.",
+    "discardConfirm": "Ungespeicherte Änderungen verwerfen?"
   },
   "dashboardStart": {
     "title": "Hier gibt es noch kein Dashboard",

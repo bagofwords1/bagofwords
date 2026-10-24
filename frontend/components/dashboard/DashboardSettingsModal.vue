@@ -11,7 +11,7 @@
         </button>
     </UTooltip>
 
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
+    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }" :prevent-close="dirty" @close-prevented="requestClose">
         <div class="flex flex-col sm:flex-row h-[85vh] sm:h-[min(85vh,720px)]" data-testid="dashboard-settings-modal">
             <!-- Left: the tabs -->
             <nav class="sm:w-56 flex-shrink-0 bg-gray-50 dark:bg-gray-800/40 border-b sm:border-b-0 sm:border-e border-gray-200 dark:border-gray-800 sm:rounded-s-lg flex flex-col">
@@ -46,7 +46,7 @@
                         <h2 class="text-lg font-normal text-gray-900 dark:text-white truncate" data-testid="settings-tab-title">{{ currentTab.label }}</h2>
                         <p v-if="currentTab.desc" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ currentTab.desc }}</p>
                     </div>
-                    <button @click="isOpen = false" :aria-label="$t('common.close')"
+                    <button @click="requestClose" :aria-label="$t('common.close')"
                         class="p-1.5 -me-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-300 outline-none">
                         <Icon name="heroicons:x-mark" class="w-5 h-5" />
                     </button>
@@ -318,7 +318,7 @@
                 <!-- Footer: General and Viewers save together -->
                 <div v-if="isSettingsTab" class="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
                     <span v-if="dirty" class="me-auto text-xs text-gray-500 dark:text-gray-400">{{ $t('dashboardSettings.unsaved') }}</span>
-                    <button @click="isOpen = false"
+                    <button @click="requestClose" data-testid="dashboard-settings-cancel"
                         class="h-9 px-4 text-sm font-medium rounded-full text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950">
                         {{ $t('common.cancel') }}
                     </button>
@@ -680,6 +680,12 @@ async function save() {
     } finally {
         saving.value = false
     }
+}
+
+// Closing with unsaved changes asks first (Cancel, X, Esc, outside click).
+function requestClose() {
+    if (dirty.value && !window.confirm(t('dashboardSettings.discardConfirm'))) return
+    isOpen.value = false
 }
 
 function open(at: Tab = 'general') {

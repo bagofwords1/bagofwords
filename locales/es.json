@@ -6473,6 +6473,15 @@
       "backTo": "Volver a v{n}",
       "viewLive": "Ver v{n}",
       "nextEditViewing": "Viendo v{n} (solo lectura) · tu próxima edición parte de v{here}"
+    },
+    "access": {
+      "signInTitle": "Inicia sesión",
+      "signInBody": "Debes iniciar sesión para ver este tablero.",
+      "signIn": "Iniciar sesión",
+      "deniedTitle": "Acceso denegado",
+      "deniedBody": "No tienes acceso a este tablero. Pide a su propietario que lo comparta contigo.",
+      "goHome": "Ir al inicio",
+      "backToApp": "Volver a la app"
     }
   },
   "dashboardSettings": {
@@ -6508,7 +6517,8 @@
     "transferOwnership": "Transferir la propiedad",
     "notesDesc": "Lo que lee el agente de cada editor antes de cambiar este panel.",
     "versionsDesc": "Cada versión guardada. En vivo es lo que ven los lectores.",
-    "conversationsDesc": "Las conversaciones que editaron este panel."
+    "conversationsDesc": "Las conversaciones que editaron este panel.",
+    "discardConfirm": "¿Descartar los cambios sin guardar?"
   },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",

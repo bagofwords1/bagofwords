@@ -6502,6 +6502,15 @@
       "backTo": "Back to v{n}",
       "viewLive": "View v{n}",
       "nextEditViewing": "Viewing v{n} (read-only) · your next edit builds on v{here}"
+    },
+    "access": {
+      "signInTitle": "Sign in required",
+      "signInBody": "You need to sign in to view this dashboard.",
+      "signIn": "Sign in",
+      "deniedTitle": "Access denied",
+      "deniedBody": "You don't have access to this dashboard. Ask its owner to share it with you.",
+      "goHome": "Go home",
+      "backToApp": "Back to app"
     }
   },
   "dashboardSettings": {
@@ -6537,7 +6546,8 @@
     "transferOwnership": "Transfer ownership",
     "notesDesc": "What every editor's agent reads before it changes this dashboard.",
     "versionsDesc": "Every saved version. Live is what viewers see.",
-    "conversationsDesc": "The conversations that edited this dashboard."
+    "conversationsDesc": "The conversations that edited this dashboard.",
+    "discardConfirm": "Discard unsaved changes?"
   },
   "dashboardStart": {
     "title": "No dashboard here yet",

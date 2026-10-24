@@ -6126,6 +6126,15 @@
       "backTo": "Revenir à v{n}",
       "viewLive": "Voir v{n}",
       "nextEditViewing": "Consultation de v{n} (lecture seule) · votre prochaine modification partira de v{here}"
+    },
+    "access": {
+      "signInTitle": "Connexion requise",
+      "signInBody": "Connectez-vous pour voir ce tableau de bord.",
+      "signIn": "Se connecter",
+      "deniedTitle": "Accès refusé",
+      "deniedBody": "Vous n'avez pas accès à ce tableau de bord. Demandez à son propriétaire de le partager avec vous.",
+      "goHome": "Accueil",
+      "backToApp": "Retour à l'application"
     }
   },
   "dashboardSettings": {
@@ -6161,7 +6170,8 @@
     "transferOwnership": "Transférer la propriété",
     "notesDesc": "Ce que lit l’agent de chaque éditeur avant de modifier ce tableau de bord.",
     "versionsDesc": "Chaque version enregistrée. En ligne : ce que voient les lecteurs.",
-    "conversationsDesc": "Les conversations qui ont modifié ce tableau de bord."
+    "conversationsDesc": "Les conversations qui ont modifié ce tableau de bord.",
+    "discardConfirm": "Abandonner les modifications non enregistrées ?"
   },
   "dashboardStart": {
     "title": "Pas encore de tableau de bord ici",

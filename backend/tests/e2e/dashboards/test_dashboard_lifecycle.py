@@ -258,6 +258,25 @@ def test_a_fork_never_copies_rows_that_are_one_identitys(corpus, corpus_rows, te
 
 
 @pytest.mark.e2e
+def test_a_fork_never_copies_rows_an_identity_parameter_scoped_to_the_owner(corpus, corpus_rows, test_client,
+                                                                           spawned):
+    """A query bound to the viewer's email (no RLS, a shared connection):
+    the published rows are still the owner's slice -- the page withholds
+    them from readers, so a fork must not hand them over either."""
+    aid = own(corpus_rows, corpus, "identity_param/dash")
+    release = publish(aid)
+    corpus_rows.update("artifacts", aid, visibility="internal")
+    (copy,) = _copies(corpus_rows, release)
+    corpus_rows.update("steps", copy["step"], applied_params={"UserEmail": "owner@corpus.com"})
+    resp = test_client.post(f"/api/d/{aid}/fork", json={}, headers=as_(corpus, "member"))
+    assert resp.status_code == 200, resp.text
+    (query,) = _conversation_queries(corpus_rows, resp.json()["report_id"])
+    assert query["data"] in (None, "{}", {}) and query["code"]
+    assert "owner@corpus.com" not in json.dumps(query, default=str)
+    assert _copies(corpus_rows, release)[0]["data"] not in (None, "{}", {})
+
+
+@pytest.mark.e2e
 def test_who_may_fork_a_published_dashboard(corpus, corpus_rows, test_client):
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales")
     publish(aid)

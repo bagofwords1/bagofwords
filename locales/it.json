@@ -6126,6 +6126,15 @@
       "backTo": "Torna a v{n}",
       "viewLive": "Visualizza v{n}",
       "nextEditViewing": "Visualizzazione di v{n} (sola lettura) · la tua prossima modifica partirà da v{here}"
+    },
+    "access": {
+      "signInTitle": "Accesso richiesto",
+      "signInBody": "Accedi per visualizzare questa dashboard.",
+      "signIn": "Accedi",
+      "deniedTitle": "Accesso negato",
+      "deniedBody": "Non hai accesso a questa dashboard. Chiedi al proprietario di condividerla con te.",
+      "goHome": "Vai alla home",
+      "backToApp": "Torna all'app"
     }
   },
   "dashboardSettings": {
@@ -6161,7 +6170,8 @@
     "transferOwnership": "Trasferisci la proprietà",
     "notesDesc": "Ciò che l’agente di ogni editor legge prima di modificare questa dashboard.",
     "versionsDesc": "Ogni versione salvata. Online è ciò che vedono i lettori.",
-    "conversationsDesc": "Le conversazioni che hanno modificato questa dashboard."
+    "conversationsDesc": "Le conversazioni che hanno modificato questa dashboard.",
+    "discardConfirm": "Annullare le modifiche non salvate?"
   },
   "dashboardStart": {
     "title": "Ancora nessuna dashboard qui",

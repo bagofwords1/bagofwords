@@ -6126,6 +6126,15 @@
       "backTo": "Tillbaka till v{n}",
       "viewLive": "Visa v{n}",
       "nextEditViewing": "Visar v{n} (skrivskyddad) · din nästa ändring utgår från v{here}"
+    },
+    "access": {
+      "signInTitle": "Inloggning krävs",
+      "signInBody": "Logga in för att se den här instrumentpanelen.",
+      "signIn": "Logga in",
+      "deniedTitle": "Åtkomst nekad",
+      "deniedBody": "Du har inte åtkomst till den här instrumentpanelen. Be ägaren att dela den med dig.",
+      "goHome": "Till startsidan",
+      "backToApp": "Tillbaka till appen"
     }
   },
   "dashboardSettings": {
@@ -6161,7 +6170,8 @@
     "transferOwnership": "Överför ägarskap",
     "notesDesc": "Det som varje redigerares agent läser innan den ändrar instrumentpanelen.",
     "versionsDesc": "Varje sparad version. Live är det tittarna ser.",
-    "conversationsDesc": "Konversationerna som redigerade instrumentpanelen."
+    "conversationsDesc": "Konversationerna som redigerade instrumentpanelen.",
+    "discardConfirm": "Släng osparade ändringar?"
   },
   "dashboardStart": {
     "title": "Ingen instrumentpanel här än",

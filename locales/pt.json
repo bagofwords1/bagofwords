@@ -6126,6 +6126,15 @@
       "backTo": "Voltar para v{n}",
       "viewLive": "Ver v{n}",
       "nextEditViewing": "Vendo v{n} (somente leitura) · sua próxima edição parte da v{here}"
+    },
+    "access": {
+      "signInTitle": "Login necessário",
+      "signInBody": "Faça login para ver este painel.",
+      "signIn": "Entrar",
+      "deniedTitle": "Acesso negado",
+      "deniedBody": "Você não tem acesso a este painel. Peça ao proprietário para compartilhá-lo com você.",
+      "goHome": "Ir para o início",
+      "backToApp": "Voltar ao app"
     }
   },
   "dashboardSettings": {
@@ -6161,7 +6170,8 @@
     "transferOwnership": "Transferir propriedade",
     "notesDesc": "O que o agente de cada editor lê antes de alterar este painel.",
     "versionsDesc": "Cada versão salva. Ao vivo é o que os leitores veem.",
-    "conversationsDesc": "As conversas que editaram este painel."
+    "conversationsDesc": "As conversas que editaram este painel.",
+    "discardConfirm": "Descartar as alterações não salvas?"
   },
   "dashboardStart": {
     "title": "Ainda não há um painel aqui",

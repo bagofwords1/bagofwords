@@ -6493,6 +6493,15 @@
       "backTo": "חזרה ל-v{n}",
       "viewLive": "הצג את v{n}",
       "nextEditViewing": "צפייה ב-v{n} (קריאה בלבד) · העריכה הבאה שלך תתבסס על v{here}"
+    },
+    "access": {
+      "signInTitle": "נדרשת התחברות",
+      "signInBody": "יש להתחבר כדי לצפות בגלריה זו.",
+      "signIn": "התחברות",
+      "deniedTitle": "אין גישה",
+      "deniedBody": "אין לך גישה לגלריה זו. בקש מהבעלים לשתף אותה איתך.",
+      "goHome": "לדף הבית",
+      "backToApp": "חזרה לאפליקציה"
     }
   },
   "dashboardSettings": {
@@ -6528,7 +6537,8 @@
     "transferOwnership": "העברת בעלות",
     "notesDesc": "מה שהסוכן של כל עורך קורא לפני שהוא משנה את הגלריה.",
     "versionsDesc": "כל גרסה שנשמרה. ״חי״ הוא מה שהצופים רואים.",
-    "conversationsDesc": "השיחות שערכו את הגלריה."
+    "conversationsDesc": "השיחות שערכו את הגלריה.",
+    "discardConfirm": "לבטל את השינויים שלא נשמרו?"
   },
   "dashboardStart": {
     "title": "עדיין אין כאן גלריה",
