@@ -6105,14 +6105,13 @@
       "publishBody": "Ses requêtes sont relancées ; les lecteurs y passent une fois terminées.",
       "publishStarted": "Publication de v{n}…",
       "publishFailed": "Impossible de publier",
-      "liveIs": "En ligne : v{n}",
-      "notPublished": "Non publiée",
       "liveElsewhere": "Créée dans une autre conversation · ouvre un aperçu",
       "continueFrom": "Continuer depuis v{n}",
       "publishN": "Publier v{n}",
       "tipNotPublished": "Pas encore publié. Publiez pour le partager avec les lecteurs.",
       "tipLive": "Les lecteurs voient cette version. Cliquez pour la republier avec des données à jour.",
-      "tipReplace": "Les lecteurs voient v{live}. Publiez v{n} pour la remplacer."
+      "tipReplace": "Les lecteurs voient v{live}. Publiez v{n} pour la remplacer.",
+      "createdOn": "Créé {when}"
     }
   },
   "dashboardSettings": {
@@ -6149,5 +6148,22 @@
     "notesDesc": "Ce que lit l’agent de chaque éditeur avant de modifier ce tableau de bord.",
     "versionsDesc": "Chaque version enregistrée. En ligne : ce que voient les lecteurs.",
     "conversationsDesc": "Les conversations qui ont modifié ce tableau de bord."
+  },
+  "dashboardStart": {
+    "title": "Pas encore de tableau de bord ici",
+    "subtitle": "Créez-en un dans cette conversation, ou continuez-en un que vous pouvez modifier.",
+    "newTitle": "Créer un tableau de bord",
+    "newDescCharts": "Transformez le graphique de cette conversation en tableau de bord. | Transformez les {n} graphiques de cette conversation en tableau de bord.",
+    "newDescEmpty": "Décrivez ce que vous voulez dans le chat et l’agent le construit.",
+    "generate": "Générer le tableau de bord",
+    "startInChat": "Commencer dans le chat",
+    "promptSeed": "Crée un tableau de bord qui montre ",
+    "existingTitle": "Modifier un tableau de bord existant",
+    "existingDesc": "Ouvre votre propre conversation pour celui-ci, ses données exécutées en votre nom.",
+    "search": "Rechercher des tableaux de bord",
+    "none": "Aucun tableau de bord modifiable pour l’instant",
+    "owner": "Propriétaire",
+    "byOwner": "de {name}",
+    "untitled": "Sans titre"
   }
 }

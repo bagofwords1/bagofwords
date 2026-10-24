@@ -6481,14 +6481,13 @@
       "publishBody": "Its queries run again; viewers switch to it when they finish.",
       "publishStarted": "Publishing v{n}…",
       "publishFailed": "Couldn't publish",
-      "liveIs": "Live: v{n}",
-      "notPublished": "Not published",
       "liveElsewhere": "Made in another conversation · opens a preview",
       "continueFrom": "Continue from v{n}",
       "publishN": "Publish v{n}",
       "tipNotPublished": "Not published yet. Publish to share it with viewers.",
       "tipLive": "Viewers see this version. Click to publish it again with fresh data.",
-      "tipReplace": "Viewers see v{live}. Publish v{n} to replace it."
+      "tipReplace": "Viewers see v{live}. Publish v{n} to replace it.",
+      "createdOn": "Created {when}"
     }
   },
   "dashboardSettings": {
@@ -6525,5 +6524,22 @@
     "notesDesc": "What every editor's agent reads before it changes this dashboard.",
     "versionsDesc": "Every saved version. Live is what viewers see.",
     "conversationsDesc": "The conversations that edited this dashboard."
+  },
+  "dashboardStart": {
+    "title": "No dashboard here yet",
+    "subtitle": "Create one in this conversation, or keep working on one you can edit.",
+    "newTitle": "Create a new dashboard",
+    "newDescCharts": "Turn the chart in this conversation into a dashboard. | Turn the {n} charts in this conversation into a dashboard.",
+    "newDescEmpty": "Describe what you want in the chat and the agent builds it.",
+    "generate": "Generate dashboard",
+    "startInChat": "Start in chat",
+    "promptSeed": "Create a dashboard that shows ",
+    "existingTitle": "Edit an existing dashboard",
+    "existingDesc": "Opens your own conversation for it, with its data run as you.",
+    "search": "Search dashboards",
+    "none": "No dashboards you can edit yet",
+    "owner": "Owner",
+    "byOwner": "by {name}",
+    "untitled": "Untitled"
   }
 }

@@ -6105,14 +6105,13 @@
       "publishBody": "Le sue query vengono rieseguite; i lettori passano a questa versione al termine.",
       "publishStarted": "Pubblicazione di v{n}…",
       "publishFailed": "Impossibile pubblicare",
-      "liveIs": "Online: v{n}",
-      "notPublished": "Non pubblicata",
       "liveElsewhere": "Creata in un’altra conversazione · apre un’anteprima",
       "continueFrom": "Continua da v{n}",
       "publishN": "Pubblica v{n}",
       "tipNotPublished": "Non ancora pubblicata. Pubblica per condividerla con i lettori.",
       "tipLive": "I lettori vedono questa versione. Fai clic per ripubblicarla con dati aggiornati.",
-      "tipReplace": "I lettori vedono v{live}. Pubblica v{n} per sostituirla."
+      "tipReplace": "I lettori vedono v{live}. Pubblica v{n} per sostituirla.",
+      "createdOn": "Creata {when}"
     }
   },
   "dashboardSettings": {
@@ -6149,5 +6148,22 @@
     "notesDesc": "Ciò che l’agente di ogni editor legge prima di modificare questa dashboard.",
     "versionsDesc": "Ogni versione salvata. Online è ciò che vedono i lettori.",
     "conversationsDesc": "Le conversazioni che hanno modificato questa dashboard."
+  },
+  "dashboardStart": {
+    "title": "Ancora nessuna dashboard qui",
+    "subtitle": "Creane una in questa conversazione o continua a lavorare su una che puoi modificare.",
+    "newTitle": "Crea una nuova dashboard",
+    "newDescCharts": "Trasforma il grafico di questa conversazione in una dashboard. | Trasforma i {n} grafici di questa conversazione in una dashboard.",
+    "newDescEmpty": "Descrivi nella chat cosa vuoi e l’agente lo costruisce.",
+    "generate": "Genera dashboard",
+    "startInChat": "Inizia nella chat",
+    "promptSeed": "Crea una dashboard che mostri ",
+    "existingTitle": "Modifica una dashboard esistente",
+    "existingDesc": "Apre la tua conversazione per questa dashboard, con i dati eseguiti come te.",
+    "search": "Cerca dashboard",
+    "none": "Ancora nessuna dashboard che puoi modificare",
+    "owner": "Proprietario",
+    "byOwner": "di {name}",
+    "untitled": "Senza titolo"
   }
 }

@@ -6452,14 +6452,13 @@
       "publishBody": "Sus consultas se ejecutan de nuevo; los lectores pasan a verla cuando terminan.",
       "publishStarted": "Publicando v{n}…",
       "publishFailed": "No se pudo publicar",
-      "liveIs": "En vivo: v{n}",
-      "notPublished": "Sin publicar",
       "liveElsewhere": "Creada en otra conversación · abre una vista previa",
       "continueFrom": "Continuar desde v{n}",
       "publishN": "Publicar v{n}",
       "tipNotPublished": "Aún no se ha publicado. Publícalo para compartirlo con los lectores.",
       "tipLive": "Los lectores ven esta versión. Haz clic para publicarla de nuevo con datos actualizados.",
-      "tipReplace": "Los lectores ven v{live}. Publica v{n} para reemplazarla."
+      "tipReplace": "Los lectores ven v{live}. Publica v{n} para reemplazarla.",
+      "createdOn": "Creado {when}"
     }
   },
   "dashboardSettings": {
@@ -6496,5 +6495,22 @@
     "notesDesc": "Lo que lee el agente de cada editor antes de cambiar este panel.",
     "versionsDesc": "Cada versión guardada. En vivo es lo que ven los lectores.",
     "conversationsDesc": "Las conversaciones que editaron este panel."
+  },
+  "dashboardStart": {
+    "title": "Aún no hay un panel aquí",
+    "subtitle": "Crea uno en esta conversación o sigue con uno que puedas editar.",
+    "newTitle": "Crear un panel nuevo",
+    "newDescCharts": "Convierte el gráfico de esta conversación en un panel. | Convierte los {n} gráficos de esta conversación en un panel.",
+    "newDescEmpty": "Describe en el chat lo que quieres y el agente lo construye.",
+    "generate": "Generar panel",
+    "startInChat": "Empezar en el chat",
+    "promptSeed": "Crea un panel que muestre ",
+    "existingTitle": "Editar un panel existente",
+    "existingDesc": "Abre tu propia conversación para él, con sus datos ejecutados como tú.",
+    "search": "Buscar paneles",
+    "none": "Aún no hay paneles que puedas editar",
+    "owner": "Propietario",
+    "byOwner": "de {name}",
+    "untitled": "Sin título"
   }
 }

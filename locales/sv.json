@@ -6105,14 +6105,13 @@
       "publishBody": "Dess frågor körs igen; tittarna byter till den när de är klara.",
       "publishStarted": "Publicerar v{n}…",
       "publishFailed": "Det gick inte att publicera",
-      "liveIs": "Live: v{n}",
-      "notPublished": "Inte publicerad",
       "liveElsewhere": "Skapad i en annan konversation · öppnar en förhandsvisning",
       "continueFrom": "Fortsätt från v{n}",
       "publishN": "Publicera v{n}",
       "tipNotPublished": "Inte publicerad än. Publicera för att dela med tittare.",
       "tipLive": "Tittarna ser den här versionen. Klicka för att publicera den igen med färska data.",
-      "tipReplace": "Tittarna ser v{live}. Publicera v{n} för att ersätta den."
+      "tipReplace": "Tittarna ser v{live}. Publicera v{n} för att ersätta den.",
+      "createdOn": "Skapad {when}"
     }
   },
   "dashboardSettings": {
@@ -6149,5 +6148,22 @@
     "notesDesc": "Det som varje redigerares agent läser innan den ändrar instrumentpanelen.",
     "versionsDesc": "Varje sparad version. Live är det tittarna ser.",
     "conversationsDesc": "Konversationerna som redigerade instrumentpanelen."
+  },
+  "dashboardStart": {
+    "title": "Ingen instrumentpanel här än",
+    "subtitle": "Skapa en i den här konversationen, eller fortsätt med en du kan redigera.",
+    "newTitle": "Skapa en ny instrumentpanel",
+    "newDescCharts": "Gör diagrammet i den här konversationen till en instrumentpanel. | Gör de {n} diagrammen i den här konversationen till en instrumentpanel.",
+    "newDescEmpty": "Beskriv vad du vill ha i chatten så bygger agenten det.",
+    "generate": "Skapa instrumentpanel",
+    "startInChat": "Börja i chatten",
+    "promptSeed": "Skapa en instrumentpanel som visar ",
+    "existingTitle": "Redigera en befintlig instrumentpanel",
+    "existingDesc": "Öppnar din egen konversation för den, med data som körs som du.",
+    "search": "Sök instrumentpaneler",
+    "none": "Inga instrumentpaneler du kan redigera än",
+    "owner": "Ägare",
+    "byOwner": "av {name}",
+    "untitled": "Namnlös"
   }
 }

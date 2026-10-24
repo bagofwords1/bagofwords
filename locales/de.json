@@ -6105,14 +6105,13 @@
       "publishBody": "Ihre Abfragen laufen erneut; Betrachter wechseln, sobald sie fertig sind.",
       "publishStarted": "v{n} wird veröffentlicht…",
       "publishFailed": "Veröffentlichen fehlgeschlagen",
-      "liveIs": "Live: v{n}",
-      "notPublished": "Nicht veröffentlicht",
       "liveElsewhere": "In einer anderen Unterhaltung erstellt · öffnet eine Vorschau",
       "continueFrom": "Von v{n} aus weitermachen",
       "publishN": "v{n} veröffentlichen",
       "tipNotPublished": "Noch nicht veröffentlicht. Veröffentlichen, um es mit Betrachtern zu teilen.",
       "tipLive": "Betrachter sehen diese Version. Klicken, um sie mit frischen Daten erneut zu veröffentlichen.",
-      "tipReplace": "Betrachter sehen v{live}. v{n} veröffentlichen, um sie zu ersetzen."
+      "tipReplace": "Betrachter sehen v{live}. v{n} veröffentlichen, um sie zu ersetzen.",
+      "createdOn": "Erstellt {when}"
     }
   },
   "dashboardSettings": {
@@ -6149,5 +6148,22 @@
     "notesDesc": "Was der Agent jedes Bearbeiters liest, bevor er dieses Dashboard ändert.",
     "versionsDesc": "Jede gespeicherte Version. Live ist, was Betrachter sehen.",
     "conversationsDesc": "Die Unterhaltungen, die dieses Dashboard bearbeitet haben."
+  },
+  "dashboardStart": {
+    "title": "Hier gibt es noch kein Dashboard",
+    "subtitle": "Erstellen Sie eines in dieser Unterhaltung oder arbeiten Sie an einem weiter, das Sie bearbeiten dürfen.",
+    "newTitle": "Neues Dashboard erstellen",
+    "newDescCharts": "Machen Sie aus dem Diagramm dieser Unterhaltung ein Dashboard. | Machen Sie aus den {n} Diagrammen dieser Unterhaltung ein Dashboard.",
+    "newDescEmpty": "Beschreiben Sie im Chat, was Sie möchten, und der Agent baut es.",
+    "generate": "Dashboard erstellen",
+    "startInChat": "Im Chat beginnen",
+    "promptSeed": "Erstelle ein Dashboard, das zeigt ",
+    "existingTitle": "Vorhandenes Dashboard bearbeiten",
+    "existingDesc": "Öffnet Ihre eigene Unterhaltung dafür; die Daten laufen als Sie.",
+    "search": "Dashboards suchen",
+    "none": "Noch keine Dashboards, die Sie bearbeiten können",
+    "owner": "Eigentümer",
+    "byOwner": "von {name}",
+    "untitled": "Ohne Titel"
   }
 }
