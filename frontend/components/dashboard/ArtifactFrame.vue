@@ -51,46 +51,70 @@
               </button>
             </UTooltip>
           </form>
-          <USelectMenu
-            v-else-if="artifactsList.length > 0"
-            v-model="selectedArtifactId"
-            :options="artifactOptions"
-            value-attribute="value"
-            option-attribute="label"
-            size="xs"
-            class="w-full max-w-[280px] min-w-0"
-            :placeholder="$t('artifactFrame.selectArtifact')"
-            :ui="{ option: { base: 'py-2' } }"
-          >
-            <template #label>
-              <span class="truncate text-xs">{{ selectedArtifactLabel }}</span>
-            </template>
-            <template #option="{ option }">
-              <div class="flex flex-col gap-0.5 w-full">
-                <div class="flex items-center justify-between">
-                  <span class="flex items-center gap-1 min-w-0 text-xs font-medium text-gray-900 dark:text-white truncate">
-                    <Icon
-                      :name="option.artifact.mode === 'doc' ? 'heroicons:document-text' : (option.artifact.mode === 'slides' ? 'heroicons:presentation-chart-bar' : 'heroicons:squares-2x2')"
-                      class="w-3 h-3 flex-shrink-0 text-gray-400"
-                    />
-                    <span class="truncate">{{ option.artifact.title || 'Untitled' }}</span>
+          <!-- Which dashboard (only when this conversation holds more than
+               one), then which of its versions: Live marks what viewers see. -->
+          <template v-else-if="artifactsList.length > 0">
+            <USelectMenu
+              v-if="dashboardOptions.length > 1"
+              v-model="selectedDashboardKey"
+              :options="dashboardOptions"
+              value-attribute="value"
+              option-attribute="label"
+              size="xs"
+              class="max-w-[220px] min-w-0"
+              data-testid="frame-dashboard-picker"
+              :ui="{ option: { base: 'py-1.5' } }"
+            >
+              <template #label>
+                <span class="truncate text-xs">{{ selectedDashboardTitle }}</span>
+              </template>
+              <template #option="{ option }">
+                <span class="flex items-center gap-1.5 min-w-0 text-xs">
+                  <Icon :name="modeIcon(option.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+                  <span class="truncate">{{ option.label }}</span>
+                  <span class="text-[10px] text-gray-400 ms-1">v{{ option.version }}</span>
+                </span>
+              </template>
+            </USelectMenu>
+            <span v-else class="flex items-center gap-1.5 min-w-0 text-xs font-medium text-gray-800 dark:text-gray-200" data-testid="frame-dashboard-title">
+              <Icon :name="modeIcon(selectedArtifactItem?.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+              <span class="truncate">{{ selectedDashboardTitle }}</span>
+            </span>
+
+            <USelectMenu
+              v-model="selectedArtifactId"
+              :options="versionOptions"
+              value-attribute="value"
+              option-attribute="label"
+              size="xs"
+              class="shrink-0"
+              data-testid="frame-version-picker"
+              :popper="{ placement: 'bottom-start' }"
+              :ui-menu="{ width: 'w-72' }"
+              :ui="{ option: { base: 'py-1.5' } }"
+            >
+              <template #label>
+                <span class="flex items-center gap-1.5 text-xs whitespace-nowrap">
+                  <span class="font-medium tabular-nums">v{{ selectedArtifactItem?.version }}</span>
+                  <span v-if="selectedIsLive" class="px-1.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 text-[10px] font-medium" data-testid="frame-version-live">{{ $t('dashboardCollab.versions.live') }}</span>
+                  <span v-else-if="liveNumber" class="text-gray-400" data-testid="frame-live-elsewhere">· {{ $t('dashboardCollab.versions.liveIs', { n: liveNumber }) }}</span>
+                  <span v-else-if="publishStatus" class="text-gray-400">· {{ $t('dashboardCollab.versions.notPublished') }}</span>
+                </span>
+              </template>
+              <template #option="{ option }">
+                <div class="flex flex-col w-full min-w-0" :data-testid="option.liveElsewhere ? 'frame-version-live-row' : undefined">
+                  <span class="flex items-center gap-1.5 text-xs min-w-0">
+                    <span class="font-medium tabular-nums">v{{ option.version }}</span>
+                    <span v-if="option.name" class="truncate text-gray-700 dark:text-gray-300">“{{ option.name }}”</span>
+                    <span v-if="option.live" class="px-1.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 text-[10px] font-medium">{{ $t('dashboardCollab.versions.live') }}</span>
                   </span>
-                  <span class="text-[10px] text-gray-400 ms-2">v{{ option.artifact.version }}</span>
+                  <span class="text-[10px] text-gray-400">
+                    {{ option.liveElsewhere ? $t('dashboardCollab.versions.liveElsewhere') : formatRelativeTime(option.created_at) }}
+                  </span>
                 </div>
-                <div class="flex items-center justify-between text-[10px] text-gray-400">
-                  <span>{{ formatRelativeTime(option.artifact.created_at) }}</span>
-                  <button
-                    @click.stop="copyArtifactId(option.artifact.id)"
-                    class="hover:text-gray-600 flex items-center gap-0.5 font-mono"
-                    title="Click to copy ID"
-                  >
-                    <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
-                    {{ option.artifact.id.slice(0, 8) }}
-                  </button>
-                </div>
-              </div>
-            </template>
-          </USelectMenu>
+              </template>
+            </USelectMenu>
+          </template>
           <span v-else class="text-xs text-gray-400 italic">No artifacts yet</span>
 
           <!-- A run elsewhere created a new artifact: offer it, never hijack -->
@@ -103,16 +127,18 @@
             New artifact — view
           </button>
 
-          <!-- Use this version button (shown when non-latest is selected) -->
+          <!-- An older version is open: continue editing from it (it becomes
+               the newest version; nothing after it is lost). -->
           <button
             v-if="!isLatestSelected && artifactsList.length > 1"
+            data-testid="frame-continue-from"
             @click="useThisVersion"
             :disabled="isDuplicating"
             class="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-950 text-blue-600 hover:bg-blue-100 rounded border border-blue-200 transition-colors disabled:opacity-50 flex items-center gap-1"
           >
             <Spinner v-if="isDuplicating" class="w-3 h-3" />
             <Icon v-else name="heroicons:arrow-uturn-up" class="w-3 h-3" />
-            {{ $t('artifactFrame.useThisVersion') }}
+            {{ $t('dashboardCollab.versions.continueFrom', { n: selectedArtifactItem?.version }) }}
           </button>
         </div>
       </div>
@@ -223,7 +249,8 @@
 
         <!-- Publish (the version open here) beside Share. "Review changes"
              (someone published since) opens the draft page's changes view. -->
-        <PublishButton v-if="report && selectedArtifact" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges" />
+        <PublishButton v-if="report && selectedArtifact" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges"
+          @status="publishStatus = $event" />
 
         <!-- Share Dashboard -->
         <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
@@ -601,6 +628,7 @@ interface ArtifactItem {
   created_at: string;
   mode: string;
   status?: string;
+  name?: string | null;       // a name someone gave the version (collab01)
 }
 
 const props = defineProps<{
@@ -1429,21 +1457,57 @@ watch(() => selectedArtifact.value?.artifact_id, async (id) => {
 // share page derives its list from the same composable.
 const { availableExports } = useArtifactExports(selectedArtifact)
 
-// Computed options for dropdown
-const artifactOptions = computed(() => {
-  return artifactsList.value.map(a => ({
-    value: a.id,
-    label: `${a.title || 'Untitled'} (v${a.version})`,
-    artifact: a
-  }));
-});
-
-const selectedArtifactLabel = computed(() => {
-  const selected = artifactsList.value.find(a => a.id === selectedArtifactId.value);
-  if (selected) {
-    return `${selected.title || 'Untitled'} (v${selected.version})`;
+// The pickers: which dashboard (a conversation can hold several), then
+// which of its versions. One line of versions per dashboard; Live is the
+// one viewers see (from the Publish button's status).
+const modeIcon = (mode?: string) =>
+  mode === 'doc' ? 'heroicons:document-text' : (mode === 'slides' ? 'heroicons:presentation-chart-bar' : 'heroicons:squares-2x2');
+const dashboardKeyOf = (a: ArtifactItem) => a.artifact_id || a.id;
+const selectedArtifactItem = computed(() => artifactsList.value.find(a => a.id === selectedArtifactId.value) || null);
+const dashboardOptions = computed(() => {
+  const newest = new Map<string, ArtifactItem>();
+  for (const a of artifactsList.value) {
+    const k = dashboardKeyOf(a);
+    const cur = newest.get(k);
+    if (!cur || a.version > cur.version) newest.set(k, a);
   }
-  return t('artifactFrame.selectArtifact');
+  return [...newest.entries()]
+    .sort((x, y) => new Date(y[1].created_at).getTime() - new Date(x[1].created_at).getTime())
+    .map(([k, a]) => ({ value: k, label: a.title || 'Untitled', mode: a.mode, version: a.version, newestId: a.id }));
+});
+const selectedDashboardKey = computed({
+  get: () => (selectedArtifactItem.value ? dashboardKeyOf(selectedArtifactItem.value) : undefined),
+  set: (k: string | undefined) => {
+    const opt = dashboardOptions.value.find(o => o.value === k);
+    if (opt) selectedArtifactId.value = opt.newestId;
+  },
+});
+const selectedDashboardTitle = computed(() => selectedArtifactItem.value?.title || t('artifactFrame.selectArtifact'));
+
+const publishStatus = ref<any>(null);
+const liveVersionId = computed<string | null>(() => publishStatus.value?.published?.source_version_id || null);
+const liveNumber = computed<number | null>(() => publishStatus.value?.published?.source_version_number || null);
+const selectedIsLive = computed(() => !!liveVersionId.value && liveVersionId.value === selectedArtifactId.value);
+const LIVE_ELSEWHERE = '__live__';
+const versionOptions = computed(() => {
+  const key = selectedDashboardKey.value;
+  const rows: any[] = artifactsList.value
+    .filter(a => dashboardKeyOf(a) === key)
+    .sort((a, b) => b.version - a.version)
+    .map(a => ({ value: a.id, label: `v${a.version}`, version: a.version, name: (a as any).name || null,
+                 created_at: a.created_at, live: a.id === liveVersionId.value }));
+  // Live, but made in someone else's conversation: listed first, opens its preview.
+  if (liveVersionId.value && liveNumber.value && !rows.some(r => r.live)) {
+    rows.unshift({ value: LIVE_ELSEWHERE, label: `v${liveNumber.value}`, version: liveNumber.value,
+                   name: publishStatus.value?.published?.source_version_name || null, live: true, liveElsewhere: true });
+  }
+  return rows;
+});
+watch(selectedArtifactId, (id, previous) => {
+  if (id !== LIVE_ELSEWHERE) return;
+  selectedArtifactId.value = previous;
+  const dashboardId = selectedArtifact.value?.artifact_id;
+  if (dashboardId && liveNumber.value) window.open(`/d/${dashboardId}/draft?version=${liveNumber.value}`, '_blank', 'noopener');
 });
 
 // "Use this version" appears when the selection is not the newest version of
@@ -2132,6 +2196,14 @@ onMounted(async () => {
   // First fetch artifact list to know which artifact is selected (viewer
   // identity in parallel — it gates nothing, a failure just renders anonymous)
   await Promise.all([fetchArtifactsList(), fetchViewerContext()]);
+  // ?version=N opens that version of the dashboard (a link to one version);
+  // without it, the newest -- what the next edit builds on.
+  const askedVersion = Number(paramRoute.query.version);
+  if (!props.requestedArtifactId && Number.isInteger(askedVersion) && askedVersion > 0) {
+    const key = selectedDashboardKey.value;
+    const hit = artifactsList.value.find(a => dashboardKeyOf(a) === key && a.version === askedVersion);
+    if (hit) selectedArtifactId.value = hit.id;
+  }
 
   // Load the selected artifact exactly once after initial selection. The
   // report page already fetched the latest artifact; reuse that object when

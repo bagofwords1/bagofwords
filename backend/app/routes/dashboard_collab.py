@@ -4,6 +4,7 @@ docs/feedback-loops/2026-10-23-collaborative-dashboards.md).
 - `/dashboards/{id}/drafts`: the implicit draft and the named ones; start one.
 - `/dashboards/{id}/history`: the conversations that edited it, its versions,
   the releases kept for Roll back.
+- `/dashboards/{id}/versions/{version_id}/name`: name a version ("v2").
 - `/dashboards/{id}/rollback`, `/transfer`: readers back to a kept release;
   the dashboard to another editor.
 - `/dashboards/{id}/presence`: who is editing right now.
@@ -36,6 +37,7 @@ from app.schemas.dashboard_schema import (
     DashboardRollbackRequest,
     DashboardSharingSchema,
     DashboardTransferRequest,
+    DashboardVersionNameUpdate,
 )
 from app.services import dashboard_access, dashboard_collab, dashboard_presence, dashboard_settings_service
 
@@ -96,6 +98,21 @@ async def get_dashboard_history(
 ):
     artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return await dashboard_collab.history(db, artifact, current_user)
+
+
+@router.put("/dashboards/{dashboard_id}/versions/{version_id}/name")
+@requires_permission("publish_reports")
+async def name_dashboard_version(
+    dashboard_id: str,
+    version_id: str,
+    payload: DashboardVersionNameUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Editors name a version; readers see nothing change."""
+    artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
+    return await dashboard_collab.name_version(db, artifact, version_id, payload.name)
 
 
 @router.post("/dashboards/{dashboard_id}/rollback", response_model=DashboardPublishStatusSchema)

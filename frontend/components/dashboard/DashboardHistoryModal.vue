@@ -53,9 +53,10 @@
                     <UButton size="xs" color="gray" variant="soft" @click="load">{{ $t('common.retry') }}</UButton>
                 </div>
                 <template v-else-if="history">
-                    <HistoryVersions v-if="active === 'versions'" :versions="history.versions" @preview="preview" />
-                    <HistoryReleases v-else-if="active === 'published'" :dashboard-id="dashboardId" :releases="history.releases"
-                        :can-rollback="can('publish')" @rolled-back="onRolledBack" />
+                    <!-- One list: versions, which is live, Restore and Publish. -->
+                    <HistoryVersions v-if="active === 'versions'" :versions="history.versions" :dashboard-id="dashboardId"
+                        :can-edit="can('edit')" :can-publish="can('publish')"
+                        @preview="preview" @changed="load" @rolled-back="onRolledBack" @publishing="onPublishing" />
                     <HistoryConversations v-else-if="active === 'conversations'" :conversations="history.conversations" />
                 </template>
             </div>
@@ -67,12 +68,11 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
 import HistoryVersions from './history/HistoryVersions.vue';
-import HistoryReleases from './history/HistoryReleases.vue';
 import HistoryConversations from './history/HistoryConversations.vue';
 import HistoryNotes from './history/HistoryNotes.vue';
 import HistoryOwner from './history/HistoryOwner.vue';
 
-type TabKey = 'versions' | 'published' | 'conversations' | 'notes' | 'owner';
+type TabKey = 'versions' | 'conversations' | 'notes' | 'owner';
 const props = defineProps<{
     modelValue?: boolean; dashboardId: string; capabilities: string[];
     embedded?: boolean; section?: TabKey;
@@ -108,7 +108,6 @@ const tabs = computed(() => {
     const h = history.value;
     const list: { key: TabKey; label: string; icon: string; count?: number | null }[] = [
         { key: 'versions', label: t('dashboardCollab.history.tabVersions'), icon: 'heroicons:clock', count: h ? h.versions?.length ?? 0 : null },
-        { key: 'published', label: t('dashboardCollab.history.tabPublished'), icon: 'heroicons:rocket-launch', count: h ? h.releases?.length ?? 0 : null },
         { key: 'conversations', label: t('dashboardCollab.history.tabConversations'), icon: 'heroicons:chat-bubble-left-right', count: h ? h.conversations?.length ?? 0 : null },
         { key: 'notes', label: t('dashboardCollab.history.tabNotes'), icon: 'heroicons:document-text' },
     ];
@@ -145,6 +144,19 @@ async function onRolledBack() {
     emit('rolled-back');
     await load();
 }
+
+// A publish runs in the background: read the list again as it lands.
+let publishPoll: ReturnType<typeof setTimeout> | null = null;
+function onPublishing(tries = 0) {
+    if (publishPoll) clearTimeout(publishPoll);
+    publishPoll = setTimeout(async () => {
+        await load();
+        const running = (history.value?.releases || []).some((r: any) => r.status === 'publishing');
+        if (running && tries < 30) onPublishing(tries + 1);
+        else emit('rolled-back');  // what viewers see changed
+    }, 2000);
+}
+onBeforeUnmount(() => { if (publishPoll) clearTimeout(publishPoll); });
 
 async function onTransferred() {
     emit('transferred');

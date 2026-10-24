@@ -1,8 +1,9 @@
 <template>
     <!-- The draft page's preview bar (collab01): which version is on screen
-         and whose, pick another version or draft, publish this one, see
-         what changed, the history. Editors only: the draft page opens for
-         no one else. -->
+         and whose, pick another version (Live marks what viewers see),
+         publish this one, see what changed, the history. One line of
+         versions: separate drafts are not offered in the UI. Editors only:
+         the draft page opens for no one else. -->
     <div class="flex-shrink-0 min-h-9 bg-gray-50 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-700 px-2 sm:px-4 py-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs"
         data-testid="version-bar">
         <div class="flex items-center gap-1.5 min-w-0 text-gray-600 dark:text-gray-300">
@@ -29,28 +30,6 @@
                 <option v-for="v in versionOptions" :key="v.id" :value="String(v.number)">{{ v.label }}</option>
             </select>
         </label>
-
-        <!-- Draft picker: only once someone started a second draft -->
-        <label v-if="drafts.length > 1" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-            <span class="sr-only">{{ $t('dashboardCollab.page.draftPicker') }}</span>
-            <select
-                :value="selectedDraft"
-                data-testid="draft-picker"
-                :aria-label="$t('dashboardCollab.page.draftPicker')"
-                class="h-6 max-w-[180px] rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 text-xs ps-1.5 pe-6 py-0"
-                @change="onDraft(($event.target as HTMLSelectElement).value)"
-            >
-                <option v-for="d in drafts" :key="d.id || 'main'" :value="d.id ? (d.slug || '') : ''">{{ d.id ? d.name : $t('dashboardCollab.page.main') }}</option>
-            </select>
-        </label>
-
-        <button
-            v-if="canEdit"
-            type="button"
-            data-testid="new-draft"
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-            @click="$emit('new-draft')"
-        >{{ $t('dashboardCollab.page.newDraft') }}</button>
 
         <!-- Someone else's version: the charts are yours to run -->
         <div v-if="meta.version_is_mine === false && (showingAuthorData || withheldCount)" class="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
@@ -96,8 +75,7 @@
             </button>
             <PublishButton
                 v-if="canPublish && meta.version_id"
-                :artifact="{ id: meta.version_id, artifact_id: meta.id }"
-                :label="$t('dashboardCollab.page.publishThisVersion')"
+                :artifact="{ id: meta.version_id, artifact_id: meta.id, version: meta.version_number }"
                 @published="$emit('published')"
                 @review="$emit('review')"
             />
@@ -124,20 +102,17 @@ defineEmits<{
     (e: 'run-as-me'): void;
     (e: 'published'): void;
     (e: 'review'): void;
-    (e: 'new-draft'): void;
 }>();
 
 const { t } = useI18n();
 const route = useRoute();
 const { relativeTime } = useRelativeTime();
 
-const canEdit = computed(() => props.capabilities.includes('edit'));
 const canPublish = computed(() => props.capabilities.includes('publish'));
 const authorName = computed(() => props.meta?.version_author?.name || '');
 const runHint = computed(() => props.showingAuthorData
     ? t('dashboardCollab.page.notYourVersion', { name: authorName.value || '—' })
     : t('dashboardCollab.page.someNeedYourRun', { count: props.withheldCount || 0 }));
-const drafts = computed<any[]>(() => props.meta?.drafts || []);
 
 const selectedVersion = computed(() => (typeof route.query.version === 'string' ? route.query.version : ''));
 const selectedDraft = computed(() => (typeof route.query.draft === 'string' ? route.query.draft : ''));
@@ -166,8 +141,8 @@ const versionOptions = computed(() => {
             const parts = [t('dashboardCollab.page.versionShort', { n: v.number })];
             if (v.author?.name) parts.push(v.author.name);
             if (v.created_at) parts.push(relativeTime(v.created_at));
-            if (v.draft && drafts.value.length > 1) parts.push(v.draft);
-            if (v.published) parts.push(t('dashboardCollab.page.publishedTag'));
+            if (v.name) parts.splice(1, 0, `“${v.name}”`);
+            if (v.live) parts.push(t('dashboardCollab.versions.live'));
             return { id: v.id, number: v.number, draft: v.draft as string | null, label: parts.join(' · ') };
         });
 });
@@ -176,17 +151,10 @@ function onVersion(value: string) {
     const query: Record<string, string> = {};
     if (value) {
         query.version = value;
-        // Keep the draft the version belongs to, so the picker beside it agrees.
-        const chosen = versionOptions.value.find((v) => String(v.number) === value);
-        const draft = drafts.value.find((d) => d.id && d.name === chosen?.draft);
-        if (draft?.slug) query.draft = draft.slug;
     } else if (selectedDraft.value) {
         query.draft = selectedDraft.value;
     }
     navigateTo({ path: route.path, query });
 }
 
-function onDraft(slug: string) {
-    navigateTo({ path: route.path, query: slug ? { draft: slug } : {} });
-}
 </script>

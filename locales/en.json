@@ -6459,6 +6459,36 @@
       "canView": "Can view",
       "edit": "Edit",
       "editFailed": "Couldn't open the dashboard for editing"
+    },
+    "versions": {
+      "live": "Live",
+      "liveSince": "Live since {when}",
+      "publishedAt": "Published {when}",
+      "publishedTimes": " · published {n} times",
+      "more": "More",
+      "name": "Name this version",
+      "rename": "Rename",
+      "namePlaceholder": "e.g. v2, Q3 launch",
+      "nameFailed": "Couldn't save the name",
+      "restore": "Restore",
+      "restoreTitle": "Make v{n} live again?",
+      "restoreBody": "Viewers switch to it at once, with the data it had then.",
+      "restoreDone": "v{n} is live again",
+      "restoreFailed": "Couldn't restore",
+      "publish": "Publish",
+      "publishThis": "Publish this version",
+      "publishTitle": "Publish v{n}?",
+      "publishBody": "Its queries run again; viewers switch to it when they finish.",
+      "publishStarted": "Publishing v{n}…",
+      "publishFailed": "Couldn't publish",
+      "liveIs": "Live: v{n}",
+      "notPublished": "Not published",
+      "liveElsewhere": "Made in another conversation · opens a preview",
+      "continueFrom": "Continue from v{n}",
+      "publishN": "Publish v{n}",
+      "tipNotPublished": "Not published yet. Publish to share it with viewers.",
+      "tipLive": "Viewers see this version. Click to publish it again with fresh data.",
+      "tipReplace": "Viewers see v{live}. Publish v{n} to replace it."
     }
   },
   "dashboardSettings": {
@@ -6489,6 +6519,11 @@
     "refreshTitle": "Refresh data",
     "linkPreview": "Link:",
     "linkPreviewUnsaved": "After saving:",
-    "linkUseSuggestion": "Use “{slug}”"
+    "linkUseSuggestion": "Use “{slug}”",
+    "ownerTitle": "Owner",
+    "transferOwnership": "Transfer ownership",
+    "notesDesc": "What every editor's agent reads before it changes this dashboard.",
+    "versionsDesc": "Every saved version. Live is what viewers see.",
+    "conversationsDesc": "The conversations that edited this dashboard."
   }
 }

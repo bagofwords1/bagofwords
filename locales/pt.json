@@ -6083,6 +6083,36 @@
       "canView": "Pode ver",
       "edit": "Editar",
       "editFailed": "Não foi possível abrir o painel para edição"
+    },
+    "versions": {
+      "live": "Ao vivo",
+      "liveSince": "Ao vivo desde {when}",
+      "publishedAt": "Publicada {when}",
+      "publishedTimes": " · publicada {n} vezes",
+      "more": "Mais",
+      "name": "Dar nome a esta versão",
+      "rename": "Renomear",
+      "namePlaceholder": "ex.: v2, lançamento T3",
+      "nameFailed": "Não foi possível salvar o nome",
+      "restore": "Restaurar",
+      "restoreTitle": "Colocar v{n} ao vivo de novo?",
+      "restoreBody": "Os leitores passam a vê-la na hora, com os dados que tinha na época.",
+      "restoreDone": "v{n} está ao vivo de novo",
+      "restoreFailed": "Não foi possível restaurar",
+      "publish": "Publicar",
+      "publishThis": "Publicar esta versão",
+      "publishTitle": "Publicar v{n}?",
+      "publishBody": "Suas consultas rodam de novo; os leitores passam a vê-la quando terminarem.",
+      "publishStarted": "Publicando v{n}…",
+      "publishFailed": "Não foi possível publicar",
+      "liveIs": "Ao vivo: v{n}",
+      "notPublished": "Não publicado",
+      "liveElsewhere": "Criada em outra conversa · abre uma prévia",
+      "continueFrom": "Continuar a partir da v{n}",
+      "publishN": "Publicar v{n}",
+      "tipNotPublished": "Ainda não publicado. Publique para compartilhar com os leitores.",
+      "tipLive": "Os leitores veem esta versão. Clique para publicá-la de novo com dados atualizados.",
+      "tipReplace": "Os leitores veem a v{live}. Publique a v{n} para substituí-la."
     }
   },
   "dashboardSettings": {
@@ -6113,6 +6143,11 @@
     "refreshTitle": "Atualizar dados",
     "linkPreview": "Link:",
     "linkPreviewUnsaved": "Depois de salvar:",
-    "linkUseSuggestion": "Usar “{slug}”"
+    "linkUseSuggestion": "Usar “{slug}”",
+    "ownerTitle": "Proprietário",
+    "transferOwnership": "Transferir propriedade",
+    "notesDesc": "O que o agente de cada editor lê antes de alterar este painel.",
+    "versionsDesc": "Cada versão salva. Ao vivo é o que os leitores veem.",
+    "conversationsDesc": "As conversas que editaram este painel."
   }
 }

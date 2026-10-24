@@ -6083,6 +6083,36 @@
       "canView": "يمكنه العرض",
       "edit": "تعديل",
       "editFailed": "تعذّر فتح لوحة المعلومات للتعديل"
+    },
+    "versions": {
+      "live": "مباشر",
+      "liveSince": "مباشر منذ {when}",
+      "publishedAt": "نُشر {when}",
+      "publishedTimes": " · نُشر {n} مرات",
+      "more": "المزيد",
+      "name": "تسمية هذا الإصدار",
+      "rename": "إعادة التسمية",
+      "namePlaceholder": "مثلًا v2، إطلاق الربع الثالث",
+      "nameFailed": "تعذر حفظ الاسم",
+      "restore": "استعادة",
+      "restoreTitle": "جعل v{n} مباشرًا مرة أخرى؟",
+      "restoreBody": "ينتقل المشاهدون إليه فورًا، بالبيانات التي كانت فيه آنذاك.",
+      "restoreDone": "أصبح v{n} مباشرًا مرة أخرى",
+      "restoreFailed": "تعذرت الاستعادة",
+      "publish": "نشر",
+      "publishThis": "نشر هذا الإصدار",
+      "publishTitle": "نشر v{n}؟",
+      "publishBody": "تُشغَّل استعلاماته مجددًا؛ وينتقل المشاهدون إليه عند انتهائها.",
+      "publishStarted": "جارٍ نشر v{n}…",
+      "publishFailed": "تعذر النشر",
+      "liveIs": "مباشر: v{n}",
+      "notPublished": "غير منشور",
+      "liveElsewhere": "أُنشئ في محادثة أخرى · يفتح معاينة",
+      "continueFrom": "المتابعة من v{n}",
+      "publishN": "نشر v{n}",
+      "tipNotPublished": "لم يُنشر بعد. انشره لمشاركته مع المشاهدين.",
+      "tipLive": "يرى المشاهدون هذا الإصدار. انقر لنشره مجددًا ببيانات محدّثة.",
+      "tipReplace": "يرى المشاهدون v{live}. انشر v{n} لاستبداله."
     }
   },
   "dashboardSettings": {
@@ -6113,6 +6143,11 @@
     "refreshTitle": "تحديث البيانات",
     "linkPreview": "الرابط:",
     "linkPreviewUnsaved": "بعد الحفظ:",
-    "linkUseSuggestion": "استخدام ”{slug}“"
+    "linkUseSuggestion": "استخدام ”{slug}“",
+    "ownerTitle": "المالك",
+    "transferOwnership": "نقل الملكية",
+    "notesDesc": "ما يقرؤه وكيل كل محرر قبل أن يغيّر لوحة المعلومات هذه.",
+    "versionsDesc": "كل إصدار محفوظ. «مباشر» هو ما يراه المشاهدون.",
+    "conversationsDesc": "المحادثات التي حرّرت لوحة المعلومات هذه."
   }
 }

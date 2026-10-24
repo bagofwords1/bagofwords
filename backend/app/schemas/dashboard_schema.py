@@ -151,6 +151,9 @@ class DashboardReleaseSchema(BaseModel):
     status: Literal["publishing", "ready", "failed"]
     error: str | None = None
     source_version_id: str | None = None
+    # The version's number and name, as the toolbar says it ("Live: v5").
+    source_version_number: int | None = None
+    source_version_name: str | None = None
     published_by: str | None = None
     started_at: datetime | None = None
     published_at: datetime | None = None
@@ -163,6 +166,9 @@ class DashboardPublishStatusSchema(BaseModel):
     published: DashboardReleaseSchema | None = None
     latest: DashboardReleaseSchema | None = None
     has_unpublished_changes: bool
+    # The newest completed version (what Publish would make live).
+    newest_version_id: str | None = None
+    newest_version_number: int | None = None
     last_run: "DashboardRunSchema | None" = None
 
 
@@ -292,13 +298,26 @@ class DashboardHistoryRelease(BaseModel):
 
 
 class DashboardHistoryVersion(BaseModel):
+    """One row of the Versions list: who made it, its name, whether it is
+    live, when it was last published and how many times (each publish runs
+    the queries again), and the kept release Restore goes back to."""
     id: str
     number: int
+    name: str | None = None
     author: DashboardPerson | None = None
     created_at: datetime | None = None
     report_id: str
     draft: str | None = None
     published: bool = False
+    live: bool = False
+    published_at: datetime | None = None
+    publish_count: int = 0
+    restore_release_id: str | None = None
+
+
+class DashboardVersionNameUpdate(BaseModel):
+    """"" removes the name."""
+    name: str = Field(max_length=120)
 
 
 class DashboardHistorySchema(BaseModel):

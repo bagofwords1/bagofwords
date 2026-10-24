@@ -110,12 +110,21 @@ Adds `notes` (string|null; PUT `""` clears). PUT needs `settings`;
 ```json
 { "conversations": [{"report_id","user":{id,name},"started_at","ended_at","versions","draft","can_open"}],
   "releases": [{"id","status","live","version_id","version_number","published_by":{id,name},"published_at","error"}],
-  "versions": [{"id","number","author":{id,name},"created_at","report_id","draft","published"}],
+  "versions": [{"id","number","name","author":{id,name},"created_at","report_id","draft","published",
+                "live","published_at","publish_count","restore_release_id"}],
   "drafts": [DraftSchema] }
 ```
-Link a conversation only when `can_open`. Each ready, non-live release gets
-**Roll back**: `POST /dashboards/{id}/rollback {"release_id"}` (needs
-`publish`) → publish status. 404 `dashboard.release_not_kept`.
+Link a conversation only when `can_open`. The UI shows one Versions list:
+a version with `restore_release_id` gets **Restore**:
+`POST /dashboards/{id}/rollback {"release_id": restore_release_id}` (needs
+`publish`) → publish status, instant. 404 `dashboard.release_not_kept`. Any
+other non-live version gets **Publish this version** (`POST .../publish
+{"version_id", "force": true}`; its queries run again).
+
+**Name a version**: `PUT /dashboards/{id}/versions/{version_id}/name {"name"}`
+(needs `edit`; `""` removes it) → `{id, number, name}`. The publish status
+carries `published.source_version_number` / `source_version_name` and
+`newest_version_number` ("Live: v5", "Publish v7").
 
 ## Transfer — `POST /dashboards/{id}/transfer {"user_id"}` (needs `transfer`)
 → sharing (the previous owner becomes an editor). 400

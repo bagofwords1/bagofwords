@@ -13,12 +13,13 @@
         >
             <div class="relative">
                 <Spinner v-if="publishing" class="w-3.5 h-3.5" />
+                <Icon v-else-if="openIsLive" name="heroicons:check-circle" class="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
                 <Icon v-else name="heroicons:rocket-launch" class="w-3.5 h-3.5" />
-                <span v-if="!publishing && status.has_unpublished_changes"
+                <span v-if="!publishing && !openIsLive && !label"
                     data-testid="unpublished-dot"
                     class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
             </div>
-            <span class="text-xs whitespace-nowrap">{{ publishing ? $t('artifactFrame.publishing') : (label || $t('artifactFrame.publish')) }}</span>
+            <span class="text-xs whitespace-nowrap">{{ buttonText }}</span>
         </button>
     </UTooltip>
 
@@ -49,7 +50,7 @@ import Spinner from '~/components/Spinner.vue';
 // `artifact`: the version open in the editor; its artifact_id is the dashboard.
 // `label`: the button's text, when not "Publish" ("Publish this version").
 const props = defineProps<{ artifact: any; label?: string }>();
-const emit = defineEmits<{ (e: 'published'): void; (e: 'review'): void }>();
+const emit = defineEmits<{ (e: 'published'): void; (e: 'review'): void; (e: 'status', status: any): void }>();
 
 const { t } = useI18n();
 const toast = useToast();
@@ -66,11 +67,27 @@ const starting = ref(false);
 const publishing = computed(() => starting.value || status.value?.latest?.status === 'publishing');
 const dashboardId = computed(() => props.artifact?.artifact_id || null);
 
+// One vocabulary with the version picker and Settings › Versions:
+// "Publish v7", "Live", "Viewers see v5".
+const openNumber = computed(() => props.artifact?.version ?? null);
+const liveNumber = computed(() => status.value?.published?.source_version_number ?? null);
+const openIsLive = computed(() => !!status.value?.published?.source_version_id
+    && status.value.published.source_version_id === props.artifact?.id);
+const buttonText = computed(() => {
+    if (publishing.value) return t('artifactFrame.publishing');
+    if (props.label) return props.label;
+    if (openIsLive.value) return t('dashboardCollab.versions.live');
+    return openNumber.value != null ? t('dashboardCollab.versions.publishN', { n: openNumber.value }) : t('artifactFrame.publish');
+});
 const tooltip = computed(() => {
     if (publishing.value) return t('artifactFrame.publishing');
-    if (!status.value?.published) return t('artifactFrame.notPublishedYet');
-    return status.value.has_unpublished_changes ? t('artifactFrame.unpublishedChanges') : t('artifactFrame.publishedUpToDate');
+    if (!status.value?.published) return t('dashboardCollab.versions.tipNotPublished');
+    if (openIsLive.value) return t('dashboardCollab.versions.tipLive');
+    return liveNumber.value != null && openNumber.value != null
+        ? t('dashboardCollab.versions.tipReplace', { live: liveNumber.value, n: openNumber.value })
+        : t('artifactFrame.unpublishedChanges');
 });
+watch(status, (value) => emit('status', value));
 
 let poll: ReturnType<typeof setTimeout> | null = null;
 let alive = true;

@@ -6083,6 +6083,36 @@
       "canView": "Kann ansehen",
       "edit": "Bearbeiten",
       "editFailed": "Das Dashboard konnte nicht zum Bearbeiten geöffnet werden"
+    },
+    "versions": {
+      "live": "Live",
+      "liveSince": "Live seit {when}",
+      "publishedAt": "Veröffentlicht {when}",
+      "publishedTimes": " · {n}-mal veröffentlicht",
+      "more": "Mehr",
+      "name": "Version benennen",
+      "rename": "Umbenennen",
+      "namePlaceholder": "z. B. v2, Q3-Launch",
+      "nameFailed": "Name konnte nicht gespeichert werden",
+      "restore": "Wiederherstellen",
+      "restoreTitle": "v{n} wieder live schalten?",
+      "restoreBody": "Betrachter wechseln sofort dorthin, mit den Daten von damals.",
+      "restoreDone": "v{n} ist wieder live",
+      "restoreFailed": "Wiederherstellen fehlgeschlagen",
+      "publish": "Veröffentlichen",
+      "publishThis": "Diese Version veröffentlichen",
+      "publishTitle": "v{n} veröffentlichen?",
+      "publishBody": "Ihre Abfragen laufen erneut; Betrachter wechseln, sobald sie fertig sind.",
+      "publishStarted": "v{n} wird veröffentlicht…",
+      "publishFailed": "Veröffentlichen fehlgeschlagen",
+      "liveIs": "Live: v{n}",
+      "notPublished": "Nicht veröffentlicht",
+      "liveElsewhere": "In einer anderen Unterhaltung erstellt · öffnet eine Vorschau",
+      "continueFrom": "Von v{n} aus weitermachen",
+      "publishN": "v{n} veröffentlichen",
+      "tipNotPublished": "Noch nicht veröffentlicht. Veröffentlichen, um es mit Betrachtern zu teilen.",
+      "tipLive": "Betrachter sehen diese Version. Klicken, um sie mit frischen Daten erneut zu veröffentlichen.",
+      "tipReplace": "Betrachter sehen v{live}. v{n} veröffentlichen, um sie zu ersetzen."
     }
   },
   "dashboardSettings": {
@@ -6113,6 +6143,11 @@
     "refreshTitle": "Daten aktualisieren",
     "linkPreview": "Link:",
     "linkPreviewUnsaved": "Nach dem Speichern:",
-    "linkUseSuggestion": "„{slug}“ verwenden"
+    "linkUseSuggestion": "„{slug}“ verwenden",
+    "ownerTitle": "Eigentümer",
+    "transferOwnership": "Eigentum übertragen",
+    "notesDesc": "Was der Agent jedes Bearbeiters liest, bevor er dieses Dashboard ändert.",
+    "versionsDesc": "Jede gespeicherte Version. Live ist, was Betrachter sehen.",
+    "conversationsDesc": "Die Unterhaltungen, die dieses Dashboard bearbeitet haben."
   }
 }

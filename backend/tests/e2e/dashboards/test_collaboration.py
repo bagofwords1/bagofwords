@@ -370,6 +370,53 @@ def test_roll_back_is_instant_and_serves_the_old_rows(corpus, corpus_rows, test_
 
 
 @pytest.mark.e2e
+def test_versions_list_names_live_and_restore(corpus, corpus_rows, test_client, spawned):
+    """One list of versions (the toolbar and Settings › Versions): its name,
+    whether it is live, how many times it was published, and the kept
+    release Restore goes back to."""
+    aid = own(corpus_rows, corpus, DASH)
+    owner = as_(corpus, "owner")
+    status_url, history_url = f"/api/dashboards/{aid}/publish", f"/api/dashboards/{aid}/history"
+    for _ in range(2):  # the same version, published twice (its data refreshed)
+        assert _publish_api(test_client, corpus, aid).status_code == 202
+        _finish(spawned)
+    status = test_client.get(status_url, headers=owner).json()
+    live_number = status["published"]["source_version_number"]
+    assert live_number and status["newest_version_number"] == live_number and not status["has_unpublished_changes"]
+
+    newer = asyncio.run(_new_version(aid, corpus.reports[CONV], corpus.cast.id("owner")))
+    status = test_client.get(status_url, headers=owner).json()
+    assert status["newest_version_number"] == newer and status["has_unpublished_changes"]
+    assert status["published"]["source_version_number"] == live_number
+
+    rows = {v["number"]: v for v in test_client.get(history_url, headers=owner).json()["versions"]}
+    assert rows[newer]["live"] is False and rows[newer]["publish_count"] == 0 and rows[newer]["restore_release_id"] is None
+    assert rows[live_number]["live"] is True and rows[live_number]["publish_count"] == 2
+    assert rows[live_number]["restore_release_id"] is None  # already live
+
+    # Naming: editors only; "" removes it.
+    named_url = f"/api/dashboards/{aid}/versions/{rows[live_number]['id']}/name"
+    assert test_client.put(named_url, json={"name": "Q3 launch"}, headers=as_(corpus, "member")).status_code in (403, 404)
+    assert test_client.put(named_url, json={"name": " Q3 launch "}, headers=owner).json()["name"] == "Q3 launch"
+    _grant_editor(test_client, corpus, aid, "member")
+    assert test_client.put(named_url, json={"name": "v1"}, headers=as_(corpus, "member")).status_code == 200
+    assert test_client.get(status_url, headers=owner).json()["published"]["source_version_name"] == "v1"
+    other = f"/api/dashboards/{aid}/versions/00000000-0000-0000-0000-000000000000/name"
+    assert test_client.put(other, json={"name": "x"}, headers=owner).status_code == 404
+
+    # Publishing the newer one: the old one can be restored, instantly.
+    assert _publish_api(test_client, corpus, aid, version_id=rows[newer]["id"]).status_code == 202
+    _finish(spawned)
+    rows = {v["number"]: v for v in test_client.get(history_url, headers=owner).json()["versions"]}
+    assert rows[newer]["live"] and not rows[live_number]["live"] and rows[live_number]["name"] == "v1"
+    back = test_client.post(f"/api/dashboards/{aid}/rollback", json={"release_id": rows[live_number]["restore_release_id"]},
+                            headers=owner)
+    assert back.status_code == 200 and back.json()["published"]["source_version_number"] == live_number
+    assert spawned == []
+    assert test_client.put(named_url, json={"name": ""}, headers=owner).json()["name"] is None
+
+
+@pytest.mark.e2e
 def test_the_last_five_releases_are_kept(corpus, corpus_rows, test_client, spawned):
     from app.services.dashboard_collab import KEEP_RELEASES
 

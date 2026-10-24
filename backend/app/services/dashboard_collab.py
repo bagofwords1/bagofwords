@@ -241,7 +241,8 @@ async def _version_rows(db, artifact_id: str) -> dict:
     rows = (await db.execute(
         select(ArtifactVersion.id, ArtifactVersion.version, ArtifactVersion.report_id,
                ArtifactVersion.base_version_id, ArtifactVersion.user_id, ArtifactVersion.created_at,
-               ArtifactVersion.elements, ArtifactVersion.status, ArtifactVersion.draft_id)
+               ArtifactVersion.elements, ArtifactVersion.status, ArtifactVersion.draft_id,
+               ArtifactVersion.name)
         .where(ArtifactVersion.artifact_id == str(artifact_id))
     )).all()
     return {str(r.id): r for r in rows}
@@ -823,17 +824,45 @@ async def history(db, artifact: Artifact, user) -> dict:
                          "version_number": src.version if src is not None else None,
                          "published_by": await person(db, r.published_by), "published_at": r.published_at,
                          "error": r.error})
-    published_versions = {str(r["version_id"]) for r in releases if r["version_id"] and r["status"] == "ready"}
+    # Per version: its kept publishes (newest first). Several publishes of
+    # one version are one row ("published 2x"); Restore goes back to the
+    # newest kept one, instantly.
+    publishes: dict = {}
+    for r in releases:
+        if r["version_id"] and r["status"] == "ready":
+            publishes.setdefault(str(r["version_id"]), []).append(r)
+    live_version = str(live.source_version_id) if live is not None and live.source_version_id else None
+    newest_first = [v for v in sorted(vrows.values(), key=lambda r: r.version, reverse=True) if v.status == "completed"]
+    shown = newest_first[:60]
+    # The live version is listed even when it is older than the newest 60.
+    if live_version and live_version in vrows and all(str(v.id) != live_version for v in shown):
+        shown.append(vrows[live_version])
     versions = []
-    for v in sorted(vrows.values(), key=lambda r: r.version, reverse=True)[:60]:
-        if v.status != "completed":
-            continue
+    for v in shown:
         draft = drafts.get(str(v.draft_id)) if v.draft_id else None
-        versions.append({"id": str(v.id), "number": v.version, "author": await person(db, v.user_id),
+        kept = publishes.get(str(v.id), [])
+        is_live = str(v.id) == live_version
+        versions.append({"id": str(v.id), "number": v.version, "name": v.name, "author": await person(db, v.user_id),
                          "created_at": v.created_at, "report_id": str(v.report_id),
-                         "draft": draft.name if draft else None, "published": str(v.id) in published_versions})
+                         "draft": draft.name if draft else None, "published": bool(kept), "live": is_live,
+                         "published_at": max((r["published_at"] for r in kept if r["published_at"]), default=None),
+                         "publish_count": len(kept),
+                         "restore_release_id": None if is_live or not kept else kept[0]["id"]})
     return {"conversations": conversations, "releases": releases, "versions": versions,
             "drafts": await list_drafts(db, artifact)}
+
+
+async def name_version(db, artifact: Artifact, version_id: str, name: str) -> dict:
+    """Give a version of this dashboard a name ("" removes it). Versions do
+    not change once saved; the name is a label on one."""
+    version = (await db.execute(select(ArtifactVersion).options(lazyload("*")).where(
+        ArtifactVersion.id == str(version_id), ArtifactVersion.artifact_id == str(artifact.id),
+        ArtifactVersion.deleted_at.is_(None)))).scalars().first()
+    if version is None:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    version.name = (name or "").strip()[:120] or None
+    await db.commit()
+    return {"id": str(version.id), "number": version.version, "name": version.name}
 
 
 async def rollback(db, artifact: Artifact, user, organization, release_id: str) -> None:

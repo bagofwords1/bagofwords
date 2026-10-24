@@ -190,7 +190,6 @@
             @run-as-me="handleRun"
             @published="emit('reload')"
             @review="openChanges"
-            @new-draft="newDraftOpen = true"
         />
 
         <!-- Made with Bag of words badge -->
@@ -357,13 +356,6 @@
             @rolled-back="emit('reload')"
             @transferred="emit('reload')"
         />
-        <NewDraftModal
-            v-if="source === 'draft' && dashboardMeta?.id && hasCap('edit')"
-            v-model="newDraftOpen"
-            :dashboard-id="dashboardMeta.id"
-            :from-version-id="previewedVersion ? dashboardMeta.version_id : null"
-            :from-version-number="previewedVersion ? dashboardMeta.version_number : null"
-        />
         <!-- This page has no layout: Publish and Edit report through toasts -->
         <UNotifications v-if="source !== 'report'" />
     </div>
@@ -384,7 +376,6 @@ import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
 import DraftVersionBar from '~/components/dashboard/collab/DraftVersionBar.vue';
 import DashboardChangesPanel from '~/components/dashboard/collab/DashboardChangesPanel.vue';
-import NewDraftModal from '~/components/dashboard/collab/NewDraftModal.vue';
 import {
     chartOverlayScriptTag, vizIdsForKey, COLLAB_MARKS_MESSAGE, COLLAB_LOCATED_MESSAGE, type ChartMark,
 } from '~/components/dashboard/collab/chartOverlay';
@@ -417,7 +408,6 @@ const draftQuery = (() => {
     if (typeof draft === 'string' && draft) qs.set('draft', draft.slice(0, 120));
     return qs.toString();
 })();
-const previewedVersion = props.source === 'draft' && typeof route.query.version === 'string' && !!route.query.version;
 function withDraftQuery(url: string, query = draftQuery) {
     return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url;
 }
@@ -440,7 +430,6 @@ function hasCap(cap: string) {
 }
 const analyticsOpen = ref(false);
 const historyOpen = ref(false);
-const newDraftOpen = ref(false);
 
 const report = ref<any>({
     title: '',

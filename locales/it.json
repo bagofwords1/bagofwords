@@ -6083,6 +6083,36 @@
       "canView": "Può visualizzare",
       "edit": "Modifica",
       "editFailed": "Impossibile aprire la dashboard per la modifica"
+    },
+    "versions": {
+      "live": "Online",
+      "liveSince": "Online da {when}",
+      "publishedAt": "Pubblicata {when}",
+      "publishedTimes": " · pubblicata {n} volte",
+      "more": "Altro",
+      "name": "Dai un nome a questa versione",
+      "rename": "Rinomina",
+      "namePlaceholder": "es. v2, lancio Q3",
+      "nameFailed": "Impossibile salvare il nome",
+      "restore": "Ripristina",
+      "restoreTitle": "Rimettere online v{n}?",
+      "restoreBody": "I lettori passano subito a questa versione, con i dati di allora.",
+      "restoreDone": "v{n} è di nuovo online",
+      "restoreFailed": "Impossibile ripristinare",
+      "publish": "Pubblica",
+      "publishThis": "Pubblica questa versione",
+      "publishTitle": "Pubblicare v{n}?",
+      "publishBody": "Le sue query vengono rieseguite; i lettori passano a questa versione al termine.",
+      "publishStarted": "Pubblicazione di v{n}…",
+      "publishFailed": "Impossibile pubblicare",
+      "liveIs": "Online: v{n}",
+      "notPublished": "Non pubblicata",
+      "liveElsewhere": "Creata in un’altra conversazione · apre un’anteprima",
+      "continueFrom": "Continua da v{n}",
+      "publishN": "Pubblica v{n}",
+      "tipNotPublished": "Non ancora pubblicata. Pubblica per condividerla con i lettori.",
+      "tipLive": "I lettori vedono questa versione. Fai clic per ripubblicarla con dati aggiornati.",
+      "tipReplace": "I lettori vedono v{live}. Pubblica v{n} per sostituirla."
     }
   },
   "dashboardSettings": {
@@ -6113,6 +6143,11 @@
     "refreshTitle": "Aggiorna i dati",
     "linkPreview": "Link:",
     "linkPreviewUnsaved": "Dopo il salvataggio:",
-    "linkUseSuggestion": "Usa “{slug}”"
+    "linkUseSuggestion": "Usa “{slug}”",
+    "ownerTitle": "Proprietario",
+    "transferOwnership": "Trasferisci la proprietà",
+    "notesDesc": "Ciò che l’agente di ogni editor legge prima di modificare questa dashboard.",
+    "versionsDesc": "Ogni versione salvata. Online è ciò che vedono i lettori.",
+    "conversationsDesc": "Le conversazioni che hanno modificato questa dashboard."
   }
 }

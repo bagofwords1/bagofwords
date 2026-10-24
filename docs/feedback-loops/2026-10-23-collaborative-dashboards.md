@@ -332,8 +332,14 @@ artifacts (dashboard)
   - "Everyone in project Sales can edit";
   - general access: Restricted / Organization / Anyone with the link;
   - Copy link / Done. Editors always share; only the owner makes it public.
-- **Settings** (the toolbar's gear): when the data refreshes (and who is
-  emailed), the Data tab, chat, viewer credentials, the link's name.
+- **Settings** (the toolbar's gear), a tab menu: General (name, link,
+  refresh, owner), Viewers (Data tab, chat, viewer credentials), Notes; Data,
+  Analytics, Resources; History › Versions (one list: Live, published when,
+  Name, Restore, Publish this version) and Conversations.
+- **One line of versions** in the UI: every save is a version (v1, v2 …,
+  optionally named); one is Live. Words: Publish, Live, Restore. The toolbar
+  shows "vN · Live: vM" and "Publish vN"; `?version=N` opens one version.
+  Separate drafts stay in the API but the UI no longer offers them.
 - **Toolbar** (`/d` and in the conversation):
   - "Edit in my conversation";
   - avatars of who's editing;

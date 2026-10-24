@@ -6430,6 +6430,36 @@
       "canView": "Puede ver",
       "edit": "Editar",
       "editFailed": "No se pudo abrir el panel para editarlo"
+    },
+    "versions": {
+      "live": "En vivo",
+      "liveSince": "En vivo desde {when}",
+      "publishedAt": "Publicada {when}",
+      "publishedTimes": " · publicada {n} veces",
+      "more": "Más",
+      "name": "Nombrar esta versión",
+      "rename": "Renombrar",
+      "namePlaceholder": "p. ej. v2, lanzamiento T3",
+      "nameFailed": "No se pudo guardar el nombre",
+      "restore": "Restaurar",
+      "restoreTitle": "¿Volver a poner v{n} en vivo?",
+      "restoreBody": "Los lectores pasan a verla al instante, con los datos que tenía entonces.",
+      "restoreDone": "v{n} vuelve a estar en vivo",
+      "restoreFailed": "No se pudo restaurar",
+      "publish": "Publicar",
+      "publishThis": "Publicar esta versión",
+      "publishTitle": "¿Publicar v{n}?",
+      "publishBody": "Sus consultas se ejecutan de nuevo; los lectores pasan a verla cuando terminan.",
+      "publishStarted": "Publicando v{n}…",
+      "publishFailed": "No se pudo publicar",
+      "liveIs": "En vivo: v{n}",
+      "notPublished": "Sin publicar",
+      "liveElsewhere": "Creada en otra conversación · abre una vista previa",
+      "continueFrom": "Continuar desde v{n}",
+      "publishN": "Publicar v{n}",
+      "tipNotPublished": "Aún no se ha publicado. Publícalo para compartirlo con los lectores.",
+      "tipLive": "Los lectores ven esta versión. Haz clic para publicarla de nuevo con datos actualizados.",
+      "tipReplace": "Los lectores ven v{live}. Publica v{n} para reemplazarla."
     }
   },
   "dashboardSettings": {
@@ -6460,6 +6490,11 @@
     "refreshTitle": "Actualizar datos",
     "linkPreview": "Enlace:",
     "linkPreviewUnsaved": "Al guardar:",
-    "linkUseSuggestion": "Usar «{slug}»"
+    "linkUseSuggestion": "Usar «{slug}»",
+    "ownerTitle": "Propietario",
+    "transferOwnership": "Transferir la propiedad",
+    "notesDesc": "Lo que lee el agente de cada editor antes de cambiar este panel.",
+    "versionsDesc": "Cada versión guardada. En vivo es lo que ven los lectores.",
+    "conversationsDesc": "Las conversaciones que editaron este panel."
   }
 }

@@ -139,6 +139,7 @@ def upgrade() -> None:
         batch.add_column(sa.Column("base_version_id", S36, nullable=True))
         batch.add_column(sa.Column("draft_id", S36, nullable=True))
         batch.add_column(sa.Column("elements", sa.JSON(), nullable=True))
+        batch.add_column(sa.Column("name", sa.String(length=120), nullable=True))
         batch.create_foreign_key("fk_artifact_versions_draft_id", "artifact_drafts", ["draft_id"], ["id"],
                                  ondelete="SET NULL")
     op.create_index("ix_artifact_versions_draft_id", "artifact_versions", ["draft_id"])
@@ -162,6 +163,7 @@ def downgrade() -> None:
     op.drop_index("ix_artifact_versions_draft_id", table_name="artifact_versions")
     with op.batch_alter_table("artifact_versions") as batch:
         batch.drop_constraint("fk_artifact_versions_draft_id", type_="foreignkey")
+        batch.drop_column("name")
         batch.drop_column("elements")
         batch.drop_column("draft_id")
         batch.drop_column("base_version_id")

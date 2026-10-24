@@ -197,6 +197,29 @@
                                 <p class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.notifyDesc') }}</p>
                             </div>
                             </div>
+
+                            <!-- Owner: who it belongs to; the owner (or an org admin) hands it over. -->
+                            <div data-testid="settings-owner">
+                                <div class="text-sm font-medium text-gray-900 dark:text-white mb-1.5">{{ $t('dashboardSettings.ownerTitle') }}</div>
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="flex items-center gap-2.5 min-w-0">
+                                        <div class="w-8 h-8 shrink-0 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-sm font-medium text-gray-600 dark:text-gray-300">
+                                            {{ (ownerPerson?.name || ownerPerson?.email || '?').charAt(0).toUpperCase() }}
+                                        </div>
+                                        <div class="flex flex-col min-w-0">
+                                            <span class="text-sm text-gray-900 dark:text-gray-100 truncate">{{ ownerPerson?.name || ownerPerson?.email || $t('dashboardCollab.share.unknownPerson') }}</span>
+                                            <span v-if="ownerPerson?.name && ownerPerson?.email" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ ownerPerson.email }}</span>
+                                        </div>
+                                    </div>
+                                    <button v-if="capabilities?.includes('transfer') && !transferOpen" type="button" data-testid="settings-transfer"
+                                        class="shrink-0 text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline" @click="transferOpen = true">
+                                        {{ $t('dashboardSettings.transferOwnership') }}
+                                    </button>
+                                </div>
+                                <div v-if="transferOpen" class="mt-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
+                                    <HistoryOwner :dashboard-id="dashboardId" @transferred="onTransferred" />
+                                </div>
+                            </div>
                         </section>
 
                         <!-- What viewers get -->
@@ -281,7 +304,10 @@
                     <div v-if="visited.analytics" v-show="tab === 'analytics'" data-testid="settings-analytics">
                         <ArtifactResourceExplorer embedded :artifact-id="dashboardId" view="analytics" />
                     </div>
-                    <!-- History: one instance for its five tabs; the menu picks the section. -->
+                    <div v-if="visited.notes" v-show="tab === 'notes'" data-testid="settings-notes">
+                        <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" />
+                    </div>
+                    <!-- History: one instance for its tabs; the menu picks the section. -->
                     <div v-if="visited.history" v-show="isHistoryTab" data-testid="settings-history">
                         <DashboardHistoryModal embedded :dashboard-id="dashboardId" :capabilities="capabilities || []"
                             :section="historySection" @rolled-back="emit('history-changed')" @transferred="emit('history-changed')"
@@ -311,6 +337,8 @@
 <script setup lang="ts">
 import DataModal from './DataModal.vue'
 import DashboardHistoryModal from './DashboardHistoryModal.vue'
+import HistoryNotes from './history/HistoryNotes.vue'
+import HistoryOwner from './history/HistoryOwner.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
@@ -343,29 +371,28 @@ const isOpen = ref(false)
 const loading = ref(false)
 
 // ---- Tabs ----
-type HistoryTab = 'versions' | 'published' | 'conversations' | 'notes' | 'owner'
-type Tab = 'general' | 'viewers' | 'data' | 'resources' | 'analytics' | HistoryTab
-const HISTORY_TABS: HistoryTab[] = ['versions', 'published', 'conversations', 'notes', 'owner']
+type HistoryTab = 'versions' | 'conversations'
+type Tab = 'general' | 'viewers' | 'notes' | 'data' | 'resources' | 'analytics' | HistoryTab
+const HISTORY_TABS: HistoryTab[] = ['versions', 'conversations']
 const tab = ref<Tab>('general')
 type TabItem = { key: Tab; group: number; icon: string; label: string; desc: string; groupLabel?: string }
 const tabs = computed<TabItem[]>(() => {
     const list: TabItem[] = [
         { key: 'general', group: 1, icon: 'heroicons:adjustments-horizontal', label: t('dashboardSettings.tabGeneral'), desc: '' },
         { key: 'viewers', group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
+        // The README every editor's agent reads (collab01).
+        ...(capabilities.value?.includes('edit') ? [{ key: 'notes' as const, group: 1, icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), desc: t('dashboardSettings.notesDesc') }] : []),
         { key: 'data', group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
     ]
     if (props.resourcesAvailable) list.push({ key: 'resources', group: 2, icon: 'heroicons:server-stack', label: t('artifactResources.inspect'), desc: t('artifactResources.readOnlyLabel') })
     if (props.showAnalytics) list.push({ key: 'analytics', group: 2, icon: 'heroicons:chart-bar', label: t('artifactResources.analytics'), desc: t('artifactResources.readOnly') })
-    // History (collab01): editors; the owner tab for whoever may hand it over.
+    // History (collab01): editors. Versions holds what is live and Restore.
     if (capabilities.value?.includes('edit')) {
-        const h = { group: 3, groupLabel: t('dashboardCollab.history.title'), desc: t('dashboardCollab.history.subtitle') }
+        const h = { group: 3, groupLabel: t('dashboardCollab.history.title') }
         list.push(
-            { key: 'versions', icon: 'heroicons:clock', label: t('dashboardCollab.history.tabVersions'), ...h },
-            { key: 'published', icon: 'heroicons:rocket-launch', label: t('dashboardCollab.history.tabPublished'), ...h },
-            { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), ...h },
-            { key: 'notes', icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), ...h },
+            { key: 'versions', icon: 'heroicons:clock', label: t('dashboardCollab.history.tabVersions'), desc: t('dashboardSettings.versionsDesc'), ...h },
+            { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), desc: t('dashboardSettings.conversationsDesc'), ...h },
         )
-        if (capabilities.value.includes('transfer')) list.push({ key: 'owner', icon: 'heroicons:user-circle', label: t('dashboardCollab.history.tabOwner'), ...h })
     }
     return list
 })
@@ -500,6 +527,16 @@ const hasRls = ref(false)
 const hasUserScoped = ref(false)
 const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
+// ---- Owner ----
+const ownerId = ref<string | null>(null)
+const ownerPerson = computed(() => members.value.find(m => m.id === ownerId.value) || null)
+const transferOpen = ref(false)
+async function onTransferred() {
+    transferOpen.value = false
+    emit('history-changed')
+    await load()
+}
+
 // ---- Name ----
 const nameDraft = ref('')
 const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() && nameDraft.value.trim() !== (props.title || ''))
@@ -567,19 +604,21 @@ async function load() {
     const id = props.dashboardId
     loading.value = true
     try {
-        const [settingsRes, statusRes, reportRes, agentsRes, modelsRes, membersRes] = await Promise.all([
+        const [settingsRes, statusRes, reportRes, agentsRes, modelsRes, membersRes, sharingRes] = await Promise.all([
             useMyFetch(`/dashboards/${id}/settings`),
             useMyFetch(`/dashboards/${id}/publish`),
             useMyFetch(`/reports/${props.reportId}`),
             useMyFetch(`/reports/${props.reportId}/artifact_chat/agents`),
             useMyFetch('/llm/models?is_enabled=true'),
             useMyFetch('/organization/members'),
+            useMyFetch(`/dashboards/${id}/sharing`),
             loadCapabilities(id),
         ])
         if (id !== props.dashboardId) return
         if (settingsRes.error.value) throw settingsRes.error.value
         const st = (settingsRes.data.value || {}) as any
         const report = (reportRes.data.value || {}) as any
+        ownerId.value = ((sharingRes.data.value || {}) as any).owner_id || null
         members.value = ((membersRes.data.value as any[]) || []).map((u: any) => ({ id: u.id, name: u.name || '', email: u.email }))
         refreshMode.value = refreshModeFromReport(st)
         hydrateCron(st.cron_schedule)
@@ -645,6 +684,7 @@ async function save() {
 
 function open(at: Tab = 'general') {
     tab.value = at
+    transferOpen.value = false
     for (const k of Object.keys(visited)) delete visited[k]
     isOpen.value = true
     visited[visitKey(at)] = true

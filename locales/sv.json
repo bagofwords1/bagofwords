@@ -6083,6 +6083,36 @@
       "canView": "Kan visa",
       "edit": "Redigera",
       "editFailed": "Det gick inte att öppna instrumentpanelen för redigering"
+    },
+    "versions": {
+      "live": "Live",
+      "liveSince": "Live sedan {when}",
+      "publishedAt": "Publicerad {when}",
+      "publishedTimes": " · publicerad {n} gånger",
+      "more": "Mer",
+      "name": "Namnge versionen",
+      "rename": "Byt namn",
+      "namePlaceholder": "t.ex. v2, Q3-lansering",
+      "nameFailed": "Det gick inte att spara namnet",
+      "restore": "Återställ",
+      "restoreTitle": "Göra v{n} live igen?",
+      "restoreBody": "Tittarna byter till den direkt, med de data den hade då.",
+      "restoreDone": "v{n} är live igen",
+      "restoreFailed": "Det gick inte att återställa",
+      "publish": "Publicera",
+      "publishThis": "Publicera den här versionen",
+      "publishTitle": "Publicera v{n}?",
+      "publishBody": "Dess frågor körs igen; tittarna byter till den när de är klara.",
+      "publishStarted": "Publicerar v{n}…",
+      "publishFailed": "Det gick inte att publicera",
+      "liveIs": "Live: v{n}",
+      "notPublished": "Inte publicerad",
+      "liveElsewhere": "Skapad i en annan konversation · öppnar en förhandsvisning",
+      "continueFrom": "Fortsätt från v{n}",
+      "publishN": "Publicera v{n}",
+      "tipNotPublished": "Inte publicerad än. Publicera för att dela med tittare.",
+      "tipLive": "Tittarna ser den här versionen. Klicka för att publicera den igen med färska data.",
+      "tipReplace": "Tittarna ser v{live}. Publicera v{n} för att ersätta den."
     }
   },
   "dashboardSettings": {
@@ -6113,6 +6143,11 @@
     "refreshTitle": "Uppdatera data",
     "linkPreview": "Länk:",
     "linkPreviewUnsaved": "Efter att du sparat:",
-    "linkUseSuggestion": "Använd ”{slug}”"
+    "linkUseSuggestion": "Använd ”{slug}”",
+    "ownerTitle": "Ägare",
+    "transferOwnership": "Överför ägarskap",
+    "notesDesc": "Det som varje redigerares agent läser innan den ändrar instrumentpanelen.",
+    "versionsDesc": "Varje sparad version. Live är det tittarna ser.",
+    "conversationsDesc": "Konversationerna som redigerade instrumentpanelen."
   }
 }

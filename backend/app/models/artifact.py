@@ -183,6 +183,8 @@ class ArtifactVersion(BaseSchema):
     # The named draft it belongs to; NULL is the dashboard's implicit draft.
     draft_id = Column(String(36), ForeignKey('artifact_drafts.id', name='fk_artifact_versions_draft_id',
                                              ondelete='SET NULL'), nullable=True, index=True)
+    # A name someone gave this version ("v2", "Q3 launch"); collab01.
+    name = Column(String(120), nullable=True)
     # Each chart's fingerprint when this version was made:
     # {element_key: {"fp": ..., "title": ...}} (dashboard_collab.snapshot_elements).
     # Comparing versions by it says who changed which chart.

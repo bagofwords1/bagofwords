@@ -60,12 +60,14 @@ _ERROR_LIMIT = 2000
 
 # ── what the owner sees ──────────────────────────────────────────────────
 
-def _release_view(release: ArtifactRelease | None) -> dict | None:
+def _release_view(release: ArtifactRelease | None, version: ArtifactVersion | None = None) -> dict | None:
     if release is None:
         return None
     return {
         "id": str(release.id), "status": release.status, "error": release.error,
         "source_version_id": str(release.source_version_id) if release.source_version_id else None,
+        "source_version_number": version.version if version is not None else None,
+        "source_version_name": version.name if version is not None else None,
         "published_by": str(release.published_by) if release.published_by else None,
         "started_at": release.created_at, "published_at": release.published_at,
     }
@@ -91,10 +93,20 @@ async def publish_status(db, artifact: Artifact) -> dict:
     )).scalars().first()
     newest = await _newest_completed_version(db, artifact)
     published_version = str(live.source_version_id) if live is not None and live.source_version_id else None
+
+    async def source(release):
+        if release is None or not release.source_version_id:
+            return None
+        return (await db.execute(select(ArtifactVersion).options(lazyload("*")).where(
+            ArtifactVersion.id == str(release.source_version_id)))).scalars().first()
+
+    shown = live if live is not None and live.status == "ready" else None
     return {
-        "published": _release_view(live if live is not None and live.status == "ready" else None),
-        "latest": _release_view(latest),
+        "published": _release_view(shown, await source(shown)),
+        "latest": _release_view(latest, await source(latest)),
         "has_unpublished_changes": newest is not None and str(newest.id) != published_version,
+        "newest_version_id": str(newest.id) if newest is not None else None,
+        "newest_version_number": newest.version if newest is not None else None,
         "last_run": {"at": artifact.last_run_at, "status": artifact.last_run_status,
                      "error": artifact.last_run_error},
     }
