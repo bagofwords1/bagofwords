@@ -6110,6 +6110,9 @@
     "tabGeneral": "Allmänt",
     "nameTitle": "Namn",
     "linkTitle": "Länk",
-    "refreshTitle": "Uppdatera data"
+    "refreshTitle": "Uppdatera data",
+    "linkPreview": "Länk:",
+    "linkPreviewUnsaved": "Efter att du sparat:",
+    "linkUseSuggestion": "Använd ”{slug}”"
   }
 }

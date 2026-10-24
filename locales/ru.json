@@ -6110,6 +6110,9 @@
     "tabGeneral": "Общие",
     "nameTitle": "Название",
     "linkTitle": "Ссылка",
-    "refreshTitle": "Обновление данных"
+    "refreshTitle": "Обновление данных",
+    "linkPreview": "Ссылка:",
+    "linkPreviewUnsaved": "После сохранения:",
+    "linkUseSuggestion": "Использовать «{slug}»"
   }
 }

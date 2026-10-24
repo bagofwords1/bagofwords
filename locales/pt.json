@@ -6110,6 +6110,9 @@
     "tabGeneral": "Geral",
     "nameTitle": "Nome",
     "linkTitle": "Link",
-    "refreshTitle": "Atualizar dados"
+    "refreshTitle": "Atualizar dados",
+    "linkPreview": "Link:",
+    "linkPreviewUnsaved": "Depois de salvar:",
+    "linkUseSuggestion": "Usar “{slug}”"
   }
 }

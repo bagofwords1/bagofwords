@@ -6110,6 +6110,9 @@
     "tabGeneral": "عام",
     "nameTitle": "الاسم",
     "linkTitle": "الرابط",
-    "refreshTitle": "تحديث البيانات"
+    "refreshTitle": "تحديث البيانات",
+    "linkPreview": "الرابط:",
+    "linkPreviewUnsaved": "بعد الحفظ:",
+    "linkUseSuggestion": "استخدام ”{slug}“"
   }
 }

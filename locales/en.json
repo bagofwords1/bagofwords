@@ -6486,6 +6486,9 @@
     "tabGeneral": "General",
     "nameTitle": "Name",
     "linkTitle": "Link",
-    "refreshTitle": "Refresh data"
+    "refreshTitle": "Refresh data",
+    "linkPreview": "Link:",
+    "linkPreviewUnsaved": "After saving:",
+    "linkUseSuggestion": "Use “{slug}”"
   }
 }

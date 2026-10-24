@@ -6457,6 +6457,9 @@
     "tabGeneral": "General",
     "nameTitle": "Nombre",
     "linkTitle": "Enlace",
-    "refreshTitle": "Actualizar datos"
+    "refreshTitle": "Actualizar datos",
+    "linkPreview": "Enlace:",
+    "linkPreviewUnsaved": "Al guardar:",
+    "linkUseSuggestion": "Usar «{slug}»"
   }
 }

@@ -71,15 +71,34 @@
                             <div data-testid="settings-link">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.linkTitle') }}</div>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ $t('dashboardSettings.linkDesc') }}</p>
-                                <div class="flex items-center h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 min-w-0 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent"
-                                    :class="!canSettings ? 'opacity-60' : ''" dir="ltr" data-testid="link-name-editor">
-                                    <span class="text-gray-400 whitespace-nowrap">{{ linkPrefix }}</span>
-                                    <input v-model="slugDraft" type="text" maxlength="80" :disabled="!canSettings"
-                                        class="flex-1 min-w-0 border-none outline-none bg-transparent p-0 text-sm text-gray-800 dark:text-gray-200"
-                                        :placeholder="dashboardId" />
+                                <!-- The fixed part is drawn as a grey add-on; only the name is typed. -->
+                                <div class="flex items-stretch h-9 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 min-w-0 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent"
+                                    :class="[!canSettings ? 'opacity-60' : '', !slugValid ? 'border-red-400' : '']" dir="ltr" data-testid="link-name-editor">
+                                    <span class="flex items-center px-3 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-e border-gray-200 dark:border-gray-700 whitespace-nowrap select-none max-w-[55%] truncate"
+                                        :title="linkPrefix">{{ linkPrefixShort }}</span>
+                                    <input v-model="slugDraft" type="text" maxlength="80" :disabled="!canSettings" data-testid="link-name-input"
+                                        class="flex-1 min-w-0 border-none outline-none bg-transparent px-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
+                                        :placeholder="slugSuggestion || 'my-dashboard'" />
                                 </div>
                                 <p v-if="!slugValid" class="text-[11px] text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
-                                <p v-else-if="!slugDraft && saved.slug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
+                                <!-- Empty: offer the name as a link name in one click. -->
+                                <button v-else-if="!slugDraft && slugSuggestion && canSettings" type="button" data-testid="link-name-suggest"
+                                    class="mt-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline" @click="slugDraft = slugSuggestion">
+                                    {{ $t('dashboardSettings.linkUseSuggestion', { slug: slugSuggestion }) }}
+                                </button>
+                                <!-- The link as it will work once saved. -->
+                                <div class="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 min-w-0" data-testid="link-preview">
+                                    <Icon name="heroicons:link" class="w-3.5 h-3.5 flex-shrink-0" />
+                                    <span class="flex-shrink-0">{{ slugDraft.trim() === (saved.slug || '') ? $t('dashboardSettings.linkPreview') : $t('dashboardSettings.linkPreviewUnsaved') }}</span>
+                                    <span class="font-mono text-gray-700 dark:text-gray-300 truncate" dir="ltr">{{ effectiveLink }}</span>
+                                    <!-- Copy only what already works: an unsaved name is not a link yet. -->
+                                    <button v-if="slugDraft.trim() === (saved.slug || '')" type="button"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 text-blue-700 dark:text-blue-400 hover:underline" @click="copyEffectiveLink">
+                                        <Icon :name="linkCopied ? 'heroicons:check' : 'heroicons:clipboard-document'" class="w-3.5 h-3.5" />
+                                        {{ linkCopied ? $t('share.copied') : $t('share.copyLink') }}
+                                    </button>
+                                </div>
+                                <p v-if="!slugDraft && saved.slug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
                             </div>
 
                             <div data-testid="settings-refresh">
@@ -491,6 +510,24 @@ const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/
 const slugValid = computed(() => !slugDraft.value || SLUG_RULE.test(slugDraft.value))
 watch(slugDraft, (v) => { if (v !== v.toLowerCase()) slugDraft.value = v.toLowerCase() })
 const linkPrefix = computed(() => `${window.location.origin}/d/`)
+// The add-on shows the host without the scheme; the full link is below.
+const linkPrefixShort = computed(() => `${window.location.host}/d/`)
+// The dashboard's name as a link name, offered when the field is empty.
+const slugSuggestion = computed(() => {
+    const s = nameDraft.value.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80).replace(/-+$/, '')
+    return SLUG_RULE.test(s) ? s : ''
+})
+// What the link will be once saved: the name if valid, else the id.
+const effectiveLink = computed(() => `${linkPrefix.value}${slugDraft.value && slugValid.value ? slugDraft.value : props.dashboardId}`)
+const linkCopied = ref(false)
+async function copyEffectiveLink() {
+    try {
+        await navigator.clipboard.writeText(effectiveLink.value)
+        linkCopied.value = true
+        setTimeout(() => { linkCopied.value = false }, 2000)
+    } catch { /* clipboard refused: nothing to undo */ }
+}
 
 // ---- Load / save ----
 // What was read on open: the save sends only what changed, so an editor

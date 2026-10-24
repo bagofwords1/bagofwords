@@ -6477,6 +6477,9 @@
     "tabGeneral": "כללי",
     "nameTitle": "שם",
     "linkTitle": "קישור",
-    "refreshTitle": "רענון נתונים"
+    "refreshTitle": "רענון נתונים",
+    "linkPreview": "קישור:",
+    "linkPreviewUnsaved": "אחרי שמירה:",
+    "linkUseSuggestion": "שימוש ב־”{slug}“"
   }
 }
