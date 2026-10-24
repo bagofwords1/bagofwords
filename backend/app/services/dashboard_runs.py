@@ -2,7 +2,8 @@
 
 The conversation's two viewer runs, asked of the dashboard:
 
-- `viewer_run` re-executes the release's charts for one reader, as
+- `viewer_run` re-executes the release's charts (and the copies they need
+  without showing: filter option queries, loaded steps) for one reader, as
   ReportService.viewer_rerun_report_steps does for a conversation;
 - `filter_run` executes one copy with filter values, as
   QueryService.run_query_viewer does, with the same per-reader cache.
@@ -128,6 +129,44 @@ async def _shown_query_ids(db, release: ArtifactRelease) -> list[str]:
     return list(dict.fromkeys(str(q) for (q,) in (await db.execute(stmt)).all() if q))
 
 
+async def _needed_query_ids(db, release: ArtifactRelease) -> list[str]:
+    """The release's charts, then the copies they need without showing: a
+    filter's option query (its options_source names the copy) and every step
+    they load, transitively -- the release holds both (copy_dashboard). A
+    reader whose snapshot is withheld sees only their own run's rows, so a
+    filter whose option query has no chart would offer nothing."""
+    from app.ai.code_execution.loadables import extract_loadable_refs
+    from app.services.identity_taint import release_step_lookup
+
+    shown = await _shown_query_ids(db, release)
+    copies = {str(qid): (params, code) for qid, params, code in (await db.execute(
+        select(Query.id, Query.parameters, Step.code)
+        .outerjoin(Step, Step.id == Query.default_step_id)
+        .where(Query.artifact_release_id == str(release.id))
+    )).all()}
+    lookup = await release_step_lookup(db, str(release.id))
+
+    def reached(qid: str):
+        params, code = copies.get(qid, (None, None))
+        for spec in params if isinstance(params, list) else []:
+            src = spec.get("options_source") if isinstance(spec, dict) else None
+            if isinstance(src, dict) and src.get("query_id"):
+                yield str(src["query_id"])
+        for ref in extract_loadable_refs(code or "")[0]:
+            step = lookup(ref)
+            if step is not None:
+                yield str(step.query_id)
+
+    seen, out, todo = set(shown), list(shown), list(shown)
+    while todo:
+        for qid in reached(todo.pop()):
+            if qid in copies and qid not in seen:
+                seen.add(qid)
+                out.append(qid)
+                todo.append(qid)
+    return out
+
+
 async def in_dependency_order(db, release: ArtifactRelease, targets: list) -> list:
     """`targets` ((step_id, code) pairs) reordered so a step runs after the
     steps of the release it loads (load_step, resolved as the release
@@ -248,7 +287,7 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     files = await release_files(db, release)
     ctx = ExecContext.from_release(release, data_sources=sources, files=files, credential_user=credential_user,
                                    reader=caller, organization=organization, organization_settings=org_settings)
-    targets, unrunnable = await ReportService()._rerun_target_steps(db, await _shown_query_ids(db, release))
+    targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
     # What a chart loads runs first, so it loads the reader's fresh rows.
     targets = await in_dependency_order(db, release, targets)
     total, succeeded, failed = 0, 0, 0

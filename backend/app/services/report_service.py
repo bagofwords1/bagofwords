@@ -1426,7 +1426,8 @@ class ReportService:
         return report
 
     async def _artifact_query_ids(
-        self, db: AsyncSession, report_id: str, artifact_id: str | None = None
+        self, db: AsyncSession, report_id: str, artifact_id: str | None = None,
+        *, with_dependencies: bool = False,
     ) -> list[str]:
         """Resolve the query ids a report rerun must refresh.
 
@@ -1435,7 +1436,13 @@ class ReportService:
         non-deleted one. Superseded artifact versions live on as rows, so
         collecting across all of them would rerun queries the dashboard no
         longer shows. (Dashboard-layout visualization blocks are deprecated
-        and no longer consulted.)"""
+        and no longer consulted.)
+
+        `with_dependencies` adds what the charts need without showing: a
+        filter's option query and the steps they load (collect_dashboard_deps).
+        A viewer whose snapshot is withheld sees only what their own run
+        produced, so a filter whose option query has no chart would offer
+        nothing."""
         from app.models.artifact import Artifact, ArtifactVersion
         artifact_stmt = (
             select(ArtifactVersion.content)
@@ -1472,6 +1479,13 @@ class ReportService:
                 )
             )
             query_ids = list(dict.fromkeys(str(q) for (q,) in viz_result.all() if q))
+        if with_dependencies and query_ids:
+            from types import SimpleNamespace
+
+            from app.services.dashboard_copy import collect_dashboard_deps
+
+            deps = await collect_dashboard_deps(db, SimpleNamespace(report_id=str(report_id), content=content))
+            query_ids = list(dict.fromkeys([*query_ids, *(str(q) for q in deps.hidden_query_ids)]))
         return query_ids
 
     async def rerun_report_steps(
@@ -1647,8 +1661,8 @@ class ReportService:
         """Re-execute a shared artifact's steps for a viewer.
 
         `query_ids` (collab01's draft run): exactly the queries the version on
-        screen needs -- its charts and its filter-option queries -- instead of
-        those its charts name alone (an option query has no chart).
+        screen needs. Without it, the artifact's charts plus what they need
+        without showing (filter option queries, loaded steps).
 
         `admitted_editor` (collab01): a dashboard editor previewing a version
         made in someone else's conversation. The caller opened the dashboard's
@@ -1784,7 +1798,7 @@ class ReportService:
         steps_failed = 0
 
         if query_ids is None:
-            query_ids = await self._artifact_query_ids(db, report_id, artifact_id)
+            query_ids = await self._artifact_query_ids(db, report_id, artifact_id, with_dependencies=True)
         targets, unrunnable = await self._rerun_target_steps(db, query_ids)
         if only_identity_scoped:
             from app.services.report_bursting import identity_scoped_step_ids
