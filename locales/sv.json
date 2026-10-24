@@ -5936,14 +5936,21 @@
       "viewersAfterPublish": "Läsare kan läggas till efter publicering. De du lägger till nu kan redigera.",
       "viewersOrgWide": "Alla i organisationen kan redan se den. De du lägger till här kan redigera.",
       "viewersPublic": "Alla med länken kan redan se den. De du lägger till här kan redigera.",
-      "editorsCanShare": "Redigerare kan dela",
-      "editorsCanShareDesc": "Låt redigerare lägga till och ta bort läsare och redigerare. Bara du kan göra den offentlig.",
       "readOnly": "Du kan se vem som har åtkomst, men inte ändra det.",
-      "ownerTurnedOffSharing": "Ägaren har stängt av delning för redigerare. Du kan se vem som har åtkomst, men inte ändra det.",
       "publicOwnerOnly": "Bara ägaren kan göra den här instrumentpanelen offentlig.",
       "removeAccess": "Ta bort åtkomst",
       "unknownPerson": "Okänd person",
-      "unknownGroup": "Okänd grupp"
+      "unknownGroup": "Okänd grupp",
+      "addPeople": "Lägg till personer",
+      "addPeopleAndGroups": "Lägg till personer och grupper",
+      "generalAccess": "Allmän åtkomst",
+      "restricted": "Begränsad",
+      "restrictedDesc": "Endast personer med åtkomst kan öppna med länken",
+      "organizationDesc": "Alla i den här organisationen som har länken kan visa",
+      "publicDesc": "Alla på internet som har länken kan visa",
+      "done": "Klar",
+      "shareNamed": "Dela ”{name}”",
+      "emailLink": "Skicka länken via e-post"
     },
     "history": {
       "title": "Historik",
@@ -6077,5 +6084,30 @@
       "edit": "Redigera",
       "editFailed": "Det gick inte att öppna instrumentpanelen för redigering"
     }
+  },
+  "dashboardSettings": {
+    "open": "Instrumentpanelens inställningar",
+    "title": "Instrumentpanelens inställningar",
+    "refreshDesc": "När instrumentpanelens frågor körs igen.",
+    "refreshOff": "Av",
+    "refreshRecurring": "Enligt schema",
+    "refreshOnOpen": "När den öppnas",
+    "onOpenNote": "Kör frågorna igen när någon öppnar instrumentpanelen, högst en gång var 5:e minut.",
+    "lastRun": "Senaste körning: {at}",
+    "notifyTitle": "E-post efter varje körning",
+    "notifyDesc": "Mottagarna får ett e-postmeddelande med resultaten efter varje schemalagd körning.",
+    "notifyPlaceholder": "Skriv en e-postadress eller välj en medlem…",
+    "ownerOnly": "Endast ägaren kan ändra detta.",
+    "linkDesc": "Ett läsbart namn för instrumentpanelens länk. Lämna tomt för att använda id:t.",
+    "saved": "Inställningarna sparades",
+    "saveFailed": "Det gick inte att spara inställningarna",
+    "loadFailed": "Det gick inte att läsa in inställningarna",
+    "tabRefresh": "Uppdatering",
+    "tabViewers": "Tittare",
+    "tabLink": "Länk",
+    "tabData": "Data",
+    "viewersDesc": "Vad personerna du delar med får.",
+    "dataDesc": "Frågorna bakom instrumentpanelen.",
+    "unsaved": "Osparade ändringar"
   }
 }

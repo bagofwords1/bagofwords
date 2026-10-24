@@ -891,7 +891,7 @@ Built on this design in the same PR stack. Full plan, decisions and DoD:
   answer to "may this person …" (view, edit, publish, share, settings,
   analytics, run_identity, make_public, transfer); every route and the UI ask
   it. Only the owner makes a dashboard public, switches run-as-creator, or
-  transfers it; editors share unless `editors_can_share` is off.
+  transfers it; editors share like the owner.
 - **Several conversations.** `artifact_conversations` lists the conversations
   editing a dashboard. Joining (`POST /dashboards/{id}/edit`) copies the
   newest draft version into the editor's own conversation; every copied step

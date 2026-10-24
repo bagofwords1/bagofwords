@@ -90,9 +90,8 @@ class Artifact(BaseSchema):
     # The conversation whose old /r/{report_id} link leads here (dashfc03).
     # No foreign key: the value outlives the conversation it names.
     legacy_report_id = Column(String(36), nullable=True)
-    # Collaboration (collab01): whether editors may change the sharing, and the
-    # dashboard's notes -- its README, carried into every editing conversation.
-    editors_can_share = Column(Boolean, nullable=False, default=True, server_default='1')
+    # Collaboration (collab01): the dashboard's notes -- its README, carried
+    # into every editing conversation.
     notes = Column(Text, nullable=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.

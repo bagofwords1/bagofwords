@@ -177,13 +177,13 @@ def test_what_each_role_may_do(corpus, corpus_rows, test_client, spawned):
     viewer = test_client.get(f"/api/d/{aid}", headers=as_(corpus, "direct_share")).json()
     assert viewer["capabilities"] == ["view"]
 
-    # Editors share unless the owner turns it off -- the owner's switch alone.
-    assert test_client.put(sharing, json={"visibility": "shared", "editors_can_share": False},
-                           headers=as_(corpus, "member")).status_code == 403
-    assert test_client.put(sharing, json={"visibility": "shared", "editors_can_share": False},
-                           headers=as_(corpus, "owner")).status_code == 200
-    assert test_client.put(sharing, json={"visibility": "shared", "user_ids": []},
-                           headers=as_(corpus, "member")).status_code == 403
+    # Editors always share, like the owner (only public stays the owner's).
+    editor = test_client.get(f"/api/d/{aid}", headers=as_(corpus, "member")).json()
+    assert "share" in editor["capabilities"]
+    shared = test_client.put(sharing, json={"visibility": "shared", "user_ids": [corpus.cast.id("direct_share")]},
+                             headers=as_(corpus, "member"))
+    assert shared.status_code == 200, shared.text
+    assert "editors_can_share" not in shared.json()
 
     # A dashboard that runs as its creator: only the owner publishes it.
     assert test_client.put(settings, json={"shared_run_identity": "creator"},

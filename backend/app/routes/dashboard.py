@@ -167,7 +167,7 @@ async def set_dashboard_sharing(
     return await dashboard_settings_service.set_sharing(
         db, artifact, visibility=payload.visibility, user_ids=payload.user_ids, group_ids=payload.group_ids,
         current_user=current_user, organization=organization, editor_user_ids=payload.editor_user_ids,
-        editor_group_ids=payload.editor_group_ids, editors_can_share=payload.editors_can_share,
+        editor_group_ids=payload.editor_group_ids,
     )
 
 

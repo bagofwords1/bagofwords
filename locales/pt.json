@@ -5936,14 +5936,21 @@
       "viewersAfterPublish": "Leitores podem ser adicionados após a publicação. Quem você adicionar agora poderá editar.",
       "viewersOrgWide": "Todos na organização já podem vê-lo. Quem você adicionar aqui poderá editar.",
       "viewersPublic": "Qualquer pessoa com o link já pode vê-lo. Quem você adicionar aqui poderá editar.",
-      "editorsCanShare": "Editores podem compartilhar",
-      "editorsCanShareDesc": "Permitir que editores adicionem e removam leitores e editores. Só você pode torná-lo público.",
       "readOnly": "Você pode ver quem tem acesso, mas não pode alterar.",
-      "ownerTurnedOffSharing": "O proprietário desativou o compartilhamento para editores. Você pode ver quem tem acesso, mas não pode alterar.",
       "publicOwnerOnly": "Só o proprietário pode tornar este painel público.",
       "removeAccess": "Remover acesso",
       "unknownPerson": "Pessoa desconhecida",
-      "unknownGroup": "Grupo desconhecido"
+      "unknownGroup": "Grupo desconhecido",
+      "addPeople": "Adicionar pessoas",
+      "addPeopleAndGroups": "Adicionar pessoas e grupos",
+      "generalAccess": "Acesso geral",
+      "restricted": "Restrito",
+      "restrictedDesc": "Apenas pessoas com acesso podem abrir com o link",
+      "organizationDesc": "Qualquer pessoa desta organização com o link pode ver",
+      "publicDesc": "Qualquer pessoa na internet com o link pode ver",
+      "done": "Concluído",
+      "shareNamed": "Compartilhar “{name}”",
+      "emailLink": "Enviar o link por e-mail"
     },
     "history": {
       "title": "Histórico",
@@ -6077,5 +6084,30 @@
       "edit": "Editar",
       "editFailed": "Não foi possível abrir o painel para edição"
     }
+  },
+  "dashboardSettings": {
+    "open": "Configurações do painel",
+    "title": "Configurações do painel",
+    "refreshDesc": "Quando as consultas deste painel são executadas novamente.",
+    "refreshOff": "Desligado",
+    "refreshRecurring": "Agendado",
+    "refreshOnOpen": "Ao abrir",
+    "onOpenNote": "Executa as consultas novamente quando alguém abre o painel, no máximo uma vez a cada 5 minutos.",
+    "lastRun": "Última execução: {at}",
+    "notifyTitle": "E-mail após cada execução",
+    "notifyDesc": "Os destinatários recebem um e-mail com os resultados após cada execução agendada.",
+    "notifyPlaceholder": "Digite um e-mail ou escolha um membro…",
+    "ownerOnly": "Apenas o proprietário pode alterar isso.",
+    "linkDesc": "Um nome legível para o link do painel. Deixe vazio para usar o id.",
+    "saved": "Configurações salvas",
+    "saveFailed": "Não foi possível salvar as configurações",
+    "loadFailed": "Não foi possível carregar as configurações",
+    "tabRefresh": "Atualização",
+    "tabViewers": "Leitores",
+    "tabLink": "Link",
+    "tabData": "Dados",
+    "viewersDesc": "O que recebem as pessoas com quem você compartilha.",
+    "dataDesc": "As consultas por trás deste painel.",
+    "unsaved": "Alterações não salvas"
   }
 }

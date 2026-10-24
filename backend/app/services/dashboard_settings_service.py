@@ -105,7 +105,6 @@ async def get_sharing(db, artifact) -> dict:
             "published": await published_release(db, artifact) is not None,
             "user_ids": users, "group_ids": groups,
             "editor_user_ids": editor_users, "editor_group_ids": editor_groups,
-            "editors_can_share": bool(artifact.editors_can_share),
             "owner_id": str(artifact.owner_id) if artifact.owner_id else None,
             "project_id": str(artifact.project_id) if artifact.project_id else None}
 
@@ -145,8 +144,7 @@ async def _check_groups(db, organization, group_ids: list[str]) -> None:
 async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | None,
                       group_ids: list[str] | None, current_user: User, organization,
                       before_publish: bool = False, editor_user_ids: list[str] | None = None,
-                      editor_group_ids: list[str] | None = None,
-                      editors_can_share: bool | None = None) -> dict:
+                      editor_group_ids: list[str] | None = None) -> dict:
     """`before_publish`: the conversation's old publish call (phase 9) saves
     the sharing and then publishes; /d serves only a ready release, so it
     takes effect when that one is ready.
@@ -155,8 +153,8 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     edit grants stand whatever the visibility, before the first publish too
     (people edit a draft together before anyone else sees it). Someone in
     both lists is an editor; the owner is never a grant. Only the owner makes
-    a dashboard public or changes whether editors may share."""
-    from app.services.dashboard_access import CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, capabilities
+    a dashboard public; editors share like the owner."""
+    from app.services.dashboard_access import CAP_MAKE_PUBLIC, capabilities
 
     caps = await capabilities(db, artifact, current_user)
     release = await published_release(db, artifact)
@@ -165,9 +163,6 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     if visibility == "public" and artifact.visibility != "public" and CAP_MAKE_PUBLIC not in caps:
         raise AppError.forbidden(ErrorCode.DASHBOARD_PUBLIC_OWNER_ONLY,
                                  "Only the owner can make this dashboard public")
-    if editors_can_share is not None and bool(editors_can_share) != bool(artifact.editors_can_share) \
-            and CAP_RUN_IDENTITY not in caps:
-        raise AppError.forbidden()
     if visibility == "public":
         if release is not None:
             monitoring = release.bow_source_access
@@ -192,8 +187,6 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     old_groups = set(old["view"][1]) | set(old["edit"][1])
     previous = artifact.visibility
     artifact.visibility = visibility
-    if editors_can_share is not None:
-        artifact.editors_can_share = bool(editors_can_share)
     aid = str(artifact.id)
 
     async def replace(column, role, ids):
@@ -232,7 +225,7 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     new_groups = set(now["view"][1]) | set(now["edit"][1])
     await _notify(db, artifact, sorted(new_users - old_users), sorted(new_groups - old_groups), current_user)
     if (previous != visibility or user_ids is not None or group_ids is not None
-            or editor_user_ids is not None or editor_group_ids is not None or editors_can_share is not None):
+            or editor_user_ids is not None or editor_group_ids is not None):
         await _audit(db, organization, current_user, artifact, "dashboard.sharing_changed",
                      {"visibility": visibility, "editors": len(now["edit"][0]) + len(now["edit"][1])})
     return await get_sharing(db, artifact)

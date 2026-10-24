@@ -137,17 +137,17 @@
           </button>
         </UTooltip>
 
-        <!-- Data (query manager) and Schedule stay visible next to Refresh:
-             the three things a dashboard owner touches routinely. Each
-             component renders its own trigger and keeps its modal mounted. -->
-        <DataModal
-          v-if="report"
-          :report-id="reportId"
-          :artifact-id="selectedArtifact?.id"
-          :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
-          :artifact-mode="selectedArtifact?.mode"
-        />
-        <CronModal v-if="report" :report="report" :dashboard-id="selectedArtifact?.artifact_id" compact />
+        <!-- Settings stay visible next to Refresh: one window with a tab
+             each for the schedule, what viewers get, the link, the queries
+             behind it (Data), its resources and its analytics. Who has
+             access is Share's. -->
+        <DashboardSettingsModal v-if="report && selectedArtifact?.artifact_id" :report-id="reportId"
+          :dashboard-id="selectedArtifact.artifact_id"
+          :artifact-id="selectedArtifact.id"
+          :artifact-viz-ids="selectedArtifact.content?.visualization_ids || []"
+          :artifact-mode="selectedArtifact.mode"
+          :resources-available="resourcesAvailable && !verificationPreview"
+          :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -223,8 +223,8 @@
         <PublishButton v-if="report && selectedArtifact" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges" />
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
-          :dashboard-id="selectedArtifact?.artifact_id" />
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
+          :item-name="selectedArtifact.title" :dashboard-id="selectedArtifact.artifact_id" />
       </div>
     </div>
 
@@ -553,8 +553,6 @@
       </UModal>
     </Teleport>
   </div>
-  <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
-    :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
   <!-- The dashboard's history (collab01): conversations, versions, releases. -->
   <DashboardHistoryModal
     v-if="historyOpen && selectedArtifact?.artifact_id"
@@ -570,8 +568,7 @@
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
-import CronModal from '../CronModal.vue';
-import DataModal from './DataModal.vue';
+import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import DashboardHistoryModal from './DashboardHistoryModal.vue';
@@ -1079,8 +1076,6 @@ function postToRuntimeFrames(message: any) {
     try { frame?.contentWindow?.postMessage(message, '*'); } catch { /* frame not ready */ }
   }
 }
-const resourceInspectorOpen = ref(false);
-const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
 const resourcesAvailable = ref(false);
 
 
@@ -1430,7 +1425,6 @@ const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
 watch(() => selectedArtifact.value?.artifact_id, async (id) => {
   resourcesAvailable.value = false;
-  resourceInspectorOpen.value = false;
   if (!id || props.verificationPreview) return;
   try {
     await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
@@ -1715,11 +1709,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   }
 
   if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    // Resources and analytics are tabs of the dashboard's settings (the gear).
     const inspectors = [];
-    if (resourcesAvailable.value) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
-    // Analytics: whoever the dashboard grants it (its owner and editors,
-    // collab01); the API enforces it on its own.
-    if (isReportOwner.value || dashboardCaps.value.includes('analytics')) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
     // History: the conversations, versions and releases (Roll back) -- editors.
     if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { historyOpen.value = true; } });
     view.unshift(...inspectors);

@@ -6312,14 +6312,21 @@
       "viewersAfterPublish": "Viewers can be added after publishing. People you add now can edit.",
       "viewersOrgWide": "Everyone in the organization can already view it. People you add here can edit.",
       "viewersPublic": "Anyone with the link can already view it. People you add here can edit.",
-      "editorsCanShare": "Editors can share",
-      "editorsCanShareDesc": "Let editors add and remove viewers and editors. Only you can make it public.",
       "readOnly": "You can see who has access, but you can't change it.",
-      "ownerTurnedOffSharing": "The owner has turned off sharing for editors. You can see who has access, but you can't change it.",
       "publicOwnerOnly": "Only the owner can make this dashboard public.",
       "removeAccess": "Remove access",
       "unknownPerson": "Unknown person",
-      "unknownGroup": "Unknown group"
+      "unknownGroup": "Unknown group",
+      "addPeople": "Add people",
+      "addPeopleAndGroups": "Add people and groups",
+      "generalAccess": "General access",
+      "restricted": "Restricted",
+      "restrictedDesc": "Only people with access can open with the link",
+      "organizationDesc": "Anyone in this organization with the link can view",
+      "publicDesc": "Anyone on the internet with the link can view",
+      "done": "Done",
+      "shareNamed": "Share “{name}”",
+      "emailLink": "Email the link"
     },
     "history": {
       "title": "History",
@@ -6453,5 +6460,30 @@
       "edit": "Edit",
       "editFailed": "Couldn't open the dashboard for editing"
     }
+  },
+  "dashboardSettings": {
+    "open": "Dashboard settings",
+    "title": "Dashboard settings",
+    "refreshDesc": "When this dashboard's queries run again.",
+    "refreshOff": "Off",
+    "refreshRecurring": "On a schedule",
+    "refreshOnOpen": "When opened",
+    "onOpenNote": "Runs the queries again when someone opens the dashboard, at most once every 5 minutes.",
+    "lastRun": "Last run: {at}",
+    "notifyTitle": "Email after each run",
+    "notifyDesc": "Recipients get an email with the results after each scheduled run.",
+    "notifyPlaceholder": "Type an email or pick a member…",
+    "ownerOnly": "Only the owner can change this.",
+    "linkDesc": "A readable name for the dashboard's link. Leave it empty to use the id.",
+    "saved": "Settings saved",
+    "saveFailed": "Couldn't save the settings",
+    "loadFailed": "Couldn't load the settings",
+    "tabRefresh": "Refresh",
+    "tabViewers": "Viewers",
+    "tabLink": "Link",
+    "tabData": "Data",
+    "viewersDesc": "What the people you share it with get.",
+    "dataDesc": "The queries behind this dashboard.",
+    "unsaved": "Unsaved changes"
   }
 }

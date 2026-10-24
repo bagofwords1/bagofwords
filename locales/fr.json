@@ -5936,14 +5936,21 @@
       "viewersAfterPublish": "Vous pourrez ajouter des lecteurs après la publication. Les personnes ajoutées maintenant pourront modifier.",
       "viewersOrgWide": "Toute l'organisation peut déjà le voir. Les personnes ajoutées ici pourront modifier.",
       "viewersPublic": "Toute personne disposant du lien peut déjà le voir. Les personnes ajoutées ici pourront modifier.",
-      "editorsCanShare": "Les éditeurs peuvent partager",
-      "editorsCanShareDesc": "Autoriser les éditeurs à ajouter et retirer des lecteurs et des éditeurs. Vous seul pouvez le rendre public.",
       "readOnly": "Vous voyez qui a accès, mais vous ne pouvez pas le modifier.",
-      "ownerTurnedOffSharing": "Le propriétaire a désactivé le partage pour les éditeurs. Vous voyez qui a accès, mais vous ne pouvez pas le modifier.",
       "publicOwnerOnly": "Seul le propriétaire peut rendre ce tableau de bord public.",
       "removeAccess": "Retirer l'accès",
       "unknownPerson": "Personne inconnue",
-      "unknownGroup": "Groupe inconnu"
+      "unknownGroup": "Groupe inconnu",
+      "addPeople": "Ajouter des personnes",
+      "addPeopleAndGroups": "Ajouter des personnes et des groupes",
+      "generalAccess": "Accès général",
+      "restricted": "Limité",
+      "restrictedDesc": "Seules les personnes ayant accès peuvent l’ouvrir avec le lien",
+      "organizationDesc": "Toute personne de cette organisation disposant du lien peut le consulter",
+      "publicDesc": "Toute personne sur Internet disposant du lien peut le consulter",
+      "done": "OK",
+      "shareNamed": "Partager « {name} »",
+      "emailLink": "Envoyer le lien par e-mail"
     },
     "history": {
       "title": "Historique",
@@ -6077,5 +6084,30 @@
       "edit": "Modifier",
       "editFailed": "Impossible d'ouvrir le tableau de bord pour le modifier"
     }
+  },
+  "dashboardSettings": {
+    "open": "Paramètres du tableau de bord",
+    "title": "Paramètres du tableau de bord",
+    "refreshDesc": "Quand les requêtes de ce tableau de bord sont relancées.",
+    "refreshOff": "Désactivé",
+    "refreshRecurring": "Planifié",
+    "refreshOnOpen": "À l’ouverture",
+    "onOpenNote": "Relance les requêtes quand quelqu’un ouvre le tableau de bord, au plus une fois toutes les 5 minutes.",
+    "lastRun": "Dernière exécution : {at}",
+    "notifyTitle": "E-mail après chaque exécution",
+    "notifyDesc": "Les destinataires reçoivent un e-mail avec les résultats après chaque exécution planifiée.",
+    "notifyPlaceholder": "Saisissez un e-mail ou choisissez un membre…",
+    "ownerOnly": "Seul le propriétaire peut modifier ceci.",
+    "linkDesc": "Un nom lisible pour le lien du tableau de bord. Laissez vide pour utiliser l’identifiant.",
+    "saved": "Paramètres enregistrés",
+    "saveFailed": "Impossible d’enregistrer les paramètres",
+    "loadFailed": "Impossible de charger les paramètres",
+    "tabRefresh": "Actualisation",
+    "tabViewers": "Lecteurs",
+    "tabLink": "Lien",
+    "tabData": "Données",
+    "viewersDesc": "Ce que reçoivent les personnes avec qui vous le partagez.",
+    "dataDesc": "Les requêtes derrière ce tableau de bord.",
+    "unsaved": "Modifications non enregistrées"
   }
 }

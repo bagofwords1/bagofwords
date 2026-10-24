@@ -5936,14 +5936,21 @@
       "viewersAfterPublish": "I lettori si possono aggiungere dopo la pubblicazione. Chi aggiungi ora potrà modificare.",
       "viewersOrgWide": "Tutti nell'organizzazione possono già vederla. Chi aggiungi qui potrà modificare.",
       "viewersPublic": "Chiunque abbia il link può già vederla. Chi aggiungi qui potrà modificare.",
-      "editorsCanShare": "Gli editor possono condividere",
-      "editorsCanShareDesc": "Consenti agli editor di aggiungere e rimuovere lettori ed editor. Solo tu puoi renderla pubblica.",
       "readOnly": "Puoi vedere chi ha accesso, ma non puoi modificarlo.",
-      "ownerTurnedOffSharing": "Il proprietario ha disattivato la condivisione per gli editor. Puoi vedere chi ha accesso, ma non puoi modificarlo.",
       "publicOwnerOnly": "Solo il proprietario può rendere pubblica questa dashboard.",
       "removeAccess": "Rimuovi accesso",
       "unknownPerson": "Persona sconosciuta",
-      "unknownGroup": "Gruppo sconosciuto"
+      "unknownGroup": "Gruppo sconosciuto",
+      "addPeople": "Aggiungi persone",
+      "addPeopleAndGroups": "Aggiungi persone e gruppi",
+      "generalAccess": "Accesso generale",
+      "restricted": "Con restrizioni",
+      "restrictedDesc": "Solo le persone con accesso possono aprirlo con il link",
+      "organizationDesc": "Chiunque in questa organizzazione abbia il link può visualizzare",
+      "publicDesc": "Chiunque su internet abbia il link può visualizzare",
+      "done": "Fine",
+      "shareNamed": "Condividi “{name}”",
+      "emailLink": "Invia il link via email"
     },
     "history": {
       "title": "Cronologia",
@@ -6077,5 +6084,30 @@
       "edit": "Modifica",
       "editFailed": "Impossibile aprire la dashboard per la modifica"
     }
+  },
+  "dashboardSettings": {
+    "open": "Impostazioni della dashboard",
+    "title": "Impostazioni della dashboard",
+    "refreshDesc": "Quando le query di questa dashboard vengono rieseguite.",
+    "refreshOff": "Disattivato",
+    "refreshRecurring": "Pianificato",
+    "refreshOnOpen": "All’apertura",
+    "onOpenNote": "Riesegue le query quando qualcuno apre la dashboard, al massimo una volta ogni 5 minuti.",
+    "lastRun": "Ultima esecuzione: {at}",
+    "notifyTitle": "Email dopo ogni esecuzione",
+    "notifyDesc": "I destinatari ricevono un’email con i risultati dopo ogni esecuzione pianificata.",
+    "notifyPlaceholder": "Digita un’email o scegli un membro…",
+    "ownerOnly": "Solo il proprietario può modificarlo.",
+    "linkDesc": "Un nome leggibile per il link della dashboard. Lascia vuoto per usare l’id.",
+    "saved": "Impostazioni salvate",
+    "saveFailed": "Impossibile salvare le impostazioni",
+    "loadFailed": "Impossibile caricare le impostazioni",
+    "tabRefresh": "Aggiornamento",
+    "tabViewers": "Lettori",
+    "tabLink": "Link",
+    "tabData": "Dati",
+    "viewersDesc": "Cosa ricevono le persone con cui la condividi.",
+    "dataDesc": "Le query dietro questa dashboard.",
+    "unsaved": "Modifiche non salvate"
   }
 }

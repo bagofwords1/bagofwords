@@ -9,8 +9,7 @@ no existing row changes, nothing is backfilled.
 
 - `artifact_shares.role`: 'view' (every existing grant: all a grant meant
   before) or 'edit'.
-- `artifacts.editors_can_share`, `artifacts.notes`: the owner's switch and
-  the dashboard's README.
+- `artifacts.notes`: the dashboard's README.
 - `artifact_drafts`: named drafts. A version with no draft is on the
   implicit one ("Main"), so existing versions need no row.
 - `artifact_conversations`: the conversations editing a dashboard besides
@@ -134,7 +133,6 @@ def upgrade() -> None:
         batch.add_column(sa.Column("role", sa.String(length=10), nullable=False, server_default="view"))
 
     with op.batch_alter_table("artifacts") as batch:
-        batch.add_column(sa.Column("editors_can_share", sa.Boolean(), nullable=False, server_default=sa.true()))
         batch.add_column(sa.Column("notes", sa.Text(), nullable=True))
 
     with op.batch_alter_table("artifact_versions") as batch:
@@ -170,7 +168,6 @@ def downgrade() -> None:
 
     with op.batch_alter_table("artifacts") as batch:
         batch.drop_column("notes")
-        batch.drop_column("editors_can_share")
 
     with op.batch_alter_table("artifact_shares") as batch:
         batch.drop_column("role")

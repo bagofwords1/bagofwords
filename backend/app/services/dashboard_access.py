@@ -168,8 +168,7 @@ _OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER}
 async def capabilities(db, artifact: Artifact, user) -> set[str]:
     """What `user` may do with this dashboard. The owner: everything. An
     editor: edit, publish (not a dashboard that runs as its creator -- its
-    readers run with the owner's credentials), share (unless the owner turned
-    that off), settings, analytics. The organization's admin: read and hand
+    readers run with the owner's credentials), share, settings, analytics. The organization's admin: read and hand
     it over. Anyone /d lets in: view. Nobody else: nothing."""
     if await counts_as_owner(db, artifact, user):
         return set(_OWNER_CAPS)
@@ -178,8 +177,6 @@ async def capabilities(db, artifact: Artifact, user) -> set[str]:
         caps = set(_EDITOR_CAPS)
         if (artifact.shared_run_identity or "viewer") == "creator":
             caps.discard(CAP_PUBLISH)
-        if not artifact.editors_can_share:
-            caps.discard(CAP_SHARE)
     if await is_org_admin(db, artifact, user):
         caps |= {CAP_VIEW, CAP_TRANSFER}
     if CAP_VIEW not in caps:

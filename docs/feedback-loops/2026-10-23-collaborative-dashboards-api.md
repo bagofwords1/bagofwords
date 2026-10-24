@@ -19,7 +19,7 @@ subset of:
 | `share` | change viewers/editors (PUT sharing) |
 | `make_public` | set visibility `public` (owner only) |
 | `settings` | schedule, chat, Data tab, link name, notes |
-| `run_identity` | switch viewer↔creator credentials; toggle "Editors can share" (owner only) |
+| `run_identity` | switch viewer↔creator credentials (owner only) |
 | `transfer` | hand the dashboard to another editor (owner, org admin) |
 | `analytics` | read view analytics |
 
@@ -86,8 +86,8 @@ relative}. Review changes / Publish anyway" — "Publish anyway" re-POSTs with
 GET → { "visibility": "none|shared|internal|public", "published",
         "user_ids", "group_ids",                 // viewers (count while 'shared')
         "editor_user_ids", "editor_group_ids",   // editors (any visibility, before publish too)
-        "editors_can_share": true, "owner_id", "project_id" }
-PUT ← { "visibility", "user_ids"?, "group_ids"?, "editor_user_ids"?, "editor_group_ids"?, "editors_can_share"? }
+        "owner_id", "project_id" }
+PUT ← { "visibility", "user_ids"?, "group_ids"?, "editor_user_ids"?, "editor_group_ids"? }
 ```
 A list left out stays as it is. Someone in both lists is an editor. Errors:
 `dashboard.share_requires_publish` (visibility ≠ none before the first

@@ -5936,14 +5936,21 @@
       "viewersAfterPublish": "Leser können nach dem Veröffentlichen hinzugefügt werden. Wen du jetzt hinzufügst, kann bearbeiten.",
       "viewersOrgWide": "Alle in der Organisation können es bereits sehen. Wen du hier hinzufügst, kann bearbeiten.",
       "viewersPublic": "Alle mit dem Link können es bereits sehen. Wen du hier hinzufügst, kann bearbeiten.",
-      "editorsCanShare": "Bearbeiter können teilen",
-      "editorsCanShareDesc": "Bearbeiter dürfen Leser und Bearbeiter hinzufügen und entfernen. Nur du kannst es öffentlich machen.",
       "readOnly": "Du siehst, wer Zugriff hat, kannst es aber nicht ändern.",
-      "ownerTurnedOffSharing": "Der Eigentümer hat das Teilen für Bearbeiter deaktiviert. Du siehst, wer Zugriff hat, kannst es aber nicht ändern.",
       "publicOwnerOnly": "Nur der Eigentümer kann dieses Dashboard öffentlich machen.",
       "removeAccess": "Zugriff entfernen",
       "unknownPerson": "Unbekannte Person",
-      "unknownGroup": "Unbekannte Gruppe"
+      "unknownGroup": "Unbekannte Gruppe",
+      "addPeople": "Personen hinzufügen",
+      "addPeopleAndGroups": "Personen und Gruppen hinzufügen",
+      "generalAccess": "Allgemeiner Zugriff",
+      "restricted": "Eingeschränkt",
+      "restrictedDesc": "Nur Personen mit Zugriff können über den Link öffnen",
+      "organizationDesc": "Alle in dieser Organisation mit dem Link können ansehen",
+      "publicDesc": "Alle im Internet mit dem Link können ansehen",
+      "done": "Fertig",
+      "shareNamed": "„{name}“ teilen",
+      "emailLink": "Link per E-Mail senden"
     },
     "history": {
       "title": "Verlauf",
@@ -6077,5 +6084,30 @@
       "edit": "Bearbeiten",
       "editFailed": "Das Dashboard konnte nicht zum Bearbeiten geöffnet werden"
     }
+  },
+  "dashboardSettings": {
+    "open": "Dashboard-Einstellungen",
+    "title": "Dashboard-Einstellungen",
+    "refreshDesc": "Wann die Abfragen dieses Dashboards erneut laufen.",
+    "refreshOff": "Aus",
+    "refreshRecurring": "Nach Zeitplan",
+    "refreshOnOpen": "Beim Öffnen",
+    "onOpenNote": "Führt die Abfragen erneut aus, wenn jemand das Dashboard öffnet, höchstens alle 5 Minuten.",
+    "lastRun": "Letzte Ausführung: {at}",
+    "notifyTitle": "E-Mail nach jeder Ausführung",
+    "notifyDesc": "Empfänger erhalten nach jeder geplanten Ausführung eine E-Mail mit den Ergebnissen.",
+    "notifyPlaceholder": "E-Mail eingeben oder Mitglied wählen…",
+    "ownerOnly": "Nur der Eigentümer kann das ändern.",
+    "linkDesc": "Ein lesbarer Name für den Link des Dashboards. Leer lassen, um die ID zu verwenden.",
+    "saved": "Einstellungen gespeichert",
+    "saveFailed": "Einstellungen konnten nicht gespeichert werden",
+    "loadFailed": "Einstellungen konnten nicht geladen werden",
+    "tabRefresh": "Aktualisierung",
+    "tabViewers": "Betrachter",
+    "tabLink": "Link",
+    "tabData": "Daten",
+    "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
+    "dataDesc": "Die Abfragen hinter diesem Dashboard.",
+    "unsaved": "Ungespeicherte Änderungen"
   }
 }

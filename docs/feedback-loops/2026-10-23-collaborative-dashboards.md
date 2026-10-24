@@ -110,15 +110,14 @@ What blocks collaboration today, with file:line:
 | See published | ✅ | ✅ | ✅ |
 | Edit in a conversation | — | ✅ | ✅ |
 | Publish | — | ✅ ¹ | ✅ |
-| Add viewers / editors | — | ✅ ² | ✅ |
+| Add viewers / editors | — | ✅ | ✅ |
 | Make public | — | — | ✅ |
 | Schedule, chat, Data tab, link name | — | ✅ | ✅ |
 | Viewer ↔ creator credentials | — | — | ✅ |
-| Delete, transfer ownership | — | — | ✅ ³ |
+| Delete, transfer ownership | — | — | ✅ ² |
 
 ¹ Not when the dashboard runs as its creator.
-² Unless the owner turns off "Editors can share".
-³ Org admins can too.
+² Org admins can too.
 
 - **Where a role comes from:** a person grant, a group grant, the dashboard's
   project, or its visibility. The highest role wins. Visibility only ever
@@ -327,10 +326,14 @@ artifacts (dashboard)
 
 ### 8. UI changes
 
-- **Share:**
-  - "Can view" / "Can edit" per person and group;
-  - an "Editors can share" switch for the owner;
-  - "Everyone in project Sales can edit".
+- **Share** (laid out like Google Docs' share dialog):
+  - "Add people and groups", then "Can view" / "Can edit" per person and
+    group, with "Remove access" in the same menu;
+  - "Everyone in project Sales can edit";
+  - general access: Restricted / Organization / Anyone with the link;
+  - Copy link / Done. Editors always share; only the owner makes it public.
+- **Settings** (the toolbar's gear): when the data refreshes (and who is
+  emailed), the Data tab, chat, viewer credentials, the link's name.
 - **Toolbar** (`/d` and in the conversation):
   - "Edit in my conversation";
   - avatars of who's editing;
@@ -363,7 +366,7 @@ artifacts (dashboard)
 | Where | Change |
 |---|---|
 | `artifact_shares` | + `role` (`view`/`edit`, default `view`) |
-| `artifacts` | + `editors_can_share`, + `notes` |
+| `artifacts` | + `notes` |
 | `artifact_versions` | + `base_version_id`, + `draft_id` |
 | version/release `content` | + `element_key` per block |
 | `artifact_releases` | kept (last 5 ready), not deleted at next publish |
@@ -374,7 +377,7 @@ artifacts (dashboard)
 ### 10. Migration (`collab01…`, after `dashfc08`)
 
 1. Add `role`. Existing grants become `view`, so no one's access changes.
-2. Add `editors_can_share` (default on) and `notes`.
+2. Add `notes`.
 3. Create one "Main" draft per dashboard. Its `base_release_id` is the current
    live release.
 4. Fill `artifact_conversations` from the conversations existing versions

@@ -98,7 +98,6 @@ class DashboardSharingSchema(BaseModel):
     # Editors (collab01): granted 'edit', whatever the visibility.
     editor_user_ids: list[str] = []
     editor_group_ids: list[str] = []
-    editors_can_share: bool = True
     owner_id: str | None = None
     project_id: str | None = None
 
@@ -107,13 +106,12 @@ class DashboardSharingUpdate(BaseModel):
     """None leaves that kind of grant as it is. View grants count only while
     the visibility is 'shared' (leaving it clears them); edit grants stand
     whatever the visibility, and before the first publish too. Someone in
-    both lists is an editor. editors_can_share: the owner's switch."""
+    both lists is an editor."""
     visibility: Visibility
     user_ids: list[str] | None = None
     group_ids: list[str] | None = None
     editor_user_ids: list[str] | None = None
     editor_group_ids: list[str] | None = None
-    editors_can_share: bool | None = None
 
 
 class DashboardSettingsSchema(BaseModel):
