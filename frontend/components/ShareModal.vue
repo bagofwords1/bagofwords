@@ -17,7 +17,7 @@
          general access, then Copy link / Done. A dashboard's settings
          (schedule, Data tab, chat, link name) live behind its toolbar gear. -->
     <UModal v-model="modalOpen" :ui="{ width: 'sm:max-w-lg' }">
-        <div class="flex flex-col max-h-[85vh]" data-testid="share-modal">
+        <div class="flex flex-col" data-testid="share-modal">
             <!-- Header -->
             <div class="flex items-start justify-between gap-3 px-6 pt-5 pb-1">
                 <h2 class="text-lg font-normal text-gray-900 dark:text-white min-w-0 truncate" data-testid="share-title">{{ heading }}</h2>
@@ -28,7 +28,10 @@
             </div>
             <p class="px-6 text-xs text-gray-500 dark:text-gray-400 mb-3">{{ shareDescription }}</p>
 
-            <div class="flex-1 overflow-y-auto px-6 pt-1">
+            <!-- No inner scroll: the modal grows with its content (the page
+                 scrolls when it is taller than the screen), so the menus in it
+                 open in full instead of being clipped. -->
+            <div class="px-6 pt-1">
                 <!-- Add people and groups. A dashboard's list is always there
                      (collab01): its editors stand whatever the visibility, before
                      the first publish too. A conversation's, while restricted. -->
