@@ -5915,12 +5915,16 @@
       "you": "Tu"
     },
     "publishSince": {
-      "title": "Pubblicato da quando è iniziata la tua bozza",
+      "title": "Sostituire ciò che vedono i lettori?",
       "body": "{name} ha pubblicato questa dashboard {when}. La tua versione non include le sue modifiche. Pubblicare sostituirà ciò che i lettori vedono ora.",
       "someone": "Qualcuno",
       "publishAnyway": "Pubblica comunque",
       "review": "Rivedi le modifiche",
-      "cancel": "Annulla"
+      "cancel": "Annulla",
+      "bodyYou": "Hai pubblicato v{live} {when}. v{n} non include quelle modifiche, quindi pubblicarla le toglie ai lettori.",
+      "bodyOther": "{name} ha pubblicato v{live} {when}. v{n} non include le sue modifiche, quindi pubblicarla le sostituisce per i lettori.",
+      "openLive": "Apri v{n}",
+      "publishNAnyway": "Pubblica v{n} comunque"
     },
     "share": {
       "description": "Scegli chi può vedere questa dashboard e chi può modificarla.",
@@ -6113,14 +6117,15 @@
       "nextEditBuildsOn": "La prossima modifica parte da v{n} · v{newest} è più recente",
       "openNewest": "Apri v{n}",
       "elsewhereBy": "Un’altra conversazione · {name}",
-      "bringTitle": "v{n} è stata creata nella conversazione di {name}",
-      "bringBody": "Portarla qui? I suoi grafici vengono rieseguiti come te e la prossima modifica parte da lì.",
-      "bringHere": "Porta qui",
-      "broughtLive": "Aggiornata a v{n}, pubblicata da {name}",
       "liveAhead": "{name} ha pubblicato v{live} dopo la tua v{here}.",
-      "bringLive": "Porta qui v{n}",
       "keepWorking": "Continua su v{n}",
-      "bringFailed": "Impossibile portarla qui"
+      "bringFailed": "Impossibile portarla qui",
+      "viewingBar": "Stai visualizzando v{n} dalla conversazione di {name}. Qui è di sola lettura; la tua prossima modifica partirà da v{here}.",
+      "viewingLiveBar": "Stai visualizzando v{n}, la versione pubblicata. Qui è di sola lettura; la tua prossima modifica partirà da v{here}.",
+      "editHere": "Modifica v{n} qui",
+      "backTo": "Torna a v{n}",
+      "viewLive": "Visualizza v{n}",
+      "nextEditViewing": "Visualizzazione di v{n} (sola lettura) · la tua prossima modifica partirà da v{here}"
     }
   },
   "dashboardSettings": {

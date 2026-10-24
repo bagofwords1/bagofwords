@@ -78,6 +78,7 @@
                 :artifact="{ id: meta.version_id, artifact_id: meta.id, version: meta.version_number }"
                 @published="$emit('published')"
                 @review="$emit('review')"
+                @open-version="(_id: string, n: number | null) => { if (n != null) onVersion(String(n)) }"
             />
         </div>
     </div>

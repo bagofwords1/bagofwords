@@ -5915,12 +5915,16 @@
       "you": "Du"
     },
     "publishSince": {
-      "title": "Publicerad sedan ditt utkast startade",
+      "title": "Ersätta det som läsarna ser?",
       "body": "{name} publicerade den här instrumentpanelen {when}. Din version innehåller inte deras ändringar. Att publicera ersätter det som läsarna ser nu.",
       "someone": "Någon",
       "publishAnyway": "Publicera ändå",
       "review": "Granska ändringar",
-      "cancel": "Avbryt"
+      "cancel": "Avbryt",
+      "bodyYou": "Du publicerade v{live} {when}. v{n} innehåller inte de ändringarna, så om du publicerar den försvinner de för läsarna.",
+      "bodyOther": "{name} publicerade v{live} {when}. v{n} innehåller inte deras ändringar, så om du publicerar den ersätts de för läsarna.",
+      "openLive": "Öppna v{n}",
+      "publishNAnyway": "Publicera v{n} ändå"
     },
     "share": {
       "description": "Välj vem som kan se den här instrumentpanelen och vem som kan redigera den.",
@@ -6113,14 +6117,15 @@
       "nextEditBuildsOn": "Din nästa ändring bygger på v{n} · v{newest} är nyare",
       "openNewest": "Öppna v{n}",
       "elsewhereBy": "En annan konversation · {name}",
-      "bringTitle": "v{n} skapades i {name}s konversation",
-      "bringBody": "Hämta den hit? Dess diagram körs igen som du, och din nästa ändring bygger på den.",
-      "bringHere": "Hämta hit",
-      "broughtLive": "Uppdaterad till v{n}, publicerad av {name}",
       "liveAhead": "{name} publicerade v{live} efter din v{here}.",
-      "bringLive": "Hämta v{n} hit",
       "keepWorking": "Fortsätt med v{n}",
-      "bringFailed": "Det gick inte att hämta hit"
+      "bringFailed": "Det gick inte att hämta hit",
+      "viewingBar": "Du tittar på v{n} från {name}s konversation. Den är skrivskyddad här; din nästa ändring utgår från v{here}.",
+      "viewingLiveBar": "Du tittar på v{n}, den publicerade versionen. Den är skrivskyddad här; din nästa ändring utgår från v{here}.",
+      "editHere": "Redigera v{n} här",
+      "backTo": "Tillbaka till v{n}",
+      "viewLive": "Visa v{n}",
+      "nextEditViewing": "Visar v{n} (skrivskyddad) · din nästa ändring utgår från v{here}"
     }
   },
   "dashboardSettings": {

@@ -282,7 +282,12 @@ async def published_since(db, artifact: Artifact, version: ArtifactVersion) -> d
         return None
     if str(live.source_version_id) in await lineage_ids(db, version):
         return None
-    return {"by": await person(db, live.published_by), "at": live.published_at, "release_id": str(live.id)}
+    # Which version is live, so the question can name it ("v4 is live; v3
+    # doesn't include it") -- and the person, who may be the asker.
+    live_number = (await db.execute(
+        select(ArtifactVersion.version).where(ArtifactVersion.id == str(live.source_version_id)))).scalar_one_or_none()
+    return {"by": await person(db, live.published_by), "at": live.published_at, "release_id": str(live.id),
+            "live_version_id": str(live.source_version_id), "live_version": live_number}
 
 
 # ── elements: who changed which chart ──────────────────────────────────────

@@ -6291,12 +6291,16 @@
       "you": "You"
     },
     "publishSince": {
-      "title": "Published since your draft started",
+      "title": "Replace what viewers see?",
       "body": "{name} published this dashboard {when}. Your version doesn't include their changes. Publishing will replace what readers see now.",
       "someone": "Someone",
       "publishAnyway": "Publish anyway",
       "review": "Review changes",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "bodyYou": "You published v{live} {when}. v{n} doesn't include those changes, so publishing it takes them away from viewers.",
+      "bodyOther": "{name} published v{live} {when}. v{n} doesn't include their changes, so publishing it replaces them for viewers.",
+      "openLive": "Open v{n}",
+      "publishNAnyway": "Publish v{n} anyway"
     },
     "share": {
       "description": "Choose who can view this dashboard and who can edit it.",
@@ -6489,14 +6493,15 @@
       "nextEditBuildsOn": "Your next edit builds on v{n} · v{newest} is newer",
       "openNewest": "Open v{n}",
       "elsewhereBy": "Another conversation · {name}",
-      "bringTitle": "v{n} was made in {name}'s conversation",
-      "bringBody": "Bring it here? Its charts run again as you, and your next edit builds on it.",
-      "bringHere": "Bring here",
-      "broughtLive": "Updated to v{n}, published by {name}",
       "liveAhead": "{name} published v{live} after your v{here}.",
-      "bringLive": "Bring v{n} here",
       "keepWorking": "Keep working on v{n}",
-      "bringFailed": "Couldn't bring it here"
+      "bringFailed": "Couldn't bring it here",
+      "viewingBar": "You're viewing v{n} from {name}'s conversation. It's read-only here; your next edit builds on v{here}.",
+      "viewingLiveBar": "You're viewing v{n}, the live version. It's read-only here; your next edit builds on v{here}.",
+      "editHere": "Edit v{n} here",
+      "backTo": "Back to v{n}",
+      "viewLive": "View v{n}",
+      "nextEditViewing": "Viewing v{n} (read-only) · your next edit builds on v{here}"
     }
   },
   "dashboardSettings": {

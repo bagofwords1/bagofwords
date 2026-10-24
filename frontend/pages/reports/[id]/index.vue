@@ -744,7 +744,18 @@
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
 				<!-- An older version is open in the editor: the next edit builds
 				     on it (collab01). Said only then, with the way back. -->
-				<div v-if="openVersion && openVersion.version_id !== openVersion.newest_id"
+				<!-- Viewing a version from elsewhere: it is read-only; say what
+				     the next edit builds on, and offer to edit it here. -->
+				<div v-if="openVersion && openVersion.viewing_version != null"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-viewing-version">
+					<UIcon name="i-heroicons-eye" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditViewing', { n: openVersion.viewing_version, here: openVersion.version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-edit-here" @click="editViewingHere">
+						{{ $t('dashboardCollab.versions.editHere', { n: openVersion.viewing_version }) }}
+					</button>
+				</div>
+				<div v-else-if="openVersion && openVersion.version_id !== openVersion.newest_id"
 					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-1.5"
 					data-testid="prompt-open-version">
 					<UIcon name="i-heroicons-information-circle" class="w-4 h-4 shrink-0" />
@@ -1279,11 +1290,14 @@ const report_id = (route.params.id as string) || ''
 
 // The dashboard version open in the editor (ArtifactFrame announces it): sent
 // with each message, so the next edit builds on it (collab01).
-const openVersion = ref<{ version_id: string; version: number; newest_id: string; newest_version: number } | null>(null)
+const openVersion = ref<{ version_id: string; version: number; newest_id: string; newest_version: number; viewing_version?: number | null } | null>(null)
 function onOpenVersion(e: Event) {
 	const d = (e as CustomEvent).detail || {}
 	if (d.report_id !== report_id) return
 	openVersion.value = d.version_id ? d : null
+}
+function editViewingHere() {
+	window.dispatchEvent(new CustomEvent('artifact:edit-here', { detail: { report_id } }))
 }
 function openNewestVersion() {
 	if (!openVersion.value) return

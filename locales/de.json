@@ -5915,12 +5915,16 @@
       "you": "Du"
     },
     "publishSince": {
-      "title": "Veröffentlicht, seit dein Entwurf begann",
+      "title": "Ersetzen, was Leser sehen?",
       "body": "{name} hat dieses Dashboard {when} veröffentlicht. Deine Version enthält diese Änderungen nicht. Veröffentlichen ersetzt, was Leser jetzt sehen.",
       "someone": "Jemand",
       "publishAnyway": "Trotzdem veröffentlichen",
       "review": "Änderungen prüfen",
-      "cancel": "Abbrechen"
+      "cancel": "Abbrechen",
+      "bodyYou": "Sie haben v{live} {when} veröffentlicht. v{n} enthält diese Änderungen nicht; beim Veröffentlichen verschwinden sie für Leser.",
+      "bodyOther": "{name} hat v{live} {when} veröffentlicht. v{n} enthält diese Änderungen nicht; beim Veröffentlichen werden sie für Leser ersetzt.",
+      "openLive": "v{n} öffnen",
+      "publishNAnyway": "v{n} trotzdem veröffentlichen"
     },
     "share": {
       "description": "Lege fest, wer dieses Dashboard sehen und wer es bearbeiten kann.",
@@ -6113,14 +6117,15 @@
       "nextEditBuildsOn": "Ihre nächste Änderung baut auf v{n} auf · v{newest} ist neuer",
       "openNewest": "v{n} öffnen",
       "elsewhereBy": "Andere Unterhaltung · {name}",
-      "bringTitle": "v{n} entstand in der Unterhaltung von {name}",
-      "bringBody": "Hierher holen? Ihre Diagramme laufen erneut als Sie, und Ihre nächste Änderung baut darauf auf.",
-      "bringHere": "Hierher holen",
-      "broughtLive": "Aktualisiert auf v{n}, veröffentlicht von {name}",
       "liveAhead": "{name} hat v{live} nach Ihrer v{here} veröffentlicht.",
-      "bringLive": "v{n} hierher holen",
       "keepWorking": "An v{n} weiterarbeiten",
-      "bringFailed": "Konnte nicht hierher geholt werden"
+      "bringFailed": "Konnte nicht hierher geholt werden",
+      "viewingBar": "Sie sehen v{n} aus der Unterhaltung von {name}. Hier ist sie schreibgeschützt; Ihre nächste Änderung baut auf v{here} auf.",
+      "viewingLiveBar": "Sie sehen v{n}, die veröffentlichte Version. Hier ist sie schreibgeschützt; Ihre nächste Änderung baut auf v{here} auf.",
+      "editHere": "v{n} hier bearbeiten",
+      "backTo": "Zurück zu v{n}",
+      "viewLive": "v{n} ansehen",
+      "nextEditViewing": "Ansicht von v{n} (schreibgeschützt) · Ihre nächste Änderung baut auf v{here} auf"
     }
   },
   "dashboardSettings": {

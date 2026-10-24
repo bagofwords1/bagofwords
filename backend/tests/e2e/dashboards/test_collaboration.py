@@ -327,7 +327,14 @@ def test_publishing_over_someone_elses_newer_publish_asks_first(corpus, corpus_r
                     a=aid, v=avi_version)
     asked = _publish_api(test_client, corpus, aid, "member", version_id=mine["id"])
     assert asked.status_code == 409 and asked.json()["error_code"] == "dashboard.published_since"
-    assert asked.json()["params"]["by"]  # who published since
+    params = asked.json()["params"]
+    assert params["by"]  # who published since
+    # The question names both versions and the person (the UI says "You"
+    # when that is the asker): live is the owner's, not in Avi's history.
+    (live_row,) = _rows(corpus_rows, "SELECT version FROM artifact_versions WHERE id = :v", v=owners)
+    assert params["by_id"] == corpus.cast.id("owner")
+    assert params["live_version_id"] == owners and params["live_version"] == live_row["version"]
+    assert params["version"] == avi_version
     changes = test_client.get(f"/api/d/{aid}/draft/changes?version={avi_version}", headers=as_(corpus, "member"))
     assert changes.status_code == 200 and changes.json()["published_since"]["by"]["id"] == corpus.cast.id("owner")
     forced = _publish_api(test_client, corpus, aid, "member", version_id=mine["id"], force=True)

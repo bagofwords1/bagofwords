@@ -193,7 +193,7 @@
         />
 
         <!-- Made with Bag of words badge -->
-        <a v-if="report.general?.bow_credit !== false"
+        <a v-if="report.general?.bow_credit !== false && !embedded"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
@@ -335,7 +335,7 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase"
+            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded"
             :report-id="id"
             :base="api.chatBase"
             :raised="report.general?.bow_credit !== false"
@@ -521,8 +521,11 @@ async function handleEdit() {
 const intercomClearance = useIntercomLauncherClearance();
 const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.value - 8 : 0));
 
+// ?embed=1: a version shown read-only inside a conversation's Dashboard tab
+// (ArtifactFrame "viewing"), with no bars, badge or chat of its own.
+const embedded = props.source === 'draft' && route.query.embed === '1';
 // Top bar state
-const showTopBar = ref(true);
+const showTopBar = ref(!embedded);
 const activeTab = ref<'report' | 'data'>('report');
 // The owner's "Include Data Tab" share setting. The report loads after mount,
 // so this is true until proven otherwise — anything but an explicit false

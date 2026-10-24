@@ -5915,12 +5915,16 @@
       "you": "Você"
     },
     "publishSince": {
-      "title": "Publicado desde que seu rascunho começou",
+      "title": "Substituir o que os leitores veem?",
       "body": "{name} publicou este painel {when}. Sua versão não inclui as alterações dele. Publicar substituirá o que os leitores veem agora.",
       "someone": "Alguém",
       "publishAnyway": "Publicar mesmo assim",
       "review": "Revisar alterações",
-      "cancel": "Cancelar"
+      "cancel": "Cancelar",
+      "bodyYou": "Você publicou a v{live} {when}. A v{n} não inclui essas alterações, então publicá-la as remove para os leitores.",
+      "bodyOther": "{name} publicou a v{live} {when}. A v{n} não inclui as alterações dessa pessoa, então publicá-la as substitui para os leitores.",
+      "openLive": "Abrir v{n}",
+      "publishNAnyway": "Publicar v{n} mesmo assim"
     },
     "share": {
       "description": "Escolha quem pode ver este painel e quem pode editá-lo.",
@@ -6113,14 +6117,15 @@
       "nextEditBuildsOn": "Sua próxima edição parte da v{n} · a v{newest} é mais recente",
       "openNewest": "Abrir v{n}",
       "elsewhereBy": "Outra conversa · {name}",
-      "bringTitle": "A v{n} foi feita na conversa de {name}",
-      "bringBody": "Trazer para cá? Os gráficos rodam de novo como você, e sua próxima edição parte dela.",
-      "bringHere": "Trazer para cá",
-      "broughtLive": "Atualizado para a v{n}, publicada por {name}",
       "liveAhead": "{name} publicou a v{live} depois da sua v{here}.",
-      "bringLive": "Trazer a v{n} para cá",
       "keepWorking": "Continuar na v{n}",
-      "bringFailed": "Não foi possível trazer para cá"
+      "bringFailed": "Não foi possível trazer para cá",
+      "viewingBar": "Você está vendo a v{n} da conversa de {name}. Aqui ela é somente leitura; sua próxima edição parte da v{here}.",
+      "viewingLiveBar": "Você está vendo a v{n}, a versão publicada. Aqui ela é somente leitura; sua próxima edição parte da v{here}.",
+      "editHere": "Editar v{n} aqui",
+      "backTo": "Voltar para v{n}",
+      "viewLive": "Ver v{n}",
+      "nextEditViewing": "Vendo v{n} (somente leitura) · sua próxima edição parte da v{here}"
     }
   },
   "dashboardSettings": {

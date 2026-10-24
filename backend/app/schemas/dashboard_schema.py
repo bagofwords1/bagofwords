@@ -390,6 +390,8 @@ class DashboardPublishedSince(BaseModel):
     by: DashboardPerson | None = None
     at: datetime | None = None
     release_id: str | None = None
+    live_version_id: str | None = None
+    live_version: int | None = None
 
 
 class DashboardPresenceUpdate(BaseModel):

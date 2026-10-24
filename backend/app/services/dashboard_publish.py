@@ -267,8 +267,11 @@ async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:
     since = await published_since(db, artifact, version)
     if since is not None:
         raise AppError.conflict(
-            ErrorCode.DASHBOARD_PUBLISHED_SINCE, "Someone published this dashboard since this draft started",
-            by=(since["by"] or {}).get("name"), at=since["at"].isoformat() if since["at"] else None)
+            ErrorCode.DASHBOARD_PUBLISHED_SINCE, "A version this one does not include is live",
+            by=(since["by"] or {}).get("name"), by_id=(since["by"] or {}).get("id"),
+            at=since["at"].isoformat() if since["at"] else None,
+            live_version_id=since["live_version_id"], live_version=since["live_version"],
+            version=getattr(version, "version", None))
 
 
 async def _publish_target(db, artifact: Artifact, version_id: str | None):

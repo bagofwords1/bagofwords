@@ -23,22 +23,26 @@
         </button>
     </UTooltip>
 
-    <!-- Someone published since this version's draft started (collab01):
-         ask before replacing what readers see with a version that lacks
-         their changes. -->
+    <!-- What is live is not in this version's history (collab01): ask
+         before replacing it. Names both versions, and "You" when the one who
+         published it is the one asking. -->
     <UModal v-model="sinceOpen" :ui="{ width: 'sm:max-w-md' }">
         <div class="p-5 space-y-3" data-testid="published-since-dialog">
             <div class="flex items-start gap-3">
                 <Icon name="heroicons:exclamation-triangle" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
                 <div class="space-y-1">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('dashboardCollab.publishSince.title') }}</h3>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">{{ $t('dashboardCollab.publishSince.body', { name: since?.by || $t('dashboardCollab.publishSince.someone'), when: sinceWhen }) }}</p>
+                    <p class="text-sm text-gray-600 dark:text-gray-400" data-testid="published-since-body">{{ sinceBody }}</p>
                 </div>
             </div>
             <div class="flex flex-wrap justify-end gap-2 pt-2">
                 <UButton color="gray" variant="ghost" size="xs" @click="sinceOpen = false">{{ $t('dashboardCollab.publishSince.cancel') }}</UButton>
-                <UButton color="gray" variant="soft" size="xs" icon="i-heroicons-arrows-right-left" data-testid="published-since-review" @click="review">{{ $t('dashboardCollab.publishSince.review') }}</UButton>
-                <UButton color="amber" size="xs" icon="i-heroicons-rocket-launch" data-testid="published-since-force" @click="publishAnyway">{{ $t('dashboardCollab.publishSince.publishAnyway') }}</UButton>
+                <UButton v-if="since?.liveVersionId && since?.liveVersion != null" color="gray" variant="soft" size="xs" icon="i-heroicons-eye"
+                    data-testid="published-since-open" @click="openLive">{{ $t('dashboardCollab.publishSince.openLive', { n: since.liveVersion }) }}</UButton>
+                <UButton v-else color="gray" variant="soft" size="xs" icon="i-heroicons-arrows-right-left" data-testid="published-since-review" @click="review">{{ $t('dashboardCollab.publishSince.review') }}</UButton>
+                <UButton color="amber" size="xs" icon="i-heroicons-rocket-launch" data-testid="published-since-force" @click="publishAnyway">
+                    {{ openNumber != null ? $t('dashboardCollab.publishSince.publishNAnyway', { n: openNumber }) : $t('dashboardCollab.publishSince.publishAnyway') }}
+                </UButton>
             </div>
         </div>
     </UModal>
@@ -50,7 +54,10 @@ import Spinner from '~/components/Spinner.vue';
 // `artifact`: the version open in the editor; its artifact_id is the dashboard.
 // `label`: the button's text, when not "Publish" ("Publish this version").
 const props = defineProps<{ artifact: any; label?: string }>();
-const emit = defineEmits<{ (e: 'published'): void; (e: 'review'): void; (e: 'status', status: any): void }>();
+const emit = defineEmits<{
+    (e: 'published'): void; (e: 'review'): void; (e: 'status', status: any): void
+    (e: 'open-version', versionId: string, number: number | null): void
+}>();
 
 const { t } = useI18n();
 const toast = useToast();
@@ -59,8 +66,20 @@ const { relativeTime } = useRelativeTime();
 
 // The 409 "published since your draft started" (collab01).
 const sinceOpen = ref(false);
-const since = ref<{ by?: string | null; at?: string | null } | null>(null);
+const since = ref<{ by?: string | null; byMe?: boolean; at?: string | null; liveVersionId?: string | null; liveVersion?: number | null } | null>(null);
 const sinceWhen = computed(() => (since.value?.at ? relativeTime(since.value.at) : ''));
+const { data: sessionUser } = useAuth();
+const sinceBody = computed(() => {
+    const s = since.value;
+    if (!s) return '';
+    const n = openNumber.value;
+    if (s.liveVersion == null || n == null) {
+        return t('dashboardCollab.publishSince.body', { name: s.by || t('dashboardCollab.publishSince.someone'), when: sinceWhen.value });
+    }
+    return s.byMe
+        ? t('dashboardCollab.publishSince.bodyYou', { live: s.liveVersion, n, when: sinceWhen.value })
+        : t('dashboardCollab.publishSince.bodyOther', { name: s.by || t('dashboardCollab.publishSince.someone'), live: s.liveVersion, n, when: sinceWhen.value });
+});
 
 const status = ref<any>(null);
 const starting = ref(false);
@@ -132,8 +151,12 @@ async function publish(force = false) {
         });
         if (error.value) {
             if (getErrorCode(error.value) === 'dashboard.published_since') {
-                const body = (error.value as any)?.data || {};
-                since.value = { by: body?.params?.by || null, at: body?.params?.at || null };
+                const params = (error.value as any)?.data?.params || {};
+                const me = (sessionUser.value as any)?.id;
+                since.value = {
+                    by: params.by || null, byMe: !!me && params.by_id === me, at: params.at || null,
+                    liveVersionId: params.live_version_id || null, liveVersion: params.live_version ?? null,
+                };
                 sinceOpen.value = true;
                 return;
             }
@@ -156,6 +179,11 @@ function publishAnyway() {
 function review() {
     sinceOpen.value = false;
     emit('review');
+}
+
+function openLive() {
+    sinceOpen.value = false;
+    if (since.value?.liveVersionId) emit('open-version', since.value.liveVersionId, since.value.liveVersion ?? null);
 }
 
 // A new version (the agent's next edit) or another dashboard: ask again.

@@ -5915,12 +5915,16 @@
       "you": "Vous"
     },
     "publishSince": {
-      "title": "Publié depuis le début de votre brouillon",
+      "title": "Remplacer ce que voient les lecteurs ?",
       "body": "{name} a publié ce tableau de bord {when}. Votre version n'inclut pas ses modifications. Publier remplacera ce que les lecteurs voient maintenant.",
       "someone": "Quelqu'un",
       "publishAnyway": "Publier quand même",
       "review": "Voir les modifications",
-      "cancel": "Annuler"
+      "cancel": "Annuler",
+      "bodyYou": "Vous avez publié v{live} {when}. v{n} n'inclut pas ces modifications : la publier les retirera aux lecteurs.",
+      "bodyOther": "{name} a publié v{live} {when}. v{n} n'inclut pas ses modifications : la publier les remplacera pour les lecteurs.",
+      "openLive": "Ouvrir v{n}",
+      "publishNAnyway": "Publier v{n} quand même"
     },
     "share": {
       "description": "Choisissez qui peut voir ce tableau de bord et qui peut le modifier.",
@@ -6113,14 +6117,15 @@
       "nextEditBuildsOn": "Votre prochaine modification part de v{n} · v{newest} est plus récente",
       "openNewest": "Ouvrir v{n}",
       "elsewhereBy": "Autre conversation · {name}",
-      "bringTitle": "v{n} a été créée dans la conversation de {name}",
-      "bringBody": "L’amener ici ? Ses graphiques sont relancés en votre nom, et votre prochaine modification en part.",
-      "bringHere": "Amener ici",
-      "broughtLive": "Mis à jour vers v{n}, publiée par {name}",
       "liveAhead": "{name} a publié v{live} après votre v{here}.",
-      "bringLive": "Amener v{n} ici",
       "keepWorking": "Continuer sur v{n}",
-      "bringFailed": "Impossible de l’amener ici"
+      "bringFailed": "Impossible de l’amener ici",
+      "viewingBar": "Vous consultez v{n} de la conversation de {name}. Elle est en lecture seule ici ; votre prochaine modification partira de v{here}.",
+      "viewingLiveBar": "Vous consultez v{n}, la version publiée. Elle est en lecture seule ici ; votre prochaine modification partira de v{here}.",
+      "editHere": "Modifier v{n} ici",
+      "backTo": "Revenir à v{n}",
+      "viewLive": "Voir v{n}",
+      "nextEditViewing": "Consultation de v{n} (lecture seule) · votre prochaine modification partira de v{here}"
     }
   },
   "dashboardSettings": {
