@@ -1,8 +1,10 @@
 <template>
   <div class="h-full w-full flex flex-col bg-white dark:bg-gray-900">
     <!-- Header / Toolbar -->
-    <div v-if="!verificationPreview" class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
-      <div class="flex items-center gap-3">
+    <!-- Wraps rather than clips: with presence, Publish and Share the
+         right-hand group can outgrow a narrow pane. -->
+    <div v-if="!verificationPreview" class="flex-shrink-0 flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
+      <div class="flex items-center gap-3 min-w-0 grow basis-52">
         <UTooltip :text="$t('artifactFrame.backToChat')">
           <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
             <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -10,7 +12,7 @@
         </UTooltip>
 
         <!-- Artifact Selector Dropdown -->
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 min-w-0 flex-1">
           <!-- Rename (owner only): the selector becomes an input in place so
                the toolbar keeps its width. Enter saves, Escape cancels. -->
           <form
@@ -56,7 +58,7 @@
             value-attribute="value"
             option-attribute="label"
             size="xs"
-            class="min-w-[280px]"
+            class="w-full max-w-[280px] min-w-0"
             :placeholder="$t('artifactFrame.selectArtifact')"
             :ui="{ option: { base: 'py-2' } }"
           >
@@ -115,7 +117,7 @@
         </div>
       </div>
 
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-2 ms-auto shrink-0 max-w-full">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
         <!-- Refresh Dashboard (rerun + refresh). Everyday action, so it stays
@@ -135,17 +137,20 @@
           </button>
         </UTooltip>
 
-        <!-- Data (query manager) and Schedule stay visible next to Refresh:
-             the three things a dashboard owner touches routinely. Each
-             component renders its own trigger and keeps its modal mounted. -->
-        <DataModal
-          v-if="report"
-          :report-id="reportId"
-          :artifact-id="selectedArtifact?.id"
-          :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
-          :artifact-mode="selectedArtifact?.mode"
-        />
-        <CronModal v-if="report" :report="report" :dashboard-id="selectedArtifact?.artifact_id" compact />
+        <!-- Settings stay visible next to Refresh: one window with a tab
+             each for the schedule, what viewers get, the link, the queries
+             behind it (Data), its resources and its analytics. Who has
+             access is Share's. -->
+        <DashboardSettingsModal v-if="report && selectedArtifact?.artifact_id" ref="settingsModalRef" :report-id="reportId"
+          :dashboard-id="selectedArtifact.artifact_id"
+          :artifact-id="selectedArtifact.id"
+          :artifact-viz-ids="selectedArtifact.content?.visualization_ids || []"
+          :artifact-mode="selectedArtifact.mode"
+          :title="currentArtifactTitle()"
+          :rename="canRename ? renameTo : undefined"
+          :resources-available="resourcesAvailable && !verificationPreview"
+          :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
+          @history-changed="onHistoryChanged" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -167,7 +172,7 @@
             </button>
           </UTooltip>
           <template #item="{ item }">
-            <div class="flex items-center gap-2 text-start w-full">
+            <div class="flex items-center gap-2 text-start w-full" :data-testid="item.testid">
               <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
               <span class="text-xs font-medium text-gray-900 dark:text-white">{{ item.label }}</span>
             </div>
@@ -211,17 +216,35 @@
           <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
         </UTooltip>
 
-        <!-- Publish (the version open here) beside Share -->
-        <PublishButton v-if="report && selectedArtifact" :artifact="selectedArtifact" />
+        <!-- Who else is editing this dashboard right now (collab01) -->
+        <div v-if="presenceOthers.length" data-testid="frame-presence">
+          <PresenceAvatars :others="presenceOthers" />
+        </div>
+
+        <!-- Publish (the version open here) beside Share. "Review changes"
+             (someone published since) opens the draft page's changes view. -->
+        <PublishButton v-if="report && selectedArtifact" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges" />
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
-          :dashboard-id="selectedArtifact?.artifact_id" />
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
+          :item-name="selectedArtifact.title" :dashboard-id="selectedArtifact.artifact_id" />
       </div>
     </div>
 
     <!-- Iframe Container -->
     <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+      <!-- This conversation's agent is changing a dashboard others edit too
+           (collab01): outline it, as Figma does, with whose agent it is. -->
+      <div
+        v-if="showAgentOutline"
+        class="absolute inset-0 z-[25] pointer-events-none rounded-sm ring-2 ring-inset ring-violet-500/80 dark:ring-violet-400/80"
+        data-testid="agent-editing-outline"
+      >
+        <span class="absolute top-0 end-0 flex items-center gap-1 rounded-es-md bg-violet-600 text-white ps-2 pe-2.5 py-0.5 text-[11px] font-medium shadow-sm">
+          <Icon name="heroicons:sparkles" class="w-3 h-3" />
+          {{ $t('dashboardCollab.presence.agentEditing', { name: agentOwnerFirstName }) }}
+        </span>
+      </div>
       <!-- View-as switch in flight: cover the pane with a spinner until the
            new identity (and any identity-scoped re-runs) fully settle, so the
            transient anonymous fallback never flashes as the final render. -->
@@ -533,18 +556,16 @@
       </UModal>
     </Teleport>
   </div>
-  <ArtifactResourceExplorer v-if="resourceInspectorOpen && selectedArtifact?.artifact_id"
-    :artifact-id="selectedArtifact.artifact_id" :view="resourceInspectorView" @close="resourceInspectorOpen = false" />
 </template>
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
-import CronModal from '../CronModal.vue';
-import DataModal from './DataModal.vue';
+import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
+import PresenceAvatars from './collab/PresenceAvatars.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
@@ -602,6 +623,9 @@ const props = defineProps<{
   requestedDashboardId?: string | null;
   /** Server-brokered preview: no user credential/session enters this page. */
   verificationPreview?: boolean;
+  /** This conversation's own agent is running (collab01): outline the
+   *  dashboard when others edit it too. */
+  agentRunning?: boolean;
 }>();
 
 // The preview's server-side request broker supplies normal authorized API
@@ -1045,8 +1069,6 @@ function postToRuntimeFrames(message: any) {
     try { frame?.contentWindow?.postMessage(message, '*'); } catch { /* frame not ready */ }
   }
 }
-const resourceInspectorOpen = ref(false);
-const resourceInspectorView = ref<'resources' | 'analytics'>('resources');
 const resourcesAvailable = ref(false);
 
 
@@ -1396,7 +1418,6 @@ const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
 watch(() => selectedArtifact.value?.artifact_id, async (id) => {
   resourcesAvailable.value = false;
-  resourceInspectorOpen.value = false;
   if (!id || props.verificationPreview) return;
   try {
     await $fetch(`/api/artifacts/${encodeURIComponent(id)}/runtime/context`, {headers:{Authorization:token.value || ''}});
@@ -1482,6 +1503,73 @@ const isReportOwner = computed(() => {
 const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
 
+// --- Collaboration (collab01) ------------------------------------------
+// What this user may do with the dashboard open here: its draft page's
+// capabilities, asked once per dashboard. Empty while unknown, and for
+// anyone the dashboard does not let edit -- every collaboration control
+// then stays hidden, so a dashboard nobody else edits looks as before.
+const dashboardMeta = ref<{ capabilities: string[]; isOwner: boolean } | null>(null);
+const dashboardCaps = computed<string[]>(() => dashboardMeta.value?.capabilities || []);
+const currentDashboardId = computed<string | null>(() => selectedArtifact.value?.artifact_id || null);
+let dashboardMetaFor: string | null = null;
+async function loadDashboardMeta(force = false) {
+  const id = currentDashboardId.value;
+  if (!force && id === dashboardMetaFor) return;
+  dashboardMetaFor = id;
+  if (!force) dashboardMeta.value = null;
+  if (!id || props.verificationPreview) return;
+  try {
+    const { data, error } = await useMyFetch(`/api/d/${encodeURIComponent(id)}/draft`);
+    if (dashboardMetaFor !== id) return; // switched dashboards meanwhile
+    const meta: any = error.value ? null : data.value;
+    dashboardMeta.value = meta ? { capabilities: meta.capabilities || [], isOwner: !!meta.is_owner } : null;
+  } catch {
+    if (dashboardMetaFor === id) dashboardMeta.value = null;
+  }
+}
+watch(currentDashboardId, () => { loadDashboardMeta(); }, { immediate: true });
+
+// Presence: beat while an editor has a page or slides dashboard open here,
+// with this conversation; get back who else is editing it.
+const presenceEnabled = computed(() =>
+  !props.verificationPreview && !!currentDashboardId.value
+  && ['page', 'slides'].includes(selectedArtifact.value?.mode)
+  && dashboardCaps.value.includes('edit'));
+const { others: presenceOthers } = useDashboardPresence(
+  currentDashboardId, computed(() => props.reportId), presenceEnabled);
+
+// This conversation's agent at work on a dashboard someone else edits too
+// (they have it open now, or it is not this user's own dashboard): outline
+// it with whose agent it is. A dashboard only its owner edits shows nothing.
+const showAgentOutline = computed(() =>
+  !!props.agentRunning && presenceEnabled.value
+  && (presenceOthers.value.length > 0 || dashboardMeta.value?.isOwner === false));
+const agentOwnerFirstName = computed(() => {
+  const me = sessionUser.value as any;
+  const name = String(props.report?.user?.name || me?.user?.name || me?.name || '');
+  return name.split(/[\s@]/)[0] || name;
+});
+
+// "Review changes" from the publish warning: the draft page's changes view.
+// "Review changes" (someone published since): the version open here against
+// what readers see now -- not the newest version, which may be theirs.
+function reviewChanges() {
+  const id = currentDashboardId.value;
+  if (!id) return;
+  const n = selectedArtifact.value?.version;
+  navigateTo(`/d/${encodeURIComponent(id)}/draft?${n ? `version=${n}&` : ''}changes=1`);
+}
+
+// The settings window: its History tabs open from the ⋯ menu too.
+const settingsModalRef = ref<any>(null);
+// Remounting the Publish button re-reads what readers see now.
+const publishKey = ref(0);
+// A roll back changes what is live; a transfer changes who may do what.
+function onHistoryChanged() {
+  publishKey.value += 1;
+  loadDashboardMeta(true);
+}
+
 // --- Rename the dashboard ------------------------------------------------
 // "The dashboard" is two records to the user: the report (its card on
 // /dashboards, the sidebar entry, the browser tab) and the selected artifact
@@ -1521,11 +1609,19 @@ function cancelRename() {
 }
 
 async function saveRename() {
-  const id = selectedArtifactId.value;
   const title = renameDraft.value.trim();
-  if (!id || !title || isSavingRename.value) return;
+  if (!title || isSavingRename.value) return;
   if (title === currentArtifactTitle()) { cancelRename(); return; }
+  if (await renameTo(title)) {
+    isRenaming.value = false;
+    renameDraft.value = '';
+  }
+}
 
+// The rename itself, for the inline field and the settings' General tab.
+async function renameTo(title: string): Promise<boolean> {
+  const id = selectedArtifactId.value;
+  if (!id || !title || isSavingRename.value) return false;
   isSavingRename.value = true;
   try {
     const { data, error } = await useMyFetch(`/api/artifacts/${id}`, {
@@ -1556,9 +1652,8 @@ async function saveRename() {
     if (selectedArtifact.value?.id === id) {
       selectedArtifact.value = { ...selectedArtifact.value, title: saved };
     }
-    isRenaming.value = false;
-    renameDraft.value = '';
     toast.add({ title: t('artifactFrame.renamed'), color: 'green' });
+    return true;
   } catch (e: any) {
     console.error('[ArtifactFrame] Failed to rename artifact:', e);
     toast.add({
@@ -1566,6 +1661,7 @@ async function saveRename() {
       description: e?.data?.detail?.message || e?.data?.detail || t('artifactFrame.renameFailed'),
       color: 'red',
     });
+    return false;
   } finally {
     isSavingRename.value = false;
   }
@@ -1575,7 +1671,7 @@ async function saveRename() {
 watch(selectedArtifactId, () => { if (isRenaming.value) cancelRename(); });
 
 // --- Overflow (⋯) menu ---------------------------------------------------
-type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean };
+type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean; testid?: string };
 
 // Groups render with dividers between them (Nuxt UI takes an array of
 // arrays). Empty groups are dropped so no divider ever leads nowhere.
@@ -1615,10 +1711,10 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   }
 
   if (selectedArtifact.value?.artifact_id && !props.verificationPreview) {
+    // Resources and analytics are tabs of the dashboard's settings (the gear).
     const inspectors = [];
-    if (resourcesAvailable.value) inspectors.push({ label: t('artifactResources.inspect'), icon: 'i-heroicons-circle-stack', click: () => { resourceInspectorView.value = 'resources'; resourceInspectorOpen.value = true; } });
-    // Analytics has no org switch; the API enforces owner-only on its own.
-    if (isReportOwner.value) inspectors.push({ label: t('artifactResources.analytics'), icon: 'i-heroicons-chart-bar', click: () => { resourceInspectorView.value = 'analytics'; resourceInspectorOpen.value = true; } });
+    // History: the conversations, versions and releases (Roll back) -- editors.
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { settingsModalRef.value?.open('versions'); } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);

@@ -1821,10 +1821,23 @@ class AgentV2:
                 # IS the working context. Rendering caps it; oversize falls
                 # back to read_artifact.
                 "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
+                # A dashboard several people edit (collab01): its notes, and
+                # the summary this conversation started from -- structure
+                # and history only, never another person's rows.
+                "collaboration": await self._dashboard_collaboration(str(artifact.artifact_id)),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")
             return None
+
+    async def _dashboard_collaboration(self, artifact_id: str) -> str:
+        try:
+            from app.services.dashboard_collab import agent_context
+
+            return await agent_context(self.db, str(self.report_id), artifact_id)
+        except Exception:
+            logger.debug("dashboard collaboration context unavailable", exc_info=True)
+            return ""
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""
@@ -4688,8 +4701,29 @@ class AgentV2:
             if inv.current_widget is not None:
                 self.current_widget = inv.current_widget
 
+    def _presence(self, started: bool) -> None:
+        """A dashboard this conversation edits shows its other editors that
+        the agent is at work (collab01). Detached: a separate session's
+        write must never wait on this run's own transaction."""
+        try:
+            if not self.report or self._is_sub_agent:
+                return
+            from app.core import fire_and_forget
+            from app.services import dashboard_presence
+
+            completion_id = str(self.system_completion_id) if getattr(self, "system_completion_id", None) else None
+            if started:
+                user_id = str(getattr(self.head_completion, "user_id", "") or "")
+                if user_id:
+                    fire_and_forget.spawn(dashboard_presence.agent_started(str(self.report_id), user_id, completion_id))
+            else:
+                fire_and_forget.spawn(dashboard_presence.agent_finished(str(self.report_id), completion_id))
+        except Exception:
+            pass
+
     async def main_execution(self):
         from app.data_sources.clients.bow_client import install_bow_client
+        self._presence(True)
         from app.models.user import User as BowUser
         bow_user = await self.db.get(BowUser, str(self.head_completion.user_id)) if self.head_completion and self.head_completion.user_id else None
         await install_bow_client(self.db, self.organization, bow_user, self.report, self.clients, mode=self.mode, allow_saved=False, writer_lock=self._tool_db_lock)
@@ -7856,6 +7890,7 @@ class AgentV2:
                 pass
             raise
         finally:
+            self._presence(False)
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.

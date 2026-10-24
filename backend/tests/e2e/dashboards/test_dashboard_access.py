@@ -212,7 +212,10 @@ def test_a_viewer_gets_what_the_page_needs_and_none_of_the_settings(corpus, corp
                          # what /r's page reads besides the dashboard (phase 8)
                          "is_owner", "fork_eligibility", "refresh_on_view", "data_sources",
                          # whether this reader's exports hold their own rows (a yes/no)
-                         "exports_own_rows"}
+                         "exports_own_rows",
+                         # what this reader may do (collab01): for a viewer, view
+                         "capabilities"}
+    assert body["capabilities"] == ["view"]
     assert "boss@example.com" not in str(body) and "0 8 * * *" not in str(body)
     assert corpus.cast.data_sources["chinook"] not in str(body)
 

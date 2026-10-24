@@ -166,7 +166,7 @@ def test_edit_opens_the_live_conversation_without_copying(corpus, corpus_rows, t
     before = _rows(corpus_rows, "SELECT count(*) AS n FROM reports")[0]["n"]
     resp = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner"))
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"report_id": corpus.reports[CONV], "created": False}
+    assert resp.json() == {"report_id": corpus.reports[CONV], "created": False, "rerunning": False}
     assert _rows(corpus_rows, "SELECT count(*) AS n FROM reports")[0]["n"] == before
 
 
@@ -210,7 +210,7 @@ def test_edit_after_the_conversation_was_deleted_starts_one_from_the_release(cor
 
     # A second Edit opens that conversation.
     again = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
-    assert again == {"report_id": new, "created": False}
+    assert again == {"report_id": new, "created": False, "rerunning": False}
 
 
 @pytest.mark.e2e
@@ -399,7 +399,7 @@ def test_two_edits_at_once_give_one_conversation(corpus, corpus_rows, test_clien
 
     monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
     body = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
-    assert body == {"report_id": winner, "created": False}
+    assert body == {"report_id": winner, "created": False, "rerunning": False}
     assert _rows(corpus_rows, "SELECT id FROM reports WHERE slug LIKE 'edit-%' AND user_id = :u",
                  u=corpus.cast.id("owner")) == []  # this Edit's copy was rolled back
 
@@ -515,5 +515,5 @@ def test_the_losing_edit_leaves_no_copied_files(corpus, corpus_rows, test_client
 
     monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
     body = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
-    assert body == {"report_id": winner, "created": False}
+    assert body == {"report_id": winner, "created": False, "rerunning": False}
     assert set(thumbs.glob("*.png")) - before == set()

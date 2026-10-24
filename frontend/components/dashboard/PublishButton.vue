@@ -8,7 +8,7 @@
             type="button"
             data-testid="publish-dashboard"
             :disabled="publishing"
-            @click="publish"
+            @click="publish()"
             class="items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-1 text-xs disabled:opacity-60 disabled:cursor-not-allowed"
         >
             <div class="relative">
@@ -18,20 +18,48 @@
                     data-testid="unpublished-dot"
                     class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
             </div>
-            <span class="text-xs whitespace-nowrap">{{ publishing ? $t('artifactFrame.publishing') : $t('artifactFrame.publish') }}</span>
+            <span class="text-xs whitespace-nowrap">{{ publishing ? $t('artifactFrame.publishing') : (label || $t('artifactFrame.publish')) }}</span>
         </button>
     </UTooltip>
+
+    <!-- Someone published since this version's draft started (collab01):
+         ask before replacing what readers see with a version that lacks
+         their changes. -->
+    <UModal v-model="sinceOpen" :ui="{ width: 'sm:max-w-md' }">
+        <div class="p-5 space-y-3" data-testid="published-since-dialog">
+            <div class="flex items-start gap-3">
+                <Icon name="heroicons:exclamation-triangle" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div class="space-y-1">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('dashboardCollab.publishSince.title') }}</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">{{ $t('dashboardCollab.publishSince.body', { name: since?.by || $t('dashboardCollab.publishSince.someone'), when: sinceWhen }) }}</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2 pt-2">
+                <UButton color="gray" variant="ghost" size="xs" @click="sinceOpen = false">{{ $t('dashboardCollab.publishSince.cancel') }}</UButton>
+                <UButton color="gray" variant="soft" size="xs" icon="i-heroicons-arrows-right-left" data-testid="published-since-review" @click="review">{{ $t('dashboardCollab.publishSince.review') }}</UButton>
+                <UButton color="amber" size="xs" icon="i-heroicons-rocket-launch" data-testid="published-since-force" @click="publishAnyway">{{ $t('dashboardCollab.publishSince.publishAnyway') }}</UButton>
+            </div>
+        </div>
+    </UModal>
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
 
 // `artifact`: the version open in the editor; its artifact_id is the dashboard.
-const props = defineProps<{ artifact: any }>();
+// `label`: the button's text, when not "Publish" ("Publish this version").
+const props = defineProps<{ artifact: any; label?: string }>();
+const emit = defineEmits<{ (e: 'published'): void; (e: 'review'): void }>();
 
 const { t } = useI18n();
 const toast = useToast();
-const { getErrorMessage } = useErrorMessage();
+const { getErrorMessage, getErrorCode } = useErrorMessage();
+const { relativeTime } = useRelativeTime();
+
+// The 409 "published since your draft started" (collab01).
+const sinceOpen = ref(false);
+const since = ref<{ by?: string | null; at?: string | null } | null>(null);
+const sinceWhen = computed(() => (since.value?.at ? relativeTime(since.value.at) : ''));
 
 const status = ref<any>(null);
 const starting = ref(false);
@@ -73,18 +101,25 @@ async function load(announce = false) {
         } else if (latest?.status === 'failed') {
             toast.add({ title: t('artifactFrame.publishFailed'), description: latest.error || undefined, color: 'red' });
         }
+        if (latest?.status === 'ready') emit('published');
     }
 }
 
-async function publish() {
+async function publish(force = false) {
     if (publishing.value || !dashboardId.value) return;
     starting.value = true;
     try {
         const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(dashboardId.value)}/publish`, {
             method: 'POST',
-            body: { version_id: props.artifact?.id || null },
+            body: { version_id: props.artifact?.id || null, force },
         });
         if (error.value) {
+            if (getErrorCode(error.value) === 'dashboard.published_since') {
+                const body = (error.value as any)?.data || {};
+                since.value = { by: body?.params?.by || null, at: body?.params?.at || null };
+                sinceOpen.value = true;
+                return;
+            }
             toast.add({ title: t('artifactFrame.publishFailed'), description: getErrorMessage(error.value), color: 'red' });
             return;
         }
@@ -94,6 +129,16 @@ async function publish() {
     } finally {
         starting.value = false;
     }
+}
+
+function publishAnyway() {
+    sinceOpen.value = false;
+    publish(true);
+}
+
+function review() {
+    sinceOpen.value = false;
+    emit('review');
 }
 
 // A new version (the agent's next edit) or another dashboard: ask again.

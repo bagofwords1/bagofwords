@@ -277,6 +277,8 @@ app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(artifact_chat.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
+from app.routes import dashboard_collab as _dashboard_collab_routes  # noqa: E402
+app.include_router(_dashboard_collab_routes.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")

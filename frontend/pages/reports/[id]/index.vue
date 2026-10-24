@@ -77,6 +77,7 @@
 						:latest-artifact="latestArtifact"
 						:requested-artifact-id="requestedArtifactId"
 						:requested-dashboard-id="requestedDashboardId"
+						:agent-running="hasInProgressCompletion"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -93,6 +94,13 @@
 			:forked-from-dashboard-id="report.forked_from_artifact_id"
 			:forked-from-title="report.forked_from_title"
 			:forked-from-user-name="report.forked_from_user_name"
+		/>
+		<!-- A conversation that joined a dashboard (collab01): whose work it
+		     continues and what changed before. Renders nothing otherwise. -->
+		<ContinuedFromCard
+			v-if="reportLoaded && report?.id"
+			:report-id="report.id"
+			@rerun-done="artifactFrameKey += 1"
 		/>
 
 		<!-- Messages -->
@@ -959,6 +967,7 @@
 				:latest-artifact="latestArtifact"
 				:requested-artifact-id="requestedArtifactId"
 				:requested-dashboard-id="requestedDashboardId"
+				:agent-running="hasInProgressCompletion"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1128,6 +1137,7 @@ import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
+import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import ForkPreparing from '~/components/ForkPreparing.vue'

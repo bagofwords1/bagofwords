@@ -96,6 +96,7 @@ async def new_artifact(
     )
     db.add(version)
     await db.flush()
+    await _snapshot_elements(db, version)
     # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
     return version
@@ -162,6 +163,10 @@ async def new_version(
     SAVEPOINT, so a lost race undoes only that INSERT — never the caller's
     transaction — and is retried with a freshly read number.
     """
+    # The lineage (collab01): a version grows from its source and stays on
+    # its draft, unless the caller says otherwise (a joining conversation).
+    version_fields.setdefault("base_version_id", str(source.id) if getattr(source, "id", None) else None)
+    version_fields.setdefault("draft_id", getattr(source, "draft_id", None))
     fields = dict(
         artifact_id=str(source.artifact_id),
         report_id=_id(report_id) or _id(source.report_id),
@@ -173,6 +178,11 @@ async def new_version(
         status=status,
         **version_fields,
     )
+    # A version changes the shared dashboard: its author must still be able
+    # to edit it (collab01; an agent in a removed editor's conversation too).
+    from app.services.dashboard_access import assert_may_write
+
+    await assert_may_write(db, fields["artifact_id"], fields["user_id"])
     for attempt in range(_MINT_ATTEMPTS):
         version = ArtifactVersion(**fields, version=await next_version_number(db, source))
         try:
@@ -193,9 +203,27 @@ async def new_version(
             parent.title = title
             db.add(parent)
     await db.flush()
+    await _snapshot_elements(db, version)
     # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
     return version
+
+
+async def _snapshot_elements(db: AsyncSession, version: ArtifactVersion) -> None:
+    """Each chart's fingerprint as this version shows it (collab01). Never
+    fails the version: attribution is a nicety, the version is the work."""
+    import logging
+
+    try:
+        from app.services.dashboard_collab import snapshot_elements
+
+        # A savepoint: on Postgres a failed statement would otherwise abort
+        # the caller's whole transaction.
+        async with db.begin_nested():
+            version.elements = await snapshot_elements(db, version)
+            await db.flush()
+    except Exception:
+        logging.getLogger(__name__).warning("elements not snapshotted for version %s", version.id, exc_info=True)
 
 
 class ArtifactService:

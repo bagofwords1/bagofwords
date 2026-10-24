@@ -76,13 +76,16 @@ async def counts_as_owner(db, artifact: Artifact, user) -> bool:
 
 
 async def can_edit(db, artifact: Artifact, user) -> bool:
-    """The owner, or whoever can view the dashboard's project -- while still
-    in the dashboard's organization."""
+    """The owner, whoever can view the dashboard's project, or a person or
+    group granted 'edit' (collab01) -- while still in the dashboard's
+    organization."""
     from app.core.permission_resolver import principal_belongs_to_org
 
     if user is None or not await principal_belongs_to_org(db, user, str(artifact.organization_id)):
         return False
     if is_owner(artifact, user):
+        return True
+    if await _edit_granted(db, artifact, user):
         return True
     if not artifact.project_id:
         return False
@@ -91,6 +94,98 @@ async def can_edit(db, artifact: Artifact, user) -> bool:
 
     project = await db.get(Project, str(artifact.project_id))
     return project is not None and await project_service.user_can_view_project(db, user, project)
+
+
+async def holds_snapshot(db, artifact: Artifact, release, user) -> bool:
+    """Whether a release's stored rows are `user`'s own run (collab01):
+    whoever produced them -- the publisher, then whoever each refresh ran as
+    (`run_by`) -- while still in the organization. Several people publish
+    one dashboard now, so owning it no longer says whose rows these are."""
+    from app.core.permission_resolver import principal_belongs_to_org
+
+    if user is None or release is None:
+        return False
+    runner = getattr(release, "run_by", None) or release.published_by
+    if runner is None:  # nothing records it: the owner published, as before
+        return await counts_as_owner(db, artifact, user)
+    return str(runner) == str(user.id) and await principal_belongs_to_org(db, user, str(artifact.organization_id))
+
+
+async def assert_may_write(db, artifact_id: str | None, user_id: str | None) -> None:
+    """Refuse a change to a dashboard (a new version, a rename, a delete) by
+    someone who can no longer edit it (collab01). Several people edit one
+    dashboard, each through their own conversation: owning a version or the
+    conversation it lives in is no longer permission to change the shared
+    dashboard -- a removed editor keeps both. The owner and a dashboard
+    without an owner (not one any more, or never) keep the conversation's
+    own rules."""
+    if not artifact_id or not user_id:
+        return
+    artifact = await db.get(Artifact, str(artifact_id))
+    if artifact is None or not artifact.owner_id or str(artifact.owner_id) == str(user_id):
+        return
+    from app.models.user import User
+
+    user = await db.get(User, str(user_id))
+    if user is None or not await can_edit(db, artifact, user):
+        raise AppError.forbidden(ErrorCode.ACCESS_DENIED, "You can no longer edit this dashboard")
+
+
+async def _edit_granted(db, artifact: Artifact, user) -> bool:
+    """An 'edit' grant to `user` or one of their groups. The caller checked
+    the live membership (a grant to someone who left opens nothing)."""
+    from app.services.report_service import ReportService
+
+    groups = ReportService._user_group_ids_subquery(user.id, artifact.organization_id)
+    return (await db.execute(
+        select(ArtifactShare.id).where(
+            ArtifactShare.artifact_id == str(artifact.id),
+            ArtifactShare.role == "edit",
+            or_(ArtifactShare.user_id == str(user.id), ArtifactShare.group_id.in_(groups)),
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+
+
+# ── what a person may do with a dashboard (collab01) ─────────────────────
+#
+# One answer for every route and every button: the page meta returns it and
+# the frontend shows only what is in it.
+
+CAP_VIEW = "view"                # open the published dashboard
+CAP_EDIT = "edit"                # open the draft, edit it in a conversation of their own
+CAP_PUBLISH = "publish"          # publish a version, roll back to a kept release
+CAP_SHARE = "share"              # add or remove viewers and editors
+CAP_MAKE_PUBLIC = "make_public"  # visibility 'public'
+CAP_SETTINGS = "settings"        # schedule, chat, Data tab, link name, notes
+CAP_RUN_IDENTITY = "run_identity"  # viewer <-> creator credentials, "editors can share"
+CAP_TRANSFER = "transfer"        # hand the dashboard to another editor
+CAP_ANALYTICS = "analytics"      # read the dashboard's view counts
+
+_EDITOR_CAPS = {CAP_VIEW, CAP_EDIT, CAP_PUBLISH, CAP_SHARE, CAP_SETTINGS, CAP_ANALYTICS}
+_OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER}
+
+
+async def capabilities(db, artifact: Artifact, user) -> set[str]:
+    """What `user` may do with this dashboard. The owner: everything. An
+    editor: edit, publish (not a dashboard that runs as its creator -- its
+    readers run with the owner's credentials), share, settings, analytics. The organization's admin: read and hand
+    it over. Anyone /d lets in: view. Nobody else: nothing."""
+    if await counts_as_owner(db, artifact, user):
+        return set(_OWNER_CAPS)
+    caps: set[str] = set()
+    if await can_edit(db, artifact, user):
+        caps = set(_EDITOR_CAPS)
+        if (artifact.shared_run_identity or "viewer") == "creator":
+            caps.discard(CAP_PUBLISH)
+    if await is_org_admin(db, artifact, user):
+        caps |= {CAP_VIEW, CAP_TRANSFER}
+    if CAP_VIEW not in caps:
+        try:
+            await admit_reader(db, artifact, user)
+            caps.add(CAP_VIEW)
+        except AppError:
+            pass
+    return caps
 
 
 async def _is_member(db, user, organization_id) -> bool:
@@ -184,13 +279,16 @@ async def open_draft(db, ref: str, user) -> Artifact:
     artifact = await resolve(db, ref)
     if not await can_edit(db, artifact, user) and not await is_org_admin(db, artifact, user):
         raise _not_found()
-    # The draft lives in the editing conversation: none once it was deleted
-    # (phase 7; "Edit" starts a new one from the published release).
-    from app.models.report import Report
-    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
-    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
+    # The draft lives in the editing conversations: none once they were all
+    # deleted (phase 7; "Edit" starts a new one from the published release).
+    # Several people may edit it, each in a conversation of their own
+    # (collab01).
+    from app.services.dashboard_collab import editing_report_ids
+
+    editing = await editing_report_ids(db, artifact)
+    if not editing:
         raise _not_found()
-    await assert_read(db, await report_access(db, artifact.report_id), user)
+    await assert_read(db, await report_access(db, editing[0]), user)
     return artifact
 
 

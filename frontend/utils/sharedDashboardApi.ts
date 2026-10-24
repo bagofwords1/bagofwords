@@ -81,9 +81,10 @@ export function sharedDashboardApi(source: SharedDashboardSource, id: string): S
         embedToken: (fileId) => `${d}/draft/files/${fileId}/embed_token`,
         run: null,
         refreshOnView: null,
-        // The draft's queries are the conversation's: its editors run them
-        // as the editor does.
-        paramRun: (queryId) => `/api/queries/${queryId}/run`,
+        // A filter on the draft (collab01): the version shown may be another
+        // editor's conversation, so the run goes through the draft door and
+        // runs as the reader, kept as theirs alone.
+        paramRun: (queryId) => `${d}/draft/queries/${queryId}/run`,
         exportUrl: null,
         fork: null,
         chatBase: null,

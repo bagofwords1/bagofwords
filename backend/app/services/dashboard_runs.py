@@ -209,14 +209,15 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     from app.ai.tools.implementations.agent_focus_common import accessible_agents
     from app.ee.audit.service import audit_service
     from app.models.organization import Organization
-    from app.services.dashboard_access import counts_as_owner
+    from app.services.dashboard_access import holds_snapshot
     from app.services.data_source_service import DataSourceService
     from app.services.exec_context import ExecContext
     from app.services.report_service import ReportService
 
     if caller is None:
         raise AppError.unauthorized()
-    if await counts_as_owner(db, artifact, caller):
+    if await holds_snapshot(db, artifact, release, caller):
+        # The stored rows are already this person's own run (collab01).
         raise AppError.bad_request(ErrorCode.VALIDATION,
                                    "The owner refreshes the dashboard itself, not as a reader")
     identity, credential_user = await run_identity(db, artifact, release, caller, refuse_strangers=True)
