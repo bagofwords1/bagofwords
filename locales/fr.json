@@ -6102,12 +6102,14 @@
     "saved": "Paramètres enregistrés",
     "saveFailed": "Impossible d’enregistrer les paramètres",
     "loadFailed": "Impossible de charger les paramètres",
-    "tabRefresh": "Actualisation",
     "tabViewers": "Lecteurs",
-    "tabLink": "Lien",
     "tabData": "Données",
     "viewersDesc": "Ce que reçoivent les personnes avec qui vous le partagez.",
     "dataDesc": "Les requêtes derrière ce tableau de bord.",
-    "unsaved": "Modifications non enregistrées"
+    "unsaved": "Modifications non enregistrées",
+    "tabGeneral": "Général",
+    "nameTitle": "Nom",
+    "linkTitle": "Lien",
+    "refreshTitle": "Actualiser les données"
   }
 }

@@ -6449,12 +6449,14 @@
     "saved": "Configuración guardada",
     "saveFailed": "No se pudo guardar la configuración",
     "loadFailed": "No se pudo cargar la configuración",
-    "tabRefresh": "Actualización",
     "tabViewers": "Lectores",
-    "tabLink": "Enlace",
     "tabData": "Datos",
     "viewersDesc": "Qué reciben las personas con las que lo compartes.",
     "dataDesc": "Las consultas detrás de este panel.",
-    "unsaved": "Cambios sin guardar"
+    "unsaved": "Cambios sin guardar",
+    "tabGeneral": "General",
+    "nameTitle": "Nombre",
+    "linkTitle": "Enlace",
+    "refreshTitle": "Actualizar datos"
   }
 }

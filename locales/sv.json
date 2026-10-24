@@ -6102,12 +6102,14 @@
     "saved": "Inställningarna sparades",
     "saveFailed": "Det gick inte att spara inställningarna",
     "loadFailed": "Det gick inte att läsa in inställningarna",
-    "tabRefresh": "Uppdatering",
     "tabViewers": "Tittare",
-    "tabLink": "Länk",
     "tabData": "Data",
     "viewersDesc": "Vad personerna du delar med får.",
     "dataDesc": "Frågorna bakom instrumentpanelen.",
-    "unsaved": "Osparade ändringar"
+    "unsaved": "Osparade ändringar",
+    "tabGeneral": "Allmänt",
+    "nameTitle": "Namn",
+    "linkTitle": "Länk",
+    "refreshTitle": "Uppdatera data"
   }
 }

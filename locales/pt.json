@@ -6102,12 +6102,14 @@
     "saved": "Configurações salvas",
     "saveFailed": "Não foi possível salvar as configurações",
     "loadFailed": "Não foi possível carregar as configurações",
-    "tabRefresh": "Atualização",
     "tabViewers": "Leitores",
-    "tabLink": "Link",
     "tabData": "Dados",
     "viewersDesc": "O que recebem as pessoas com quem você compartilha.",
     "dataDesc": "As consultas por trás deste painel.",
-    "unsaved": "Alterações não salvas"
+    "unsaved": "Alterações não salvas",
+    "tabGeneral": "Geral",
+    "nameTitle": "Nome",
+    "linkTitle": "Link",
+    "refreshTitle": "Atualizar dados"
   }
 }

@@ -6478,12 +6478,14 @@
     "saved": "Settings saved",
     "saveFailed": "Couldn't save the settings",
     "loadFailed": "Couldn't load the settings",
-    "tabRefresh": "Refresh",
     "tabViewers": "Viewers",
-    "tabLink": "Link",
     "tabData": "Data",
     "viewersDesc": "What the people you share it with get.",
     "dataDesc": "The queries behind this dashboard.",
-    "unsaved": "Unsaved changes"
+    "unsaved": "Unsaved changes",
+    "tabGeneral": "General",
+    "nameTitle": "Name",
+    "linkTitle": "Link",
+    "refreshTitle": "Refresh data"
   }
 }

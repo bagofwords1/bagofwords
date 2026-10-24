@@ -6469,12 +6469,14 @@
     "saved": "ההגדרות נשמרו",
     "saveFailed": "לא ניתן היה לשמור את ההגדרות",
     "loadFailed": "לא ניתן היה לטעון את ההגדרות",
-    "tabRefresh": "רענון",
     "tabViewers": "צופים",
-    "tabLink": "קישור",
     "tabData": "נתונים",
     "viewersDesc": "מה מקבלים האנשים שאיתם משתפים.",
     "dataDesc": "השאילתות שמאחורי הגלריה.",
-    "unsaved": "שינויים שלא נשמרו"
+    "unsaved": "שינויים שלא נשמרו",
+    "tabGeneral": "כללי",
+    "nameTitle": "שם",
+    "linkTitle": "קישור",
+    "refreshTitle": "רענון נתונים"
   }
 }

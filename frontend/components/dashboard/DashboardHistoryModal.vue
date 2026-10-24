@@ -4,11 +4,14 @@
          notes and its owner. Contract used by the dashboard page and the
          in-conversation frame:
            v-model (open), dashboard-id, capabilities (from the page meta),
-           @rolled-back (readers now see another release), @transferred. -->
-    <UModal v-model="open" :ui="{ width: 'sm:max-w-3xl' }">
-        <div class="p-4 sm:p-5 flex flex-col min-h-0" data-testid="dashboard-history">
+           @rolled-back (readers now see another release), @transferred.
+         Embedded (the dashboard's settings window): no modal, no header or
+         tab strip; `section` picks the tab and @close asks to close. -->
+    <component :is="embedded ? 'div' : UModal" v-bind="embedded ? {} : { modelValue: open, ui: { width: 'sm:max-w-3xl' } }"
+        @update:model-value="(v: boolean) => { open = v }">
+        <div :class="embedded ? 'flex flex-col min-h-0' : 'p-4 sm:p-5 flex flex-col min-h-0'" data-testid="dashboard-history">
             <!-- Header -->
-            <div class="flex items-start justify-between gap-3 mb-3">
+            <div v-if="!embedded" class="flex items-start justify-between gap-3 mb-3">
                 <div class="min-w-0">
                     <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('dashboardCollab.history.title') }}</h2>
                     <p class="text-sm text-gray-400">{{ $t('dashboardCollab.history.subtitle') }}</p>
@@ -20,7 +23,7 @@
             </div>
 
             <!-- Tabs: scroll sideways on a phone rather than wrap. -->
-            <div class="-mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto border-b border-gray-200 dark:border-gray-700 mb-3">
+            <div v-if="!embedded" class="-mx-4 sm:mx-0 px-4 sm:px-0 overflow-x-auto border-b border-gray-200 dark:border-gray-700 mb-3">
                 <div class="flex gap-1 min-w-max" role="tablist">
                     <button v-for="tab in tabs" :key="tab.key" type="button" role="tab"
                         :aria-selected="active === tab.key" :data-testid="`history-tab-${tab.key}`"
@@ -36,7 +39,7 @@
                 </div>
             </div>
 
-            <div class="max-h-[65vh] overflow-y-auto -mx-1 px-1">
+            <div :class="embedded ? '' : 'max-h-[65vh] overflow-y-auto -mx-1 px-1'">
                 <!-- Notes and Owner read their own data. -->
                 <HistoryNotes v-if="active === 'notes'" :dashboard-id="dashboardId" :can-edit="can('settings')" />
                 <HistoryOwner v-else-if="active === 'owner'" :dashboard-id="dashboardId" @transferred="onTransferred" />
@@ -58,7 +61,7 @@
             </div>
             <slot />
         </div>
-    </UModal>
+    </component>
 </template>
 
 <script setup lang="ts">
@@ -69,16 +72,25 @@ import HistoryConversations from './history/HistoryConversations.vue';
 import HistoryNotes from './history/HistoryNotes.vue';
 import HistoryOwner from './history/HistoryOwner.vue';
 
-const props = defineProps<{ modelValue: boolean; dashboardId: string; capabilities: string[] }>();
+type TabKey = 'versions' | 'published' | 'conversations' | 'notes' | 'owner';
+const props = defineProps<{
+    modelValue?: boolean; dashboardId: string; capabilities: string[];
+    embedded?: boolean; section?: TabKey;
+}>();
 const emit = defineEmits<{
     (e: 'update:modelValue', value: boolean): void;
     (e: 'rolled-back'): void;
     (e: 'transferred'): void;
+    (e: 'close'): void;
 }>();
+const UModal = resolveComponent('UModal');
 
 const open = computed({
-    get: () => props.modelValue,
-    set: (value: boolean) => emit('update:modelValue', value),
+    get: () => !!props.modelValue,
+    set: (value: boolean) => {
+        emit('update:modelValue', value);
+        if (!value) emit('close');
+    },
 });
 
 const { t } = useI18n();
@@ -86,8 +98,8 @@ const { getErrorMessage } = useErrorMessage();
 
 const can = (cap: string) => (props.capabilities || []).includes(cap);
 
-type TabKey = 'versions' | 'published' | 'conversations' | 'notes' | 'owner';
-const active = ref<TabKey>('versions');
+const active = ref<TabKey>(props.section || 'versions');
+watch(() => props.section, (section) => { if (section) active.value = section; });
 const history = ref<any | null>(null);
 const loading = ref(false);
 const loadError = ref<string | null>(null);
@@ -141,6 +153,7 @@ async function onTransferred() {
 
 // Read on every open: the history moves while people edit.
 watch(() => props.modelValue, (isOpen) => { if (isOpen) load(); }, { immediate: true });
+onMounted(() => { if (props.embedded) load(); });
 watch(() => props.dashboardId, () => {
     history.value = null;
     active.value = 'versions';

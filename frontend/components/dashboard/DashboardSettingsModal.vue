@@ -24,8 +24,10 @@
                 <div class="flex sm:flex-col gap-0.5 overflow-x-auto px-2 sm:px-3 py-2 sm:py-0" role="tablist" aria-orientation="vertical">
                     <template v-for="(item, idx) in tabs" :key="item.key">
                         <div v-if="idx > 0 && item.group !== tabs[idx - 1].group" class="hidden sm:block h-px bg-gray-200 dark:bg-gray-700 my-2 mx-2" />
+                        <div v-if="item.groupLabel && (idx === 0 || item.group !== tabs[idx - 1].group)"
+                            class="hidden sm:block px-3 pt-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">{{ item.groupLabel }}</div>
                         <button type="button" role="tab" :aria-selected="tab === item.key" :data-testid="`settings-tab-${item.key}`"
-                            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap text-start transition-colors"
+                            class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             :class="tab === item.key
                                 ? 'bg-blue-100/70 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 font-medium'
                                 : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
@@ -50,15 +52,39 @@
                     </button>
                 </div>
 
-                <div class="flex-1 min-h-0 overflow-y-auto px-6 pb-4">
-                    <!-- Settings (one Save for all three) -->
+                <div class="flex-1 min-h-0 overflow-y-auto px-6 pt-1 pb-4">
+                    <!-- Settings (General and Viewers save together) -->
                     <div v-if="isSettingsTab && loading" class="flex items-center justify-center py-16">
                         <Spinner class="w-5 h-5 text-gray-400" />
                     </div>
                     <template v-else>
-                        <!-- Refresh data -->
-                        <section v-show="tab === 'refresh'" data-testid="settings-refresh">
+                        <!-- General: its name, its link, when its data refreshes -->
+                        <section v-show="tab === 'general'" class="space-y-6" data-testid="settings-general">
+                            <div data-testid="settings-name">
+                                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5" for="dashboard-settings-name">{{ $t('dashboardSettings.nameTitle') }}</label>
+                                <input id="dashboard-settings-name" v-model="nameDraft" type="text" maxlength="255" :disabled="!rename"
+                                    :placeholder="$t('artifactFrame.renamePlaceholder')"
+                                    class="w-full h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60" />
+                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.ownerOnly') }}</p>
+                            </div>
 
+                            <div data-testid="settings-link">
+                                <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.linkTitle') }}</div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ $t('dashboardSettings.linkDesc') }}</p>
+                                <div class="flex items-center h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 min-w-0 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent"
+                                    :class="!canSettings ? 'opacity-60' : ''" dir="ltr" data-testid="link-name-editor">
+                                    <span class="text-gray-400 whitespace-nowrap">{{ linkPrefix }}</span>
+                                    <input v-model="slugDraft" type="text" maxlength="80" :disabled="!canSettings"
+                                        class="flex-1 min-w-0 border-none outline-none bg-transparent p-0 text-sm text-gray-800 dark:text-gray-200"
+                                        :placeholder="dashboardId" />
+                                </div>
+                                <p v-if="!slugValid" class="text-[11px] text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
+                                <p v-else-if="!slugDraft && saved.slug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
+                            </div>
+
+                            <div data-testid="settings-refresh">
+                                <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.refreshTitle') }}</div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">{{ $t('dashboardSettings.refreshDesc') }}</p>
                             <div class="inline-flex p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg mb-3" role="radiogroup">
                                 <button v-for="opt in refreshModeOptions" :key="opt.value" type="button" role="radio"
                                     :aria-checked="refreshMode === opt.value" :disabled="!canSettings"
@@ -151,6 +177,7 @@
                                 </div>
                                 <p class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.notifyDesc') }}</p>
                             </div>
+                            </div>
                         </section>
 
                         <!-- What viewers get -->
@@ -221,17 +248,6 @@
                         </section>
 
                         <!-- The name in its link -->
-                        <section v-show="tab === 'link'" data-testid="settings-link">
-                            <div class="flex items-center h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 min-w-0 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent"
-                                :class="!canSettings ? 'opacity-60' : ''" dir="ltr" data-testid="link-name-editor">
-                                <span class="text-gray-400 whitespace-nowrap">{{ linkPrefix }}</span>
-                                <input v-model="slugDraft" type="text" maxlength="80" :disabled="!canSettings"
-                                    class="flex-1 min-w-0 border-none outline-none bg-transparent p-0 text-sm text-gray-800 dark:text-gray-200"
-                                    :placeholder="dashboardId" />
-                            </div>
-                            <p v-if="!slugValid" class="text-[11px] text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
-                            <p v-else-if="!slugDraft && saved.slug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
-                        </section>
                     </template>
 
                     <!-- The queries behind it; resources and analytics (read only).
@@ -246,16 +262,22 @@
                     <div v-if="visited.analytics" v-show="tab === 'analytics'" data-testid="settings-analytics">
                         <ArtifactResourceExplorer embedded :artifact-id="dashboardId" view="analytics" />
                     </div>
+                    <!-- History: one instance for its five tabs; the menu picks the section. -->
+                    <div v-if="visited.history" v-show="isHistoryTab" data-testid="settings-history">
+                        <DashboardHistoryModal embedded :dashboard-id="dashboardId" :capabilities="capabilities || []"
+                            :section="historySection" @rolled-back="emit('history-changed')" @transferred="emit('history-changed')"
+                            @close="isOpen = false" />
+                    </div>
                 </div>
 
-                <!-- Footer: the settings tabs save together -->
+                <!-- Footer: General and Viewers save together -->
                 <div v-if="isSettingsTab" class="flex items-center justify-end gap-2 px-6 py-4 border-t border-gray-100 dark:border-gray-800">
                     <span v-if="dirty" class="me-auto text-xs text-gray-500 dark:text-gray-400">{{ $t('dashboardSettings.unsaved') }}</span>
                     <button @click="isOpen = false"
                         class="h-9 px-4 text-sm font-medium rounded-full text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950">
                         {{ $t('common.cancel') }}
                     </button>
-                    <button @click="save" :disabled="saving || loading || !slugValid || !dirty || !canSettings"
+                    <button @click="save" :disabled="saving || loading || !slugValid || !dirty"
                         data-testid="dashboard-settings-save"
                         class="inline-flex items-center gap-1.5 h-9 px-5 text-sm font-medium rounded-full text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                         <Spinner v-if="saving" class="w-3.5 h-3.5" />
@@ -269,6 +291,7 @@
 
 <script setup lang="ts">
 import DataModal from './DataModal.vue'
+import DashboardHistoryModal from './DashboardHistoryModal.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
@@ -284,8 +307,11 @@ const props = defineProps<{
     // Tabs the reader may open (the frame knows): resources, analytics.
     resourcesAvailable?: boolean
     showAnalytics?: boolean
+    // Its name, and how to change it (the frame's rename; absent: not theirs).
+    title?: string
+    rename?: (title: string) => Promise<boolean>
 }>()
-const emit = defineEmits<{ (e: 'saved', settings: any): void }>()
+const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void }>()
 
 const { t } = useI18n()
 const toast = useToast()
@@ -298,21 +324,40 @@ const isOpen = ref(false)
 const loading = ref(false)
 
 // ---- Tabs ----
-type Tab = 'refresh' | 'viewers' | 'link' | 'data' | 'resources' | 'analytics'
-const tab = ref<Tab>('refresh')
-const tabs = computed(() => [
-    { key: 'refresh' as const, group: 1, icon: 'heroicons:arrow-path', label: t('dashboardSettings.tabRefresh'), desc: t('dashboardSettings.refreshDesc') },
-    { key: 'viewers' as const, group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
-    { key: 'link' as const, group: 1, icon: 'heroicons:link', label: t('dashboardSettings.tabLink'), desc: t('dashboardSettings.linkDesc') },
-    { key: 'data' as const, group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
-    ...(props.resourcesAvailable ? [{ key: 'resources' as const, group: 2, icon: 'heroicons:server-stack', label: t('artifactResources.inspect'), desc: t('artifactResources.readOnlyLabel') }] : []),
-    ...(props.showAnalytics ? [{ key: 'analytics' as const, group: 2, icon: 'heroicons:chart-bar', label: t('artifactResources.analytics'), desc: t('artifactResources.readOnly') }] : []),
-])
+type HistoryTab = 'versions' | 'published' | 'conversations' | 'notes' | 'owner'
+type Tab = 'general' | 'viewers' | 'data' | 'resources' | 'analytics' | HistoryTab
+const HISTORY_TABS: HistoryTab[] = ['versions', 'published', 'conversations', 'notes', 'owner']
+const tab = ref<Tab>('general')
+type TabItem = { key: Tab; group: number; icon: string; label: string; desc: string; groupLabel?: string }
+const tabs = computed<TabItem[]>(() => {
+    const list: TabItem[] = [
+        { key: 'general', group: 1, icon: 'heroicons:adjustments-horizontal', label: t('dashboardSettings.tabGeneral'), desc: '' },
+        { key: 'viewers', group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
+        { key: 'data', group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
+    ]
+    if (props.resourcesAvailable) list.push({ key: 'resources', group: 2, icon: 'heroicons:server-stack', label: t('artifactResources.inspect'), desc: t('artifactResources.readOnlyLabel') })
+    if (props.showAnalytics) list.push({ key: 'analytics', group: 2, icon: 'heroicons:chart-bar', label: t('artifactResources.analytics'), desc: t('artifactResources.readOnly') })
+    // History (collab01): editors; the owner tab for whoever may hand it over.
+    if (capabilities.value?.includes('edit')) {
+        const h = { group: 3, groupLabel: t('dashboardCollab.history.title'), desc: t('dashboardCollab.history.subtitle') }
+        list.push(
+            { key: 'versions', icon: 'heroicons:clock', label: t('dashboardCollab.history.tabVersions'), ...h },
+            { key: 'published', icon: 'heroicons:rocket-launch', label: t('dashboardCollab.history.tabPublished'), ...h },
+            { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), ...h },
+            { key: 'notes', icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), ...h },
+        )
+        if (capabilities.value.includes('transfer')) list.push({ key: 'owner', icon: 'heroicons:user-circle', label: t('dashboardCollab.history.tabOwner'), ...h })
+    }
+    return list
+})
 const currentTab = computed(() => tabs.value.find(x => x.key === tab.value) || tabs.value[0])
-const isSettingsTab = computed(() => ['refresh', 'viewers', 'link'].includes(tab.value))
-// The data, resources and analytics tabs load when first opened.
+const isSettingsTab = computed(() => tab.value === 'general' || tab.value === 'viewers')
+const isHistoryTab = computed(() => (HISTORY_TABS as string[]).includes(tab.value))
+const historySection = computed(() => (isHistoryTab.value ? tab.value as HistoryTab : undefined))
+// Data, resources, analytics and history load when first opened.
 const visited = reactive<Record<string, boolean>>({})
-watch([tab, isOpen], () => { if (isOpen.value) visited[tab.value] = true })
+const visitKey = (k: Tab) => ((HISTORY_TABS as string[]).includes(k) ? 'history' : k)
+watch([tab, isOpen], () => { if (isOpen.value) visited[visitKey(tab.value)] = true })
 const saving = ref(false)
 
 // What the reader may change (the server decides; null: not known yet).
@@ -436,6 +481,10 @@ const hasRls = ref(false)
 const hasUserScoped = ref(false)
 const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
+// ---- Name ----
+const nameDraft = ref('')
+const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() && nameDraft.value.trim() !== (props.title || ''))
+
 // ---- Link name ----
 const slugDraft = ref('')
 const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/
@@ -474,7 +523,8 @@ const changes = computed(() => {
     const now = current()
     return Object.fromEntries(Object.entries(now).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(saved.value[k])))
 })
-const dirty = computed(() => Object.keys(changes.value).length > 0)
+const settingsDirty = computed(() => canSettings.value && Object.keys(changes.value).length > 0)
+const dirty = computed(() => settingsDirty.value || nameChanged.value)
 
 async function load() {
     const id = props.dashboardId
@@ -516,6 +566,7 @@ async function load() {
         hasRls.value = !!report.has_rls
         hasUserScoped.value = !!report.has_user_scoped
         slugDraft.value = st.slug || ''
+        nameDraft.value = props.title || ''
         saved.value = current()
     } catch (e) {
         toast.add({ title: t('dashboardSettings.loadFailed'), description: getErrorMessage(e), color: 'red' })
@@ -539,10 +590,14 @@ async function save() {
     if (!dirty.value || !slugValid.value) return
     saving.value = true
     try {
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, { method: 'PUT', body: changes.value })
-        if (res.error.value) throw res.error.value
-        toast.add({ title: t('dashboardSettings.saved'), color: 'green' })
-        emit('saved', res.data.value)
+        // The name first (the frame's rename says how it went), then the rest.
+        if (nameChanged.value && !(await props.rename!(nameDraft.value.trim()))) return
+        if (settingsDirty.value) {
+            const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, { method: 'PUT', body: changes.value })
+            if (res.error.value) throw res.error.value
+            toast.add({ title: t('dashboardSettings.saved'), color: 'green' })
+            emit('saved', res.data.value)
+        }
         isOpen.value = false
     } catch (e) {
         toast.add({ title: t('dashboardSettings.saveFailed'), description: getErrorMessage(e), color: 'red' })
@@ -551,11 +606,11 @@ async function save() {
     }
 }
 
-function open(at: Tab = 'refresh') {
+function open(at: Tab = 'general') {
     tab.value = at
     for (const k of Object.keys(visited)) delete visited[k]
     isOpen.value = true
-    visited[at] = true
+    visited[visitKey(at)] = true
     load()
 }
 defineExpose({ open })

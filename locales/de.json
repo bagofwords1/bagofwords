@@ -6102,12 +6102,14 @@
     "saved": "Einstellungen gespeichert",
     "saveFailed": "Einstellungen konnten nicht gespeichert werden",
     "loadFailed": "Einstellungen konnten nicht geladen werden",
-    "tabRefresh": "Aktualisierung",
     "tabViewers": "Betrachter",
-    "tabLink": "Link",
     "tabData": "Daten",
     "viewersDesc": "Was die Personen bekommen, mit denen Sie es teilen.",
     "dataDesc": "Die Abfragen hinter diesem Dashboard.",
-    "unsaved": "Ungespeicherte Änderungen"
+    "unsaved": "Ungespeicherte Änderungen",
+    "tabGeneral": "Allgemein",
+    "nameTitle": "Name",
+    "linkTitle": "Link",
+    "refreshTitle": "Daten aktualisieren"
   }
 }

@@ -141,13 +141,16 @@
              each for the schedule, what viewers get, the link, the queries
              behind it (Data), its resources and its analytics. Who has
              access is Share's. -->
-        <DashboardSettingsModal v-if="report && selectedArtifact?.artifact_id" :report-id="reportId"
+        <DashboardSettingsModal v-if="report && selectedArtifact?.artifact_id" ref="settingsModalRef" :report-id="reportId"
           :dashboard-id="selectedArtifact.artifact_id"
           :artifact-id="selectedArtifact.id"
           :artifact-viz-ids="selectedArtifact.content?.visualization_ids || []"
           :artifact-mode="selectedArtifact.mode"
+          :title="currentArtifactTitle()"
+          :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
-          :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview" />
+          :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
+          @history-changed="onHistoryChanged" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -553,15 +556,6 @@
       </UModal>
     </Teleport>
   </div>
-  <!-- The dashboard's history (collab01): conversations, versions, releases. -->
-  <DashboardHistoryModal
-    v-if="historyOpen && selectedArtifact?.artifact_id"
-    v-model="historyOpen"
-    :dashboard-id="selectedArtifact.artifact_id"
-    :capabilities="dashboardCaps"
-    @rolled-back="onHistoryChanged"
-    @transferred="onHistoryChanged"
-  />
 </template>
 
 <script setup lang="ts">
@@ -571,7 +565,6 @@ import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
-import DashboardHistoryModal from './DashboardHistoryModal.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
@@ -1567,7 +1560,8 @@ function reviewChanges() {
   navigateTo(`/d/${encodeURIComponent(id)}/draft?${n ? `version=${n}&` : ''}changes=1`);
 }
 
-const historyOpen = ref(false);
+// The settings window: its History tabs open from the ⋯ menu too.
+const settingsModalRef = ref<any>(null);
 // Remounting the Publish button re-reads what readers see now.
 const publishKey = ref(0);
 // A roll back changes what is live; a transfer changes who may do what.
@@ -1615,11 +1609,19 @@ function cancelRename() {
 }
 
 async function saveRename() {
-  const id = selectedArtifactId.value;
   const title = renameDraft.value.trim();
-  if (!id || !title || isSavingRename.value) return;
+  if (!title || isSavingRename.value) return;
   if (title === currentArtifactTitle()) { cancelRename(); return; }
+  if (await renameTo(title)) {
+    isRenaming.value = false;
+    renameDraft.value = '';
+  }
+}
 
+// The rename itself, for the inline field and the settings' General tab.
+async function renameTo(title: string): Promise<boolean> {
+  const id = selectedArtifactId.value;
+  if (!id || !title || isSavingRename.value) return false;
   isSavingRename.value = true;
   try {
     const { data, error } = await useMyFetch(`/api/artifacts/${id}`, {
@@ -1650,9 +1652,8 @@ async function saveRename() {
     if (selectedArtifact.value?.id === id) {
       selectedArtifact.value = { ...selectedArtifact.value, title: saved };
     }
-    isRenaming.value = false;
-    renameDraft.value = '';
     toast.add({ title: t('artifactFrame.renamed'), color: 'green' });
+    return true;
   } catch (e: any) {
     console.error('[ArtifactFrame] Failed to rename artifact:', e);
     toast.add({
@@ -1660,6 +1661,7 @@ async function saveRename() {
       description: e?.data?.detail?.message || e?.data?.detail || t('artifactFrame.renameFailed'),
       color: 'red',
     });
+    return false;
   } finally {
     isSavingRename.value = false;
   }
@@ -1712,7 +1714,7 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     // Resources and analytics are tabs of the dashboard's settings (the gear).
     const inspectors = [];
     // History: the conversations, versions and releases (Roll back) -- editors.
-    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { historyOpen.value = true; } });
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { settingsModalRef.value?.open('versions'); } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);

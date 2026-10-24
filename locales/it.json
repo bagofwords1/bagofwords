@@ -6102,12 +6102,14 @@
     "saved": "Impostazioni salvate",
     "saveFailed": "Impossibile salvare le impostazioni",
     "loadFailed": "Impossibile caricare le impostazioni",
-    "tabRefresh": "Aggiornamento",
     "tabViewers": "Lettori",
-    "tabLink": "Link",
     "tabData": "Dati",
     "viewersDesc": "Cosa ricevono le persone con cui la condividi.",
     "dataDesc": "Le query dietro questa dashboard.",
-    "unsaved": "Modifiche non salvate"
+    "unsaved": "Modifiche non salvate",
+    "tabGeneral": "Generale",
+    "nameTitle": "Nome",
+    "linkTitle": "Link",
+    "refreshTitle": "Aggiorna i dati"
   }
 }
