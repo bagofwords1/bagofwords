@@ -6502,7 +6502,8 @@
       "editHere": "Edit v{n} here",
       "backTo": "Back to v{n}",
       "viewLive": "View v{n}",
-      "nextEditViewing": "Viewing v{n} (read-only) · your next edit builds on v{here}"
+      "nextEditViewing": "Viewing v{n} (read-only) · your next edit builds on v{here}",
+      "allVersions": "All versions…"
     },
     "access": {
       "signInTitle": "Sign in required",

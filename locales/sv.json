@@ -6126,7 +6126,8 @@
       "editHere": "Redigera v{n} här",
       "backTo": "Tillbaka till v{n}",
       "viewLive": "Visa v{n}",
-      "nextEditViewing": "Visar v{n} (skrivskyddad) · din nästa ändring utgår från v{here}"
+      "nextEditViewing": "Visar v{n} (skrivskyddad) · din nästa ändring utgår från v{here}",
+      "allVersions": "Alla versioner…"
     },
     "access": {
       "signInTitle": "Inloggning krävs",

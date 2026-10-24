@@ -1907,7 +1907,9 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   if (isDocMode.value && !isEditingDoc.value) {
     exports.push({ label: t('docViewer.exportMarkdown'), icon: 'i-heroicons-arrow-down-tray', click: exportDocMarkdown });
   }
-  for (const option of availableExports.value) {
+  // Viewing another version read-only: exports and full screen would act on
+  // our hidden one, so they go; a new tab opens the version being viewed.
+  for (const option of viewing.value ? [] : availableExports.value) {
     exports.push({
       label: t('artifactFrame.exportAs', { format: option.label }),
       icon: option.icon,
@@ -1916,7 +1918,7 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     });
   }
 
-  const view: MenuItem[] = [
+  const view: MenuItem[] = viewing.value ? [] : [
     { label: t('artifactFrame.fullScreen'), icon: 'i-heroicons-arrows-pointing-out', click: openFullscreen },
   ];
   if (props.report) {
@@ -1925,7 +1927,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     // its published page instead (SharedDashboardView). Without a dashboard
     // id (older rows), the conversation's /r as before.
     const dashboardId = selectedArtifact.value?.artifact_id;
-    const page = dashboardId ? `/d/${dashboardId}/draft` : `/r/${props.report.id}`;
+    const page = viewing.value && viewingSrc.value ? viewingSrc.value.replace('&embed=1', '')
+      : dashboardId ? `/d/${dashboardId}/draft` : `/r/${props.report.id}`;
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(page, '_blank', 'noopener') });
   }
 

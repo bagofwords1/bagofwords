@@ -6126,7 +6126,8 @@
       "editHere": "Modifica v{n} qui",
       "backTo": "Torna a v{n}",
       "viewLive": "Visualizza v{n}",
-      "nextEditViewing": "Visualizzazione di v{n} (sola lettura) · la tua prossima modifica partirà da v{here}"
+      "nextEditViewing": "Visualizzazione di v{n} (sola lettura) · la tua prossima modifica partirà da v{here}",
+      "allVersions": "Tutte le versioni…"
     },
     "access": {
       "signInTitle": "Accesso richiesto",

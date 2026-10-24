@@ -6126,7 +6126,8 @@
       "editHere": "Editar v{n} aqui",
       "backTo": "Voltar para v{n}",
       "viewLive": "Ver v{n}",
-      "nextEditViewing": "Vendo v{n} (somente leitura) · sua próxima edição parte da v{here}"
+      "nextEditViewing": "Vendo v{n} (somente leitura) · sua próxima edição parte da v{here}",
+      "allVersions": "Todas as versões…"
     },
     "access": {
       "signInTitle": "Login necessário",

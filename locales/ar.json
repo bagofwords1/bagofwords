@@ -6126,7 +6126,8 @@
       "editHere": "عدّل v{n} هنا",
       "backTo": "العودة إلى v{n}",
       "viewLive": "عرض v{n}",
-      "nextEditViewing": "عرض v{n} (للقراءة فقط) · تعديلك التالي سيبنى على v{here}"
+      "nextEditViewing": "عرض v{n} (للقراءة فقط) · تعديلك التالي سيبنى على v{here}",
+      "allVersions": "كل الإصدارات…"
     },
     "access": {
       "signInTitle": "تسجيل الدخول مطلوب",

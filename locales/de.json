@@ -6126,7 +6126,8 @@
       "editHere": "v{n} hier bearbeiten",
       "backTo": "Zurück zu v{n}",
       "viewLive": "v{n} ansehen",
-      "nextEditViewing": "Ansicht von v{n} (schreibgeschützt) · Ihre nächste Änderung baut auf v{here} auf"
+      "nextEditViewing": "Ansicht von v{n} (schreibgeschützt) · Ihre nächste Änderung baut auf v{here} auf",
+      "allVersions": "Alle Versionen…"
     },
     "access": {
       "signInTitle": "Anmeldung erforderlich",

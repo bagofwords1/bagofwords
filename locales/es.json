@@ -6473,7 +6473,8 @@
       "editHere": "Editar v{n} aquí",
       "backTo": "Volver a v{n}",
       "viewLive": "Ver v{n}",
-      "nextEditViewing": "Viendo v{n} (solo lectura) · tu próxima edición parte de v{here}"
+      "nextEditViewing": "Viendo v{n} (solo lectura) · tu próxima edición parte de v{here}",
+      "allVersions": "Todas las versiones…"
     },
     "access": {
       "signInTitle": "Inicia sesión",

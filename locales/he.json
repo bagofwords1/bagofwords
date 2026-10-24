@@ -6493,7 +6493,8 @@
       "editHere": "ערוך את v{n} כאן",
       "backTo": "חזרה ל-v{n}",
       "viewLive": "הצג את v{n}",
-      "nextEditViewing": "צפייה ב-v{n} (קריאה בלבד) · העריכה הבאה שלך תתבסס על v{here}"
+      "nextEditViewing": "צפייה ב-v{n} (קריאה בלבד) · העריכה הבאה שלך תתבסס על v{here}",
+      "allVersions": "כל הגרסאות…"
     },
     "access": {
       "signInTitle": "נדרשת התחברות",

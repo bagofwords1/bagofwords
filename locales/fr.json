@@ -6126,7 +6126,8 @@
       "editHere": "Modifier v{n} ici",
       "backTo": "Revenir à v{n}",
       "viewLive": "Voir v{n}",
-      "nextEditViewing": "Consultation de v{n} (lecture seule) · votre prochaine modification partira de v{here}"
+      "nextEditViewing": "Consultation de v{n} (lecture seule) · votre prochaine modification partira de v{here}",
+      "allVersions": "Toutes les versions…"
     },
     "access": {
       "signInTitle": "Connexion requise",
