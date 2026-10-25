@@ -4,7 +4,7 @@
     <div class="space-y-3" data-testid="history-notes">
         <p class="text-xs text-gray-500 dark:text-gray-400 flex items-start gap-1.5">
             <Icon name="heroicons:sparkles" class="w-3.5 h-3.5 shrink-0 mt-px" />
-            <span>{{ $t('dashboardCollab.history.notesHelp') }}</span>
+            <span>{{ tm('dashboardCollab.history.notesHelp', mode) }}</span>
         </p>
 
         <div v-if="loading" class="flex items-center gap-2 py-6 text-sm text-gray-400">
@@ -17,7 +17,7 @@
 
         <template v-else-if="canEdit">
             <UTextarea v-model="draft" :rows="8" autoresize :maxrows="16" :maxlength="MAX"
-                :placeholder="$t('dashboardCollab.history.notesPlaceholder')" :disabled="saving"
+                :placeholder="tm('dashboardCollab.history.notesPlaceholder', mode)" :disabled="saving"
                 data-testid="history-notes-input" />
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <span class="text-[11px] text-gray-400 tabular-nums">{{ $t('dashboardCollab.history.notesLength', { n: draft.length, max: MAX }) }}</span>
@@ -38,7 +38,7 @@
             <HistoryEmpty v-else icon="heroicons:document-text" :text="$t('dashboardCollab.history.notesEmpty')" />
             <p class="text-[11px] text-gray-400 flex items-start gap-1.5">
                 <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-px" />
-                <span>{{ $t('dashboardCollab.history.notesReadOnly') }}</span>
+                <span>{{ tm('dashboardCollab.history.notesReadOnly', mode) }}</span>
             </p>
         </template>
     </div>
@@ -48,10 +48,11 @@
 import Spinner from '~/components/Spinner.vue'
 import HistoryEmpty from './HistoryEmpty.vue'
 
-const props = defineProps<{ dashboardId: string; canEdit: boolean }>()
+const props = defineProps<{ dashboardId: string; canEdit: boolean; mode?: string | null }>()
 
 const MAX = 20000 // DashboardSettingsUpdate.notes max_length
 const { t } = useI18n()
+const { tm } = useArtifactWording()
 const toast = useToast()
 const { getErrorMessage } = useErrorMessage()
 

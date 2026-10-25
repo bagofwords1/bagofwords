@@ -14,7 +14,7 @@
             <div v-if="!embedded" class="flex items-start justify-between gap-3 mb-3">
                 <div class="min-w-0">
                     <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('dashboardCollab.history.title') }}</h2>
-                    <p class="text-sm text-gray-400">{{ $t('dashboardCollab.history.subtitle') }}</p>
+                    <p class="text-sm text-gray-400">{{ tm('dashboardCollab.history.subtitle', mode) }}</p>
                 </div>
                 <button type="button" :aria-label="$t('common.close')" data-testid="dashboard-history-close"
                     class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 outline-none shrink-0" @click="open = false">
@@ -41,8 +41,8 @@
 
             <div :class="embedded ? '' : 'max-h-[65vh] overflow-y-auto -mx-1 px-1'">
                 <!-- Notes and Owner read their own data. -->
-                <HistoryNotes v-if="active === 'notes'" :dashboard-id="dashboardId" :can-edit="can('settings')" />
-                <HistoryOwner v-else-if="active === 'owner'" :dashboard-id="dashboardId" @transferred="onTransferred" />
+                <HistoryNotes v-if="active === 'notes'" :dashboard-id="dashboardId" :can-edit="can('settings')" :mode="mode" />
+                <HistoryOwner v-else-if="active === 'owner'" :dashboard-id="dashboardId" :mode="mode" @transferred="onTransferred" />
 
                 <div v-else-if="loading && !history" class="flex items-center gap-2 py-10 justify-center text-sm text-gray-400">
                     <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
@@ -57,7 +57,7 @@
                     <HistoryVersions v-if="active === 'versions'" :versions="history.versions" :dashboard-id="dashboardId"
                         :can-edit="can('edit')" :can-publish="can('publish')"
                         @preview="preview" @changed="load" @rolled-back="onRolledBack" @publishing="onPublishing" />
-                    <HistoryConversations v-else-if="active === 'conversations'" :conversations="history.conversations" />
+                    <HistoryConversations v-else-if="active === 'conversations'" :conversations="history.conversations" :mode="mode" />
                 </template>
             </div>
             <slot />
@@ -76,6 +76,8 @@ type TabKey = 'versions' | 'conversations' | 'notes' | 'owner';
 const props = defineProps<{
     modelValue?: boolean; dashboardId: string; capabilities: string[];
     embedded?: boolean; section?: TabKey;
+    // The artifact's mode (page / doc / slides), for its wording.
+    mode?: string | null;
 }>();
 const emit = defineEmits<{
     (e: 'update:modelValue', value: boolean): void;
@@ -94,6 +96,7 @@ const open = computed({
 });
 
 const { t } = useI18n();
+const { tm } = useArtifactWording();
 const { getErrorMessage } = useErrorMessage();
 
 const can = (cap: string) => (props.capabilities || []).includes(cap);

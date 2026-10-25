@@ -351,6 +351,7 @@
             v-model="historyOpen"
             :dashboard-id="dashboardMeta.id"
             :capabilities="capabilities"
+            :mode="artifact?.mode"
             @rolled-back="emit('reload')"
             @transferred="emit('reload')"
         />

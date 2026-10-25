@@ -60,6 +60,7 @@ const emit = defineEmits<{
 }>();
 
 const { t } = useI18n();
+const { tm } = useArtifactWording();
 const toast = useToast();
 const { getErrorMessage, getErrorCode } = useErrorMessage();
 const { relativeTime } = useRelativeTime();
@@ -74,7 +75,7 @@ const sinceBody = computed(() => {
     if (!s) return '';
     const n = openNumber.value;
     if (s.liveVersion == null || n == null) {
-        return t('dashboardCollab.publishSince.body', { name: s.by || t('dashboardCollab.publishSince.someone'), when: sinceWhen.value });
+        return tm('dashboardCollab.publishSince.body', props.artifact?.mode, { name: s.by || t('dashboardCollab.publishSince.someone'), when: sinceWhen.value });
     }
     return s.byMe
         ? t('dashboardCollab.publishSince.bodyYou', { live: s.liveVersion, n, when: sinceWhen.value })
@@ -133,7 +134,7 @@ async function load(announce = false) {
     }
     if (announce && previous === 'publishing') {
         if (latest?.status === 'ready') {
-            toast.add({ title: t('artifactFrame.published'), color: 'green' });
+            toast.add({ title: tm('artifactFrame.published', props.artifact?.mode), color: 'green' });
         } else if (latest?.status === 'failed') {
             toast.add({ title: t('artifactFrame.publishFailed'), description: latest.error || undefined, color: 'red' });
         }

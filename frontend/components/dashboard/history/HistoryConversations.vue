@@ -2,7 +2,7 @@
     <!-- The conversations that edited the dashboard, newest first: whose,
          from when to when, how many versions, on which draft. Only someone
          who can open a conversation gets its link. -->
-    <HistoryEmpty v-if="!rows.length" icon="heroicons:chat-bubble-left-right" :text="$t('dashboardCollab.history.noConversations')" />
+    <HistoryEmpty v-if="!rows.length" icon="heroicons:chat-bubble-left-right" :text="tm('dashboardCollab.history.noConversations', mode)" />
     <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800" data-testid="history-conversations">
         <li v-for="c in rows" :key="c.report_id" class="flex items-center justify-between gap-3 py-2.5" data-testid="history-conversation">
             <div class="min-w-0 flex-1 space-y-0.5">
@@ -32,7 +32,8 @@
 <script setup lang="ts">
 import HistoryEmpty from './HistoryEmpty.vue'
 
-const props = defineProps<{ conversations: any[] }>()
+const props = defineProps<{ conversations: any[]; mode?: string | null }>()
+const { tm } = useArtifactWording()
 const { relativeTime } = useRelativeTime()
 
 const time = (v: any) => new Date(v || 0).getTime()

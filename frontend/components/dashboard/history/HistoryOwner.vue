@@ -23,9 +23,9 @@
                 </div>
             </div>
 
-            <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('dashboardCollab.history.ownerHelp') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ tm('dashboardCollab.history.ownerHelp', mode) }}</p>
 
-            <HistoryEmpty v-if="!candidates.length" icon="heroicons:user-plus" :text="$t('dashboardCollab.history.ownerNoEditors')" />
+            <HistoryEmpty v-if="!candidates.length" icon="heroicons:user-plus" :text="tm('dashboardCollab.history.ownerNoEditors', mode)" />
             <template v-else>
                 <div>
                     <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5 block">{{ $t('dashboardCollab.history.ownerPick') }}</label>
@@ -43,7 +43,7 @@
 
                 <div v-if="confirming && pickedPerson" class="p-3 rounded-lg border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 space-y-2"
                     data-testid="history-transfer-confirm">
-                    <p class="text-sm text-gray-800 dark:text-gray-200">{{ $t('dashboardCollab.history.transferConfirm', { name: pickedPerson.label }) }}</p>
+                    <p class="text-sm text-gray-800 dark:text-gray-200">{{ tm('dashboardCollab.history.transferConfirm', mode, { name: pickedPerson.label }) }}</p>
                     <div class="flex flex-wrap justify-end gap-2">
                         <UButton size="xs" color="gray" variant="ghost" :disabled="busy" @click="confirming = false">{{ $t('common.cancel') }}</UButton>
                         <UButton size="xs" color="amber" icon="i-heroicons-arrows-right-left" :loading="busy" data-testid="history-transfer-go" @click="transfer">
@@ -66,10 +66,11 @@
 import Spinner from '~/components/Spinner.vue'
 import HistoryEmpty from './HistoryEmpty.vue'
 
-const props = defineProps<{ dashboardId: string }>()
+const props = defineProps<{ dashboardId: string; mode?: string | null }>()
 const emit = defineEmits<{ (e: 'transferred'): void }>()
 
 const { t } = useI18n()
+const { tm } = useArtifactWording()
 const toast = useToast()
 const { getErrorMessage } = useErrorMessage()
 
@@ -129,7 +130,7 @@ async function transfer() {
         applySharing(res.data.value)
         picked.value = null
         confirming.value = false
-        toast.add({ title: t('dashboardCollab.history.transferDone', { name: target.label }), color: 'green' })
+        toast.add({ title: tm('dashboardCollab.history.transferDone', props.mode, { name: target.label }), color: 'green' })
         emit('transferred')
     } catch (e) {
         toast.add({ title: t('dashboardCollab.history.transferFailed'), description: getErrorMessage(e), color: 'red' })

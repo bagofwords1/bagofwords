@@ -27,7 +27,7 @@
               class="min-w-[280px]"
               :maxlength="255"
               :disabled="isSavingRename"
-              :placeholder="$t('artifactFrame.renamePlaceholder')"
+              :placeholder="tm('artifactFrame.renamePlaceholder', selectedArtifact?.mode)"
               @keydown.escape.prevent="cancelRename"
             />
             <UTooltip :text="$t('common.save')">
@@ -229,7 +229,8 @@
           @status="publishStatus = $event" @open-version="openVersionById" />
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="$t('share.shareDashboard')"
+        <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="tm('share.shareDashboard', selectedArtifact?.mode)"
+          :artifact-mode="selectedArtifact.mode"
           :item-name="selectedArtifact.title" :dashboard-id="selectedArtifact.artifact_id" />
       </div>
     </div>
@@ -445,7 +446,7 @@
              code that assumed those rows exist. They cannot fix it (it is not
              their dashboard), so explain instead of offering Fix Error. -->
         <p v-if="partiallyWithheld" class="text-xs text-gray-500 dark:text-gray-400 max-w-md text-center">
-          {{ $t('artifactFrame.partialRenderFailed') }}
+          {{ tm('artifactFrame.partialRenderFailed', selectedArtifact?.mode) }}
         </p>
         <p v-else class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
           {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
@@ -602,6 +603,7 @@ import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt 
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 
 const { t } = useI18n();
+const { tm } = useArtifactWording();
 const toast = useToast();
 const config = useRuntimeConfig();
 const { token } = useAuth();
@@ -830,16 +832,16 @@ async function refreshDashboard() {
       toast.add({ title: t('artifactFrame.refreshNothing'), color: 'orange' });
     } else if (run.steps_failed > 0) {
       toast.add({
-        title: run.steps_succeeded > 0 ? t('artifactFrame.refreshPartial') : t('artifactFrame.refreshFailed'),
+        title: run.steps_succeeded > 0 ? tm('artifactFrame.refreshPartial', selectedArtifact.value?.mode) : tm('artifactFrame.refreshFailed', selectedArtifact.value?.mode),
         description: summary,
         color: run.steps_succeeded > 0 ? 'orange' : 'red',
       });
     } else {
-      toast.add({ title: t('artifactFrame.refreshed'), description: summary, color: 'green' });
+      toast.add({ title: tm('artifactFrame.refreshed', selectedArtifact.value?.mode), description: summary, color: 'green' });
     }
   } catch (error: any) {
     console.error('Failed to refresh dashboard:', error);
-    toast.add({ title: t('artifactFrame.error'), description: t('artifactFrame.refreshDashboardFailed', { error: error.message || '' }), color: 'red' });
+    toast.add({ title: t('artifactFrame.error'), description: tm('artifactFrame.refreshDashboardFailed', selectedArtifact.value?.mode, { error: error.message || '' }), color: 'red' });
     // fetchData never ran, so clear the loading overlay it would have reset —
     // otherwise the dashboard stays hidden behind the spinner forever.
     isLoading.value = false;
@@ -1064,7 +1066,7 @@ async function exportHtml() {
     console.error('Failed to export HTML:', error);
     toast.add({
       title: t('artifactFrame.exportFailed'),
-      description: error.message || t('artifactFrame.exportHtmlFailed'),
+      description: error.message || tm('artifactFrame.exportHtmlFailed', selectedArtifact.value?.mode),
       color: 'red',
     });
   } finally {
@@ -1871,13 +1873,13 @@ async function renameTo(title: string): Promise<boolean> {
     if (selectedArtifact.value?.id === id) {
       selectedArtifact.value = { ...selectedArtifact.value, title: saved };
     }
-    toast.add({ title: t('artifactFrame.renamed'), color: 'green' });
+    toast.add({ title: tm('artifactFrame.renamed', selectedArtifact.value?.mode), color: 'green' });
     return true;
   } catch (e: any) {
     console.error('[ArtifactFrame] Failed to rename artifact:', e);
     toast.add({
       title: t('artifactFrame.error'),
-      description: e?.data?.detail?.message || e?.data?.detail || t('artifactFrame.renameFailed'),
+      description: e?.data?.detail?.message || e?.data?.detail || tm('artifactFrame.renameFailed', selectedArtifact.value?.mode),
       color: 'red',
     });
     return false;
@@ -1897,7 +1899,7 @@ type MenuItem = { label: string; icon: string; click: () => void; disabled?: boo
 const moreMenuItems = computed<MenuItem[][]>(() => {
   const edit: MenuItem[] = [];
   if (canRename.value) {
-    edit.push({ label: t('artifactFrame.rename'), icon: 'i-heroicons-pencil', click: startRename });
+    edit.push({ label: tm('artifactFrame.rename', selectedArtifact.value?.mode), icon: 'i-heroicons-pencil', click: startRename });
   }
 
   // The .md source download is doc-only; PDF/PPTX/HTML come from

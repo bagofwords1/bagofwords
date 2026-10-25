@@ -379,6 +379,7 @@ async def get_conversation_dashboards(
                         and prev_owner[2] is None)
         out.append({
             "artifact_id": str(artifact.id), "title": artifact.title, "slug": artifact.slug,
+            "mode": artifact.mode,
             "continued_from": summary.get("continued_from"),
             "continued_from_report_id": previous_report if can_open else None,
             "can_open_previous": can_open, "started_at": row.started_at,

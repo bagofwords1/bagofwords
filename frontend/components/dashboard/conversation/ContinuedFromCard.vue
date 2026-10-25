@@ -121,6 +121,8 @@ interface ConversationCard {
     } | null
     rerunning?: boolean
     draft?: { id: string; name: string; slug: string } | null
+    // The artifact's mode (page / doc / slides), for its wording.
+    mode?: string | null
 }
 
 const props = defineProps<{ reportId: string }>()
@@ -129,6 +131,7 @@ const props = defineProps<{ reportId: string }>()
 const emit = defineEmits<{ (e: 'rerun-done'): void }>()
 
 const { t, locale } = useI18n()
+const { tm } = useArtifactWording()
 const { data: sessionUser } = useAuth()
 
 const cards = ref<ConversationCard[]>([])
@@ -203,8 +206,8 @@ function headline(card: ConversationCard) {
             : t('dashboardCollab.conversation.continuedFrom', { name: who.name })
     }
     return version
-        ? t('dashboardCollab.conversation.continuedFromPublishedVersion', { version })
-        : t('dashboardCollab.conversation.continuedFromPublished')
+        ? tm('dashboardCollab.conversation.continuedFromPublishedVersion', card.mode, { version })
+        : tm('dashboardCollab.conversation.continuedFromPublished', card.mode)
 }
 
 const history = (card: ConversationCard) => card.summary?.history || []

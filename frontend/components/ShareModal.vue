@@ -120,7 +120,7 @@
                                     <Icon name="heroicons:folder" class="w-4 h-4" />
                                 </div>
                                 <span class="text-sm text-gray-700 dark:text-gray-300 min-w-0">
-                                    {{ projectName ? $t('dashboardCollab.share.projectCanEdit', { name: projectName }) : $t('dashboardCollab.share.projectCanEditUnnamed') }}
+                                    {{ projectName ? $t('dashboardCollab.share.projectCanEdit', { name: projectName }) : tm('dashboardCollab.share.projectCanEditUnnamed', artifactMode) }}
                                 </span>
                             </div>
                         </div>
@@ -205,13 +205,13 @@
                             <p v-if="dashboardMode && !dashboardPublished" class="text-xs text-amber-700 dark:text-amber-400 mt-1.5 flex items-start gap-1.5"
                                 data-testid="share-requires-publish">
                                 <Icon name="heroicons:information-circle" class="w-4 h-4 flex-shrink-0" />
-                                <span>{{ $t('dashboardCollab.share.publishToShareViewers') }}</span>
+                                <span>{{ tm('dashboardCollab.share.publishToShareViewers', artifactMode) }}</span>
                             </p>
                             <!-- Public link on a per-user-data dashboard: anyone may
                                  open it, but data resolves per signed-in viewer. -->
                             <p v-if="shareType === 'artifact' && currentVisibility === 'public' && (hasRls || hasUserScoped)"
                                 class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                                {{ $t('share.publicPerUserNote') }}
+                                {{ tm('share.publicPerUserNote', artifactMode) }}
                             </p>
                         </div>
                     </div>
@@ -279,12 +279,16 @@ const props = withDefaults(defineProps<{
     // The dashboard open in the editor (phase 8): its own sharing and its /d
     // link. Without it, the conversation's, as before.
     dashboardId?: string
+    // The artifact's mode (page / doc / slides): dashboard, document or
+    // presentation wording.
+    artifactMode?: string | null
 }>(), {
     compact: false,
 })
 
 const toast = useToast()
 const { t } = useI18n()
+const { tm } = useArtifactWording()
 const { getErrorMessage } = useErrorMessage()
 const dashboardMode = computed(() => props.shareType === 'artifact' && !!props.dashboardId)
 const dashboardPublished = ref(true)
@@ -354,7 +358,7 @@ const generalOptions = computed(() => [
     {
         value: 'public', label: t('share.visibilityPublic'), description: t('dashboardCollab.share.publicDesc'), icon: 'heroicons:globe-alt',
         disabled: publicLocked.value,
-        disabledReason: publicLocked.value ? t('dashboardCollab.share.publicOwnerOnly') : '',
+        disabledReason: publicLocked.value ? tm('dashboardCollab.share.publicOwnerOnly', props.artifactMode) : '',
     },
 ])
 const generalAccess = computed(() => (['internal', 'public'].includes(currentVisibility.value) ? currentVisibility.value : 'restricted'))
@@ -383,16 +387,16 @@ const isShared = computed(() => currentVisibility.value !== 'none')
 
 const shareDescription = computed(() =>
     dashboardMode.value
-        ? t('dashboardCollab.share.description')
+        ? tm('dashboardCollab.share.description', props.artifactMode)
         : props.shareType === 'artifact'
-            ? t('share.shareDashboardDesc')
+            ? tm('share.shareDashboardDesc', props.artifactMode)
             : t('share.shareConversationDesc')
 )
 
 const buttonLabel = computed(() => {
     // A dashboard's button just says Share; its icon tells the general access.
     if (dashboardMode.value) return t('share.share')
-    if (!isShared.value) return props.shareType === 'artifact' ? t('share.shareDashboard') : t('share.share')
+    if (!isShared.value) return props.shareType === 'artifact' ? tm('share.shareDashboard', props.artifactMode) : t('share.share')
     return (visibilityMeta.value[currentVisibility.value] || visibilityMeta.value.none).label
 })
 

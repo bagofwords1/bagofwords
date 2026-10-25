@@ -417,6 +417,8 @@ class DashboardConversationContext(BaseModel):
     artifact_id: str
     title: str | None = None
     slug: str | None = None
+    # page / doc / slides: the card says dashboard, document or presentation.
+    mode: str | None = None
     continued_from: DashboardPerson | None = None
     continued_from_report_id: str | None = None
     can_open_previous: bool = False

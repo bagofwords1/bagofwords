@@ -4,8 +4,8 @@
          chat, whose credentials their runs use), the name in its link; then
          the queries behind it, its resources and its analytics. Who has
          access stays in the Share dialog. -->
-    <UTooltip :text="$t('dashboardSettings.open')">
-        <button @click="open()" data-testid="dashboard-settings" :aria-label="$t('dashboardSettings.open')"
+    <UTooltip :text="tm('dashboardSettings.open', artifactMode)">
+        <button @click="open()" data-testid="dashboard-settings" :aria-label="tm('dashboardSettings.open', artifactMode)"
             class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center">
             <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         </button>
@@ -19,7 +19,7 @@
                     <div class="w-8 h-8 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex items-center justify-center flex-shrink-0">
                         <Icon name="heroicons:cog-6-tooth" class="w-4 h-4 text-gray-600 dark:text-gray-300" />
                     </div>
-                    <span class="text-sm font-medium text-gray-900 dark:text-white leading-tight">{{ $t('dashboardSettings.title') }}</span>
+                    <span class="text-sm font-medium text-gray-900 dark:text-white leading-tight">{{ tm('dashboardSettings.title', artifactMode) }}</span>
                 </div>
                 <div class="flex sm:flex-col gap-0.5 overflow-x-auto px-2 sm:px-3 py-2 sm:py-0" role="tablist" aria-orientation="vertical">
                     <template v-for="(item, idx) in tabs" :key="item.key">
@@ -63,15 +63,15 @@
                             <div data-testid="settings-name">
                                 <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5" for="dashboard-settings-name">{{ $t('dashboardSettings.nameTitle') }}</label>
                                 <input id="dashboard-settings-name" v-model="nameDraft" type="text" maxlength="255" :disabled="!rename"
-                                    :placeholder="$t('artifactFrame.renamePlaceholder')"
+                                    :placeholder="tm('artifactFrame.renamePlaceholder', artifactMode)"
                                     class="w-full h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60" />
                                 <!-- No rename here: the owner renames it from a conversation of their own. -->
-                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ capabilities?.includes('transfer') ? $t('dashboardSettings.renameInConversation') : $t('dashboardSettings.ownerOnly') }}</p>
+                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ capabilities?.includes('transfer') ? tm('dashboardSettings.renameInConversation', artifactMode) : $t('dashboardSettings.ownerOnly') }}</p>
                             </div>
 
                             <div data-testid="settings-link">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.linkTitle') }}</div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ $t('dashboardSettings.linkDesc') }}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ tm('dashboardSettings.linkDesc', artifactMode) }}</p>
                                 <!-- The fixed part is drawn as a grey add-on; only the name is typed. -->
                                 <div class="flex items-stretch h-9 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 min-w-0 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent"
                                     :class="[!canSettings ? 'opacity-60' : '', !slugValid ? 'border-red-400' : '']" dir="ltr" data-testid="link-name-editor">
@@ -104,7 +104,7 @@
 
                             <div data-testid="settings-refresh">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.refreshTitle') }}</div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">{{ $t('dashboardSettings.refreshDesc') }}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-2">{{ tm('dashboardSettings.refreshDesc', artifactMode) }}</p>
                             <div class="inline-flex p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg mb-3" role="radiogroup">
                                 <button v-for="opt in refreshModeOptions" :key="opt.value" type="button" role="radio"
                                     :aria-checked="refreshMode === opt.value" :disabled="!canSettings"
@@ -161,7 +161,7 @@
                                 </template>
                             </div>
                             <p v-if="refreshMode === 'recurring' && scheduleLabel" class="mt-2 text-xs text-gray-400">{{ scheduleLabel }}</p>
-                            <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400">{{ $t('dashboardSettings.onOpenNote') }}</p>
+                            <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400">{{ tm('dashboardSettings.onOpenNote', artifactMode) }}</p>
                             <p v-if="lastRunAt" class="mt-2 text-xs text-gray-400">{{ $t('dashboardSettings.lastRun', { at: formatDateTime(lastRunAt) }) }}</p>
 
                             <!-- Email after each scheduled run -->
@@ -218,7 +218,7 @@
                                     </button>
                                 </div>
                                 <div v-if="transferOpen" class="mt-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-                                    <HistoryOwner :dashboard-id="dashboardId" @transferred="onTransferred" />
+                                    <HistoryOwner :dashboard-id="dashboardId" :mode="artifactMode" @transferred="onTransferred" />
                                 </div>
                             </div>
                         </section>
@@ -238,7 +238,7 @@
                                     <div class="flex items-start justify-between gap-4">
                                         <div class="min-w-0">
                                             <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('share.allowChat') }}</div>
-                                            <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('share.allowChatDesc') }}</div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ tm('share.allowChatDesc', artifactMode) }}</div>
                                         </div>
                                         <UToggle v-model="chatEnabled" :disabled="!canSettings" class="flex-shrink-0 mt-0.5" data-testid="chat-enabled-toggle" />
                                     </div>
@@ -262,11 +262,11 @@
                                             <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
                                                 <input type="radio" value="data_only" v-model="chatScope" class="mt-0.5" :disabled="!canSettings" />
                                                 <span class="flex flex-col">
-                                                    <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeDataOnly') }}</span>
-                                                    <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeDataOnlyDesc') }}</span>
+                                                    <span class="text-xs text-gray-700 dark:text-gray-300">{{ tm('share.chatScopeDataOnly', artifactMode) }}</span>
+                                                    <span class="text-[11px] text-gray-400">{{ tm('share.chatScopeDataOnlyDesc', artifactMode) }}</span>
                                                 </span>
                                             </label>
-                                            <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
+                                            <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ tm('share.chatNoAgents', artifactMode) }}</p>
                                         </div>
                                         <div data-testid="chat-model">
                                             <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('share.chatModel') }}</div>
@@ -282,7 +282,7 @@
                                 <div v-if="showRunIdentity" class="flex items-start justify-between gap-4 py-3" data-testid="settings-run-identity">
                                     <div class="min-w-0">
                                         <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('share.runOnBehalf') }}</div>
-                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ hasRls ? tm('share.runOnBehalfRlsDisabled', artifactMode) : tm('share.runOnBehalfDesc', artifactMode) }}</div>
                                         <div v-if="!hasRls && !canRunIdentity" class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.ownerOnly') }}</div>
                                     </div>
                                     <UToggle v-model="runAsCreator" :disabled="hasRls || !canRunIdentity" class="flex-shrink-0 mt-0.5" />
@@ -306,11 +306,11 @@
                         <ArtifactResourceExplorer embedded :artifact-id="dashboardId" view="analytics" />
                     </div>
                     <div v-if="visited.notes" v-show="tab === 'notes'" data-testid="settings-notes">
-                        <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" />
+                        <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" :mode="artifactMode" />
                     </div>
                     <!-- History: one instance for its tabs; the menu picks the section. -->
                     <div v-if="visited.history" v-show="isHistoryTab" data-testid="settings-history">
-                        <DashboardHistoryModal embedded :dashboard-id="dashboardId" :capabilities="capabilities || []"
+                        <DashboardHistoryModal embedded :dashboard-id="dashboardId" :mode="artifactMode" :capabilities="capabilities || []"
                             :section="historySection" @rolled-back="emit('history-changed')" @transferred="emit('history-changed')"
                             @close="isOpen = false" />
                     </div>
@@ -362,6 +362,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void }>()
 
 const { t } = useI18n()
+const { tm } = useArtifactWording()
 const toast = useToast()
 const { getErrorMessage } = useErrorMessage()
 const { smtpEnabled } = useAppSettings()
@@ -382,7 +383,7 @@ const tabs = computed<TabItem[]>(() => {
         { key: 'general', group: 1, icon: 'heroicons:adjustments-horizontal', label: t('dashboardSettings.tabGeneral'), desc: '' },
         { key: 'viewers', group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
         // The README every editor's agent reads (collab01).
-        ...(capabilities.value?.includes('edit') ? [{ key: 'notes' as const, group: 1, icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), desc: t('dashboardSettings.notesDesc') }] : []),
+        ...(capabilities.value?.includes('edit') ? [{ key: 'notes' as const, group: 1, icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), desc: tm('dashboardSettings.notesDesc', props.artifactMode) }] : []),
         { key: 'data', group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
     ]
     if (props.resourcesAvailable) list.push({ key: 'resources', group: 2, icon: 'heroicons:server-stack', label: t('artifactResources.inspect'), desc: t('artifactResources.readOnlyLabel') })
@@ -392,7 +393,7 @@ const tabs = computed<TabItem[]>(() => {
         const h = { group: 3, groupLabel: t('dashboardCollab.history.title') }
         list.push(
             { key: 'versions', icon: 'heroicons:clock', label: t('dashboardCollab.history.tabVersions'), desc: t('dashboardSettings.versionsDesc'), ...h },
-            { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), desc: t('dashboardSettings.conversationsDesc'), ...h },
+            { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), desc: tm('dashboardSettings.conversationsDesc', props.artifactMode), ...h },
         )
     }
     return list
