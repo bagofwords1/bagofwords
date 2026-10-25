@@ -598,7 +598,9 @@ import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
-import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
+import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
+
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 
@@ -632,6 +634,18 @@ interface ArtifactItem {
   name?: string | null;       // a name someone gave the version (collab01)
 }
 
+// Download the iframe libraries now, in parallel with the artifact/data
+// requests (utils/artifactLibs.ts).
+ensureArtifactLibs(artifactPageLibs({ reactBuild: 'development', babel: false, pdf: false }));
+
+interface ArtifactFramePrefetch {
+  artifactId: string;
+  queries?: Promise<any> | null;
+  viewerContext?: Promise<any> | null;
+  queriesUsed?: boolean;
+  viewerContextUsed?: boolean;
+}
+
 const props = defineProps<{
   reportId: string;
   report?: any;
@@ -655,6 +669,10 @@ const props = defineProps<{
   /** This conversation's own agent is running (collab01): outline the
    *  dashboard when others edit it too. */
   agentRunning?: boolean;
+  /** First-load requests the report page started before this frame mounted
+   *  (same URLs this frame would request). Each is used at most once, only
+   *  for the artifact it was started for; anything else fetches normally. */
+  prefetch?: ArtifactFramePrefetch | null;
 }>();
 
 // The preview's server-side request broker supplies normal authorized API
@@ -1080,6 +1098,15 @@ async function exportHtml() {
 const viewerContext = ref<any>(null);
 async function fetchViewerContext() {
   try {
+    const pf = props.prefetch;
+    if (pf?.viewerContext && !pf.viewerContextUsed && !props.verificationPreview) {
+      pf.viewerContextUsed = true;
+      const res: any = await pf.viewerContext;
+      if (!res?.error?.value) {
+        viewerContext.value = res?.data?.value || null;
+        return;
+      }
+    }
     const { data } = await useMyFetch('/api/users/me/viewer_context');
     viewerContext.value = data.value || null;
   } catch {
@@ -2580,7 +2607,16 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
 
     // Fetch queries with visualizations - filter by artifact_id if provided
     const queryParams = artifactId ? `?report_id=${props.reportId}&artifact_id=${artifactId}` : `?report_id=${props.reportId}`;
-    const { data: queriesRes } = await useMyFetch(`/api/queries${queryParams}`);
+    // First load: the report page may already have this exact request in
+    // flight (started before this frame mounted).
+    let prefetched: any = null;
+    const pf = props.prefetch;
+    if (!inPlace && pf?.queries && !pf.queriesUsed && !props.verificationPreview && artifactId && pf.artifactId === artifactId) {
+      pf.queriesUsed = true;
+      prefetched = await pf.queries;
+      if (prefetched?.error?.value || !Array.isArray(prefetched?.data?.value)) prefetched = null;
+    }
+    const { data: queriesRes } = prefetched || await useMyFetch(`/api/queries${queryParams}`);
     const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
     // Build visualization data array
@@ -2774,6 +2810,16 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       params: paramsPayload(),
       runtime: artifactRuntime(),
     }));
+
+    // The iframe libraries were requested at mount, in parallel with the data
+    // above — usually they are here already. Waiting keeps the loading
+    // overlay up instead of a blank frame.
+    if (!inPlace) {
+      const code = props.artifactCode || selectedArtifact.value?.content?.code;
+      if (code) {
+        try { await whenArtifactLibsSettled(inlineableArtifactLibs(frameIframeOptions(srcdocSeed.value, code))); } catch { /* falls back to <script src> */ }
+      }
+    }
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
@@ -3120,7 +3166,15 @@ const iframeSrcdoc = computed(() => {
     params: paramsPayload(),
     runtime: artifactRuntime(),
   };
-  return buildArtifactIframeHtml({
+  const opts = frameIframeOptions(seed, artifactCode);
+  // Wait for the host-fetched libraries (failed ones fall back to <script src>).
+  const inlineLibs = artifactLibSources(inlineableArtifactLibs(opts));
+  if (inlineLibs === null) return undefined;
+  return buildArtifactIframeHtml({ ...opts, inlineLibs });
+});
+
+function frameIframeOptions(seed: any, artifactCode: string) {
+  return {
     data: seed,
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
@@ -3128,10 +3182,13 @@ const iframeSrcdoc = computed(() => {
     fixtureMode: !!props.verificationPreview,
     resourceApp: selectedArtifact.value?.content?.sdk_version === 1,
     loadingLabel: t('artifactFrame.loadingArtifact'),
-    reactBuild: 'development',
+    reactBuild: 'development' as const,
     colorMode: artifactColorMode,
-  });
-});
+    // Used only when its key matches artifactCode (artifactIframe.ts), so an
+    // artifactCode prop override or a stale selection always compiles in-frame.
+    precompiled: { js: selectedArtifact.value?.compiled_js, key: selectedArtifact.value?.compiled_js_key },
+  };
+}
 
 // Re-send data when it changes
 watch([visualizationsData, filesData, iframeReady], () => {

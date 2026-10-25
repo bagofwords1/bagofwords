@@ -88,13 +88,23 @@ async def resolve_step_data(
     viewer_result = None
     if requesting_user is not None:
         from app.models.step_user_result import StepUserResult
-        # A viewer can hold one cached result per parameter combination —
-        # serve their most recent successful slice for the initial render.
+        # A viewer can hold one cached result per parameter combination. The
+        # initial render shows the dashboard's DEFAULT values (that is what
+        # every host's controls start at), so serve the slice for those —
+        # serving whichever slice ran last showed e.g. one region's rows
+        # under a control reading "All". Other slices stay cached for when
+        # the viewer picks those values again.
+        stmt = select(StepUserResult).options(lazyload("*")).where(
+            StepUserResult.step_id == str(step.id),
+            StepUserResult.user_id == str(requesting_user.id),
+        )
+        default_fp = await _default_params_fingerprint(db, step, report, requesting_user)
+        if default_fp is not None:
+            # '' is the "no params / defaults" key (StepUserResult) — rows
+            # written before a query declared params, or without values.
+            stmt = stmt.where(StepUserResult.params_fingerprint.in_({default_fp, ""}))
         row = (await db.execute(
-            select(StepUserResult).options(lazyload("*")).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(requesting_user.id),
-            ).order_by(StepUserResult.last_run_at.desc())
+            stmt.order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
         if row is not None:
             from app.services.access_errors import viewer_error_code
@@ -143,6 +153,47 @@ async def resolve_step_data(
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
     return StepDataResolution(data=shared, viewer_result=viewer_result)
+
+
+async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
+    """params_fingerprint of this viewer's DEFAULT parameter values for the
+    step's query — the key the host's initial viewer run caches under (same
+    resolve_param_values + params_fingerprint as query_service's viewer run).
+
+    None when it can't be determined (no query, unresolvable defaults); the
+    caller then keeps the most-recent-slice behavior.
+    """
+    try:
+        from app.models.query import Query
+        from app.schemas.param_schema import parse_param_specs
+        from app.ai.code_execution.query_params import params_fingerprint, resolve_param_values
+
+        query_id = getattr(step, "query_id", None)
+        if not query_id:
+            return None
+        row = (await db.execute(
+            select(Query.parameters, Query.organization_id).where(Query.id == str(query_id))
+        )).first()
+        if row is None:
+            return None
+        specs = parse_param_specs(row[0])
+        if not specs:
+            return params_fingerprint({})
+        org_id = row[1] or getattr(report, "organization_id", None)
+        if not org_id:
+            return None
+        # One identity resolution per (viewer, org) per session: a dashboard
+        # resolves every step through here.
+        memo = db.info.setdefault("_default_params_identity", {})
+        key = (str(user.id), str(org_id))
+        identity = memo.get(key)
+        if identity is None:
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(db, user, str(org_id))
+            memo[key] = identity
+        return params_fingerprint(resolve_param_values(specs, {}, identity))
+    except Exception:
+        return None
 
 
 def redact_applied_params(

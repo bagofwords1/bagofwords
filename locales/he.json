@@ -4918,6 +4918,7 @@
       "queryAria": "שאילתה",
       "toFocus": "למיקוד",
       "toRun": "להרצה",
+      "clearQuery": "ניקוי כל המסננים",
       "didYouMean": "האם התכוונת ל",
       "suggestFields": "שדות",
       "suggestValues": "ערכים עבור {field}",

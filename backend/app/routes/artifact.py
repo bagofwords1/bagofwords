@@ -47,6 +47,8 @@ from app.services.pptx_export_service import PptxExportService
 logger = logging.getLogger(__name__)
 
 
+from app.services.artifact_precompile import attach_compiled
+
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 service = ArtifactService()
 
@@ -334,7 +336,9 @@ async def get_artifact(
     artifact = await service.get(db, artifact_id)
     if not artifact:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
-    return ArtifactSchema.model_validate(artifact)
+    schema = ArtifactSchema.model_validate(artifact)
+    attach_compiled(schema)
+    return schema
 
 
 @router.get("/report/{report_id}", response_model=List[ArtifactListSchema])
@@ -366,7 +370,9 @@ async def get_latest_artifact(
     artifact = await service.get_latest_by_report(db, report_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="No artifacts found for this report")
-    return ArtifactSchema.model_validate(artifact)
+    schema = ArtifactSchema.model_validate(artifact)
+    attach_compiled(schema)
+    return schema
 
 
 async def _assert_may_write_version(db, version_id: str, user) -> None:

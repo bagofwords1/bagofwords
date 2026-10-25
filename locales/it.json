@@ -4621,6 +4621,7 @@
       "queryAria": "Query",
       "toFocus": "per il focus",
       "toRun": "per eseguire",
+      "clearQuery": "Cancella tutti i filtri",
       "didYouMean": "Intendevi",
       "suggestFields": "Campi",
       "suggestValues": "Valori per {field}",

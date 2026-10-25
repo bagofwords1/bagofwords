@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.596 (October 23, 2026)
+- Added a clear-all button to the Diagnosis query bar (#1452)
+- Changed dashboards on /r and /reports to load faster (#1449)
+- Fixed dashboards crashing when their code uses aliased imports such as `useState as useLocal` (#1450)
+- Fixed dashboards opening on the wrong slice instead of the default (#1450)
+
 ## Version 0.0.595 (October 21, 2026)
 - Added a "Create connections" role permission: members create connections and manage only their own, plus the agents on them (#1447) — `create_connections`
 - Added deleting list rows from chat, after confirming the rows on a card (#1443)

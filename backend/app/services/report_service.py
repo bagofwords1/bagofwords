@@ -2495,33 +2495,50 @@ class ReportService:
         if not query:
             raise HTTPException(status_code=404, detail="Not found")
 
-        # Get the default step (or latest successful step if no default)
-        step = None
-        if query.default_step_id:
-            step_result = await db.execute(
-                select(Step).options(lazyload("*"))
-                .where(Step.id == query.default_step_id, Step.status == 'success')
-            )
-            step = step_result.scalar_one_or_none()
-
-        if not step:
-            # Fallback to latest successful step
-            step_result = await db.execute(
-                select(Step).options(lazyload("*"))
-                .where(Step.query_id == query_id, Step.status == 'success')
-                .order_by(Step.created_at.desc())
-                .limit(1)
-            )
-            step = step_result.scalar_one_or_none()
-
-        if not step:
+        await self._set_public_code_visibility(db, report, user)
+        public_step = await self._build_public_step(db, report, query, user)
+        if public_step is None:
             raise HTTPException(status_code=404, detail="Not found")
+        return public_step
 
-        from app.schemas.step_schema import PublicStepSchema
+    async def get_public_queries_with_steps(
+        self, db: AsyncSession, report_id: str, artifact_id: str | None = None, user=None,
+    ):
+        """get_public_queries + each query's public default step in one response.
+
+        The shared page used to fetch the query list and then one step per
+        query — a second network round trip on every load. Each step here is
+        built by the same _build_public_step the per-step route uses, so what
+        a reader may see (own run > shared snapshot > withheld, code and
+        applied_params redaction) is decided by exactly the same code.
+        """
+        queries = await self.get_public_queries(db, report_id, artifact_id=artifact_id, user=user)
+        if not queries:
+            return []
+        # get_public_queries already verified the report and its visibility.
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == report_id)
+        )).scalar_one()
+        query_rows = (await db.execute(
+            select(Query).options(lazyload("*"))
+            .where(Query.id.in_([q.id for q in queries]), Query.report_id == report_id)
+        )).scalars().all()
+        by_id = {str(q.id): q for q in query_rows}
+
+        await self._set_public_code_visibility(db, report, user)
+        from app.schemas.query_schema import PublicQueryWithStepSchema
+        out = []
+        for q in queries:
+            row = by_id.get(str(q.id))
+            step = await self._build_public_step(db, report, row, user) if row is not None else None
+            out.append(PublicQueryWithStepSchema(**q.model_dump(), default_step=step))
+        return out
+
+    async def _set_public_code_visibility(self, db: AsyncSession, report, user) -> None:
         # Code visibility on the published-report path.
         #
-        # This route is undecorated and takes an OPTIONAL user, so it never goes
-        # through requires_permission and would otherwise inherit the deny
+        # These routes are undecorated and take an OPTIONAL user, so they never
+        # go through requires_permission and would otherwise inherit the deny
         # default — silently stopping published reports from showing code.
         #
         # But defaulting it to permissive outright is a bypass: a signed-in
@@ -2539,6 +2556,36 @@ class ReportService:
             set_code_visibility(can_view_code(resolved))
         else:
             set_code_visibility(True)
+
+    async def _build_public_step(self, db: AsyncSession, report, query, user):
+        """The PublicStepSchema a given reader may see for `query`, or None.
+
+        Callers must already have checked the report's artifact visibility and
+        set code visibility (_set_public_code_visibility).
+        """
+        # Get the default step (or latest successful step if no default)
+        step = None
+        if query.default_step_id:
+            step_result = await db.execute(
+                select(Step).options(lazyload("*"))
+                .where(Step.id == query.default_step_id, Step.status == 'success')
+            )
+            step = step_result.scalar_one_or_none()
+
+        if not step:
+            # Fallback to latest successful step
+            step_result = await db.execute(
+                select(Step).options(lazyload("*"))
+                .where(Step.query_id == query.id, Step.status == 'success')
+                .order_by(Step.created_at.desc())
+                .limit(1)
+            )
+            step = step_result.scalar_one_or_none()
+
+        if not step:
+            return None
+
+        from app.schemas.step_schema import PublicStepSchema
 
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})

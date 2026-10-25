@@ -717,7 +717,7 @@ async def get_public_file_embed_token(
 
 # --- Public Query/Step Routes (for published reports) ---
 
-from app.schemas.query_schema import PublicQuerySchema
+from app.schemas.query_schema import PublicQuerySchema, PublicQueryWithStepSchema
 from app.schemas.step_schema import PublicStepSchema
 
 
@@ -750,6 +750,18 @@ async def get_public_queries(
 ):
     """Get queries for a shared report."""
     return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id, user=user)
+
+
+@router.get("/r/{report_id}/queries_with_steps", response_model=List[PublicQueryWithStepSchema])
+async def get_public_queries_with_steps(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Filter queries to only those used by this artifact"),
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Queries for a shared report, each with the default step this reader may
+    see — the list endpoint and every per-query step endpoint in one request."""
+    return await report_service.get_public_queries_with_steps(db, report_id, artifact_id=artifact_id, user=user)
 
 
 @router.get("/r/{report_id}/queries/{query_id}/step", response_model=PublicStepSchema)
@@ -786,7 +798,10 @@ async def get_public_artifact(
     user: User | None = Depends(current_user_optional),
 ):
     """Get a specific artifact for a shared report."""
-    return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    schema = await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    from app.services.artifact_precompile import attach_compiled
+    attach_compiled(schema)
+    return schema
 
 
 # One render per report at a time: each export launches a headless Chromium,

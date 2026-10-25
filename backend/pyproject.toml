@@ -76,7 +76,7 @@ dependencies = [
     "openpyxl>=3.1.5,<3.2",
     "xlrd>=2.0.2,<2.1",
     "xlsxwriter>=3.2.9,<3.3",
-    "pypdf>=6.19.0,<6.20",
+    "pypdf>=6.21.2,<6.22",
     "pdfminer-six>=20251107,<20260000",
     "python-pptx>=1.0.2,<1.1",
     "pdf2image>=1.17.0,<1.18",
@@ -167,7 +167,11 @@ dev = [
 # aiohttp < 3.14.4 is affected by CVE-2026-111064 (High, no initial request/header
 # timeout) and GHSA-2g87-pp6c-29x5 (High, unbounded memory/CPU use), both fixed
 # in 3.14.4. aiohttp is pulled in transitively (e.g. via SDK clients).
-constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2", "aiohttp>=3.14.4"]
+# dnspython < 2.9.0 is affected by SNYK-PYTHON-DNSPYTHON-21433565 (High, Uncontrolled
+# Recursion), fixed in 2.9.0. dnspython is pulled in transitively (email-validator ->
+# fastapi-mail / fastapi-users, and pymongo); every current dependent allows 2.9.x
+# (email-validator requires >= 2.0.0, pymongo requires >= 1.16.0, < 3.0.0).
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2", "aiohttp>=3.14.4", "dnspython>=2.9.0"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail

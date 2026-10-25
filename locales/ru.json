@@ -4621,6 +4621,7 @@
       "queryAria": "Запрос",
       "toFocus": "для фокуса",
       "toRun": "для запуска",
+      "clearQuery": "Сбросить все фильтры",
       "didYouMean": "Возможно, вы имели в виду",
       "suggestFields": "Поля",
       "suggestValues": "Значения для {field}",

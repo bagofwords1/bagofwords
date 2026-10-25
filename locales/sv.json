@@ -4621,6 +4621,7 @@
       "queryAria": "Fråga",
       "toFocus": "för fokus",
       "toRun": "för att köra",
+      "clearQuery": "Rensa alla filter",
       "didYouMean": "Menade du",
       "suggestFields": "Fält",
       "suggestValues": "Värden för {field}",
