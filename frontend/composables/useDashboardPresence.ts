@@ -2,7 +2,7 @@
 // docs/feedback-loops/2026-10-23-collaborative-dashboards-api.md).
 //
 // While `enabled` (an editor has the dashboard open), the browser beats
-// PUT /dashboards/{id}/presence every 15 s -- with the conversation it is in,
+// PUT /artifacts/{id}/presence every 15 s -- with the conversation it is in,
 // when it is in one -- and gets everyone's presence back in the same answer.
 // Leaving (unmount, another dashboard, the tab closing) deletes its row; a row
 // that stops beating counts as gone after 30 s on the server anyway.
