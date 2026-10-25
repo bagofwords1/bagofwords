@@ -15,6 +15,9 @@ export interface SharedDashboardApi {
     artifact: ((artifactId: string) => string) | null
     content: string | null
     queries: (artifactId?: string) => string
+    // Every query with the step this reader may see, in one request (null
+    // per step where the step route would 404).
+    queriesWithSteps: (artifactId?: string) => string
     step: (queryId: string) => string
     embedToken: (fileId: string) => string
     run: ((artifactId?: string) => string) | null
@@ -37,6 +40,7 @@ export function sharedDashboardApi(source: SharedDashboardSource, id: string): S
             artifact: (artifactId) => `${r}/artifacts/${artifactId}`,
             content: null,
             queries: (artifactId) => `${r}/queries${artifactId ? `?artifact_id=${artifactId}` : ''}`,
+            queriesWithSteps: (artifactId) => `${r}/queries_with_steps${artifactId ? `?artifact_id=${artifactId}` : ''}`,
             step: (queryId) => `${r}/queries/${queryId}/step`,
             embedToken: (fileId) => `${r}/files/${fileId}/embed_token`,
             run: (artifactId) => `${r}/run${artifactId ? `?artifact_id=${artifactId}` : ''}`,
@@ -59,6 +63,7 @@ export function sharedDashboardApi(source: SharedDashboardSource, id: string): S
             artifact: null,
             content: `${d}/content`,
             queries: () => `${d}/queries`,
+            queriesWithSteps: () => `${d}/queries_with_steps`,
             step: (queryId) => `${d}/queries/${queryId}/step`,
             embedToken: (fileId) => `${d}/files/${fileId}/embed_token`,
             run: () => `${d}/run`,
@@ -77,6 +82,7 @@ export function sharedDashboardApi(source: SharedDashboardSource, id: string): S
         artifact: null,
         content: `${d}/draft/content`,
         queries: () => `${d}/draft/queries`,
+        queriesWithSteps: () => `${d}/draft/queries_with_steps`,
         step: (queryId) => `${d}/draft/queries/${queryId}/step`,
         embedToken: (fileId) => `${d}/draft/files/${fileId}/embed_token`,
         run: null,

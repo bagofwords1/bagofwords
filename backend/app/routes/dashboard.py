@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -483,7 +484,24 @@ async def get_published_content(
     user: User | None = Depends(current_user_optional),
 ):
     artifact, release = await dashboard_access.open_published(db, ref, user)
-    return {"mode": artifact.mode, "content": release.content or {}}
+    return _with_compiled({"mode": artifact.mode, "content": release.content or {}})
+
+
+def _with_compiled(body: dict) -> dict:
+    """compiled_js / compiled_js_key for the page's code, as the artifact read
+    routes carry them (app.services.artifact_precompile): derived only from
+    the code this reader already gets; absent on a cache miss."""
+    from types import SimpleNamespace
+
+    from app.services.artifact_precompile import attach_compiled
+
+    holder = SimpleNamespace(mode=body.get("mode"), content=body.get("content"),
+                             compiled_js=None, compiled_js_key=None)
+    attach_compiled(holder)
+    if holder.compiled_js:
+        body["compiled_js"] = holder.compiled_js
+        body["compiled_js_key"] = holder.compiled_js_key
+    return body
 
 
 @router.get("/d/{ref}/queries")
@@ -510,12 +528,48 @@ async def get_published_step(
 
     artifact, release = await dashboard_access.open_published(db, ref, user)
     query = await dashboard_data.release_query(db, release, query_id)
+    out = await _published_step(db, artifact, release, query, user)
+    if out is None:
+        raise dashboard_data.not_found()
+    return out
+
+
+async def _published_step(db, artifact, release, query, user):
+    """The step GET /d/{ref}/queries/{id}/step serves, or None where it 404s."""
+    from app.services import dashboard_data
+
     step = await dashboard_data.default_step(db, query)
     if step is None:
-        raise dashboard_data.not_found()
+        return None
     resolution = await dashboard_data.resolve_release_step(db, step, artifact, release, user)
     return await dashboard_data.public_step(db, step, query, resolution,
                                             organization_id=artifact.organization_id, user=user)
+
+
+@router.get("/d/{ref}/queries_with_steps")
+async def list_published_queries_with_steps(
+    ref: str,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """GET /d/{ref}/queries + each query's step in one response.
+
+    `default_step` is exactly what /d/{ref}/queries/{id}/step returns for the
+    same reader (same helper), or null where that route would 404.
+    """
+    from app.schemas.query_schema import PublicQuerySchema
+    from app.services import dashboard_data
+
+    artifact, release = await dashboard_access.open_published(db, ref, user)
+    out = []
+    queries = await dashboard_data.release_queries(db, release)
+    # Encoded before any step sets the code-visibility context, as the list
+    # route's response is.
+    listed = [jsonable_encoder(PublicQuerySchema.model_validate(q)) for q in queries]
+    for q, row in zip(queries, listed):
+        step = await _published_step(db, artifact, release, q, user)
+        out.append({**row, "default_step": jsonable_encoder(step) if step is not None else None})
+    return out
 
 
 @router.get("/d/{ref}/queries/{query_id}/export")
@@ -941,7 +995,7 @@ async def get_draft_content(
     artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
     if version is None:
         raise dashboard_data.not_found()
-    return {"mode": artifact.mode, "version_id": str(version.id), "content": version.content or {}}
+    return _with_compiled({"mode": artifact.mode, "version_id": str(version.id), "content": version.content or {}})
 
 
 @router.get("/d/{ref}/draft/queries")
@@ -960,6 +1014,16 @@ async def list_draft_queries(
     from app.services import dashboard_data
 
     artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
+    return [PublicQuerySchema.model_validate(q) for q in await _draft_queries(db, version)]
+
+
+async def _draft_queries(db, version):
+    from sqlalchemy.orm import lazyload, selectinload
+
+    from app.models.query import Query as QueryModel
+    from app.models.step import Step
+    from app.services import dashboard_data
+
     ids = await dashboard_data.draft_query_ids(db, version)
     if not ids:
         return []
@@ -973,7 +1037,7 @@ async def list_draft_queries(
         .where(QueryModel.id.in_(ids), QueryModel.report_id == str(version.report_id),
                QueryModel.deleted_at.is_(None), Step.status.in_(("success", FORK_PENDING_STATUS)))
     )).scalars().all()
-    return [PublicQuerySchema.model_validate(q) for q in queries]
+    return list(queries)
 
 
 @router.get("/d/{ref}/draft/queries/{query_id}/step")
@@ -998,6 +1062,18 @@ async def get_draft_step(
         select(QueryModel).options(lazyload("*")).where(QueryModel.id == str(query_id),
                                                         QueryModel.report_id == str(version.report_id))
     )).scalar_one_or_none()
+    out = await _draft_step(db, artifact, version, query, user)
+    if out is None:
+        raise dashboard_data.not_found()
+    return out
+
+
+async def _draft_step(db, artifact, version, query, user):
+    """The step GET /d/{ref}/draft/queries/{id}/step serves for a query of
+    the shown version, or None where it 404s."""
+    from app.services import dashboard_data
+    from app.services.viewer_data_policy import resolve_step_data
+
     step = await dashboard_data.default_step(db, query) if query is not None else None
     if step is None:
         pending = await dashboard_data.pending_step(db, query) if query is not None else None
@@ -1007,11 +1083,34 @@ async def get_draft_step(
             return {"id": str(pending.id), "title": pending.title or "", "type": pending.type or "table",
                     "code": None, "data_model": {}, "data": {}, "view": {}, "viewer_result": None,
                     "snapshot_withheld": False, "applied_params": None, "pending": True}
-        raise dashboard_data.not_found()
+        return None
     report = await dashboard_data.version_report(db, version)
     resolution = await resolve_step_data(db, step, report, user)
     return await dashboard_data.public_step(db, step, query, resolution,
                                             organization_id=artifact.organization_id, user=user)
+
+
+@router.get("/d/{ref}/draft/queries_with_steps")
+async def list_draft_queries_with_steps(
+    ref: str,
+    version: int | None = Query(None, ge=1),
+    draft: str | None = Query(None, max_length=120),
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """GET /d/{ref}/draft/queries + each query's step in one response; each
+    `default_step` is what the per-query draft step route returns for the
+    same reader, or null where it would 404."""
+    from app.schemas.query_schema import PublicQuerySchema
+
+    artifact, version, _ = await _draft(db, ref, user, version=version, draft=draft)
+    out = []
+    queries = await _draft_queries(db, version)
+    listed = [jsonable_encoder(PublicQuerySchema.model_validate(q)) for q in queries]
+    for q, row in zip(queries, listed):
+        step = await _draft_step(db, artifact, version, q, user)
+        out.append({**row, "default_step": jsonable_encoder(step) if step is not None else None})
+    return out
 
 
 @router.post("/d/{ref}/draft/queries/{query_id}/run")

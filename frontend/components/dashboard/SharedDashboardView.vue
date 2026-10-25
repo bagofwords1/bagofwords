@@ -372,7 +372,8 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
-import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
+import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue';
@@ -388,6 +389,9 @@ import {
 // dashboard's /d/{id}, or its draft for its editors (/d/{id}/draft) -- the
 // same page over each one's endpoints (utils/sharedDashboardApi).
 const props = defineProps<{ source: SharedDashboardSource; id: string }>();
+// Start downloading the artifact iframe's libraries now, in parallel with the
+// page's data requests (see utils/artifactLibs.ts).
+ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
 const emit = defineEmits<{ (e: 'reload'): void }>();
@@ -416,10 +420,11 @@ function withDraftQuery(url: string, query = draftQuery) {
     return query ? `${url}${url.includes('?') ? '&' : '?'}${query}` : url;
 }
 if (draftQuery) {
-    const { queries, step, embedToken, paramRun } = api;
+    const { queries, queriesWithSteps, step, embedToken, paramRun } = api;
     api.meta = withDraftQuery(api.meta);
     if (api.content) api.content = withDraftQuery(api.content);
     api.queries = (artifactId?: string) => withDraftQuery(queries(artifactId));
+    api.queriesWithSteps = (artifactId?: string) => withDraftQuery(queriesWithSteps(artifactId));
     api.step = (queryId: string) => withDraftQuery(step(queryId));
     api.embedToken = (fileId: string) => withDraftQuery(embedToken(fileId));
     api.paramRun = (queryId: string) => withDraftQuery(paramRun(queryId));
@@ -1017,6 +1022,8 @@ async function loadDashboardContent() {
             mode: body.mode,
             title: meta.title,
             content: body.content || {},
+            compiled_js: body.compiled_js,
+            compiled_js_key: body.compiled_js_key,
         };
         hasArtifacts.value = true;
         await loadArtifactFiles();
@@ -1042,6 +1049,9 @@ async function loadArtifact() {
             // page — same rule as the backend's get_latest_by_report.
             const rows = data.value as any[];
             const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
+            // The dashboard's queries + steps only need the artifact id — fetch
+            // them alongside the artifact detail instead of after it.
+            initialQueries = { artifactId: latestArtifactId, promise: fetchQueriesWithSteps(latestArtifactId) };
             // Use public artifact endpoint
             const { data: fullArtifact, error: detailError } = await useMyFetch(api.artifact!(latestArtifactId));
             if (detailError.value || !fullArtifact.value) throw detailError.value || new Error("Missing artifact response");
@@ -1059,19 +1069,50 @@ async function loadArtifact() {
     }
 }
 
+// The artifact's queries, each with the default step this viewer may see, in
+// ONE request (api.queriesWithSteps). Null on failure — callers then fall
+// back to the list + per-query step endpoints.
+async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
+    try {
+        const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
+        if (error.value || !Array.isArray(data.value)) return null;
+        return data.value as any[];
+    } catch {
+        return null;
+    }
+}
+// Started in parallel with the artifact read (loadArtifact / onMounted).
+let initialQueries: { artifactId: string | undefined; promise: Promise<any[] | null> } | null = null;
+
 // Fetch visualization data for the artifact (using public endpoints)
 async function loadVisualizationData(artifactId?: string) {
     try {
         // Use public endpoint - no auth required
         // If artifactId provided, filter to only queries used by that artifact
-        const { data: queriesRes } = await useMyFetch(api.queries(artifactId));
-        const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+        let bundled: any[] | null = null;
+        // A dashboard's (or draft's) queries ignore the artifact id.
+        if (initialQueries && (props.source !== 'report' || initialQueries.artifactId === artifactId)) {
+            bundled = await initialQueries.promise;
+            initialQueries = null; // first load only — later loads must refetch
+        } else {
+            bundled = await fetchQueriesWithSteps(artifactId);
+        }
 
-        // Fetch all steps in parallel — awaiting each one serially made the
-        // page's time-to-render scale linearly with the number of queries.
-        const stepResults = await Promise.all(
-            queries.map((query) => useMyFetch(api.step((query as any).id)))
-        );
+        let queries: any[];
+        let stepResults: Array<{ data: { value: any } }>;
+        if (bundled) {
+            queries = bundled;
+            stepResults = bundled.map((q) => ({ data: { value: q.default_step ?? null } }));
+        } else {
+            const { data: queriesRes } = await useMyFetch(api.queries(artifactId));
+            queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
+
+            // Fetch all steps in parallel — awaiting each one serially made the
+            // page's time-to-render scale linearly with the number of queries.
+            stepResults = await Promise.all(
+                queries.map((query) => useMyFetch(api.step((query as any).id)))
+            ) as any;
+        }
 
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
@@ -1575,15 +1616,27 @@ const iframeSrcdoc = computed(() => {
         runtime: artifactRuntime()
     };
     // Editors' pages carry the chart-marks listener (collab01).
-    const pageMode = (artifact.value?.mode || 'page') === 'page';
-    return buildArtifactIframeHtml({
-        data: seed,
-        code: overlaysEnabled.value && pageMode ? artifactCode + chartOverlayScriptTag() : artifactCode,
-        mode: artifact.value?.mode || 'page',
-        resourceApp: artifact.value?.content?.sdk_version === 1,
-        colorMode: artifactColorMode,
-    });
+    const opts = iframeOptions(artifact.value, seed);
+    // Wait for the host-fetched libraries (failed ones fall back to <script src>).
+    const inlineLibs = artifactLibSources(inlineableArtifactLibs(opts));
+    if (inlineLibs === null) return null;
+    return buildArtifactIframeHtml({ ...opts, inlineLibs });
 });
+
+function iframeOptions(art: any, seed: any) {
+    const code = art?.content?.code || '';
+    // Editors' pages carry the chart-marks listener (collab01).
+    const pageMode = (art?.mode || 'page') === 'page';
+    return {
+        data: seed,
+        code: overlaysEnabled.value && pageMode ? code + chartOverlayScriptTag() : code,
+        mode: art?.mode || 'page',
+        resourceApp: art?.content?.sdk_version === 1,
+        colorMode: artifactColorMode,
+        // Used only when its key matches the code above (else in-iframe Babel).
+        precompiled: { js: art?.compiled_js, key: art?.compiled_js_key },
+    };
+}
 
 // A new srcdoc is a new document — deliveries wait for its load again.
 watch(() => iframeSrcdoc.value, () => { artifactIframeLoaded.value = false; });
@@ -1803,6 +1856,8 @@ onMounted(async () => {
     } else {
         await Promise.all([loadReport(), fetchViewerContext()]);
         if (accessError.value || !dashboardMeta.value) return;
+        // A dashboard's queries don't depend on its content — read both at once.
+        initialQueries = { artifactId: undefined, promise: fetchQueriesWithSteps() };
         await loadArtifact();
     }
 
@@ -1835,6 +1890,13 @@ onMounted(async () => {
         params: paramsPayload(),
         runtime: artifactRuntime()
     }));
+
+    // The iframe libraries were requested at setup, in parallel with the data
+    // above; usually they are already here. Waiting before flipping the flags
+    // keeps the Loading state up instead of an empty frame.
+    if (artifact.value) {
+        await whenArtifactLibsSettled(inlineableArtifactLibs(iframeOptions(artifact.value, srcdocSeed.value)));
+    }
 
     // Mark data as ready - this triggers iframeSrcdoc to compute once with all data
     dataReady.value = true;
