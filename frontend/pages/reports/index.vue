@@ -849,12 +849,14 @@ const toggleAllVisible = () => {
 }
 
 // The confirmation names the never-published dashboards that go too, and the
-// published ones whose changes not yet published are lost (phase 7).
+// published ones whose changes not yet published are lost (phase 7), and
+// the ones other conversations keep editing (collab01).
 async function withUnpublishedNote(message: string, reportIds: string[]) {
     const notes = await dashboardsDeleteNotes(reportIds)
     const lines = [message]
     if (notes.deleted.length) lines.push(t('reports.deleteUnpublishedDashboards', { names: notes.deleted.join(', ') }))
     if (notes.losesChanges.length) lines.push(t('reports.deleteLosesUnpublishedChanges', { names: notes.losesChanges.join(', ') }))
+    if (notes.othersEditing.length) lines.push(t('dashboardCollab.conversation.deleteOthersEditing', { names: notes.othersEditing.join(', ') }))
     return lines.join('\n\n')
 }
 

@@ -93,4 +93,4 @@ def share(test_client, corpus, artifact_id, visibility, *, users=None, groups=No
         body["user_ids"] = [corpus.cast.id(u) for u in users]
     if groups is not None:
         body["group_ids"] = [corpus.cast.groups[g] for g in groups]
-    return test_client.put(f"/api/dashboards/{artifact_id}/sharing", json=body, headers=as_(corpus, by))
+    return test_client.put(f"/api/artifacts/{artifact_id}/sharing", json=body, headers=as_(corpus, by))

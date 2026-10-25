@@ -1,6 +1,6 @@
 """The dashboards page lists dashboards, one card each (phase 8).
 
-`GET /api/dashboards` replaces the conversation list the page read
+`GET /api/artifacts` replaces the conversation list the page read
 (`/reports?has_artifacts=yes`): one row per dashboard, two tabs as before --
 "my" (the dashboards I own, published or not) and "shared" (the others I
 can open) -- with the page's search, type filter and paging. A dashboard is
@@ -16,7 +16,7 @@ CONV = "conv_three_dash"
 
 
 def _list(test_client, corpus, person, **params):
-    resp = test_client.get("/api/dashboards", params=params, headers=as_(corpus, person))
+    resp = test_client.get("/api/artifacts", params=params, headers=as_(corpus, person))
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -70,7 +70,10 @@ def test_a_projects_dashboards_are_shared_with_its_members(corpus, corpus_rows, 
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales", project="private")
     body = _list(test_client, corpus, "proj_viewer", filter="shared")
     assert _ids(body) == [aid]  # its editors open it, published or not (the draft)
-    assert body["dashboards"][0]["report_id"] == corpus.reports[CONV]
+    # The pencil opens the reader's own editing conversation (collab01): the
+    # project member has none yet, so the page asks /edit for one.
+    card = body["dashboards"][0]
+    assert card["report_id"] is None and card["role"] == "edit"
     assert _ids(_list(test_client, corpus, "member", filter="shared")) == []
 
 
@@ -100,7 +103,7 @@ def test_a_deleted_dashboard_is_not_listed(corpus, corpus_rows, test_client):
 
 @pytest.mark.e2e
 def test_the_list_needs_a_member_of_the_organization(corpus, test_client):
-    assert test_client.get("/api/dashboards", headers=as_(corpus, "anonymous")).status_code == 401
+    assert test_client.get("/api/artifacts", headers=as_(corpus, "anonymous")).status_code == 401
 
 
 @pytest.mark.e2e
@@ -146,3 +149,22 @@ def test_the_check_runs_only_on_the_page_shown(migrated_corpus, test_client, mon
     page = _list(test_client, c, "owner", filter="my", limit=2, page=2)
     assert len(page["dashboards"]) == 2 and page["meta"]["total"] == everything
     assert len(checked) <= 2
+
+
+@pytest.mark.e2e
+def test_a_dashboard_whose_every_version_failed_is_not_listed(corpus, corpus_rows, test_client):
+    """create_artifact keeps a dashboard whose render validation failed (its
+    one version `failed`) for debugging; it is not one anyone built, so no
+    card -- until a version works, or something went live from it."""
+    sales = own(corpus_rows, corpus, f"{CONV}/dash_sales")
+    stock = own(corpus_rows, corpus, f"{CONV}/dash_stock")
+    versions = corpus_rows.table("artifact_versions")
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(versions.update().where(versions.c.artifact_id == sales).values(status="failed"))
+        ids = [r[0] for r in conn.execute(versions.select().with_only_columns(versions.c.id)
+                                          .where(versions.c.artifact_id == sales))]
+    assert ids  # the dashboard has versions, all failed
+    assert sales not in _ids(_list(test_client, corpus, "owner", filter="my"))
+    assert stock in _ids(_list(test_client, corpus, "owner", filter="my"))
+    corpus_rows.update("artifact_versions", ids[0], status="completed")
+    assert sales in _ids(_list(test_client, corpus, "owner", filter="my"))

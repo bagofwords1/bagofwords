@@ -1,6 +1,6 @@
 """The settings a dashboard's viewers get, kept on the dashboard (phase 4).
 
-`/api/dashboards/{id}/settings` reads and writes "run on my behalf"
+`/api/artifacts/{id}/settings` reads and writes "run on my behalf"
 (shared_run_identity), the Data tab and the viewer chat, for the owner only,
 with today's rules: no "run on my behalf" over row-level security, chat
 sources from the organization, a chat model the owner may use. Switching
@@ -17,15 +17,17 @@ DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "chat_ena
             # The schedule (phase 6, test_dashboard_refresh.py).
             "cron_schedule": None, "refresh_on_view": True, "notification_subscribers": None,
             # The name in its link (phase 8, test_dashboard_slug.py).
-            "slug": None}
+            "slug": None,
+            # The dashboard's notes (collab01).
+            "notes": None}
 
 
 def _get(test_client, corpus, aid, by="owner"):
-    return test_client.get(f"/api/dashboards/{aid}/settings", headers=as_(corpus, by))
+    return test_client.get(f"/api/artifacts/{aid}/settings", headers=as_(corpus, by))
 
 
 def _put(test_client, corpus, aid, body, by="owner"):
-    return test_client.put(f"/api/dashboards/{aid}/settings", json=body, headers=as_(corpus, by))
+    return test_client.put(f"/api/artifacts/{aid}/settings", json=body, headers=as_(corpus, by))
 
 
 @pytest.mark.e2e

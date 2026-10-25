@@ -1,6 +1,6 @@
 """The owner publishes a dashboard (phase 5, part B).
 
-`POST /api/dashboards/{id}/publish` checks, copies the version into a release
+`POST /api/artifacts/{id}/publish` checks, copies the version into a release
 in 'publishing' and returns; the background run (captured here and run by
 the test) executes every copy with the owner's credentials, what a step
 loads first. All of it succeeded: readers switch to the new release at once
@@ -71,14 +71,14 @@ def _json(value):
 
 def _post(test_client, corpus, aid, person="owner", version_id=None):
     body = {"version_id": version_id} if version_id else None
-    resp = test_client.post(f"/api/dashboards/{aid}/publish", json=body, headers=as_(corpus, person))
+    resp = test_client.post(f"/api/artifacts/{aid}/publish", json=body, headers=as_(corpus, person))
     if resp.status_code == 202:
         PUBLISHED.append(resp.json()["latest"]["id"])  # its files are removed after the test
     return resp
 
 
 def _status(test_client, corpus, aid, person="owner"):
-    resp = test_client.get(f"/api/dashboards/{aid}/publish", headers=as_(corpus, person))
+    resp = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, person))
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -141,11 +141,11 @@ def test_publish_runs_the_version_and_switches_readers_to_it(corpus, corpus_rows
     assert {q["id"] for q in queries} == {copy["id"]}
     assert _months(_rows(corpus_rows, "SELECT data FROM steps WHERE id = :s", s=draft_step)[0]["data"]) == {"טיוטה"}
 
-    # The previous release is gone, readers' results on it too.
-    assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE id = :r", r=old) == []
-    assert _left_behind(corpus_rows, old) == EMPTY
-    assert _rows(corpus_rows, "SELECT id FROM steps WHERE id = :s", s=old_copy["step"]) == []
-    assert _rows(corpus_rows, "SELECT id FROM step_user_results WHERE step_id = :s", s=old_copy["step"]) == []
+    # The previous release is kept for Roll back (collab01) -- ready, not
+    # live, its copies intact -- and readers no longer reach it.
+    assert _rows(corpus_rows, "SELECT status FROM artifact_releases WHERE id = :r", r=old) == [{"status": "ready"}]
+    assert _rows(corpus_rows, "SELECT id FROM steps WHERE id = :s", s=old_copy["step"]) != []
+    assert old_copy["id"] not in {q["id"] for q in queries}
 
 
 @pytest.mark.e2e
@@ -167,12 +167,14 @@ def test_a_failed_publish_leaves_readers_on_the_live_release(corpus, corpus_rows
     assert _left_behind(corpus_rows, attempt) == EMPTY  # the record stays, its copies go
     assert len(_copies(corpus_rows, live)) == 1
 
-    # Fixed, it publishes; the failed record goes with the old release.
+    # Fixed, it publishes; the failed record goes, the old release is kept
+    # for Roll back (collab01).
     corpus_rows.update("steps", draft_step, code=corpus_rows_code(corpus_rows, corpus))
     assert _post(test_client, corpus, aid).status_code == 202
     _finish(spawned)
     assert _status(test_client, corpus, aid)["latest"]["status"] == "ready"
-    assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE id IN (:a, :b)", a=attempt, b=live) == []
+    assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE id = :a", a=attempt) == []
+    assert _rows(corpus_rows, "SELECT status FROM artifact_releases WHERE id = :b", b=live) == [{"status": "ready"}]
 
 
 def corpus_rows_code(corpus_rows, corpus):
@@ -354,7 +356,7 @@ def test_only_the_owner_publishes(corpus, corpus_rows, test_client, spawned):
     aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
     for person, code in (("anonymous", 401), ("member", 403), ("admin", 403), ("other_org", 403)):
         assert _post(test_client, corpus, aid, person=person).status_code == code, person
-        assert test_client.get(f"/api/dashboards/{aid}/publish",
+        assert test_client.get(f"/api/artifacts/{aid}/publish",
                                headers=as_(corpus, person)).status_code == code, person
     assert spawned == []
     assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE artifact_id = :a", a=aid) == []
@@ -389,7 +391,7 @@ def test_the_previous_releases_files_go_and_a_failed_attempts_too(corpus, corpus
     new = _post(test_client, corpus, aid).json()["latest"]["id"]
     assert (thumbs / f"release-{new}.png").is_file()
     _finish(spawned)
-    assert not (thumbs / f"release-{old}.png").exists()
+    assert (thumbs / f"release-{old}.png").is_file()  # kept with its release, for Roll back (collab01)
     assert (thumbs / f"release-{new}.png").is_file()
 
     corpus_rows.update("steps", corpus.ids["thumbnail/q_sales/step"], code=BROKEN)

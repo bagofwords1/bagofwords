@@ -27,7 +27,7 @@ def _reports(test_client, c, reader, **params):
 
 
 def _settings(test_client, c, did, body):
-    resp = test_client.put(f"/api/dashboards/{did}/settings", json=body, headers=as_(c, "owner"))
+    resp = test_client.put(f"/api/artifacts/{did}/settings", json=body, headers=as_(c, "owner"))
     assert resp.status_code == 200, resp.text
 
 
@@ -308,7 +308,7 @@ def _read(c, reader, rid):
 # ── the dashboards list names an old dashboard as before ─────────────────
 
 def _cards(test_client, c, reader, **params):
-    resp = test_client.get("/api/dashboards", params={"limit": 100, **params}, headers=as_(c, reader))
+    resp = test_client.get("/api/artifacts", params={"limit": 100, **params}, headers=as_(c, reader))
     assert resp.status_code == 200, resp.text
     return {d["id"]: d for d in resp.json()["dashboards"]}
 

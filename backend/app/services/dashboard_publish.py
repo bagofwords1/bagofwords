@@ -60,12 +60,14 @@ _ERROR_LIMIT = 2000
 
 # ── what the owner sees ──────────────────────────────────────────────────
 
-def _release_view(release: ArtifactRelease | None) -> dict | None:
+def _release_view(release: ArtifactRelease | None, version: ArtifactVersion | None = None) -> dict | None:
     if release is None:
         return None
     return {
         "id": str(release.id), "status": release.status, "error": release.error,
         "source_version_id": str(release.source_version_id) if release.source_version_id else None,
+        "source_version_number": version.version if version is not None else None,
+        "source_version_name": version.name if version is not None else None,
         "published_by": str(release.published_by) if release.published_by else None,
         "started_at": release.created_at, "published_at": release.published_at,
     }
@@ -91,10 +93,20 @@ async def publish_status(db, artifact: Artifact) -> dict:
     )).scalars().first()
     newest = await _newest_completed_version(db, artifact)
     published_version = str(live.source_version_id) if live is not None and live.source_version_id else None
+
+    async def source(release):
+        if release is None or not release.source_version_id:
+            return None
+        return (await db.execute(select(ArtifactVersion).options(lazyload("*")).where(
+            ArtifactVersion.id == str(release.source_version_id)))).scalars().first()
+
+    shown = live if live is not None and live.status == "ready" else None
     return {
-        "published": _release_view(live if live is not None and live.status == "ready" else None),
-        "latest": _release_view(latest),
+        "published": _release_view(shown, await source(shown)),
+        "latest": _release_view(latest, await source(latest)),
         "has_unpublished_changes": newest is not None and str(newest.id) != published_version,
+        "newest_version_id": str(newest.id) if newest is not None else None,
+        "newest_version_number": newest.version if newest is not None else None,
         "last_run": {"at": artifact.last_run_at, "status": artifact.last_run_status,
                      "error": artifact.last_run_error},
     }
@@ -179,9 +191,15 @@ async def _check_connections(db, report: Report, version: ArtifactVersion, publi
 
 
 async def start_publish(db, artifact: Artifact, publisher: User, organization, *,
-                        version_id: str | None = None) -> ArtifactRelease:
+                        version_id: str | None = None, force: bool = False) -> ArtifactRelease:
     """Checks, a release in 'publishing' with the version copied into it,
-    committed. The caller spawns run_publish(release.id) after this returns."""
+    committed. The caller spawns run_publish(release.id) after this returns.
+
+    Collaboration (collab01): a version is publishable from any live
+    conversation editing the dashboard; and unless `force`, a version that
+    does not build on the live release (someone published since it started)
+    is refused with who and when, so nobody overwrites another's work
+    unknowingly."""
     from app.ee.audit.service import audit_service
     from app.services.bow_source_access import assert_read
     from app.services.dashboard_copy import copy_dashboard
@@ -190,6 +208,8 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     # warehouse's handshake or an OAuth refresh, which must not hold a
     # conversation delete or another Publish on the dashboard's row.
     report, version = await _publish_target(db, artifact, version_id)
+    if not force:
+        await _refuse_if_published_since(db, artifact, version)
     if artifact.mode != "slides":
         await _check_connections(db, report, version, publisher)
     # Then locked, so a conversation delete (dashboard_lifecycle.settle_
@@ -202,6 +222,10 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     report, version = await _publish_target(db, artifact, version_id)
     if artifact.mode != "slides" and str(version.id) != checked:
         await _check_connections(db, report, version, publisher)  # the draft moved meanwhile
+    if not force:
+        # Again under the lock: someone may have published while the
+        # connections above were being checked (a handshake can take long).
+        await _refuse_if_published_since(db, artifact, version)
     # What is published is the conversation's: the publisher must still read
     # its monitoring data, and a public dashboard may not show it.
     await assert_read(db, report.bow_source_access, publisher)
@@ -236,16 +260,33 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
     return release
 
 
+async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:
+    """409 when someone published since `version`'s draft started (collab01)."""
+    from app.services.dashboard_collab import published_since
+
+    since = await published_since(db, artifact, version)
+    if since is not None:
+        raise AppError.conflict(
+            ErrorCode.DASHBOARD_PUBLISHED_SINCE, "A version this one does not include is live",
+            by=(since["by"] or {}).get("name"), by_id=(since["by"] or {}).get("id"),
+            at=since["at"].isoformat() if since["at"] else None,
+            live_version_id=since["live_version_id"], live_version=since["live_version"],
+            version=getattr(version, "version", None))
+
+
 async def _publish_target(db, artifact: Artifact, version_id: str | None):
     """The conversation and the version a Publish would copy -- refused when
     there is no draft to publish."""
-    # A dashboard whose conversation was deleted has no draft: publishing an
-    # old version from it would roll the dashboard back. Edit it first.
-    editing = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
-    if editing is None or editing.status == "archived" or editing.deleted_at is not None:
+    # A dashboard whose conversations were all deleted has no draft:
+    # publishing an old version from one would roll the dashboard back. Edit
+    # it first. Several conversations may edit it (collab01).
+    from app.services.dashboard_collab import editing_report_ids
+
+    editing = await editing_report_ids(db, artifact)
+    if not editing:
         raise AppError.conflict(ErrorCode.DASHBOARD_EDIT_FIRST, "This dashboard has no draft to publish; edit it first")
     version = await _version_to_publish(db, artifact, version_id)
-    if str(version.report_id) != str(artifact.report_id):
+    if str(version.report_id) not in editing:
         # A version from a conversation the dashboard has left (Edit moved it).
         raise AppError.conflict(ErrorCode.DASHBOARD_VERSION_NOT_PUBLISHABLE,
                                 "This version belongs to a deleted conversation")
@@ -527,7 +568,8 @@ async def _go_live(db, release_id: str) -> bool:
     async def switch() -> bool:
         switched = await db.execute(
             update(ArtifactRelease).where(ArtifactRelease.id == release_id, ArtifactRelease.status == "publishing")
-            .values(status="ready", error=None, published_at=datetime.utcnow())
+            .values(status="ready", error=None, published_at=datetime.utcnow(),
+                    run_by=ArtifactRelease.published_by)  # the publisher's run (collab01)
         )
         if switched.rowcount != 1:
             return False
@@ -539,10 +581,21 @@ async def _go_live(db, release_id: str) -> bool:
     if not await switch():
         await db.rollback()
         return False
+    # The last KEEP_RELEASES ready releases stay, for Roll back (collab01);
+    # older ones and failed attempts go.
+    from app.services.dashboard_collab import KEEP_RELEASES
+
+    kept = [rid for (rid,) in (await db.execute(
+        select(ArtifactRelease.id).where(
+            ArtifactRelease.artifact_id == artifact_id, ArtifactRelease.id != release_id,
+            ArtifactRelease.status == "ready", ArtifactRelease.deleted_at.is_(None),
+        ).order_by(ArtifactRelease.published_at.desc(), ArtifactRelease.created_at.desc())
+        .limit(KEEP_RELEASES - 1)
+    )).all()]
     others = (await db.execute(
         select(ArtifactRelease.id, ArtifactRelease.pptx_path).where(
             ArtifactRelease.artifact_id == artifact_id, ArtifactRelease.id != release_id,
-            ArtifactRelease.status != "publishing",
+            ArtifactRelease.status != "publishing", ArtifactRelease.id.notin_(kept or [""]),
         )
     )).all()
     try:
@@ -563,6 +616,10 @@ async def _go_live(db, release_id: str) -> bool:
         await db.commit()
     for rid, pptx in others:
         _remove_files(str(rid), pptx)
+    # A named draft that went live is promoted (collab01); the implicit
+    # draft simply goes on.
+    with contextlib.suppress(Exception):
+        await _mark_promoted(db, release_id, version_id)
 
     from app.core import fire_and_forget
     from app.services.thumbnail_service import ThumbnailService
@@ -572,6 +629,19 @@ async def _go_live(db, release_id: str) -> bool:
                                 user_id=published_by, resource_type="artifact", resource_id=artifact_id,
                                 details={"release_id": release_id, "version_id": version_id})
     return True
+
+
+async def _mark_promoted(db, release_id: str, version_id: str) -> None:
+    from app.models.artifact_release import ArtifactDraft
+
+    if not version_id:
+        return
+    draft_id = (await db.execute(
+        select(ArtifactVersion.draft_id).where(ArtifactVersion.id == version_id))).scalar()
+    if draft_id:
+        await db.execute(update(ArtifactDraft).where(ArtifactDraft.id == str(draft_id))
+                         .values(status="promoted", promoted_release_id=release_id))
+        await db.commit()
 
 
 async def _fail(db, release_id: str, error: str | None) -> None:

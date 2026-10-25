@@ -136,7 +136,7 @@ def test_a_personal_connection_withholds_the_owners_rows_from_readers(corpus, co
     assert _get(test_client, corpus, path, "has_results").json()["snapshot_withheld"] is True
 
     # "Run on my behalf" shares the owner's view on purpose.
-    assert test_client.put(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "owner"),
+    assert test_client.put(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "owner"),
                            json={"shared_run_identity": "creator"}).status_code == 200
     assert _get(test_client, corpus, path, "no_creds").json()["data"]["rows"]
 

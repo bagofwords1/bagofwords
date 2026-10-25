@@ -56,7 +56,7 @@ class Artifact(BaseSchema):
 
     # ── The dashboard's own settings and sharing (dashfc01) ──────────────
     # They mirror the conversation-level columns on `reports` (same
-    # defaults). Since phase 4 the /d routes read them and /api/dashboards
+    # defaults). Since phase 4 the /d routes read them and /api/artifacts
     # writes them; /r keeps reading the conversation's until the data
     # migration (docs/design/dashboards-first-class.md). The schedule ones
     # refresh the published release (phase 6).
@@ -90,6 +90,9 @@ class Artifact(BaseSchema):
     # The conversation whose old /r/{report_id} link leads here (dashfc03).
     # No foreign key: the value outlives the conversation it names.
     legacy_report_id = Column(String(36), nullable=True)
+    # Collaboration (collab01): the dashboard's notes -- its README, carried
+    # into every editing conversation.
+    notes = Column(Text, nullable=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
@@ -171,6 +174,21 @@ class ArtifactVersion(BaseSchema):
     # Optional: Reference to the completion that generated this
     completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
     completion = relationship("Completion", lazy="selectin")
+
+    # Collaboration (collab01). The version this one grew from: the previous
+    # version in its conversation, or the version a conversation joining the
+    # dashboard copied (a soft reference: no foreign key, it outlives the row).
+    # Publish reads the chain to tell whether the live release is behind it.
+    base_version_id = Column(String(36), nullable=True)
+    # The named draft it belongs to; NULL is the dashboard's implicit draft.
+    draft_id = Column(String(36), ForeignKey('artifact_drafts.id', name='fk_artifact_versions_draft_id',
+                                             ondelete='SET NULL'), nullable=True, index=True)
+    # A name someone gave this version ("v2", "Q3 launch"); collab01.
+    name = Column(String(120), nullable=True)
+    # Each chart's fingerprint when this version was made:
+    # {element_key: {"fp": ..., "title": ...}} (dashboard_collab.snapshot_elements).
+    # Comparing versions by it says who changed which chart.
+    elements = Column(JSON, nullable=True)
 
     __table_args__ = (
         UniqueConstraint('artifact_id', 'version', name='uq_artifact_versions_artifact_version'),

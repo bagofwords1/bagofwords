@@ -100,10 +100,27 @@ class DuplicatedAssets(NamedTuple):
     needs_thumbnail: bool = False
 
 
-def make_step_overrides(user_scoped: bool, strict_source: bool):
+async def identity_steps(db, steps) -> frozenset:
+    """Ids of `steps` holding one identity's slice through identity
+    parameters (their own or what they load) -- identity_taint's rule, the
+    one the reader's page withholds by."""
+    from app.services.identity_taint import step_identity_scope
+
+    tainted = set()
+    for step in steps:
+        if (await step_identity_scope(db, step))[0]:
+            tainted.add(str(step.id))
+    return frozenset(tainted)
+
+
+def make_step_overrides(user_scoped: bool, strict_source: bool, tainted_step_ids=frozenset()):
     """Fork's data policy for each copied step (a conversation's Fork, and a
     published dashboard's, phase 7): what of the creator's step the forker
-    may receive. See ForkService._duplicate_assets for the two flags."""
+    may receive. See ForkService._duplicate_assets for the two flags.
+    `tainted_step_ids` (identity_steps) are steps whose rows are one
+    identity's slice through identity parameters -- over a shared
+    connection, so neither flag catches them -- and are never copied
+    either: the reader's page withholds them, so a fork must too."""
     from app.services.viewer_data_policy import redact_applied_params
 
     def step_overrides(old_step, old_query) -> dict:
@@ -134,7 +151,7 @@ def make_step_overrides(user_scoped: bool, strict_source: bool):
             # to the source owner — never copy it into the fork; the
             # forker runs it under their own credentials. System-only
             # data is shared by definition, so copy it as-is.
-            data={} if strict_source else old_step.data,
+            data={} if strict_source or str(old_step.id) in tainted_step_ids else old_step.data,
             # applied_params is the filter state the dashboard was
             # built with — the year, the branch, the agent the creator
             # had selected. It is carried for EVERY source, snapshot or
@@ -387,8 +404,14 @@ class ForkService:
         user_id: str,
         organization_id: str,
         pending_code: Dict[str, str],
+        retire: bool = True,
     ) -> dict:
         """Run a delegated-source fork's queries as the forker, then keep what worked.
+
+        `retire` False (collab01): a dashboard editor's own copy of someone
+        else's charts -- run again as the editor the same way, but never
+        retired, and worded as their copy rather than a fork: the
+        conversation is where they edit the dashboard.
 
         A fork of a `user_required` source is created empty: no rows (they are
         the creator's slice) and no SQL (the share withholds it from a reader
@@ -559,6 +582,13 @@ class ForkService:
                         organization_settings=org_settings,
                         code_override=code,
                     )
+                    # Settled now, not with the rest at the end: a later step
+                    # of this pass may load_step it, and the loader reads
+                    # successful steps only (the pass runs prerequisites first).
+                    await sdb.execute(
+                        update(Step).where(Step.id == str(step_id), Step.status == FORK_PENDING_STATUS)
+                        .values(status="success", status_reason=None))
+                    await sdb.commit()
                     succeeded.append(step_id)
                 except Exception as e:
                     # Discard the in-memory code assignment — the step keeps
@@ -642,6 +672,9 @@ class ForkService:
                             "This query failed when it was run for you, so it was "
                             "not copied into your fork. If it runs on the source "
                             "report, fork it again."
+                        ) if retire else (
+                            "This query failed when it was run with your credentials. "
+                            "Ask the agent to fix it, or check your access to its data source."
                         ),
                     )
                 )
@@ -677,7 +710,8 @@ class ForkService:
             # carrying its own reason and the forker can retry, not re-fork.
             no_usable_identity = sources_attempted > 0 and not db_clients
             nothing_ran = (
-                not succeeded
+                retire
+                and not succeeded
                 and bool(failed)
                 and (no_usable_identity or (bool(refused) and not broke))
             )
@@ -829,7 +863,9 @@ class ForkService:
                 widget_id_map[old_widget_id] = new_widget_id
             return new_widget_id
 
-        step_overrides = make_step_overrides(user_scoped, strict_source)
+        step_overrides = make_step_overrides(
+            user_scoped, strict_source,
+            await identity_steps(db, [q.default_step for q in original.queries if q.default_step is not None]))
 
         # Deleted queries stay behind — nothing shows them — unless a step
         # still loads one (load_step reaches deleted queries' steps); that one

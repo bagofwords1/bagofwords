@@ -40,7 +40,7 @@ def sent(monkeypatch):
 
 def _notify(test_client, corpus, aid, person="owner", **body):
     payload = {"channels": ["email"], "recipients": ["member@corpus.com", "cfo@outside.com"], **body}
-    return test_client.post(f"/api/dashboards/{aid}/notify", json=payload, headers=as_(corpus, person))
+    return test_client.post(f"/api/artifacts/{aid}/notify", json=payload, headers=as_(corpus, person))
 
 
 @pytest.mark.e2e
@@ -57,7 +57,7 @@ def test_the_email_carries_the_dashboards_own_link(corpus, corpus_rows, test_cli
     (notice,) = sent["inbox"]  # members only: the outside address gets the email alone
     assert notice["user_ids"] == [corpus.cast.id("member")] and str(notice["artifact"].id) == aid
 
-    named = test_client.put(f"/api/dashboards/{aid}/settings", json={"slug": "weekly-sales"},
+    named = test_client.put(f"/api/artifacts/{aid}/settings", json={"slug": "weekly-sales"},
                             headers=as_(corpus, "owner"))
     assert named.status_code == 200
     assert _notify(test_client, corpus, aid).status_code == 200

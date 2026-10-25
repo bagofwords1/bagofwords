@@ -10,13 +10,16 @@ const notes = deleteNotes([
   { title: 'Draft deck', outcome: 'deleted' },
   { title: 'Ops', outcome: 'loses_changes' },
   { title: '', outcome: 'deleted' },
+  { title: 'Team KPIs', outcome: 'others_editing' },
 ])
 assert.deepEqual(notes.deleted, ['Draft deck', 'Untitled'])
 assert.deepEqual(notes.losesChanges, ['Ops'])
+// Other conversations keep editing it (collab01): it stays as it is.
+assert.deepEqual(notes.othersEditing, ['Team KPIs'])
 
 // Nothing to say: both lines stay hidden.
-assert.deepEqual(deleteNotes([{ title: 'Sales', outcome: 'survives' }]), { deleted: [], losesChanges: [] })
-assert.deepEqual(deleteNotes([]), { deleted: [], losesChanges: [] })
+assert.deepEqual(deleteNotes([{ title: 'Sales', outcome: 'survives' }]), { deleted: [], losesChanges: [], othersEditing: [] })
+assert.deepEqual(deleteNotes([]), { deleted: [], losesChanges: [], othersEditing: [] })
 // Two dashboards with the same name are two dashboards: said with a count.
 assert.deepEqual(deleteNotes([{ id: 'a', title: 'Ops', outcome: 'loses_changes' },
   { id: 'b', title: 'Ops', outcome: 'loses_changes' }]).losesChanges, ['Ops (2)'])

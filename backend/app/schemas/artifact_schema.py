@@ -116,6 +116,8 @@ class ArtifactListSchema(BaseModel):
     title: Optional[str]
     mode: str
     version: int
+    # A name someone gave this version (collab01), e.g. "Q3 launch".
+    name: Optional[str] = None
     status: str = "completed"
     created_at: datetime
     updated_at: datetime

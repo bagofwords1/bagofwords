@@ -138,7 +138,7 @@ class DashboardDeps:
         return [*self.query_ids, *self.hidden_query_ids]
 
 
-async def collect_dashboard_deps(db, version) -> DashboardDeps:
+async def collect_dashboard_deps(db, version, *, include_pending: bool = False) -> DashboardDeps:
     """The queries a dashboard's link shows, and the ones it needs without showing.
 
     "Shows" is what GET /api/r/{report}/queries?artifact_id= returns today: the
@@ -159,7 +159,10 @@ async def collect_dashboard_deps(db, version) -> DashboardDeps:
             selectinload(Query.default_step).options(lazyload("*"), defer(Step.data)),
             selectinload(Query.visualizations).options(lazyload("*")),
         ).join(Step, Step.id == Query.default_step_id)
-        .where(Query.report_id == report_id, Step.status == "success")
+        # `include_pending` (collab01): a joining editor's copies wait to run
+        # with their credentials; the draft shows them waiting.
+        .where(Query.report_id == report_id,
+               Step.status.in_(("success", "pending")) if include_pending else Step.status == "success")
         .order_by(Query.created_at)
     )).scalars().unique().all()
     by_id = {str(q.id): q for q in queries}
@@ -367,6 +370,9 @@ async def copy_query_rows(
                 title=old_viz.title, status=old_viz.status, view=copy.deepcopy(old_viz.view),
                 report_id=placement.report_id, artifact_release_id=placement.artifact_release_id,
                 query_id=str(new_query.id), deleted_at=old_viz.deleted_at,
+                # The chart's key across copies (collab01): who changed it
+                # follows it into releases and other conversations.
+                element_key=str(old_viz.element_key or old_viz.id),
             )
             db.add(new_viz)
             await db.flush()

@@ -132,7 +132,7 @@ def jobs():
 
 
 def _settings(test_client, corpus, aid, **body):
-    return test_client.put(f"/api/dashboards/{aid}/settings", json=body, headers=as_(corpus, "owner"))
+    return test_client.put(f"/api/artifacts/{aid}/settings", json=body, headers=as_(corpus, "owner"))
 
 
 # ── the schedule's settings ──────────────────────────────────────────────
@@ -158,7 +158,7 @@ def test_the_schedule_is_a_setting_of_the_dashboard(corpus, corpus_rows, test_cl
     job = jobs.get_job(f"dashboard_{aid}")
     assert job is not None and list(job.args) == [aid]  # the dashboard only: who runs it is read at run time
     assert str(job.trigger.fields[job.trigger.FIELD_NAMES.index("hour")]) == "8"
-    assert test_client.get(f"/api/dashboards/{aid}/settings",
+    assert test_client.get(f"/api/artifacts/{aid}/settings",
                            headers=as_(corpus, "owner")).json()["cron_schedule"] == "0 8 * * 1-5"
 
     for bad_cron in ("every morning", "0 25 * * *"):  # not a cron; five fields, hour out of range
@@ -203,7 +203,7 @@ def test_a_refresh_replaces_every_row_at_once_and_keeps_the_ids(corpus, corpus_r
     draft_step = corpus.ids["conv_three_dash/q_sales/step"]
     corpus_rows.update("steps", draft_step, data={**STALE, "rows": [{"חודש": "טיוטה", "הכנסות": 0}]})
 
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "success" and resp.json()["error"] is None
 
@@ -216,7 +216,7 @@ def test_a_refresh_replaces_every_row_at_once_and_keeps_the_ids(corpus, corpus_r
     assert _months(_rows(corpus_rows, "SELECT data FROM steps WHERE id = :s", s=draft_step)[0]["data"]) == {"טיוטה"}
     row = _artifact(corpus_rows, aid)
     assert row["last_run_at"] is not None and row["last_run_status"] == "success" and row["last_run_error"] is None
-    last = test_client.get(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner")).json()["last_run"]
+    last = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).json()["last_run"]
     assert last["status"] == "success" and last["at"]
     assert spawned == ["ThumbnailService.regenerate_for_release"]
 
@@ -232,7 +232,7 @@ def test_a_refresh_that_fails_changes_no_row(corpus, corpus_rows, test_client, s
     assert test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member")).status_code == 200
     kept = _rows(corpus_rows, "SELECT id FROM step_user_results WHERE step_id = :s", s=copies[0]["step"])
 
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
     assert resp.status_code == 200
     assert resp.json()["status"] == "failed" and "השאילתה נשברה" in resp.json()["error"]
     assert all(_months(c["data"]) == {"ישן"} for c in _copies(corpus_rows, release))
@@ -251,7 +251,7 @@ def test_what_a_copy_loads_runs_first(corpus, corpus_rows, test_client, spawned)
     aid, release = _published(corpus, corpus_rows, test_client, "load_step/dash")
     by_title = {c["title"]: c for c in _copies(corpus_rows, release)}
     corpus_rows.update("queries", by_title["נגזרת"]["id"], created_at=datetime(2020, 1, 1))
-    assert test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner")).json()["status"] == \
+    assert test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner")).json()["status"] == \
         "success"
     by_title = {c["title"]: c for c in _copies(corpus_rows, release)}
     assert _months(by_title["נגזרת"]["data"]) == {"ינואר", "פברואר"}
@@ -274,7 +274,7 @@ def test_a_refresh_never_writes_a_release_that_was_replaced_meanwhile(corpus, co
         return await run(self, db, step, ctx, **kwargs)
 
     monkeypatch.setattr(StepService, "_execute_step_code", published_meanwhile)
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
     assert resp.status_code == 200 and resp.json()["status"] == "skipped"
     assert _months(_copies(corpus_rows, older)[0]["data"]) == {"ישן"}
 
@@ -282,7 +282,7 @@ def test_a_refresh_never_writes_a_release_that_was_replaced_meanwhile(corpus, co
 @pytest.mark.e2e
 def test_only_the_owner_refreshes_and_only_a_live_release(corpus, corpus_rows, test_client):
     aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
-    path = f"/api/dashboards/{aid}/refresh"
+    path = f"/api/artifacts/{aid}/refresh"
     early = test_client.post(path, headers=as_(corpus, "owner"))
     assert early.status_code == 409 and early.json()["error_code"] == "dashboard.not_published"
     publish(aid)
@@ -314,7 +314,7 @@ def test_a_personal_connection_refreshes_as_today(corpus, corpus_rows, test_clie
     corpus_rows.insert("step_user_results", step_id=copy["step"], user_id=corpus.cast.id("member"),
                        organization_id=corpus.cast.org_id, status="success", data=STALE, executed_as="viewer",
                        params_fingerprint="", last_run_at=datetime(2026, 1, 1))
-    assert test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner")).json()["status"] == \
+    assert test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner")).json()["status"] == \
         "success"
     assert set(seen) == {corpus.cast.id("owner")}
     assert _rows(corpus_rows, "SELECT id FROM step_user_results WHERE step_id = :s", s=copy["step"]) == []
@@ -483,7 +483,7 @@ def test_a_deck_does_not_refresh(corpus, corpus_rows, test_client, monkeypatch, 
 
     monkeypatch.setattr(StepService, "_execute_step_code", never)
     aid, _ = _published(corpus, corpus_rows, test_client, "slides_previews/deck")
-    body = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner")).json()
+    body = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner")).json()
     assert body["status"] == "skipped" and body["reason"] == "frozen"
     assert _artifact(corpus_rows, aid)["last_run_status"] is None and spawned == []
 
@@ -504,7 +504,7 @@ def test_monitoring_data_a_refresh_reads_extends_the_releases_lineage(corpus, co
         "'metrics': [{'op': 'count', 'name': 'runs'}]})\n"))
     before = _rows(corpus_rows, "SELECT source_refs FROM queries WHERE id = :q", q=copy["id"])
     assert "builtin:bow" not in str(before)
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "bow_scoped"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "bow_scoped"))
     assert resp.json()["status"] == "success", resp.text
     after = _rows(corpus_rows, "SELECT source_refs FROM queries WHERE id = :q", q=copy["id"])
     assert "builtin:bow" in str(after)
@@ -552,7 +552,7 @@ def test_a_publish_that_stopped_does_not_hold_refreshes_back(corpus, corpus_rows
     aid, _ = _published(corpus, corpus_rows, test_client)
     corpus_rows.insert("artifact_releases", artifact_id=aid, organization_id=corpus.cast.org_id, status="publishing",
                        updated_at=datetime(2026, 1, 1))
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
     assert resp.status_code == 200 and resp.json()["status"] == "success", resp.text
 
 
@@ -566,7 +566,7 @@ def test_an_error_outside_the_queries_is_recorded_as_a_failure(corpus, corpus_ro
 
     monkeypatch.setattr(dashboard_runs, "in_dependency_order", broken)
     aid, _ = _published(corpus, corpus_rows, test_client)
-    resp = test_client.post(f"/api/dashboards/{aid}/refresh", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
     assert resp.status_code == 200 and resp.json()["status"] == "failed"
     assert "the database went away" in _artifact(corpus_rows, aid)["last_run_error"]
 
