@@ -20,32 +20,32 @@ def _routes(aid, version_id, release_id, report_id, member_id):
     """(method, url, body) for each gated route, with real ids so a refusal
     can only come from the gate, never from a missing row."""
     return [
-        ("GET", f"/api/dashboards/{aid}/history", None),
-        ("GET", f"/api/dashboards/{aid}/drafts", None),
-        ("POST", f"/api/dashboards/{aid}/drafts", {"name": "gate check"}),
-        ("PUT", f"/api/dashboards/{aid}/versions/{version_id}/name", {"name": "gate check"}),
+        ("GET", f"/api/artifacts/{aid}/history", None),
+        ("GET", f"/api/artifacts/{aid}/drafts", None),
+        ("POST", f"/api/artifacts/{aid}/drafts", {"name": "gate check"}),
+        ("PUT", f"/api/artifacts/{aid}/versions/{version_id}/name", {"name": "gate check"}),
         ("GET", f"/api/artifacts/{aid}/open-state?report_id={report_id}", None),
         ("POST", f"/api/artifacts/{aid}/bring", {"report_id": report_id}),
-        ("POST", f"/api/dashboards/{aid}/rollback", {"release_id": release_id}),
-        ("POST", f"/api/dashboards/{aid}/transfer", {"user_id": member_id}),
-        ("POST", f"/api/dashboards/{aid}/publish", None),
-        ("GET", f"/api/dashboards/{aid}/publish", None),
-        ("GET", f"/api/dashboards/{aid}/settings", None),
-        ("PUT", f"/api/dashboards/{aid}/settings", {"notes": "gate check"}),
-        ("GET", f"/api/dashboards/{aid}/presence", None),
-        ("PUT", f"/api/dashboards/{aid}/presence", {}),
+        ("POST", f"/api/artifacts/{aid}/restore", {"release_id": release_id}),
+        ("POST", f"/api/artifacts/{aid}/transfer", {"user_id": member_id}),
+        ("POST", f"/api/artifacts/{aid}/publish", None),
+        ("GET", f"/api/artifacts/{aid}/publish", None),
+        ("GET", f"/api/artifacts/{aid}/settings", None),
+        ("PUT", f"/api/artifacts/{aid}/settings", {"notes": "gate check"}),
+        ("GET", f"/api/artifacts/{aid}/presence", None),
+        ("PUT", f"/api/artifacts/{aid}/presence", {}),
     ]
 
 
 def _snapshot(test_client, corpus, aid):
     owner = as_(corpus, "owner")
-    history = test_client.get(f"/api/dashboards/{aid}/history", headers=owner).json()
+    history = test_client.get(f"/api/artifacts/{aid}/history", headers=owner).json()
     return (
-        test_client.get(f"/api/dashboards/{aid}/sharing", headers=owner).json(),
-        test_client.get(f"/api/dashboards/{aid}/settings", headers=owner).json(),
+        test_client.get(f"/api/artifacts/{aid}/sharing", headers=owner).json(),
+        test_client.get(f"/api/artifacts/{aid}/settings", headers=owner).json(),
         sorted((v["id"], v.get("name")) for v in history["versions"]),
         sorted(c["report_id"] for c in history["conversations"]),
-        test_client.get(f"/api/dashboards/{aid}/publish", headers=owner).json().get("published"),
+        test_client.get(f"/api/artifacts/{aid}/publish", headers=owner).json().get("published"),
     )
 
 
@@ -55,11 +55,11 @@ def test_only_owner_and_editors_reach_the_collaboration_routes(corpus, corpus_ro
     release_id = publish(aid)
     assert share(test_client, corpus, aid, "shared", users=["direct_share"]).status_code == 200
     owner = as_(corpus, "owner")
-    granted = test_client.put(f"/api/dashboards/{aid}/sharing", headers=owner, json={
+    granted = test_client.put(f"/api/artifacts/{aid}/sharing", headers=owner, json={
         "visibility": "shared", "user_ids": [corpus.cast.id("direct_share")],
         "editor_user_ids": [corpus.cast.id("member")]})
     assert granted.status_code == 200, granted.text
-    version_id = test_client.get(f"/api/dashboards/{aid}/history", headers=owner).json()["versions"][0]["id"]
+    version_id = test_client.get(f"/api/artifacts/{aid}/history", headers=owner).json()["versions"][0]["id"]
     report_id = corpus.reports["conv_three_dash"]
     routes = _routes(aid, version_id, release_id, report_id, corpus.cast.id("member"))
 
@@ -77,15 +77,15 @@ def test_only_owner_and_editors_reach_the_collaboration_routes(corpus, corpus_ro
 
     # The editor gets past the gate on the reads (what the toolbar loads).
     member = as_(corpus, "member")
-    for url in (f"/api/dashboards/{aid}/history", f"/api/dashboards/{aid}/publish",
-                f"/api/dashboards/{aid}/settings", f"/api/dashboards/{aid}/presence"):
+    for url in (f"/api/artifacts/{aid}/history", f"/api/artifacts/{aid}/publish",
+                f"/api/artifacts/{aid}/settings", f"/api/artifacts/{aid}/presence"):
         assert test_client.get(url, headers=member).status_code == 200, url
     # ...but transfer stays the owner's.
-    resp = test_client.post(f"/api/dashboards/{aid}/transfer", json={"user_id": corpus.cast.id("member")},
+    resp = test_client.post(f"/api/artifacts/{aid}/transfer", json={"user_id": corpus.cast.id("member")},
                             headers=member)
     assert resp.status_code == 403 and resp.json()["error_code"]
     # The org admin may hand it over (to an editor).
-    resp = test_client.post(f"/api/dashboards/{aid}/transfer", json={"user_id": corpus.cast.id("member")},
+    resp = test_client.post(f"/api/artifacts/{aid}/transfer", json={"user_id": corpus.cast.id("member")},
                             headers=as_(corpus, "admin"))
     assert resp.status_code == 200 and resp.json()["owner_id"] == corpus.cast.id("member")
 

@@ -155,7 +155,7 @@ async function load() {
     const wasRerunning = cards.value.some((c) => c.rerunning)
     let next: ConversationCard[] | null = null
     try {
-        const { data, error } = await useMyFetch(`/dashboards/conversations/${encodeURIComponent(id)}`)
+        const { data, error } = await useMyFetch(`/artifacts/conversations/${encodeURIComponent(id)}`)
         if (!error.value && Array.isArray(data.value)) next = data.value as ConversationCard[]
     } catch { /* keep what is shown; the next tick asks again */ }
     // Left the page, or moved to another conversation, while this was in flight.

@@ -1,6 +1,6 @@
 """The owner publishes a dashboard (phase 5, part B).
 
-`POST /api/dashboards/{id}/publish` checks, copies the version into a release
+`POST /api/artifacts/{id}/publish` checks, copies the version into a release
 in 'publishing' and returns; the background run (captured here and run by
 the test) executes every copy with the owner's credentials, what a step
 loads first. All of it succeeded: readers switch to the new release at once
@@ -71,14 +71,14 @@ def _json(value):
 
 def _post(test_client, corpus, aid, person="owner", version_id=None):
     body = {"version_id": version_id} if version_id else None
-    resp = test_client.post(f"/api/dashboards/{aid}/publish", json=body, headers=as_(corpus, person))
+    resp = test_client.post(f"/api/artifacts/{aid}/publish", json=body, headers=as_(corpus, person))
     if resp.status_code == 202:
         PUBLISHED.append(resp.json()["latest"]["id"])  # its files are removed after the test
     return resp
 
 
 def _status(test_client, corpus, aid, person="owner"):
-    resp = test_client.get(f"/api/dashboards/{aid}/publish", headers=as_(corpus, person))
+    resp = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, person))
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -356,7 +356,7 @@ def test_only_the_owner_publishes(corpus, corpus_rows, test_client, spawned):
     aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
     for person, code in (("anonymous", 401), ("member", 403), ("admin", 403), ("other_org", 403)):
         assert _post(test_client, corpus, aid, person=person).status_code == code, person
-        assert test_client.get(f"/api/dashboards/{aid}/publish",
+        assert test_client.get(f"/api/artifacts/{aid}/publish",
                                headers=as_(corpus, person)).status_code == code, person
     assert spawned == []
     assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE artifact_id = :a", a=aid) == []

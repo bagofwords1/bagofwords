@@ -124,7 +124,7 @@ const history = ref<any>(null);
 async function loadHistory() {
     const id = props.meta?.id;
     if (!id) return;
-    const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(id)}/history`);
+    const { data, error } = await useMyFetch(`/api/artifacts/${encodeURIComponent(id)}/history`);
     if (!error.value) history.value = data.value;
 }
 onMounted(loadHistory);

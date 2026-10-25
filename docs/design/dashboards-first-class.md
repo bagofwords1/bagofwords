@@ -381,7 +381,7 @@ renaming for phase 8. Old `/r/{report}` links keep working for good (part B).
   every anonymous caller alike).
 - **Routes** (`app/routes/dashboard.py`): `GET /api/d/{ref}` (title, mode,
   release, theme, Data tab and chat switches, last refresh, org branding) and
-  `GET /api/d/{ref}/draft`; for the owner, `GET/PUT /api/dashboards/{id}/sharing`
+  `GET /api/d/{ref}/draft`; for the owner, `GET/PUT /api/artifacts/{id}/sharing`
   and `/settings`. The path parameter is `dashboard_id`: the permission
   decorator reads `artifact_id` as a version id.
 - **Sharing** (`dashboard_settings_service.set_sharing`): today's rules
@@ -557,7 +557,7 @@ Tests: `test_release_load_step.py`, `test_agent_lists.py`.
 
 ### Part B — Publish
 
-- **Routes**: `POST /api/dashboards/{id}/publish` (`{version_id?}`, 202) and
+- **Routes**: `POST /api/artifacts/{id}/publish` (`{version_id?}`, 202) and
   `GET` (the live release, the latest attempt, `has_unpublished_changes`).
   Owner only (`publish_reports`).
 - **Before anything is created**: the version completed; the publisher still
@@ -623,7 +623,7 @@ then reverted); the conversations' schedules
 stay as they are until the data migration.
 
 - **Settings**: `cron_schedule`, `refresh_on_view` and
-  `notification_subscribers` on `/api/dashboards/{id}/settings`, with the
+  `notification_subscribers` on `/api/artifacts/{id}/settings`, with the
   conversation's validation; `""` unschedules and clears the subscribers;
   scheduling an unpublished dashboard was refused here; phase 8 reverses
   that (see there): before its first publish a dashboard's schedule
@@ -640,7 +640,7 @@ stay as they are until the data migration.
   own results on them are deleted, as main's rerun_step does), and `last_run_at` / `last_run_status` /
   `last_run_error` (dashfc05) are set. A failure writes no row and records
   the reason. A published deck is frozen and does not refresh.
-- **Routes**: `POST /api/dashboards/{id}/refresh` (the owner's Refresh) and
+- **Routes**: `POST /api/artifacts/{id}/refresh` (the owner's Refresh) and
   `POST /api/d/{id}/refresh` (on view, under the `/d` access check); the
   publish status reports `last_run`.
 - **Notifications**: the conversation schedule's inbox row and email with a
@@ -694,7 +694,7 @@ organization's model.
   default steps and charts copied by `copy_query_rows` (the release's copies
   get widgets in the conversation); content remapped, slide previews and
   deck copied to files of its own.
-- `POST /api/dashboards/{id}/edit`: the live conversation, else a new one
+- `POST /api/artifacts/{id}/edit`: the live conversation, else a new one
   with a new draft version of the same artifact
   (`artifact_service.new_version(report_id=...)`) and `artifacts.report_id`
   moved to it; rows copied as they are (the owner's). The agent's tools match
@@ -744,7 +744,7 @@ its name.
   reason on failure, a dot while the open draft is not what readers see.
   Shown to whoever the status call answers (the owner).
 - **Share and Schedule** save to the dashboard open in the editor
-  (`/api/dashboards/{id}/sharing|settings`) and show its `/d` link. Sharing
+  (`/api/artifacts/{id}/sharing|settings`) and show its `/d` link. Sharing
   waits for Publish: until then the access list is off, with one line.
 - **Schedule refreshes what is seen** (reverses phase 6): an unpublished
   dashboard's schedule refreshes its draft with the conversation's own rerun
@@ -760,7 +760,7 @@ its name.
   removing the name keeps the old name leading to the same dashboard (a link
   already sent never stops working; who may open it is the sharing). Set
   through `settings.slug`; a fork has none.
-- **Share email**: `POST /api/dashboards/{id}/notify` builds the /d link
+- **Share email**: `POST /api/artifacts/{id}/notify` builds the /d link
   itself (never the page's), and attaches the release's PDF as any reader
   would export it (none when withheld; the file is removed once sent).
 - **Fork from /d** records `reports.forked_from_artifact_id` (dashfc07), so
@@ -779,7 +779,7 @@ its name.
   PDF. The /d meta's `exports_own_rows` lets the page hide the deck's button.
 - **Delete dialogs** name the never-published dashboards that go with the
   conversation (`delete_preview`).
-- **Dashboards page**: `GET /api/dashboards`, one card per dashboard, the
+- **Dashboards page**: `GET /api/artifacts`, one card per dashboard, the
   same tabs, search, type filter and paging; SQL narrows to what the /d check
   can admit and each candidate is then admitted by it; the conversation id
   only for editors (the pencil).
@@ -893,7 +893,7 @@ Built on this design in the same PR stack. Full plan, decisions and DoD:
   it. Only the owner makes a dashboard public, switches run-as-creator, or
   transfers it; editors share like the owner.
 - **Several conversations.** `artifact_conversations` lists the conversations
-  editing a dashboard. Joining (`POST /dashboards/{id}/edit`) copies the
+  editing a dashboard. Joining (`POST /artifacts/{id}/edit`) copies the
   newest draft version into the editor's own conversation; every copied step
   is `pending` with no rows and re-runs as the joiner
   (`hydrate_fork(..., retire=False)`). Rows never cross users — the owner

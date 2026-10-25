@@ -286,7 +286,7 @@ const setTypeFilter = async (tf: 'all' | 'page' | 'doc') => {
 const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '') => {
     isLoading.value = true
     try {
-        const response = await useMyFetch('/dashboards', {
+        const response = await useMyFetch('/artifacts', {
             method: 'GET',
             query: {
                 page,
@@ -351,7 +351,7 @@ const editDashboard = async (d: any) => {
     if (d.report_id) return navigateTo(`/reports/${d.report_id}`)
     editingId.value = d.id
     try {
-        const { data, error } = await useMyFetch(`/dashboards/${encodeURIComponent(d.id)}/edit`, { method: 'POST' })
+        const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(d.id)}/edit`, { method: 'POST' })
         const reportId = (data.value as any)?.report_id
         if (error.value || !reportId) {
             toast.add({ title: t('dashboardCollab.list.editFailed'), description: getErrorMessage(error.value), color: 'red' })

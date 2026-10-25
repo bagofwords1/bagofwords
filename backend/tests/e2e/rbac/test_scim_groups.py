@@ -767,7 +767,7 @@ def test_scim_delete_removes_the_groups_dashboard_grants(org_with_members, test_
     assert made.status_code == 200, made.text
     aid = made.json()["artifact_id"]
     publish(aid)
-    resp = test_client.put(f"/api/dashboards/{aid}/sharing", headers=_hdr(token, org_id),
+    resp = test_client.put(f"/api/artifacts/{aid}/sharing", headers=_hdr(token, org_id),
                            json={"visibility": "shared", "group_ids": [gid]})
     assert resp.status_code == 200, resp.text
 
@@ -781,5 +781,5 @@ def test_scim_delete_removes_the_groups_dashboard_grants(org_with_members, test_
     finally:
         engine.dispose()
     assert left == 0
-    sharing = test_client.get(f"/api/dashboards/{aid}/sharing", headers=_hdr(token, org_id))
+    sharing = test_client.get(f"/api/artifacts/{aid}/sharing", headers=_hdr(token, org_id))
     assert sharing.status_code == 200 and sharing.json()["group_ids"] == []

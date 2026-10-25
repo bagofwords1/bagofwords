@@ -20,7 +20,7 @@ STOCK = "conv_three_dash/dash_stock"
 
 
 def _name(test_client, corpus, aid, slug, person="owner"):
-    return test_client.put(f"/api/dashboards/{aid}/settings", json={"slug": slug}, headers=as_(corpus, person))
+    return test_client.put(f"/api/artifacts/{aid}/settings", json={"slug": slug}, headers=as_(corpus, person))
 
 
 def _open(test_client, corpus, ref, person="member"):

@@ -56,7 +56,7 @@ class Artifact(BaseSchema):
 
     # ── The dashboard's own settings and sharing (dashfc01) ──────────────
     # They mirror the conversation-level columns on `reports` (same
-    # defaults). Since phase 4 the /d routes read them and /api/dashboards
+    # defaults). Since phase 4 the /d routes read them and /api/artifacts
     # writes them; /r keeps reading the conversation's until the data
     # migration (docs/design/dashboards-first-class.md). The schedule ones
     # refresh the published release (phase 6).

@@ -67,21 +67,21 @@ For the reader's own version it returns `{"own": true}` (nothing to do).
 `key` is a chart's element key; a chart's visualization row exposes it as
 its id unless `element_key` is set (copies keep their source's key).
 
-## Edit / join — `POST /dashboards/{id}/edit` body `{"draft": "slug"}` (optional)
+## Edit / join — `POST /artifacts/{id}/edit` body `{"draft": "slug"}` (optional)
 → `{"report_id", "created": bool, "rerunning": bool}`. Navigate to
 `/reports/{report_id}`. `rerunning: true`: the charts are running again with
 the caller's credentials (copies of someone else's work). Errors:
 `dashboard.join_no_access` (params `name`: the data source they lack),
 `dashboard.edit_first` (nothing to edit).
 
-## Publish — `POST /dashboards/{id}/publish` body `{"version_id"?, "force"?}`
+## Publish — `POST /artifacts/{id}/publish` body `{"version_id"?, "force"?}`
 202 + status. **409 `dashboard.published_since`** with `params: {by, at}`:
 someone published since this draft started. Show "{by} published {at
 relative}. Review changes / Publish anyway" — "Publish anyway" re-POSTs with
 `force: true`; "Review changes" opens the changes view.
-`GET /dashboards/{id}/publish` → `{published, latest, has_unpublished_changes, last_run}`.
+`GET /artifacts/{id}/publish` → `{published, latest, has_unpublished_changes, last_run}`.
 
-## Sharing — `GET|PUT /dashboards/{id}/sharing`
+## Sharing — `GET|PUT /artifacts/{id}/sharing`
 ```json
 GET → { "visibility": "none|shared|internal|public", "published",
         "user_ids", "group_ids",                 // viewers (count while 'shared')
@@ -96,17 +96,17 @@ publish — editors can still be added with visibility `none`),
 Everyone who can open the dashboard's project edits it (`project_id` set →
 show "Everyone in project <name> can edit").
 
-## Settings — `GET|PUT /dashboards/{id}/settings`
+## Settings — `GET|PUT /artifacts/{id}/settings`
 Adds `notes` (string|null; PUT `""` clears). PUT needs `settings`;
 `shared_run_identity` changes need `run_identity`.
 
 ## Drafts
-- `GET /dashboards/{id}/drafts` → `[DraftSchema]`, first is Main (implicit).
+- `GET /artifacts/{id}/drafts` → `[DraftSchema]`, first is Main (implicit).
   Show a draft picker only when there are 2+.
-- `POST /dashboards/{id}/drafts` body `{"name", "from_version_id"?}` → join
+- `POST /artifacts/{id}/drafts` body `{"name", "from_version_id"?}` → join
   response (a new conversation on that draft). 409 `dashboard.draft_name_taken`.
 
-## History — `GET /dashboards/{id}/history`
+## History — `GET /artifacts/{id}/history`
 ```json
 { "conversations": [{"report_id","user":{id,name},"started_at","ended_at","versions","draft","can_open"}],
   "releases": [{"id","status","live","version_id","version_number","published_by":{id,name},"published_at","error"}],
@@ -116,7 +116,7 @@ Adds `notes` (string|null; PUT `""` clears). PUT needs `settings`;
 ```
 Link a conversation only when `can_open`. The UI shows one Versions list:
 a version with `restore_release_id` gets **Restore**:
-`POST /dashboards/{id}/rollback {"release_id": restore_release_id}` (needs
+`POST /artifacts/{id}/restore {"release_id": restore_release_id}` (needs
 `publish`) → publish status, instant. 404 `dashboard.release_not_kept`. Any
 other non-live version gets **Publish this version** (`POST .../publish
 {"version_id", "force": true}`; its queries run again).
@@ -132,16 +132,16 @@ conversation already builds on it copies nothing (`unchanged`).
 unpublished_here}`. Behind live with no unpublished work here: the frame brings live in (once per
 publish). Behind with work here nobody published: it asks first.
 
-**Name a version**: `PUT /dashboards/{id}/versions/{version_id}/name {"name"}`
+**Name a version**: `PUT /artifacts/{id}/versions/{version_id}/name {"name"}`
 (needs `edit`; `""` removes it) → `{id, number, name}`. The publish status
 carries `published.source_version_number` / `source_version_name` and
 `newest_version_number` ("Live: v5", "Publish v7").
 
-## Transfer — `POST /dashboards/{id}/transfer {"user_id"}` (needs `transfer`)
+## Transfer — `POST /artifacts/{id}/transfer {"user_id"}` (needs `transfer`)
 → sharing (the previous owner becomes an editor). 400
 `dashboard.transfer_not_editor` when the target cannot edit.
 
-## Presence — `/dashboards/{id}/presence`
+## Presence — `/artifacts/{id}/presence`
 - `PUT {"report_id"?}` every ~15 s while an editor has the dashboard open
   (report_id: the conversation they're in, when in one) → `{"entries": [...]}`.
 - `GET` → same. `DELETE ?report_id=` on leave (use `navigator.sendBeacon`-
@@ -169,7 +169,7 @@ Dashboards gain outcome `others_editing`: "Other conversations keep editing
 ## Dashboards list — `GET /dashboards?filter=…`
 Cards gain `role`: `owner|edit|view`. `report_id` is the reader's own
 editing conversation (null if they have none): for `role: edit` with no
-`report_id`, the pencil calls `POST /dashboards/{id}/edit` then navigates.
+`report_id`, the pencil calls `POST /artifacts/{id}/edit` then navigates.
 
 ## Analytics
 `GET /artifacts/{id}/runtime/analytics?days=` is open to editors

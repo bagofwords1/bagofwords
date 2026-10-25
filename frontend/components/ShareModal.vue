@@ -228,7 +228,7 @@
                         :report-id="report.id"
                         :notification-type="shareType === 'artifact' ? 'share_dashboard' : 'share_conversation'"
                         :share-url="shareUrl"
-                        :notify-path="dashboardMode ? `/dashboards/${dashboardId}/notify` : undefined" />
+                        :notify-path="dashboardMode ? `/artifacts/${dashboardId}/notify` : undefined" />
                 </div>
             </div>
 
@@ -526,8 +526,8 @@ const onBlur = () => {
 // The dashboard's own sharing (phase 8) and its link's name.
 const fetchDashboard = async () => {
     const [sharing, settings] = await Promise.all([
-        useMyFetch(`/dashboards/${props.dashboardId}/sharing`),
-        useMyFetch(`/dashboards/${props.dashboardId}/settings`),
+        useMyFetch(`/artifacts/${props.dashboardId}/sharing`),
+        useMyFetch(`/artifacts/${props.dashboardId}/settings`),
     ])
     const sh = (sharing.data.value || {}) as any
     applyDashboardSharing(sh)
@@ -638,7 +638,7 @@ const saveDashboardSharing = async (visibility: string, userIds?: string[], grou
         const body: any = { visibility, ...extra }
         if (userIds) body.user_ids = userIds
         if (groupIds) body.group_ids = groupIds
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/sharing`, { method: 'PUT', body })
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/sharing`, { method: 'PUT', body })
         if (res.error.value) throw res.error.value
         const data = res.data.value as any
         if (data) applyDashboardSharing({ ...data, visibility: data.visibility || visibility })
@@ -843,7 +843,7 @@ watch(() => props.dashboardId, async (id) => {
     if (!id || props.shareType !== 'artifact') return
     // Another dashboard: its own capabilities, read again on open.
     capabilities.value = null
-    const { data, error } = await useMyFetch(`/dashboards/${id}/sharing`)
+    const { data, error } = await useMyFetch(`/artifacts/${id}/sharing`)
     if (id !== props.dashboardId || error.value || !data.value) return
     applyDashboardSharing(data.value)
     if (!modalOpen.value) currentVisibility.value = savedDashboardVisibility.value

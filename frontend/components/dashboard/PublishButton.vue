@@ -120,7 +120,7 @@ function stopPolling() {
 async function load(announce = false) {
     const id = dashboardId.value;
     if (!id) { status.value = null; return; }
-    const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(id)}/publish`);
+    const { data, error } = await useMyFetch(`/api/artifacts/${encodeURIComponent(id)}/publish`);
     if (!alive || id !== dashboardId.value) return; // left, or switched dashboards meanwhile
     if (error.value) { status.value = null; return; } // not theirs to publish
     const previous = status.value?.latest?.status;
@@ -145,7 +145,7 @@ async function publish(force = false) {
     if (publishing.value || !dashboardId.value) return;
     starting.value = true;
     try {
-        const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(dashboardId.value)}/publish`, {
+        const { data, error } = await useMyFetch(`/api/artifacts/${encodeURIComponent(dashboardId.value)}/publish`, {
             method: 'POST',
             body: { version_id: props.artifact?.id || null, force },
         });

@@ -20,7 +20,7 @@ def test_dashboard_owner_does_not_receive_editor_identity_rows(corpus, corpus_ro
     started = _publish_api(test_client, corpus, aid, "member")
     assert started.status_code == 202, started.text
     _finish(spawned)
-    status = test_client.get(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner")).json()
+    status = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).json()
     assert status["published"] and status["published"]["status"] == "ready", status
     q = test_client.get(f"/api/d/{aid}/queries", headers=as_(corpus, "owner")).json()[0]
     result = test_client.get(f"/api/d/{aid}/queries/{q['id']}/step", headers=as_(corpus, "owner"))
@@ -105,7 +105,7 @@ def test_draft_schedule_keeps_report_identity_after_original_conversation_delete
     _finish(spawned)
     removed = test_client.delete(f"/api/reports/{corpus.reports['identity_param']}", headers=as_(corpus, "owner"))
     assert removed.status_code == 200, removed.text
-    settings = test_client.put(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "owner"), json={"cron_schedule": "0 6 * * *"})
+    settings = test_client.put(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "owner"), json={"cron_schedule": "0 6 * * *"})
     assert settings.status_code == 200, settings.text
     asyncio.run(scheduled_refresh(aid))
     _finish(spawned)

@@ -1,4 +1,4 @@
-"""Schemas of the dashboard routes (/api/d and /api/dashboards, phase 4)."""
+"""Schemas of the dashboard routes (/api/d and /api/artifacts, phase 4)."""
 from datetime import datetime
 from typing import Literal
 

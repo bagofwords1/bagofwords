@@ -85,7 +85,7 @@ def test_who_may_run(corpus, corpus_rows, test_client):
 @pytest.mark.e2e
 def test_run_on_my_behalf_runs_with_the_owners_credentials_for_members_only(corpus, corpus_rows, test_client):
     aid, _, (copy,) = _published(corpus, corpus_rows, test_client, "conv_three_dash/dash_sales", "public")
-    assert test_client.put(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "owner"),
+    assert test_client.put(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "owner"),
                            json={"shared_run_identity": "creator"}).status_code == 200
     resp = test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member"))
     assert resp.status_code == 200 and resp.json()["executed_as"] == "creator"
@@ -185,7 +185,7 @@ def test_the_owners_credentials_run_only_in_their_mode(corpus, corpus_rows, test
     assert test_client.post(filter_path, json={"force_refresh": True}, headers=as_(corpus, "member")).status_code == 200
     assert set(credentials_used) == {member}
     credentials_used.clear()
-    assert test_client.put(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "owner"),
+    assert test_client.put(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "owner"),
                            json={"shared_run_identity": "creator"}).status_code == 200
     assert test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member")).status_code == 200
     assert test_client.post(filter_path, json={"force_refresh": True}, headers=as_(corpus, "member")).status_code == 200
@@ -198,7 +198,7 @@ def test_an_auto_release_over_an_rls_source_runs_as_the_reader(corpus, corpus_ro
     organization's, which here include an RLS source, so "run on my behalf"
     is refused and never takes effect."""
     aid, _, _ = _published(corpus, corpus_rows, test_client, "auto_conv/dash")
-    refused = test_client.put(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "owner"),
+    refused = test_client.put(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "owner"),
                               json={"shared_run_identity": "creator"})
     assert refused.status_code == 400 and refused.json()["error_code"] == "dashboard.rls_requires_viewer"
     corpus_rows.update("artifacts", aid, shared_run_identity="creator")  # a source gained RLS later

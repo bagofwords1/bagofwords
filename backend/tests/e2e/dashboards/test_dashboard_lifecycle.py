@@ -82,7 +82,7 @@ def test_deleting_the_conversation_keeps_its_published_dashboards(corpus, corpus
 
     # No draft any more: the draft door is closed and Publish asks for an edit first.
     assert test_client.get(f"/api/d/{sales}/draft", headers=as_(corpus, "owner")).status_code == 404
-    refused = test_client.post(f"/api/dashboards/{sales}/publish", headers=as_(corpus, "owner"))
+    refused = test_client.post(f"/api/artifacts/{sales}/publish", headers=as_(corpus, "owner"))
     assert refused.status_code == 409 and refused.json()["error_code"] == "dashboard.edit_first"
 
 
@@ -93,7 +93,7 @@ def test_a_dashboard_whose_conversation_was_archived_before_does_not_publish_eit
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales")
     publish(aid)
     corpus_rows.update("reports", corpus.reports[CONV], status="archived")
-    refused = test_client.post(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner"))
+    refused = test_client.post(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner"))
     assert refused.status_code == 409 and refused.json()["error_code"] == "dashboard.edit_first"
 
 
@@ -164,7 +164,7 @@ def test_edit_opens_the_live_conversation_without_copying(corpus, corpus_rows, t
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales")
     publish(aid)
     before = _rows(corpus_rows, "SELECT count(*) AS n FROM reports")[0]["n"]
-    resp = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner"))
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"report_id": corpus.reports[CONV], "created": False, "rerunning": False}
     assert _rows(corpus_rows, "SELECT count(*) AS n FROM reports")[0]["n"] == before
@@ -182,7 +182,7 @@ def test_edit_after_the_conversation_was_deleted_starts_one_from_the_release(cor
     old = corpus.reports[CONV]
     assert test_client.delete(f"/api/reports/{old}", headers=as_(corpus, "owner")).status_code == 200
 
-    resp = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner"))
+    resp = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner"))
     assert resp.status_code == 200, resp.text
     body = resp.json()
     new = body["report_id"]
@@ -206,10 +206,10 @@ def test_edit_after_the_conversation_was_deleted_starts_one_from_the_release(cor
     # Readers did not notice; the draft door and Publish are back.
     assert test_client.get(f"/api/d/{aid}", headers=as_(corpus, "member")).status_code == 200
     assert test_client.get(f"/api/d/{aid}/draft", headers=as_(corpus, "owner")).status_code == 200
-    assert test_client.post(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner")).status_code == 202
+    assert test_client.post(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).status_code == 202
 
     # A second Edit opens that conversation.
-    again = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
+    again = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()
     assert again == {"report_id": new, "created": False, "rerunning": False}
 
 
@@ -219,7 +219,7 @@ def test_only_the_owner_edits(corpus, corpus_rows, test_client):
     publish(aid)
     assert share(test_client, corpus, aid, "internal").status_code == 200
     for person, code in (("anonymous", 401), ("member", 403), ("admin", 403)):
-        assert test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, person)).status_code == code
+        assert test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, person)).status_code == code
 
 
 @pytest.mark.e2e
@@ -319,7 +319,7 @@ def test_a_fork_links_no_file_and_an_edit_keeps_them(corpus, corpus_rows, test_c
     assert _files_of(corpus_rows, _fork(test_client, corpus, aid)["report_id"]) == set()
     assert test_client.delete(f"/api/reports/{corpus.reports['embedded_files']}",
                               headers=as_(corpus, "owner")).status_code == 200
-    edited = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
+    edited = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()
     assert _files_of(corpus_rows, edited["report_id"]) == files
 
 
@@ -417,7 +417,7 @@ def test_two_edits_at_once_give_one_conversation(corpus, corpus_rows, test_clien
         return made
 
     monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
-    body = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
+    body = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()
     assert body == {"report_id": winner, "created": False, "rerunning": False}
     assert _rows(corpus_rows, "SELECT id FROM reports WHERE slug LIKE 'edit-%' AND user_id = :u",
                  u=corpus.cast.id("owner")) == []  # this Edit's copy was rolled back
@@ -429,12 +429,12 @@ def test_right_after_edit_nothing_is_unpublished_and_old_versions_do_not_publish
     aid, _ = _published_shared(corpus, corpus_rows, test_client, f"{CONV}/dash_sales")
     old_version = corpus.ids[f"{CONV}/dash_sales/v1"]
     assert test_client.delete(f"/api/reports/{corpus.reports[CONV]}", headers=as_(corpus, "owner")).status_code == 200
-    new = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()["report_id"]
-    status = test_client.get(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner")).json()
+    new = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()["report_id"]
+    status = test_client.get(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).json()
     assert status["has_unpublished_changes"] is False
     preview = test_client.get(f"/api/reports/{new}/delete_preview", headers=as_(corpus, "owner")).json()
     assert preview["dashboards"][0]["outcome"] == "survives"
-    old = test_client.post(f"/api/dashboards/{aid}/publish", json={"version_id": old_version},
+    old = test_client.post(f"/api/artifacts/{aid}/publish", json={"version_id": old_version},
                            headers=as_(corpus, "owner"))
     assert old.status_code == 409 and old.json()["error_code"] == "dashboard.version_not_publishable"
 
@@ -446,7 +446,7 @@ def test_a_dashboard_deleted_while_publishing_does_not_go_live(corpus, corpus_ro
     jobs = []
     monkeypatch.setattr("app.core.fire_and_forget.spawn", jobs.append)
     aid = own(corpus_rows, corpus, f"{CONV}/dash_sales")
-    attempt = test_client.post(f"/api/dashboards/{aid}/publish", headers=as_(corpus, "owner")).json()["latest"]["id"]
+    attempt = test_client.post(f"/api/artifacts/{aid}/publish", headers=as_(corpus, "owner")).json()["latest"]["id"]
     corpus_rows.update("artifacts", aid, deleted_at=datetime(2026, 3, 1))
     while jobs:
         asyncio.run(jobs.pop(0))
@@ -533,6 +533,6 @@ def test_the_losing_edit_leaves_no_copied_files(corpus, corpus_rows, test_client
         return made
 
     monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
-    body = test_client.post(f"/api/dashboards/{aid}/edit", headers=as_(corpus, "owner")).json()
+    body = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()
     assert body == {"report_id": winner, "created": False, "rerunning": False}
     assert set(thumbs.glob("*.png")) - before == set()

@@ -69,7 +69,7 @@ def test_deleting_a_group_removes_its_dashboard_grants(corpus, corpus_rows, test
                              json={"name": "קבוצה זמנית"})
     assert group.status_code in (200, 201), group.text
     gid = group.json()["id"]
-    assert test_client.put(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, "owner"),
+    assert test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner"),
                            json={"visibility": "shared", "group_ids": [gid, corpus.cast.groups["analysts"]]}
                            ).status_code == 200
 
@@ -78,6 +78,6 @@ def test_deleting_a_group_removes_its_dashboard_grants(corpus, corpus_rows, test
     with corpus_rows.engine.connect() as conn:
         left = conn.execute(text("SELECT count(*) FROM artifact_shares WHERE group_id = :g"), {"g": gid}).scalar()
     assert left == 0
-    sharing = test_client.get(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, "owner")).json()
+    sharing = test_client.get(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner")).json()
     assert sharing["group_ids"] == [corpus.cast.groups["analysts"]]
     assert share(test_client, corpus, aid, "shared").status_code == 200

@@ -1,6 +1,6 @@
 """The dashboard's owner shares it, on the dashboard itself (phase 4).
 
-`PUT /api/dashboards/{id}/sharing` sets one dashboard's visibility and its
+`PUT /api/artifacts/{id}/sharing` sets one dashboard's visibility and its
 people and groups. It follows the rules of today's share modal, with one
 addition: a dashboard is shared only once it is published. It never touches
 the conversation's sharing or another dashboard's.
@@ -15,7 +15,7 @@ SIBLING = "conv_three_dash/dash_stock"
 
 
 def _sharing(test_client, corpus, aid, by="owner"):
-    return test_client.get(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, by))
+    return test_client.get(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, by))
 
 
 @pytest.mark.e2e
@@ -76,10 +76,10 @@ def test_grants_name_people_and_groups_of_the_organization_only(corpus, corpus_r
     publish(aid)
     outsider = share(test_client, corpus, aid, "shared", users=["other_org"])
     assert outsider.status_code == 400 and outsider.json()["error_code"] == "user.not_found"
-    resp = test_client.put(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, "owner"),
+    resp = test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner"),
                            json={"visibility": "shared", "group_ids": ["00000000-0000-0000-0000-000000000000"]})
     assert resp.status_code == 400 and resp.json()["error_code"] == "group.not_found"
-    bad = test_client.put(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, "owner"),
+    bad = test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner"),
                           json={"visibility": "everyone"})
     assert bad.status_code == 422
     assert _sharing(test_client, corpus, aid).json()["visibility"] == "none"
@@ -152,7 +152,7 @@ def test_the_list_shows_grants_that_still_count_and_saves_back(corpus, corpus_ro
                               headers=as_(corpus, "admin")).status_code == 204
     listed = _sharing(test_client, corpus, aid).json()["user_ids"]
     assert listed == [cast.id("member")]
-    resp = test_client.put(f"/api/dashboards/{aid}/sharing", headers=as_(corpus, "owner"),
+    resp = test_client.put(f"/api/artifacts/{aid}/sharing", headers=as_(corpus, "owner"),
                            json={"visibility": "shared", "user_ids": listed + [cast.id("group_share")]})
     assert resp.status_code == 200, resp.text
     assert sorted(resp.json()["user_ids"]) == sorted([cast.id("member"), cast.id("group_share")])
@@ -168,4 +168,4 @@ def test_an_owner_without_monitoring_access_cannot_manage_a_monitoring_dashboard
     publish(aid)
     assert _sharing(test_client, corpus, aid, by="bow_unscoped").status_code == 403
     assert share(test_client, corpus, aid, "internal", by="bow_unscoped").status_code == 403
-    assert test_client.get(f"/api/dashboards/{aid}/settings", headers=as_(corpus, "bow_unscoped")).status_code == 403
+    assert test_client.get(f"/api/artifacts/{aid}/settings", headers=as_(corpus, "bow_unscoped")).status_code == 403

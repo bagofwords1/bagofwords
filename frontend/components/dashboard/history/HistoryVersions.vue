@@ -118,7 +118,7 @@ function menu(v: any) {
 async function saveName(v: any) {
     busy.value = v.id
     try {
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/versions/${v.id}/name`, { method: 'PUT', body: { name: nameDraft.value } })
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/versions/${v.id}/name`, { method: 'PUT', body: { name: nameDraft.value } })
         if (res.error.value) throw res.error.value
         naming.value = null
         emit('changed')
@@ -134,13 +134,13 @@ async function go(v: any) {
     busy.value = v.id
     try {
         if (kind === 'restore') {
-            const res = await useMyFetch(`/dashboards/${props.dashboardId}/rollback`, { method: 'POST', body: { release_id: v.restore_release_id } })
+            const res = await useMyFetch(`/artifacts/${props.dashboardId}/restore`, { method: 'POST', body: { release_id: v.restore_release_id } })
             if (res.error.value) throw res.error.value
             toast.add({ title: t('dashboardCollab.versions.restoreDone', { n: v.number }), color: 'green' })
             emit('rolled-back')
         } else {
             // A deliberate pick from the list: no "published since" question.
-            const res = await useMyFetch(`/dashboards/${props.dashboardId}/publish`, { method: 'POST', body: { version_id: v.id, force: true } })
+            const res = await useMyFetch(`/artifacts/${props.dashboardId}/publish`, { method: 'POST', body: { version_id: v.id, force: true } })
             if (res.error.value) throw res.error.value
             toast.add({ title: t('dashboardCollab.versions.publishStarted', { n: v.number }), color: 'green' })
             emit('publishing')

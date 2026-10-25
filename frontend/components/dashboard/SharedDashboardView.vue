@@ -491,7 +491,7 @@ async function handleEdit() {
     try {
         const dashboardId = dashboardMeta.value?.id || report.value.id;
         const named = props.source === 'draft' ? dashboardMeta.value?.draft : null;
-        const { data, error } = await useMyFetch(`/api/dashboards/${encodeURIComponent(dashboardId)}/edit`, {
+        const { data, error } = await useMyFetch(`/api/artifacts/${encodeURIComponent(dashboardId)}/edit`, {
             method: 'POST',
             ...(named?.id && named?.slug ? { body: { draft: named.slug } } : {}),
         });

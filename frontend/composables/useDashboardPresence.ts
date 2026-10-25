@@ -61,7 +61,7 @@ export function useDashboardPresence(
         if (!was) return;
         const query = was.report ? `?report_id=${encodeURIComponent(was.report)}` : '';
         try {
-            await useMyFetch(`/dashboards/${encodeURIComponent(was.id)}/presence${query}`, { method: 'DELETE' });
+            await useMyFetch(`/artifacts/${encodeURIComponent(was.id)}/presence${query}`, { method: 'DELETE' });
         } catch { /* best effort: the server ages it out */ }
     }
 
@@ -72,7 +72,7 @@ export function useDashboardPresence(
         const report = reportId.value || null;
         if (beating && (beating.id !== id || beating.report !== report)) await leave();
         try {
-            const { data, error } = await useMyFetch(`/dashboards/${encodeURIComponent(id)}/presence`, {
+            const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(id)}/presence`, {
                 method: 'PUT',
                 body: { report_id: report },
             });

@@ -92,7 +92,7 @@ async function load() {
     loading.value = true
     try {
         const pages = await Promise.all(['my', 'shared'].map(filter =>
-            useMyFetch('/dashboards', { method: 'GET', query: { page: 1, limit: 50, filter } })))
+            useMyFetch('/artifacts', { method: 'GET', query: { page: 1, limit: 50, filter } })))
         const seen = new Set<string>()
         items.value = pages.flatMap(p => ((p.data.value as any)?.dashboards || []) as any[])
             .filter(d => roleOf(d) !== 'view' && !seen.has(d.id) && seen.add(d.id))

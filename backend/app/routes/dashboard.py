@@ -2,7 +2,7 @@
 
 - `/d/{ref}`: the published dashboard, by id or name, for its readers.
 - `/d/{ref}/draft`: the draft, for the owner and the project.
-- `/dashboards/{dashboard_id}/sharing|settings`: the owner's controls.
+- `/artifacts/{dashboard_id}/sharing|settings`: the owner's controls.
 
 The path parameter is `dashboard_id`, not `artifact_id`: the permission
 decorator reads `artifact_id` as a version id and resolves its conversation.
@@ -122,7 +122,7 @@ async def get_draft_dashboard(
     )
 
 
-@router.get("/dashboards", response_model=DashboardListResponse)
+@router.get("/artifacts", response_model=DashboardListResponse)
 @requires_permission("view_reports")
 async def list_dashboards(
     page: int = Query(1, ge=1),
@@ -142,7 +142,7 @@ async def list_dashboards(
                           page=page, limit=limit)
 
 
-@router.get("/dashboards/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
+@router.get("/artifacts/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_sharing(
     dashboard_id: str,
@@ -154,7 +154,7 @@ async def get_dashboard_sharing(
     return await dashboard_settings_service.get_sharing(db, artifact)
 
 
-@router.put("/dashboards/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
+@router.put("/artifacts/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
 @requires_permission("publish_reports")
 async def set_dashboard_sharing(
     dashboard_id: str,
@@ -171,7 +171,7 @@ async def set_dashboard_sharing(
     )
 
 
-@router.post("/dashboards/{dashboard_id}/notify")
+@router.post("/artifacts/{dashboard_id}/notify")
 @requires_permission("publish_reports")
 async def notify_dashboard_share(
     dashboard_id: str,
@@ -252,7 +252,7 @@ async def notify_dashboard_share(
     return response
 
 
-@router.post("/dashboards/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema, status_code=202)
+@router.post("/artifacts/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema, status_code=202)
 @requires_permission("publish_reports")
 async def publish_dashboard(
     dashboard_id: str,
@@ -273,7 +273,7 @@ async def publish_dashboard(
     return await dashboard_publish.publish_status(db, artifact)
 
 
-@router.get("/dashboards/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema)
+@router.get("/artifacts/{dashboard_id}/publish", response_model=DashboardPublishStatusSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_publish_status(
     dashboard_id: str,
@@ -287,7 +287,7 @@ async def get_dashboard_publish_status(
     return await dashboard_publish.publish_status(db, artifact)
 
 
-@router.post("/dashboards/{dashboard_id}/edit")
+@router.post("/artifacts/{dashboard_id}/edit")
 @requires_permission("publish_reports")
 async def edit_dashboard(
     dashboard_id: str,
@@ -321,7 +321,7 @@ async def edit_dashboard(
     return {"report_id": result["report_id"], "created": bool(result.get("created")), "rerunning": bool(pending)}
 
 
-@router.post("/dashboards/{dashboard_id}/refresh")
+@router.post("/artifacts/{dashboard_id}/refresh")
 @requires_permission("publish_reports")
 async def refresh_dashboard(
     dashboard_id: str,
@@ -337,7 +337,7 @@ async def refresh_dashboard(
     return await dashboard_refresh.owner_refresh(db, artifact, current_user, organization)
 
 
-@router.get("/dashboards/{dashboard_id}/settings", response_model=DashboardSettingsSchema)
+@router.get("/artifacts/{dashboard_id}/settings", response_model=DashboardSettingsSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_settings(
     dashboard_id: str,
@@ -349,7 +349,7 @@ async def get_dashboard_settings(
     return dashboard_settings_service.get_settings(artifact)
 
 
-@router.put("/dashboards/{dashboard_id}/settings", response_model=DashboardSettingsSchema)
+@router.put("/artifacts/{dashboard_id}/settings", response_model=DashboardSettingsSchema)
 @requires_permission("publish_reports")
 async def set_dashboard_settings(
     dashboard_id: str,

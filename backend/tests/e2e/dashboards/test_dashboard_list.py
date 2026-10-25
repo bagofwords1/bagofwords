@@ -1,6 +1,6 @@
 """The dashboards page lists dashboards, one card each (phase 8).
 
-`GET /api/dashboards` replaces the conversation list the page read
+`GET /api/artifacts` replaces the conversation list the page read
 (`/reports?has_artifacts=yes`): one row per dashboard, two tabs as before --
 "my" (the dashboards I own, published or not) and "shared" (the others I
 can open) -- with the page's search, type filter and paging. A dashboard is
@@ -16,7 +16,7 @@ CONV = "conv_three_dash"
 
 
 def _list(test_client, corpus, person, **params):
-    resp = test_client.get("/api/dashboards", params=params, headers=as_(corpus, person))
+    resp = test_client.get("/api/artifacts", params=params, headers=as_(corpus, person))
     assert resp.status_code == 200, resp.text
     return resp.json()
 
@@ -103,7 +103,7 @@ def test_a_deleted_dashboard_is_not_listed(corpus, corpus_rows, test_client):
 
 @pytest.mark.e2e
 def test_the_list_needs_a_member_of_the_organization(corpus, test_client):
-    assert test_client.get("/api/dashboards", headers=as_(corpus, "anonymous")).status_code == 401
+    assert test_client.get("/api/artifacts", headers=as_(corpus, "anonymous")).status_code == 401
 
 
 @pytest.mark.e2e

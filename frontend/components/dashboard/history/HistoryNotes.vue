@@ -66,7 +66,7 @@ async function load() {
     loading.value = true
     loadError.value = null
     try {
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`)
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/settings`)
         if (res.error.value) throw res.error.value
         saved.value = (res.data.value as any)?.notes || ''
         draft.value = saved.value
@@ -81,7 +81,7 @@ async function save() {
     saving.value = true
     try {
         // "" clears the notes.
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, { method: 'PUT', body: { notes: draft.value } })
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/settings`, { method: 'PUT', body: { notes: draft.value } })
         if (res.error.value) throw res.error.value
         saved.value = (res.data.value as any)?.notes || ''
         draft.value = saved.value

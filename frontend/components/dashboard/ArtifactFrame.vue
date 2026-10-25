@@ -1492,7 +1492,7 @@ const allVersions = ref<any[]>([]);
 async function loadAllVersions() {
   const dashboardId = selectedArtifactItem.value?.artifact_id;
   if (!dashboardId || props.verificationPreview) { allVersions.value = []; return; }
-  const { data, error } = await useMyFetch(`/dashboards/${encodeURIComponent(dashboardId)}/history`);
+  const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(dashboardId)}/history`);
   if (dashboardId !== selectedArtifactItem.value?.artifact_id) return;
   allVersions.value = error.value ? [] : (((data.value as any)?.versions) || []);
 }

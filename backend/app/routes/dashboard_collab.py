@@ -1,19 +1,19 @@
 """Collaborative dashboards (collab01;
 docs/feedback-loops/2026-10-23-collaborative-dashboards.md).
 
-- `/dashboards/{id}/drafts`: the implicit draft and the named ones; start one.
-- `/dashboards/{id}/history`: the conversations that edited it, its versions,
+- `/artifacts/{id}/drafts`: the implicit draft and the named ones; start one.
+- `/artifacts/{id}/history`: the conversations that edited it, its versions,
   the releases kept for Roll back.
-- `/dashboards/{id}/versions/{version_id}/name`: name a version ("v2").
+- `/artifacts/{id}/versions/{version_id}/name`: name a version ("v2").
 - `/artifacts/{id}/open-state`, `/artifacts/{id}/bring`: what a conversation
   should open on, and a copy of a version (or the live one) brought into a
   conversation of the caller's.
-- `/dashboards/{id}/rollback`, `/transfer`: readers back to a kept release;
+- `/artifacts/{id}/restore`, `/transfer`: readers back to a kept release;
   the dashboard to another editor.
-- `/dashboards/{id}/presence`: who is editing right now.
+- `/artifacts/{id}/presence`: who is editing right now.
 - `/d/{ref}/draft/changes`, `/d/{ref}/draft/run`: who changed which chart,
   and an editor's own run of a version made in someone else's conversation.
-- `/dashboards/conversations/{report_id}`: the "Continued from" card.
+- `/artifacts/conversations/{report_id}`: the "Continued from" card.
 
 The path parameter is `dashboard_id`, not `artifact_id`: the permission
 decorator reads `artifact_id` as a version id.
@@ -65,7 +65,7 @@ def _spawn_rerun(result: dict, user, organization) -> bool:
     return bool(pending)
 
 
-@router.get("/dashboards/{dashboard_id}/drafts", response_model=list[DashboardDraftSchema])
+@router.get("/artifacts/{dashboard_id}/drafts", response_model=list[DashboardDraftSchema])
 @requires_permission("publish_reports")
 async def list_dashboard_drafts(
     dashboard_id: str,
@@ -77,7 +77,7 @@ async def list_dashboard_drafts(
     return await dashboard_collab.list_drafts(db, artifact)
 
 
-@router.post("/dashboards/{dashboard_id}/drafts", response_model=DashboardJoinResponse)
+@router.post("/artifacts/{dashboard_id}/drafts", response_model=DashboardJoinResponse)
 @requires_permission("publish_reports")
 async def create_dashboard_draft(
     dashboard_id: str,
@@ -94,7 +94,7 @@ async def create_dashboard_draft(
                                  rerunning=_spawn_rerun(result, current_user, organization))
 
 
-@router.get("/dashboards/{dashboard_id}/history", response_model=DashboardHistorySchema)
+@router.get("/artifacts/{dashboard_id}/history", response_model=DashboardHistorySchema)
 @requires_permission("publish_reports")
 async def get_dashboard_history(
     dashboard_id: str,
@@ -106,7 +106,7 @@ async def get_dashboard_history(
     return await dashboard_collab.history(db, artifact, current_user)
 
 
-@router.put("/dashboards/{dashboard_id}/versions/{version_id}/name")
+@router.put("/artifacts/{dashboard_id}/versions/{version_id}/name")
 @requires_permission("publish_reports")
 async def name_dashboard_version(
     dashboard_id: str,
@@ -209,7 +209,7 @@ async def bring_dashboard(
                                   version=result.get("version"), rerunning=rerunning)
 
 
-@router.post("/dashboards/{dashboard_id}/rollback", response_model=DashboardPublishStatusSchema)
+@router.post("/artifacts/{dashboard_id}/restore", response_model=DashboardPublishStatusSchema)
 @requires_permission("publish_reports")
 async def rollback_dashboard(
     dashboard_id: str,
@@ -227,7 +227,7 @@ async def rollback_dashboard(
     return await dashboard_publish.publish_status(db, artifact)
 
 
-@router.post("/dashboards/{dashboard_id}/transfer", response_model=DashboardSharingSchema)
+@router.post("/artifacts/{dashboard_id}/transfer", response_model=DashboardSharingSchema)
 @requires_permission("publish_reports")
 async def transfer_dashboard(
     dashboard_id: str,
@@ -243,7 +243,7 @@ async def transfer_dashboard(
     return await dashboard_settings_service.get_sharing(db, artifact)
 
 
-@router.get("/dashboards/{dashboard_id}/presence", response_model=DashboardPresenceSchema)
+@router.get("/artifacts/{dashboard_id}/presence", response_model=DashboardPresenceSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_presence(
     dashboard_id: str,
@@ -255,7 +255,7 @@ async def get_dashboard_presence(
     return {"entries": await dashboard_presence.entries(db, artifact, current_user)}
 
 
-@router.put("/dashboards/{dashboard_id}/presence", response_model=DashboardPresenceSchema)
+@router.put("/artifacts/{dashboard_id}/presence", response_model=DashboardPresenceSchema)
 @requires_permission("publish_reports")
 async def beat_dashboard_presence(
     dashboard_id: str,
@@ -273,7 +273,7 @@ async def beat_dashboard_presence(
     return {"entries": await dashboard_presence.entries(db, artifact, current_user)}
 
 
-@router.delete("/dashboards/{dashboard_id}/presence", status_code=204)
+@router.delete("/artifacts/{dashboard_id}/presence", status_code=204)
 @requires_permission("publish_reports")
 async def leave_dashboard_presence(
     dashboard_id: str,
@@ -338,7 +338,7 @@ async def run_draft_version(
                                                            query_ids=needed)
 
 
-@router.get("/dashboards/conversations/{report_id}", response_model=list[DashboardConversationContext])
+@router.get("/artifacts/conversations/{report_id}", response_model=list[DashboardConversationContext])
 async def get_conversation_dashboards(
     report_id: str,
     current_user: User = Depends(current_user),

@@ -606,13 +606,13 @@ async function load() {
     loading.value = true
     try {
         const [settingsRes, statusRes, reportRes, agentsRes, modelsRes, membersRes, sharingRes] = await Promise.all([
-            useMyFetch(`/dashboards/${id}/settings`),
-            useMyFetch(`/dashboards/${id}/publish`),
+            useMyFetch(`/artifacts/${id}/settings`),
+            useMyFetch(`/artifacts/${id}/publish`),
             useMyFetch(`/reports/${props.reportId}`),
             useMyFetch(`/reports/${props.reportId}/artifact_chat/agents`),
             useMyFetch('/llm/models?is_enabled=true'),
             useMyFetch('/organization/members'),
-            useMyFetch(`/dashboards/${id}/sharing`),
+            useMyFetch(`/artifacts/${id}/sharing`),
             loadCapabilities(id),
         ])
         if (id !== props.dashboardId) return
@@ -670,7 +670,7 @@ async function save() {
         // The name first (the frame's rename says how it went), then the rest.
         if (nameChanged.value && !(await props.rename!(nameDraft.value.trim()))) return
         if (settingsDirty.value) {
-            const res = await useMyFetch(`/dashboards/${props.dashboardId}/settings`, { method: 'PUT', body: changes.value })
+            const res = await useMyFetch(`/artifacts/${props.dashboardId}/settings`, { method: 'PUT', body: changes.value })
             if (res.error.value) throw res.error.value
             toast.add({ title: t('dashboardSettings.saved'), color: 'green' })
             emit('saved', res.data.value)

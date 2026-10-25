@@ -106,7 +106,7 @@ async function load() {
     loadError.value = null
     try {
         const [sharing, people] = await Promise.all([
-            useMyFetch(`/dashboards/${props.dashboardId}/sharing`),
+            useMyFetch(`/artifacts/${props.dashboardId}/sharing`),
             useMyFetch('/organization/members'),
         ])
         if (sharing.error.value) throw sharing.error.value
@@ -124,7 +124,7 @@ async function transfer() {
     if (!target) return
     busy.value = true
     try {
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/transfer`, { method: 'POST', body: { user_id: target.id } })
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/transfer`, { method: 'POST', body: { user_id: target.id } })
         if (res.error.value) throw res.error.value
         applySharing(res.data.value)
         picked.value = null

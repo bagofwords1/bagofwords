@@ -124,7 +124,7 @@ async function load() {
     loading.value = true;
     loadError.value = null;
     try {
-        const res = await useMyFetch(`/dashboards/${props.dashboardId}/history`);
+        const res = await useMyFetch(`/artifacts/${props.dashboardId}/history`);
         if (mine !== seq) return;
         if (res.error.value) throw res.error.value;
         history.value = res.data.value || { conversations: [], releases: [], versions: [], drafts: [] };

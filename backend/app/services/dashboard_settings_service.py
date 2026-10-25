@@ -1,6 +1,6 @@
 """A dashboard's sharing and viewer settings, on the dashboard (phase 4).
 
-The owner sets them through /api/dashboards/{id}. The rules are those of
+The owner sets them through /api/artifacts/{id}. The rules are those of
 ReportService.set_visibility, today's write path on the conversation, with
 two differences: a dashboard is shared only once it is published
 (Databricks' rule; docs/design/dashboards-first-class.md), and every person
