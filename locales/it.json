@@ -3929,6 +3929,7 @@
     "dashboard.version_not_publishable": "Si può pubblicare solo una versione completata correttamente.",
     "dashboard.publish_public_monitoring": "Questa dashboard è pubblica e usa dati di monitoraggio. Modifica la condivisione prima di pubblicarla.",
     "dashboard.publish_connection": "Una connessione usata da questa dashboard non funziona: {names}. Ricollegala e pubblica di nuovo.",
+    "dashboard.publish_charts_failed": "Questi grafici non sono riusciti nella tua conversazione: {names}. Correggili o rimuovili dalla dashboard, poi pubblica di nuovo.",
     "dashboard.edit_first": "Questa dashboard non ha una bozza da pubblicare. Modificala prima.",
     "dashboard.slug_invalid": "Un nome di link usa da 3 a 80 lettere inglesi minuscole, cifre e trattini, e inizia e finisce con una lettera o una cifra.",
     "dashboard.slug_taken": "Questo nome di link è già in uso. Scegline un altro.",

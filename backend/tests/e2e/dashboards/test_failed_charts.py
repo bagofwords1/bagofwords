@@ -4,6 +4,11 @@ Joining: an editor who joins gets the dashboard's every chart -- a failed one
 too. Their copies run again as them anyway, so whether it failed for someone
 else says nothing about their run; and the steps that load it point at its
 copy, as with any other.
+
+Publishing: a chart the version shows whose step failed in the publisher's
+conversation would be left out of the release. The publish is refused,
+naming the charts, and the live dashboard stays as it is. A failed query the
+dashboard does not show blocks nothing.
 """
 import asyncio
 import json
@@ -11,7 +16,7 @@ import json
 import pytest
 from sqlalchemy import text
 
-from tests.e2e.dashboards.dashboard_setup import as_, own
+from tests.e2e.dashboards.dashboard_setup import PUBLISHED, as_, own, publish
 
 CONV = "refs_in_code"
 DASH = f"{CONV}/dash"
@@ -74,6 +79,13 @@ def _join(test_client, corpus, aid, spawned, person="member"):
     return joined.json()
 
 
+def _publish(test_client, corpus, aid, person="owner"):
+    resp = test_client.post(f"/api/artifacts/{aid}/publish", headers=as_(corpus, person))
+    if resp.status_code == 202:
+        PUBLISHED.append(resp.json()["latest"]["id"])
+    return resp
+
+
 @pytest.mark.e2e
 def test_a_joining_editor_gets_a_chart_that_failed_for_someone_else(corpus, corpus_rows, test_client, spawned):
     aid = own(corpus_rows, corpus, DASH)
@@ -97,3 +109,32 @@ def test_a_joining_editor_gets_a_chart_that_failed_for_someone_else(corpus, corp
     content = version["content"] if isinstance(version["content"], dict) else json.loads(version["content"])
     listed = [str(v) for v in content["visualization_ids"]]
     assert len(listed) == 3 and set(listed) <= set(_charts_of(corpus_rows, avi))
+
+
+@pytest.mark.e2e
+def test_publishing_with_a_failed_chart_is_refused_and_names_it(corpus, corpus_rows, test_client, spawned):
+    aid = own(corpus_rows, corpus, DASH)
+    publish(aid)
+    live_before = _rows(corpus_rows, "SELECT published_release_id FROM artifacts WHERE id = :a", a=aid)
+    _fail(corpus_rows, corpus, f"{CONV}/q_by_slug")
+
+    resp = _publish(test_client, corpus, aid)
+    assert resp.status_code == 409, resp.text
+    body = resp.json()
+    assert body["error_code"] == "dashboard.publish_charts_failed"
+    (title,) = [r["title"] for r in _rows(corpus_rows, "SELECT title FROM visualizations WHERE id = :v",
+                                          v=corpus.ids[f"{CONV}/q_by_slug/viz"])]
+    assert body["params"]["names"] == title
+    _finish(spawned)
+    assert _rows(corpus_rows, "SELECT published_release_id FROM artifacts WHERE id = :a", a=aid) == live_before
+    assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE artifact_id = :a AND status = 'publishing'",
+                 a=aid) == []
+
+
+@pytest.mark.e2e
+def test_a_failed_query_the_dashboard_does_not_show_blocks_nothing(corpus, corpus_rows, test_client, spawned):
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    _fail(corpus_rows, corpus, "conv_three_dash/q_stock")  # another dashboard's chart
+    resp = _publish(test_client, corpus, aid)
+    assert resp.status_code == 202, resp.text
+    _finish(spawned)

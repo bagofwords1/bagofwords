@@ -4197,6 +4197,7 @@
     "dashboard.version_not_publishable": "Solo se puede publicar una versión que terminó correctamente.",
     "dashboard.publish_public_monitoring": "Este panel es público y usa datos de monitoreo. Cambia cómo se comparte antes de publicarlo.",
     "dashboard.publish_connection": "Una conexión que usa este panel no funciona: {names}. Vuelve a conectarla y publica de nuevo.",
+    "dashboard.publish_charts_failed": "Estos gráficos fallaron en tu conversación: {names}. Corrígelos o quítalos del panel y vuelve a publicar.",
     "dashboard.edit_first": "Este panel no tiene un borrador para publicar. Edítalo primero.",
     "dashboard.slug_invalid": "El nombre del enlace usa de 3 a 80 letras minúsculas en inglés, dígitos y guiones, y empieza y termina con una letra o un dígito.",
     "dashboard.slug_taken": "Este nombre de enlace ya está en uso. Elige otro.",

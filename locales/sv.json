@@ -3929,6 +3929,7 @@
     "dashboard.version_not_publishable": "Bara en version som slutförts utan fel kan publiceras.",
     "dashboard.publish_public_monitoring": "Den här instrumentpanelen är offentlig och använder övervakningsdata. Ändra delningen innan du publicerar.",
     "dashboard.publish_connection": "En anslutning som den här instrumentpanelen använder fungerar inte: {names}. Anslut den igen och publicera på nytt.",
+    "dashboard.publish_charts_failed": "De här diagrammen misslyckades i din konversation: {names}. Åtgärda dem eller ta bort dem från instrumentpanelen och publicera sedan på nytt.",
     "dashboard.edit_first": "Den här instrumentpanelen har inget utkast att publicera. Redigera den först.",
     "dashboard.slug_invalid": "Ett länknamn består av 3 till 80 små engelska bokstäver, siffror och bindestreck och börjar och slutar med en bokstav eller siffra.",
     "dashboard.slug_taken": "Det här länknamnet är upptaget. Välj ett annat.",

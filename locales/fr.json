@@ -3929,6 +3929,7 @@
     "dashboard.version_not_publishable": "Seule une version terminée avec succès peut être publiée.",
     "dashboard.publish_public_monitoring": "Ce tableau de bord est public et utilise des données de supervision. Modifiez son partage avant de le publier.",
     "dashboard.publish_connection": "Une connexion utilisée par ce tableau de bord ne fonctionne pas : {names}. Reconnectez-la et publiez à nouveau.",
+    "dashboard.publish_charts_failed": "Ces graphiques ont échoué dans votre conversation : {names}. Corrigez-les ou retirez-les du tableau de bord, puis publiez à nouveau.",
     "dashboard.edit_first": "Ce tableau de bord n'a pas de brouillon à publier. Modifiez-le d'abord.",
     "dashboard.slug_invalid": "Un nom de lien comporte de 3 à 80 lettres anglaises minuscules, chiffres et tirets, et commence et se termine par une lettre ou un chiffre.",
     "dashboard.slug_taken": "Ce nom de lien est déjà pris. Choisissez-en un autre.",
