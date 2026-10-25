@@ -818,9 +818,10 @@ async def version_to_conversation(db, artifact: Artifact, version: ArtifactVersi
                                selectinload(Report.files).options(lazyload("*")))
         .where(Report.id == str(version.report_id))
     )).scalar_one()
-    # Pending queries too: the source may be a copy still re-running for its
-    # own editor; its queries are the dashboard's all the same.
-    deps = await collect_dashboard_deps(db, version, include_pending=True)
+    # Every query, whatever its step's state: the source may be a copy still
+    # re-running for its own editor, or one that failed for them; its
+    # queries are the dashboard's all the same, and run again as `user`.
+    deps = await collect_dashboard_deps(db, version, any_status=True)
     loaded = {str(q.id): q for q in (await db.execute(
         select(Query).options(lazyload("*"), selectinload(Query.default_step).options(lazyload("*")),
                               selectinload(Query.visualizations).options(lazyload("*")))
@@ -834,6 +835,7 @@ async def version_to_conversation(db, artifact: Artifact, version: ArtifactVersi
         bow_source_access=src.bow_source_access, user=user, title=title, project_id=project_id,
         slug_prefix="edit", step_overrides=step_overrides,
         option_target=lambda q, ref: deps.option_targets.get((str(q.id), ref)), into=into,
+        any_status=True,
     )
 
 

@@ -138,7 +138,8 @@ class DashboardDeps:
         return [*self.query_ids, *self.hidden_query_ids]
 
 
-async def collect_dashboard_deps(db, version, *, include_pending: bool = False) -> DashboardDeps:
+async def collect_dashboard_deps(db, version, *, include_pending: bool = False,
+                                 any_status: bool = False) -> DashboardDeps:
     """The queries a dashboard's link shows, and the ones it needs without showing.
 
     "Shows" is what GET /api/r/{report}/queries?artifact_id= returns today: the
@@ -149,6 +150,10 @@ async def collect_dashboard_deps(db, version, *, include_pending: bool = False) 
     serves) and every `load_step` target (StepIndex; a deleted query's step
     still loads). Only the version's own conversation is read; step data is
     not loaded.
+
+    `any_status` (an editor joining, collab01): whatever their step's state.
+    The copies run again as the joiner, so a step that failed or still runs
+    for someone else is the dashboard's all the same.
     """
     report_id = str(version.report_id)
     listed = [str(v) for v in ((version.content or {}).get("visualization_ids") or [])]
@@ -162,6 +167,7 @@ async def collect_dashboard_deps(db, version, *, include_pending: bool = False) 
         # `include_pending` (collab01): a joining editor's copies wait to run
         # with their credentials; the draft shows them waiting.
         .where(Query.report_id == report_id,
+               True if any_status else
                Step.status.in_(("success", "pending")) if include_pending else Step.status == "success")
         .order_by(Query.created_at)
     )).scalars().unique().all()
@@ -285,6 +291,7 @@ async def copy_query_rows(
     step_overrides: StepOverrides | None = None,
     copy_source_refs: bool = True,
     option_target: OptionTarget | None = None,
+    any_status: bool = False,
 ) -> CopyMaps:
     """Copy each query, its default step and its charts, with the copies'
     filter references and load_step calls already pointing at the copies.
@@ -295,7 +302,9 @@ async def copy_query_rows(
     returns step fields to replace (Fork's data policy); `option_target`
     resolves a filter reference to the source option query (default: by id,
     else by title among `queries`, later ones winning). Only default steps
-    are copied; the step history stays behind.
+    are copied; the step history stays behind. load_step calls resolve among
+    the successful steps, as the readers do -- or, with `any_status` (copies
+    that all run again, collab01's join), among every step copied.
 
     Ids and slugs are chosen before any row is written, so the rewritten
     references go in with the first INSERT (no UPDATE fires step hooks).
@@ -318,7 +327,7 @@ async def copy_query_rows(
 
     target = option_target or default_target
     steps = StepIndex(q.default_step for q in queries
-                      if q.default_step is not None and q.default_step.status == "success")
+                      if q.default_step is not None and (any_status or q.default_step.status == "success"))
 
     def new_ref(ref):
         s, how = steps.find(ref)

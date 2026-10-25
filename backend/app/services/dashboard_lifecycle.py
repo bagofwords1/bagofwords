@@ -180,7 +180,8 @@ async def release_to_conversation(db, artifact: Artifact, release: ArtifactRelea
 async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_source_ids: list[str],
                                file_ids: list[str], theme_name, theme_overrides, bow_source_access, user,
                                title: str, project_id: str | None, slug_prefix: str, step_overrides=None,
-                               copy_source_refs: bool = True, option_target=None, into=None):
+                               copy_source_refs: bool = True, option_target=None, into=None,
+                               any_status: bool = False):
     """A new conversation of `user` holding copies of `queries` (default
     steps and charts, references re-pointed), these sources and files, the
     theme and monitoring access. With `into`, that existing conversation of
@@ -242,6 +243,7 @@ async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_so
         placement=Placement(report_id=str(report.id), widget_for=widget_for, slug_prefix=slug_prefix),
         organization_id=str(artifact.organization_id), user_id=str(user.id),
         step_overrides=step_overrides, copy_source_refs=copy_source_refs, option_target=option_target,
+        any_status=any_status,
     )
     return report, maps
 
