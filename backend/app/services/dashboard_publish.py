@@ -392,6 +392,21 @@ def _after_commit(db, action) -> None:
 _ABANDONED = object()
 
 
+class RunFailure(str):
+    """Why a run of the copies stopped: "<step or connection>: <reason>", as
+    Publish and the dashboard have always shown it, with the two parts kept
+    for the refresh history (refhist01)."""
+
+    def __new__(cls, source: str, reason: str):
+        failure = super().__new__(cls, f"{source}: {reason}"[:_ERROR_LIMIT])
+        failure.source, failure.reason = source, reason
+        return failure
+
+    def __reduce__(self):
+        # copy / pickle rebuild it from its two parts, not from the joined text.
+        return (RunFailure, (self.source, self.reason))
+
+
 def _reason(e: Exception) -> str:
     return str(getattr(e, "detail", None) or e)[:_ERROR_LIMIT] or e.__class__.__name__
 
@@ -520,11 +535,11 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
                                                               connection_errors=errors))
         except Exception as e:
             if own_sources and str(ds.id) in needed:
-                return f"{ds.name}: {_reason(e)}"
+                return RunFailure(ds.name, _reason(e))
             continue
         if errors and own_sources and str(ds.id) in needed:
             first = errors[0]
-            return f"{first.get('connection_name') or ds.name}: {first.get('error')}"[:_ERROR_LIMIT]
+            return RunFailure(first.get('connection_name') or ds.name, str(first.get('error')))
 
     ctx = ExecContext.from_release(release, data_sources=sources, files=await release_files(db, release),
                                    credential_user=run_user, reader=run_user, organization=organization,
@@ -549,7 +564,7 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
                                                     param_specs=specs)
         except Exception as e:
             await db.rollback()
-            return f"{label}: {_reason(e)}"[:_ERROR_LIMIT]
+            return RunFailure(label, _reason(e))
         if step_id in loaded:
             ctx.fresh_rows[step_id] = data
         await after_step(step, data, params)

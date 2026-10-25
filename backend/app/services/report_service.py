@@ -1508,6 +1508,57 @@ class ReportService:
         artifact_id: str | None = None,
         notify_subscribers: bool = False,
         regenerate_thumbnail: bool = True,
+        refresh_trigger: str | None = None,
+        triggered_by_user_id: str | None = None,
+    ) -> dict:
+        """Rerun the queries behind the report's dashboard (`artifact_id`: a
+        version; default its newest dashboard). With `refresh_trigger`
+        (schedule | view | manual) the run is a row of that dashboard's
+        refresh history (dashboard_refresh_history), how it went included;
+        without one, or with no dashboard, nothing is recorded."""
+        from app.services import dashboard_refresh_history as history
+
+        run_id = None
+        if refresh_trigger:
+            try:
+                dashboard = await history.dashboard_of_rerun(db, report_id, artifact_id)
+            except Exception:
+                logger.warning(f"Refresh history: no dashboard resolved for report {report_id}", exc_info=True)
+                dashboard = None
+            if dashboard is not None:
+                run_id = await history.start(
+                    artifact_id=dashboard[0], organization_id=dashboard[1], trigger=refresh_trigger,
+                    run_as_user_id=str(current_user.id) if current_user is not None else None,
+                    triggered_by_user_id=triggered_by_user_id, report_id=str(report_id),
+                )
+        try:
+            result = await self._rerun_report_steps(
+                db, report_id, current_user, organization, artifact_id=artifact_id,
+                notify_subscribers=notify_subscribers, regenerate_thumbnail=regenerate_thumbnail,
+            )
+        except BaseException as e:
+            # Cancelled too (a BaseException): the row ends, never "running".
+            await history.finish(run_id, status="failed",
+                                 error=str(getattr(e, "detail", None) or e) or "The refresh was stopped")
+            raise
+        if run_id:
+            status, reason = history.draft_outcome(
+                result["steps_total"], result["steps_succeeded"], result["steps_failed"])
+            source, why = result.get("first_error") or (None, None)
+            await history.finish(run_id, status=status, skip_reason=reason, error=why, error_source=source,
+                                 steps_total=result["steps_total"], steps_succeeded=result["steps_succeeded"],
+                                 steps_failed=result["steps_failed"])
+        return result
+
+    async def _rerun_report_steps(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        current_user: User,
+        organization: Organization,
+        artifact_id: str | None = None,
+        notify_subscribers: bool = False,
+        regenerate_thumbnail: bool = True,
     ) -> dict:
         logger.info(f"Executing report rerun for report_id: {report_id}")
         report = await self._load_report_for_rerun(db, report_id)
@@ -1517,6 +1568,11 @@ class ReportService:
         steps_total = 0
         steps_succeeded = 0
         steps_failed = 0
+        # The first failure, for the refresh history: (step id or None, label
+        # or None, reason, the step's code). A connection that could not be
+        # built is named instead only when that step's code uses it.
+        first_failure = None
+        connection_errors: list[tuple[str, str]] = []
 
         if query_ids:
             # Build data-source clients once for the whole run instead of per
@@ -1539,6 +1595,7 @@ class ReportService:
                     # Steps that need this source fail (and are counted) at
                     # execution time; other sources' steps still run.
                     logger.warning(f"Failed to construct clients for data source {data_source.id}: {e}; continuing")
+                    connection_errors.append((data_source.name or str(data_source.id), str(e)))
 
             # Resolve org context once — every step shares it.
             org_settings = await organization.get_settings(db) if organization else None
@@ -1552,6 +1609,7 @@ class ReportService:
                     logger.warning(f"Step code is empty for step {step_id}; counting as failed")
                     steps_total += 1
                     steps_failed += 1
+                    first_failure = first_failure or (step_id, None, "The query has no code", None)
                     continue
                 steps_total += 1
                 try:
@@ -1568,9 +1626,11 @@ class ReportService:
                 except Exception as e:
                     steps_failed += 1
                     logger.warning(f"Failed to rerun step {step_id}: {e}; continuing")
+                    first_failure = first_failure or (step_id, None, str(getattr(e, "detail", None) or e), code)
             if unrunnable > 0:
                 steps_total += unrunnable
                 steps_failed += unrunnable
+                first_failure = first_failure or (None, None, "A query has no version that can run", None)
         else:
             # Legacy fallback for pre-artifact reports: rerun last step for
             # each published widget
@@ -1584,6 +1644,8 @@ class ReportService:
                 except Exception as e:
                     steps_failed += 1
                     logger.warning(f"Failed to run widget {widget.id}: {e}; continuing")
+                    first_failure = first_failure or (None, getattr(widget, "title", None),
+                                                      str(getattr(e, "detail", None) or e), None)
                     continue
 
         # Update last_run_at on the already-loaded ORM model — but only when
@@ -1594,6 +1656,7 @@ class ReportService:
         if steps_total == 0 or steps_succeeded > 0:
             report.last_run_at = datetime.utcnow()
         await db.commit()
+        first_error = await self._describe_rerun_failure(db, first_failure, connection_errors)
 
         # Regenerate the artifact thumbnail in background — only when some
         # step actually produced fresh data (it boots a headless browser).
@@ -1657,7 +1720,37 @@ class ReportService:
             "steps_succeeded": steps_succeeded,
             "steps_failed": steps_failed,
             "last_run_at": report.last_run_at,
+            # For the refresh history (rerun_report_steps): (source, reason);
+            # not in the route's response.
+            "first_error": first_error,
         }
+
+    async def _describe_rerun_failure(self, db: AsyncSession, failure,
+                                      connection_errors) -> tuple[str | None, str] | None:
+        """The first failure of a rerun as (query or connection, reason), as
+        Publish's run names it. A connection that could not be built is the
+        cause only when the failed query's code uses it: generated code
+        addresses clients by "<data source name>:<connection>", so its name
+        is in the code. A broken connection the query does not use is not
+        blamed for it."""
+        if failure is None:
+            return None
+        step_id, label, reason, code = failure
+        for name, connection_reason in connection_errors:
+            # The client key, quoted: "Orders:" -- not the word in a query's SQL.
+            if code and name and (f"'{name}:" in code or f'"{name}:' in code):
+                return name, connection_reason
+        if step_id and not label:
+            try:
+                row = (await db.execute(
+                    select(Query.title, Step.title).select_from(Step)
+                    .outerjoin(Query, Query.id == Step.query_id)
+                    .where(Step.id == str(step_id))
+                )).first()
+                label = (row[0] or row[1]) if row else None
+            except Exception:
+                logger.warning(f"Refresh history: no title for step {step_id}", exc_info=True)
+        return label or None, reason
 
     async def viewer_rerun_report_steps(
         self,
@@ -3579,10 +3672,23 @@ class ReportService:
                     f"Skipped scheduled refresh for report {report_id}: user {current_user_id} "
                     f"is deactivated or no longer bound to org {organization_id}."
                 )
+                # A scheduled run that could not run is a row of its
+                # dashboard's refresh history (refhist01), as the dashboard's
+                # own schedule records it.
+                from app.services import dashboard_refresh_history as history
+                try:
+                    dashboard = await history.dashboard_of_rerun(db, report_id, None)
+                except Exception:
+                    logger.warning(f"Refresh history: no dashboard resolved for report {report_id}", exc_info=True)
+                    dashboard = None
+                if dashboard is not None:
+                    await history.skipped(artifact_id=dashboard[0], organization_id=dashboard[1],
+                                          trigger="schedule", reason="no_runner", report_id=str(report_id))
                 return
 
             # Now call rerun_report_steps with the fresh db and loaded objects
-            await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True)
+            await self.rerun_report_steps(db, report_id, current_user, organization, notify_subscribers=True,
+                                          refresh_trigger="schedule")
 
     async def refresh_on_view_rerun(self, db: AsyncSession, report_id: str, user=None,
                                     artifact_id: str | None = None) -> dict:
@@ -3694,6 +3800,7 @@ class ReportService:
             db, report_id, owner, organization,
             notify_subscribers=False,      # a page view is not a scheduled run
             regenerate_thumbnail=False,    # no headless browser per viewer
+            refresh_trigger="view",
         )
         run["skipped"] = False
         return run

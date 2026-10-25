@@ -531,6 +531,23 @@ async def startup_event():
             logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
+        # A dashboard's refresh history keeps 30 days (refhist01).
+        try:
+            from app.services.dashboard_refresh_history import purge_old_runs
+            scheduler.add_job(
+                purge_old_runs,
+                trigger="cron",
+                hour=3,
+                minute=30,
+                id="purge_dashboard_refresh_runs_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_old_runs (dashboard refresh history) @ 03:30 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule refresh history purge job: {e}")
 
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:

@@ -4,6 +4,7 @@ docs/feedback-loops/2026-10-23-collaborative-dashboards.md).
 - `/artifacts/{id}/drafts`: the implicit draft and the named ones; start one.
 - `/artifacts/{id}/history`: the conversations that edited it, its versions,
   the releases kept for Roll back.
+- `/artifacts/{id}/refresh-runs`: its refresh history (refhist01).
 - `/artifacts/{id}/versions/{version_id}/name`: name a version ("v2").
 - `/artifacts/{id}/open-state`, `/artifacts/{id}/bring`: what a conversation
   should open on, and a copy of a version (or the live one) brought into a
@@ -40,6 +41,7 @@ from app.schemas.dashboard_schema import (
     DashboardPresenceSchema,
     DashboardPresenceUpdate,
     DashboardPublishStatusSchema,
+    DashboardRefreshRunsSchema,
     DashboardRollbackRequest,
     DashboardSharingSchema,
     DashboardTransferRequest,
@@ -104,6 +106,24 @@ async def get_dashboard_history(
 ):
     artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     return await dashboard_collab.history(db, artifact, current_user)
+
+
+@router.get("/artifacts/{dashboard_id}/refresh-runs", response_model=DashboardRefreshRunsSchema)
+@requires_permission("publish_reports")
+async def list_dashboard_refresh_runs(
+    dashboard_id: str,
+    limit: int = Query(20, ge=1, le=100),
+    before: str | None = Query(None, description="The previous page's next_before"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The dashboard's refresh history, newest first (refhist01): its owner
+    and editors, as the rest of its history."""
+    from app.services import dashboard_refresh_history
+
+    artifact = await _dashboard(db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
+    return await dashboard_refresh_history.list_runs(db, str(artifact.id), limit=limit, before=before)
 
 
 @router.put("/artifacts/{dashboard_id}/versions/{version_id}/name")

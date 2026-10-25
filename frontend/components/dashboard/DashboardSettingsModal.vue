@@ -162,7 +162,16 @@
                             </div>
                             <p v-if="refreshMode === 'recurring' && scheduleLabel" class="mt-2 text-xs text-gray-400">{{ scheduleLabel }}</p>
                             <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400">{{ tm('dashboardSettings.onOpenNote', artifactMode) }}</p>
-                            <p v-if="lastRunAt" class="mt-2 text-xs text-gray-400">{{ $t('dashboardSettings.lastRun', { at: formatDateTime(lastRunAt) }) }}</p>
+                            <!-- Last run, and the way to every refresh (the Refreshes tab, refhist01). -->
+                            <p v-if="lastRunAt || capabilities?.includes('edit')" class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-400">
+                                <span v-if="lastRunAt">{{ $t('dashboardSettings.lastRun', { at: formatDateTime(lastRunAt) }) }}</span>
+                                <span v-if="lastRunAt && capabilities?.includes('edit')" aria-hidden="true">·</span>
+                                <button v-if="capabilities?.includes('edit')" type="button" data-testid="settings-view-refreshes"
+                                    class="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 rounded outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                                    @click="tab = 'refreshes'">
+                                    {{ $t('dashboardSettings.viewRefreshes') }}
+                                </button>
+                            </p>
 
                             <!-- Email after each scheduled run -->
                             <div v-if="smtpEnabled && refreshMode === 'recurring'" class="mt-4" data-testid="settings-subscribers">
@@ -308,6 +317,9 @@
                     <div v-if="visited.notes" v-show="tab === 'notes'" data-testid="settings-notes">
                         <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" :mode="artifactMode" />
                     </div>
+                    <div v-if="visited.refreshes" v-show="tab === 'refreshes'" data-testid="settings-refreshes">
+                        <HistoryRefreshes :dashboard-id="dashboardId" :active="isOpen && tab === 'refreshes'" />
+                    </div>
                     <!-- History: one instance for its tabs; the menu picks the section. -->
                     <div v-if="visited.history" v-show="isHistoryTab" data-testid="settings-history">
                         <DashboardHistoryModal embedded :dashboard-id="dashboardId" :mode="artifactMode" :capabilities="capabilities || []"
@@ -339,6 +351,7 @@
 import DataModal from './DataModal.vue'
 import DashboardHistoryModal from './DashboardHistoryModal.vue'
 import HistoryNotes from './history/HistoryNotes.vue'
+import HistoryRefreshes from './history/HistoryRefreshes.vue'
 import HistoryOwner from './history/HistoryOwner.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
@@ -374,7 +387,7 @@ const loading = ref(false)
 
 // ---- Tabs ----
 type HistoryTab = 'versions' | 'conversations'
-type Tab = 'general' | 'viewers' | 'notes' | 'data' | 'resources' | 'analytics' | HistoryTab
+type Tab = 'general' | 'viewers' | 'notes' | 'data' | 'resources' | 'analytics' | 'refreshes' | HistoryTab
 const HISTORY_TABS: HistoryTab[] = ['versions', 'conversations']
 const tab = ref<Tab>('general')
 type TabItem = { key: Tab; group: number; icon: string; label: string; desc: string; groupLabel?: string }
@@ -394,6 +407,8 @@ const tabs = computed<TabItem[]>(() => {
         list.push(
             { key: 'versions', icon: 'heroicons:clock', label: t('dashboardCollab.history.tabVersions'), desc: t('dashboardSettings.versionsDesc'), ...h },
             { key: 'conversations', icon: 'heroicons:chat-bubble-left-right', label: t('dashboardCollab.history.tabConversations'), desc: tm('dashboardSettings.conversationsDesc', props.artifactMode), ...h },
+            // Every refresh: what started it, how it went (refhist01).
+            { key: 'refreshes', icon: 'heroicons:arrow-path', label: t('dashboardCollab.refreshes.tab'), desc: t('dashboardCollab.refreshes.desc'), ...h },
         )
     }
     return list

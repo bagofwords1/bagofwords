@@ -267,7 +267,8 @@ async def rerun_report(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id)
+    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id,
+                                                  refresh_trigger="manual", triggered_by_user_id=str(current_user.id))
 
 @router.post("/reports/{report_id}/publish", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)

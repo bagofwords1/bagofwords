@@ -198,11 +198,28 @@ def _result(status: str, *, error=None, reason=None, last_run_at=None, steps=0) 
     return {"status": status, "error": error, "reason": reason, "last_run_at": last_run_at, "steps_total": steps}
 
 
+def _history_error(error) -> tuple[str | None, str | None]:
+    """(source, reason) of a failure for the refresh history: the step or
+    connection a run of the copies stopped in, when it says (RunFailure);
+    else the whole message, with no source."""
+    if not error:
+        return None, None
+    source = getattr(error, "source", None)
+    return (source, getattr(error, "reason", None)) if source else (None, str(error))
+
+
+# The refresh history's name for each trigger (dashboard_refresh_run).
+_HISTORY_TRIGGER = {"owner": "manual", "view": "view", "schedule": "schedule"}
+
+
 async def refresh(db, artifact: Artifact, run_user: User, organization, *, trigger: str,
                   thumbnail: bool) -> dict:
     """Run the live release's copies as `run_user`; write every row at once,
-    or none. status: success | failed | skipped (with a reason)."""
+    or none. status: success | failed | skipped (with a reason). Each run is
+    a row of the dashboard's refresh history; a scheduled one that waits for
+    a publish too."""
     from app.ee.audit.service import audit_service
+    from app.services import dashboard_refresh_history as history
     from app.services.dashboard_access import published_release
 
     # Read now: a failed run rolls the session back, expiring every object.
@@ -213,16 +230,39 @@ async def refresh(db, artifact: Artifact, run_user: User, organization, *, trigg
     if artifact.mode == "slides":
         return _result("skipped", reason="frozen")  # a published deck does not run
     if await _publishing(db, artifact):
+        if trigger == "schedule":
+            await history.skipped(artifact_id=artifact_id, organization_id=organization_id, trigger="schedule",
+                                  reason="publishing", run_as_user_id=user_id, release_id=str(release.id))
         return _result("skipped", reason="publishing")
     release_id = str(release.id)
+    run_id = await history.start(artifact_id=artifact_id, organization_id=organization_id,
+                                 trigger=_HISTORY_TRIGGER.get(trigger, trigger), run_as_user_id=user_id,
+                                 triggered_by_user_id=user_id if trigger == "owner" else None,
+                                 release_id=release_id)
+    finished = False
     try:
-        result = await _run_and_write(db, artifact_id, release, run_user, organization)
-    except Exception as e:
-        logger.warning("Dashboard %s: refresh failed", artifact_id, exc_info=True)
-        result = _result("failed", error=f"Refresh failed: {str(getattr(e, 'detail', None) or e)}"[:_ERROR_LIMIT])
-    if result["status"] == "failed":
-        if not await _record_failure(db, artifact_id, release_id, result["error"]):
-            return _result("skipped", reason="replaced")  # published meanwhile: its outcome stands
+        try:
+            result = await _run_and_write(db, artifact_id, release, run_user, organization)
+        except Exception as e:
+            logger.warning("Dashboard %s: refresh failed", artifact_id, exc_info=True)
+            result = _result("failed",
+                             error=f"Refresh failed: {str(getattr(e, 'detail', None) or e)}"[:_ERROR_LIMIT])
+        if result["status"] == "failed":
+            if not await _record_failure(db, artifact_id, release_id, result["error"]):
+                result = _result("skipped", reason="replaced")  # published meanwhile: its outcome stands
+        steps = result.get("steps_total") or 0
+        source, why = _history_error(result["error"])
+        await history.finish(run_id, status=result["status"], error=why, error_source=source,
+                             skip_reason=result["reason"],
+                             steps_total=steps, steps_succeeded=steps if result["status"] == "success" else 0)
+        finished = True
+    finally:
+        # Whatever stopped it (recording the failure broke, the run was
+        # cancelled), the row ends: it never stays "running".
+        if not finished:
+            await history.finish(run_id, status="failed", error="The refresh stopped before it finished")
+    if result["status"] == "skipped":
+        return result
     if result["status"] == "success" and thumbnail:
         from app.core import fire_and_forget
         from app.services.thumbnail_service import ThumbnailService
@@ -252,7 +292,7 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
     if outcome is _ABANDONED:
         return _result("skipped", reason="stopped")
     if outcome is not None:
-        return _result("failed", error=outcome[:_ERROR_LIMIT])
+        return _result("failed", error=outcome)  # a RunFailure: the step or connection, and why
 
     live = (await db.execute(
         select(Artifact).options(lazyload("*")).where(Artifact.id == artifact_id)
@@ -396,8 +436,12 @@ async def scheduled_refresh(artifact_id: str) -> None:
             await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None)
         if owner is None or organization is None or (
                 not artifact.published_release_id and not await counts_as_owner(db, artifact, owner)):
+            organization_id = str(artifact.organization_id)
             await _record_failure(db, str(artifact_id), None,
                                   "The dashboard's owner is no longer a member of the organization")
+            from app.services import dashboard_refresh_history as history
+            await history.skipped(artifact_id=str(artifact_id), organization_id=organization_id,
+                                  trigger="schedule", reason="no_runner")
             return
         title, subscribers = await _schedule_title(db, artifact), artifact.notification_subscribers
         owner_id, organization_id = str(owner.id), str(organization.id)
@@ -419,10 +463,12 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
     published dashboard's schedule tells: subscribers when something ran,
     the owner when nothing did -- with the draft's link."""
     from app.models.report import Report
+    from app.services import dashboard_refresh_history as history
     from app.services.dashboard_data import draft_version
     from app.services.report_service import ReportService
 
     artifact_id, link = str(artifact.id), f"/d/{artifact.id}/draft"
+    organization_id = str(artifact.organization_id)
     report = await db.get(Report, str(artifact.report_id)) if artifact.report_id else None
     if report is not None and await _moved_from_its_conversation(db, artifact, report):
         # The schedule the data migration moved here (its link shows a deck):
@@ -441,13 +487,19 @@ async def _refresh_draft(db, artifact: Artifact, owner: User, organization, titl
         report = await db.get(Report, str(version.report_id))
         runner = await db.get(User, str(report.user_id)) if report is not None else None
         if runner is None or not await can_edit(db, artifact, runner):
+            await history.skipped(artifact_id=artifact_id, organization_id=organization_id, trigger="schedule",
+                                  reason="no_runner", report_id=str(version.report_id))
             return
         owner = runner
     if report is None or report.deleted_at is not None or report.status == "archived" or version is None:
-        return  # nothing to refresh: no live conversation, or no finished version
+        # nothing to refresh: no live conversation, or no finished version
+        await history.skipped(artifact_id=artifact_id, organization_id=organization_id, trigger="schedule",
+                              reason="nothing_to_run", report_id=str(report.id) if report is not None else None)
+        return
     try:
         run = await ReportService().rerun_report_steps(db, str(report.id), owner, organization,
-                                                       artifact_id=str(version.id), notify_subscribers=False)
+                                                       artifact_id=str(version.id), notify_subscribers=False,
+                                                       refresh_trigger="schedule")
     except Exception as e:
         logger.warning("Dashboard %s: draft refresh failed", artifact_id, exc_info=True)
         owner_id, organization_id = str(owner.id), str(organization.id)

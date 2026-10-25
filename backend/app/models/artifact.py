@@ -235,3 +235,4 @@ class ArtifactVersion(BaseSchema):
 # Register the dashfc01 tables wherever artifacts are loaded (metadata walks,
 # e.g. the agent-delete foreign-key guard, must see them).
 from app.models import artifact_release  # noqa: E402,F401
+from app.models import dashboard_refresh_run  # noqa: E402,F401

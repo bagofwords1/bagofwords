@@ -358,6 +358,37 @@ class DashboardHistorySchema(BaseModel):
     drafts: list[DashboardDraftSchema]
 
 
+class DashboardRefreshRunSchema(BaseModel):
+    """One refresh of the dashboard (refhist01). trigger: schedule | view |
+    manual. status: running | success | partial | failed | skipped |
+    interrupted (still running long after it started)."""
+    id: str
+    trigger: str
+    status: str
+    skip_reason: str | None = None
+    # published (the release readers see) | draft (a conversation's) | None
+    kind: str | None = None
+    # None when the run did not count its queries (skipped, a published run
+    # that failed).
+    steps_total: int | None = None
+    steps_succeeded: int | None = None
+    steps_failed: int | None = None
+    # The query or connection the first failure was in, and the reason.
+    error_source: str | None = None
+    error: str | None = None
+    run_as: DashboardPerson | None = None
+    triggered_by: DashboardPerson | None = None
+    started_at: datetime
+    finished_at: datetime | None = None
+
+
+class DashboardRefreshRunsSchema(BaseModel):
+    runs: list[DashboardRefreshRunSchema]
+    has_more: bool = False
+    # Pass as `before` for the next page.
+    next_before: str | None = None
+
+
 class DashboardRollbackRequest(BaseModel):
     release_id: str
 
