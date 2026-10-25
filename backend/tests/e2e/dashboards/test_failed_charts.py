@@ -7,7 +7,9 @@ copy, as with any other.
 
 Publishing: a chart the version shows whose step failed in the publisher's
 conversation would be left out of the release. The publish is refused,
-naming the charts, and the live dashboard stays as it is. A failed query the
+naming the charts, and the live dashboard stays as it is. So is one whose
+step has not finished yet (a joiner's copy still running again, a step the
+agent is still building): the publisher waits for it. A failed query the
 dashboard does not show blocks nothing.
 """
 import asyncio
@@ -55,8 +57,8 @@ def _rows(corpus_rows, sql, **params):
         return [dict(r) for r in conn.execute(text(sql), params).mappings()]
 
 
-def _fail(corpus_rows, corpus, query_key):
-    corpus_rows.update("steps", corpus.ids[f"{query_key}/step"], status="error", data={})
+def _fail(corpus_rows, corpus, query_key, status="error"):
+    corpus_rows.update("steps", corpus.ids[f"{query_key}/step"], status=status, data={})
 
 
 def _queries_of(corpus_rows, report_id):
@@ -129,6 +131,31 @@ def test_publishing_with_a_failed_chart_is_refused_and_names_it(corpus, corpus_r
     assert _rows(corpus_rows, "SELECT published_release_id FROM artifacts WHERE id = :a", a=aid) == live_before
     assert _rows(corpus_rows, "SELECT id FROM artifact_releases WHERE artifact_id = :a AND status = 'publishing'",
                  a=aid) == []
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("status", ["pending", "draft"])
+def test_publishing_while_a_chart_still_runs_is_refused_and_names_it(corpus, corpus_rows, test_client, spawned,
+                                                                     status):
+    aid = own(corpus_rows, corpus, DASH)
+    publish(aid)
+    live_before = _rows(corpus_rows, "SELECT published_release_id FROM artifacts WHERE id = :a", a=aid)
+    _fail(corpus_rows, corpus, f"{CONV}/q_by_id", status=status)
+
+    resp = _publish(test_client, corpus, aid)
+    assert resp.status_code == 409, resp.text
+    body = resp.json()
+    assert body["error_code"] == "dashboard.publish_charts_running"
+    (title,) = [r["title"] for r in _rows(corpus_rows, "SELECT title FROM visualizations WHERE id = :v",
+                                          v=corpus.ids[f"{CONV}/q_by_id/viz"])]
+    assert body["params"]["names"] == title
+    _finish(spawned)
+    assert _rows(corpus_rows, "SELECT published_release_id FROM artifacts WHERE id = :a", a=aid) == live_before
+
+    # A failed one as well: that is what to fix first.
+    _fail(corpus_rows, corpus, f"{CONV}/q_by_slug")
+    resp = _publish(test_client, corpus, aid)
+    assert resp.status_code == 409 and resp.json()["error_code"] == "dashboard.publish_charts_failed"
 
 
 @pytest.mark.e2e

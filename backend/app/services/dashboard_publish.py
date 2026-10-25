@@ -263,10 +263,13 @@ async def start_publish(db, artifact: Artifact, publisher: User, organization, *
 
 
 async def _refuse_failed_charts(db, version: ArtifactVersion) -> None:
-    """409 naming the charts `version` shows whose step failed in its
-    conversation: the copy takes successful steps only, so the release would
-    go out without them, unseen. Deleted ones were removed on purpose; a
-    version that lists no charts shows whatever succeeded, as before."""
+    """409 naming the charts `version` shows whose step failed -- or has not
+    finished yet (a joiner's copy still running again, a step the agent is
+    still building) -- in its conversation: the copy takes successful steps
+    only, so the release would go out without them, unseen. Failed ones are
+    named first: those need fixing, the others only waiting. Deleted ones
+    were removed on purpose; a version that lists no charts shows whatever
+    succeeded, as before."""
     from app.models.query import Query
     from app.models.step import Step
     from app.models.visualization import Visualization
@@ -274,17 +277,22 @@ async def _refuse_failed_charts(db, version: ArtifactVersion) -> None:
     listed = [str(v) for v in ((version.content or {}).get("visualization_ids") or [])]
     if not listed:
         return
-    failed = (await db.execute(
-        select(Visualization.id, Visualization.title, Query.title)
+    rows = (await db.execute(
+        select(Visualization.id, Visualization.title, Query.title, Step.status)
         .join(Query, Query.id == Visualization.query_id).join(Step, Step.id == Query.default_step_id)
         .where(Visualization.id.in_(listed), Visualization.deleted_at.is_(None),
-               Query.report_id == str(version.report_id), Query.deleted_at.is_(None), Step.status == "error")
+               Query.report_id == str(version.report_id), Query.deleted_at.is_(None),
+               Step.status.in_(("error", "pending", "draft")))
     )).all()
-    if failed:
-        title = {str(viz_id): viz_title or query_title or "" for viz_id, viz_title, query_title in failed}
-        names = ", ".join(dict.fromkeys(title[v] for v in listed if v in title))
-        raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_CHARTS_FAILED,
-                                "Charts that failed in this conversation: " + names, names=names)
+    for statuses, code, message in (
+        (("error",), ErrorCode.DASHBOARD_PUBLISH_CHARTS_FAILED, "Charts that failed in this conversation: "),
+        (("pending", "draft"), ErrorCode.DASHBOARD_PUBLISH_CHARTS_RUNNING, "Charts still running: "),
+    ):
+        title = {str(viz_id): viz_title or query_title or ""
+                 for viz_id, viz_title, query_title, status in rows if status in statuses}
+        if title:
+            names = ", ".join(dict.fromkeys(title[v] for v in listed if v in title))
+            raise AppError.conflict(code, message + names, names=names)
 
 
 async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:

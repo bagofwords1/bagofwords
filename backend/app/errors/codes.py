@@ -68,6 +68,7 @@ class ErrorCode(str, Enum):
     DASHBOARD_PUBLISH_PUBLIC_MONITORING = "dashboard.publish_public_monitoring"
     DASHBOARD_PUBLISH_CONNECTION = "dashboard.publish_connection"
     DASHBOARD_PUBLISH_CHARTS_FAILED = "dashboard.publish_charts_failed"
+    DASHBOARD_PUBLISH_CHARTS_RUNNING = "dashboard.publish_charts_running"
     DASHBOARD_EDIT_FIRST = "dashboard.edit_first"
     DASHBOARD_SLUG_INVALID = "dashboard.slug_invalid"
     DASHBOARD_SLUG_TAKEN = "dashboard.slug_taken"

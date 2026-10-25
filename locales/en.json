@@ -4260,6 +4260,7 @@
     "dashboard.publish_public_monitoring": "This dashboard is public and uses monitoring data. Change its sharing before publishing.",
     "dashboard.publish_connection": "A connection this dashboard uses isn't working: {names}. Reconnect it and publish again.",
     "dashboard.publish_charts_failed": "These charts failed in your conversation: {names}. Fix them or remove them from the dashboard, then publish again.",
+    "dashboard.publish_charts_running": "These charts are still running in your conversation: {names}. Wait for them to finish, then publish again.",
     "dashboard.edit_first": "This dashboard has no draft to publish. Edit it first.",
     "dashboard.slug_invalid": "A link name uses 3 to 80 lowercase English letters, digits and hyphens, and starts and ends with a letter or digit.",
     "dashboard.slug_taken": "This link name is taken. Choose another.",
