@@ -5,6 +5,7 @@ import httpx
 import jwt
 from typing import Dict, Any, Optional
 from .base_adapter import PlatformAdapter
+from . import teams_stream
 from app.settings.config import settings
 
 
@@ -258,42 +259,26 @@ class TeamsAdapter(PlatformAdapter):
             "bot_name": bot_recipient.get("name", ""),
         }
 
-    async def send_response(self, message_data: Dict[str, Any]) -> bool:
-        """Send a message via Bot Connector REST API."""
+    def base_activity(self, conversation_id: str) -> Dict[str, Any]:
+        """Envelope shared by every outbound activity to a conversation."""
+        # Use bot_id from instance (persisted from first inbound activity)
+        return {
+            "from": {"id": self.bot_id, "name": self.bot_name} if self.bot_name else {"id": self.bot_id},
+            "conversation": {"id": conversation_id},
+        }
+
+    async def post_activity(self, conversation_id: str, activity: Dict[str, Any]) -> Optional[httpx.Response]:
+        """POST one activity to the Bot Connector; None when it never got there."""
         try:
             token = await self._get_access_token()
             if not token:
                 print("TEAMS: No access token available")
-                return False
+                return None
 
-            service_url = message_data.get("service_url", self.service_url)
-            conversation_id = message_data.get("channel") or message_data.get("channel_id")
-            if not conversation_id:
-                print("TEAMS: No conversation_id specified")
-                return False
+            url = f"{self.service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
+            print(f"TEAMS: Sending {activity.get('type')} to {url}")
 
-            # Build activity payload
-            # Use bot_id from instance (persisted from first inbound activity)
-            activity = {
-                "type": "message",
-                "from": {"id": self.bot_id, "name": self.bot_name} if self.bot_name else {"id": self.bot_id},
-                "conversation": {"id": conversation_id},
-                "text": message_data.get("content", "") or message_data.get("text", ""),
-                "textFormat": "markdown",
-            }
-
-            # Add threading via replyToId
-            if message_data.get("thread_ts"):
-                activity["replyToId"] = message_data["thread_ts"]
-
-            # Add attachments (Adaptive Cards, files, etc.)
-            if message_data.get("attachments"):
-                activity["attachments"] = message_data["attachments"]
-
-            url = f"{service_url.rstrip('/')}/v3/conversations/{conversation_id}/activities"
-            print(f"TEAMS: Sending message to {url}")
-
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 response = await client.post(
                     url,
                     headers={
@@ -302,23 +287,45 @@ class TeamsAdapter(PlatformAdapter):
                     },
                     json=activity,
                 )
-
-                print(f"TEAMS: API response status: {response.status_code}")
-                if response.status_code in (200, 201):
-                    return True
-                else:
-                    print(f"TEAMS: API error: {response.status_code} - {response.text}")
-                    return False
+            print(f"TEAMS: API response status: {response.status_code}")
+            if response.status_code >= 300:
+                print(f"TEAMS: API error: {response.status_code} - {response.text}")
+            return response
 
         except httpx.ConnectTimeout:
             print("TEAMS: API connection timeout")
-            return False
+            return None
         except httpx.ReadTimeout:
             print("TEAMS: API read timeout")
-            return False
+            return None
         except Exception as e:
-            print(f"TEAMS: Error sending message: {e}")
+            print(f"TEAMS: Error sending activity: {e!r}")
+            return None
+
+    async def send_response(self, message_data: Dict[str, Any]) -> bool:
+        """Send a message via Bot Connector REST API."""
+        conversation_id = message_data.get("channel") or message_data.get("channel_id")
+        if not conversation_id:
+            print("TEAMS: No conversation_id specified")
             return False
+
+        activity = {
+            **self.base_activity(conversation_id),
+            "type": "message",
+            "text": message_data.get("content", "") or message_data.get("text", ""),
+            "textFormat": "markdown",
+        }
+
+        # Add threading via replyToId
+        if message_data.get("thread_ts"):
+            activity["replyToId"] = message_data["thread_ts"]
+
+        # Add attachments (Adaptive Cards, files, etc.)
+        if message_data.get("attachments"):
+            activity["attachments"] = message_data["attachments"]
+
+        # In a 1:1 chat with an open progress bubble, the message replaces it.
+        return await teams_stream.send_activity(self, conversation_id, activity)
 
     async def get_user_info(self, external_user_id: str, conversation_id: Optional[str] = None) -> Dict[str, Any]:
         """Get Teams user information via Bot Connector API."""
@@ -529,21 +536,11 @@ class TeamsAdapter(PlatformAdapter):
                 if thread_ts:
                     activity["replyToId"] = thread_ts
 
-                url = f"{self.service_url.rstrip('/')}/v3/conversations/{channel_id}/activities"
-
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    response = await client.post(
-                        url,
-                        headers={
-                            "Authorization": f"Bearer {token}",
-                            "Content-Type": "application/json",
-                        },
-                        json=activity,
-                    )
-                    if response.status_code in (200, 201):
-                        return True
-                    print(f"TEAMS: Failed to send file: {response.status_code} {response.text}")
-                    return False
+                # In a 1:1 chat with an open progress bubble, the file replaces it.
+                if await teams_stream.send_activity(self, channel_id, activity):
+                    return True
+                print(f"TEAMS: Failed to send file {file_name}")
+                return False
             else:
                 # For larger files, send a message with a note
                 await self.send_dm_in_thread(

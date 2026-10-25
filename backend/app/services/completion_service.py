@@ -1037,6 +1037,14 @@ class CompletionService:
                                     await recovery_session.commit()
                             except Exception:
                                 logging.exception("Failed to mark background completion as errored")
+                            # That bulk update fires no ORM events, so tell the
+                            # Teams 1:1 progress bubble directly.
+                            if external_platform == "teams" and external_channel_id:
+                                from app.core.fire_and_forget import spawn
+                                from app.services.platform_adapters import teams_stream
+                                spawn(teams_stream.end_run(
+                                    external_channel_id, str(_system_completion_id), failed=True,
+                                ))
 
                 async def run_agent_task_then_drain_queue():
                     heartbeat = self._start_completion_lease(_system_completion_id)
