@@ -6236,6 +6236,7 @@
       "bringFailed": "Konnte nicht hierher geholt werden",
       "viewingBar": "Sie sehen v{n} aus der Unterhaltung von {name}. Hier ist sie schreibgeschützt; Ihre nächste Änderung baut auf v{here} auf.",
       "viewingLiveBar": "Sie sehen v{n}, die veröffentlichte Version. Hier ist sie schreibgeschützt; Ihre nächste Änderung baut auf v{here} auf.",
+      "viewingUnavailable": "Diese Version ist nicht mehr zum Ansehen verfügbar.",
       "editHere": "v{n} hier bearbeiten",
       "backTo": "Zurück zu v{n}",
       "viewLive": "v{n} ansehen",

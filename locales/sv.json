@@ -6236,6 +6236,7 @@
       "bringFailed": "Det gick inte att hämta hit",
       "viewingBar": "Du tittar på v{n} från {name}s konversation. Den är skrivskyddad här; din nästa ändring utgår från v{here}.",
       "viewingLiveBar": "Du tittar på v{n}, den publicerade versionen. Den är skrivskyddad här; din nästa ändring utgår från v{here}.",
+      "viewingUnavailable": "Den här versionen går inte längre att visa.",
       "editHere": "Redigera v{n} här",
       "backTo": "Tillbaka till v{n}",
       "viewLive": "Visa v{n}",

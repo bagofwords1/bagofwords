@@ -6236,6 +6236,7 @@
       "bringFailed": "Impossibile portarla qui",
       "viewingBar": "Stai visualizzando v{n} dalla conversazione di {name}. Qui è di sola lettura; la tua prossima modifica partirà da v{here}.",
       "viewingLiveBar": "Stai visualizzando v{n}, la versione pubblicata. Qui è di sola lettura; la tua prossima modifica partirà da v{here}.",
+      "viewingUnavailable": "Questa versione non è più disponibile per la visualizzazione.",
       "editHere": "Modifica v{n} qui",
       "backTo": "Torna a v{n}",
       "viewLive": "Visualizza v{n}",

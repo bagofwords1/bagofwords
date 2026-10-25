@@ -20,6 +20,15 @@
         </div>
     </div>
 
+    <!-- Embedded in a conversation's Dashboard tab: the version it names is gone. -->
+    <div v-else-if="unavailable" class="h-dvh w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"
+        data-testid="dashboard-embed-unavailable">
+        <div class="text-center max-w-md mx-auto px-6">
+            <Icon name="heroicons:eye-slash" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboardCollab.versions.viewingUnavailable') }}</p>
+        </div>
+    </div>
+
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
         <!-- Top Bar -->
         <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative flex items-center">
@@ -191,7 +200,7 @@
         />
 
         <!-- Made with Bag of words badge -->
-        <a v-if="report.general?.bow_credit !== false && !embedded"
+        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft')"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
@@ -531,8 +540,13 @@ const intercomClearance = useIntercomLauncherClearance();
 const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.value - 8 : 0));
 
 // ?embed=1: a version shown read-only inside a conversation's Dashboard tab
-// (ArtifactFrame "viewing"), with no bars, badge or chat of its own.
-const embedded = props.source === 'draft' && route.query.embed === '1';
+// (ArtifactFrame "viewing"), with no bars or chat of its own -- the live one
+// on the published page, any other on the draft (utils/dashboardViewing). It
+// never moves elsewhere: the tab's bar names the version it shows, so a
+// version that is gone says so in place (`unavailable`). The published page
+// keeps its badge, as its readers see it.
+const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
+const unavailable = ref(false);
 // Top bar state
 const showTopBar = ref(!embedded);
 const activeTab = ref<'report' | 'data'>('report');
@@ -928,6 +942,12 @@ const accessError = ref<'login' | 'denied' | null>(null);
 async function loadReport() {
     try {
         const { data, error: fetchError } = await useMyFetch(api.meta);
+        if (fetchError.value || !data.value) {
+            if (embedded) {
+                unavailable.value = true;
+                return;
+            }
+        }
         if (fetchError.value) {
             const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
             // Not published yet: its editors see the draft instead -- unless
@@ -968,6 +988,10 @@ async function loadReport() {
         forkEligibility.value = (data.value as any)?.fork_eligibility || null;
     } catch (e) {
         console.error('Failed to load report:', e);
+        if (embedded) {
+            unavailable.value = true;
+            return;
+        }
         navigateTo('/not_found');
     }
 }

@@ -603,6 +603,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
+import { viewingPath } from '~/utils/dashboardViewing';
 
 const { t } = useI18n();
 const { tm } = useArtifactWording();
@@ -1563,12 +1564,12 @@ const pickerOptions = computed(() => {
 
 // A version made in another conversation is viewed in place, read-only:
 // nothing is copied until "Edit here" brings it in (a copy whose charts run
-// again as you; the next edit builds on it).
+// again as you; the next edit builds on it). Live is the published page, as
+// readers see it (viewingPath).
 const viewing = ref<{ versionId: string; version: number; author?: string | null; live?: boolean } | null>(null);
 const viewingSrc = computed(() => {
   const dashboardId = selectedArtifactItem.value?.artifact_id;
-  return viewing.value && dashboardId
-    ? `/d/${encodeURIComponent(dashboardId)}/draft?version=${viewing.value.version}&embed=1` : null;
+  return viewing.value && dashboardId ? viewingPath(dashboardId, viewing.value) : null;
 });
 const pickerValue = computed(() => (viewing.value ? `${ELSEWHERE}${viewing.value.versionId}` : selectedArtifactId.value));
 function onPick(value: string) {
@@ -1956,7 +1957,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     // its published page instead (SharedDashboardView). Without a dashboard
     // id (older rows), the conversation's /r as before.
     const dashboardId = selectedArtifact.value?.artifact_id;
-    const page = viewing.value && viewingSrc.value ? viewingSrc.value.replace('&embed=1', '')
+    const viewedId = selectedArtifactItem.value?.artifact_id;
+    const page = viewing.value && viewedId ? viewingPath(viewedId, viewing.value, { embed: false })
       : dashboardId ? `/d/${dashboardId}/draft` : `/r/${props.report.id}`;
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(page, '_blank', 'noopener') });
   }

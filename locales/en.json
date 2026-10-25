@@ -6612,6 +6612,7 @@
       "bringFailed": "Couldn't bring it here",
       "viewingBar": "You're viewing v{n} from {name}'s conversation. It's read-only here; your next edit builds on v{here}.",
       "viewingLiveBar": "You're viewing v{n}, the live version. It's read-only here; your next edit builds on v{here}.",
+      "viewingUnavailable": "This version is no longer available to view.",
       "editHere": "Edit v{n} here",
       "backTo": "Back to v{n}",
       "viewLive": "View v{n}",

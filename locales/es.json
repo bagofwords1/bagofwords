@@ -6583,6 +6583,7 @@
       "bringFailed": "No se pudo traer aquí",
       "viewingBar": "Estás viendo v{n} de la conversación de {name}. Aquí es de solo lectura; tu próxima edición parte de v{here}.",
       "viewingLiveBar": "Estás viendo v{n}, la versión publicada. Aquí es de solo lectura; tu próxima edición parte de v{here}.",
+      "viewingUnavailable": "Esta versión ya no está disponible para verla.",
       "editHere": "Editar v{n} aquí",
       "backTo": "Volver a v{n}",
       "viewLive": "Ver v{n}",
