@@ -612,7 +612,12 @@ const partiallyWithheld = computed(() =>
 
 const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
     if (isRunning.value) return 'loading';
-    if (!canRun.value) return 'signin';
+    if (!canRun.value) {
+        // Signed in but not a re-runner (e.g. the data's owner whose rows
+        // failed to load): an error, never "Sign in".
+        const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
+        return userId ? 'error' : 'signin';
+    }
     const errs = dataSourceErrors.value;
     if (errs.some((e) => e.code === 'credentials_required') || viewerRunNeedsConnect.value) return 'connect';
     // Refused for the whole source (no client) or for one dataset at query
