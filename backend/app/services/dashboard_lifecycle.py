@@ -76,7 +76,9 @@ async def delete_outcomes(db, report_ids: list[str]) -> list[dict]:
             continue
         release = await _live_release(db, artifact)
         if release is None:
-            outcome = "deleted"
+            # The owner's (or an ownerless) dashboard goes with the owner's
+            # last conversation; an editor's never takes it.
+            outcome = "deleted" if await _owner_among(db, artifact, gone) else "kept_for_owner"
         elif await _newest_completed_version_id(db, artifact) != (
                 str(release.source_version_id) if release.source_version_id else None):
             outcome = "loses_changes"
@@ -86,9 +88,22 @@ async def delete_outcomes(db, report_ids: list[str]) -> list[dict]:
     return out
 
 
+async def _owner_among(db, artifact: Artifact, report_ids) -> bool:
+    """Whether the owner's own conversation is among these -- or the
+    dashboard has no owner on record (as before collab01)."""
+    from app.models.report import Report
+
+    if not artifact.owner_id:
+        return True
+    return (await db.execute(select(Report.id).where(
+        Report.id.in_([str(r) for r in report_ids]), Report.user_id == str(artifact.owner_id)).limit(1)
+    )).scalar_one_or_none() is not None
+
+
 async def settle_dashboards(db, report_ids: list[str]) -> None:
     """The archived conversations' dashboards: published ones leave them,
-    the others are deleted. 409 -- and the caller's archive rolls back --
+    the others are deleted with the owner's last conversation (an editor's
+    leaves them to the owner). 409 -- and the caller's archive rolls back --
     when one of them is publishing (after failing a publish that stopped
     beating): what would become of it if that publish then failed is not
     something to guess. Each dashboard is locked, as start_publish locks it,
@@ -110,8 +125,13 @@ async def settle_dashboards(db, report_ids: list[str]) -> None:
                                     "finishes")
         if await _live_release(db, artifact) is not None:
             await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(report_id=None))
-        else:
+        elif await _owner_among(db, artifact, report_ids):
             await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(deleted_at=now))
+        else:
+            # Never published, and an editor deleted the last conversation
+            # editing it: deleting a dashboard is its owner's call. It stays
+            # theirs, with no draft; Edit goes on from its newest version.
+            await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(report_id=None))
 
 
 # ── from a published release to a new conversation (part B) ──────────────

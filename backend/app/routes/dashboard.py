@@ -309,9 +309,12 @@ async def edit_dashboard(
         db, dashboard_id, current_user, organization, dashboard_access.CAP_EDIT)
     draft = await dashboard_collab.draft_by_slug(db, artifact, payload.draft if payload else None)
     if (draft is None and not await dashboard_collab.editing_report_ids(db, artifact)
-            and await dashboard_access.counts_as_owner(db, artifact, current_user)):
-        # The owner's Edit of a dashboard whose conversations were all
-        # deleted (phase 7): one conversation however many click at once.
+            and await dashboard_access.counts_as_owner(db, artifact, current_user)
+            and await dashboard_access.published_release(db, artifact) is not None):
+        # The owner's Edit of a published dashboard whose conversations were
+        # all deleted (phase 7): one conversation however many click at once.
+        # Never published (an editor deleted the last conversation): the copy
+        # below goes on from its newest version.
         result = await dashboard_lifecycle.edit_dashboard(db, artifact, current_user, organization)
     else:
         result = await dashboard_collab.join(db, artifact, current_user, organization, draft=draft)
