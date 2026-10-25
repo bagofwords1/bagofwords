@@ -63,6 +63,27 @@ async def require(db, report, *, schedule: bool = False) -> Artifact | None:
     return dashboard
 
 
+async def assert_may(db, dashboard: Artifact, user, *needs: str) -> None:
+    """The caller's rights on the dashboard, as its own API asks for them.
+    The old endpoints are gated by owning the conversation, which stopped
+    meaning owning its dashboard once ownership can move (collab01: a
+    previous owner keeps the conversation, not the dashboard)."""
+    from app.errors import AppError
+    from app.services.dashboard_access import capabilities
+
+    if not set(needs) <= await capabilities(db, dashboard, user):
+        raise AppError.forbidden()
+
+
+def share_needs(dashboard: Artifact, visibility: str) -> tuple[str, ...]:
+    """What sharing through the old API asks: share, and publish when it
+    publishes first (no release yet, a visibility other than private)."""
+    from app.services.dashboard_access import CAP_PUBLISH, CAP_SHARE
+
+    publishes = not dashboard.published_release_id and visibility != "none"
+    return (CAP_SHARE, CAP_PUBLISH) if publishes else (CAP_SHARE,)
+
+
 async def schedule_dashboard_of(db, report, dashboard: Artifact | None = None) -> Artifact | None:
     """Where the conversation's schedule is: its dashboard, unless that is a
     deck (never refreshed) -- then the page that already runs it, else the

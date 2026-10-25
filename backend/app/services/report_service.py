@@ -328,10 +328,15 @@ class ReportService:
             dashboard = await conversation_dashboard.require(db, report)
             if dashboard is not None:
                 from app.services import dashboard_settings_service
+                from app.services.dashboard_access import CAP_SETTINGS
+
+                needs = conversation_dashboard.share_needs(dashboard, visibility)
                 changes = {k: v for k, v in {
                     "shared_run_identity": run_identity, "include_data_tab": include_data_tab,
                     "chat_enabled": artifact_chat_enabled, "chat_data_source_ids": artifact_chat_data_source_ids,
                     "chat_model_id": artifact_chat_model_id}.items() if v is not None}
+                await conversation_dashboard.assert_may(db, dashboard, current_user,
+                                                        *needs, *((CAP_SETTINGS,) if changes else ()))
                 # Everything is checked before anything is saved: a refused
                 # share leaves the settings sent with it (an identity switch
                 # drops readers' results) as they were.
@@ -645,6 +650,7 @@ class ReportService:
         db: AsyncSession,
         report_id: str,
         share_type: str,
+        current_user=None,
     ) -> list[dict]:
         """Get the users and groups a report is shared with for a share_type."""
         from app.models.report_share import ReportShare
@@ -655,6 +661,9 @@ class ReportService:
             report = await db.get(Report, str(report_id))
             dashboard = await conversation_dashboard.dashboard_of(db, report) if report is not None else None
             if dashboard is not None:  # phase 9: the dashboard's grants
+                if current_user is not None:  # who has access: the dashboard's sharing is theirs to read
+                    from app.services.dashboard_access import CAP_SHARE
+                    await conversation_dashboard.assert_may(db, dashboard, current_user, CAP_SHARE)
                 return await conversation_dashboard.shares_answer(db, dashboard)
 
         stmt = (
@@ -1177,6 +1186,8 @@ class ReportService:
             # Phase 9: the conversation's status is its dashboard's sharing --
             # first: refused, nothing else sent with it is saved (the publish
             # it starts commits).
+            await conversation_dashboard.assert_may(db, dashboard, current_user, *conversation_dashboard.share_needs(
+                dashboard, "public" if report_data.status == 'published' else "none"))
             await conversation_dashboard.set_published(db, dashboard, report_data.status == 'published',
                                                        current_user=current_user, organization=organization)
         if report_data.title:
@@ -1952,6 +1963,8 @@ class ReportService:
         dashboard = await conversation_dashboard.require(db, report)
         if dashboard is not None:
             # Phase 9: the toggle shares the dashboard publicly, or makes it private.
+            await conversation_dashboard.assert_may(db, dashboard, current_user, *conversation_dashboard.share_needs(
+                dashboard, "none" if conversation_dashboard.is_published(dashboard) else "public"))
             await conversation_dashboard.set_published(db, dashboard, not conversation_dashboard.is_published(dashboard),
                                                        current_user=current_user, organization=organization)
             await db.refresh(report)
@@ -3759,6 +3772,9 @@ class ReportService:
             # Phase 9: the dashboard's schedule (one job, the dashboard's); the
             # conversation's columns stay the migration's backup.
             from app.services import dashboard_settings_service
+            from app.services.dashboard_access import CAP_SETTINGS
+
+            await conversation_dashboard.assert_may(db, dashboard, current_user, CAP_SETTINGS)
             changes = {"cron_schedule": "" if cron_expression in (None, '', 'None') else cron_expression}
             if notification_subscribers is not None:
                 changes["notification_subscribers"] = notification_subscribers

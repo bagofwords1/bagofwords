@@ -352,7 +352,7 @@ async def get_report_shares(
     """Get list of users a report is shared with for a given type."""
     if share_type not in ('artifact', 'conversation'):
         raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
-    return await report_service.get_shares(db, report_id, share_type)
+    return await report_service.get_shares(db, report_id, share_type, current_user=current_user)
 
 
 @router.get("/reports/{report_id}/artifact_chat/agents")
