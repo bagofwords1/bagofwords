@@ -296,6 +296,11 @@ async def refresh_identity(db, artifact: Artifact) -> User | None:
     they can still edit it; else the owner while still a member; else no one."""
     from app.services.dashboard_access import can_edit, counts_as_owner, published_release
 
+    if (artifact.shared_run_identity or "viewer") == "creator":
+        # Readers run with the owner's credentials: so do refreshes, or the
+        # rows they are shown would be the last publisher's.
+        owner = await db.get(User, str(artifact.owner_id)) if artifact.owner_id else None
+        return owner if owner is not None and await counts_as_owner(db, artifact, owner) else None
     release = await published_release(db, artifact)
     if release is not None and release.published_by:
         publisher = await db.get(User, str(release.published_by))
@@ -305,6 +310,28 @@ async def refresh_identity(db, artifact: Artifact) -> User | None:
     if owner is not None and await counts_as_owner(db, artifact, owner):
         return owner
     return None
+
+
+async def refresh_as_identity(artifact_id: str) -> None:
+    """A refresh in its own session, as whoever refreshes the dashboard now
+    (refresh_identity): after "run on my behalf" is turned on over rows that
+    are not the owner's, so readers get the owner's rows without waiting for
+    the next refresh."""
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+
+    try:
+        async with async_session_maker() as db:
+            artifact = await db.get(Artifact, str(artifact_id))
+            if artifact is None or artifact.deleted_at is not None:
+                return
+            runner = await refresh_identity(db, artifact)
+            organization = await db.get(Organization, str(artifact.organization_id))
+            if runner is None or organization is None:
+                return
+            await refresh(db, artifact, runner, organization, trigger="run_identity", thumbnail=True)
+    except Exception:
+        logger.warning("Dashboard %s: refresh after the run identity changed failed", artifact_id, exc_info=True)
 
 
 async def owner_refresh(db, artifact: Artifact, owner: User, organization) -> dict:

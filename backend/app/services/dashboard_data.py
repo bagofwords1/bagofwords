@@ -81,7 +81,15 @@ async def release_snapshot_withheld(db, artifact: Artifact, release: ArtifactRel
     if await _any_rls_relation(db, ds_ids):
         return True
     if (artifact.shared_run_identity or "viewer") != "viewer":
-        return False
+        # Readers run with the owner's credentials: the stored rows are
+        # theirs to see only when they are the owner's run too. Over a
+        # connection each person signs in to, an editor's publish or refresh
+        # stored the editor's own slice -- withheld until the owner's run
+        # replaces it (collab01: `run_by`; none recorded: the owner's).
+        runner = getattr(release, "run_by", None) or release.published_by
+        if runner is None or not artifact.owner_id or str(runner) == str(artifact.owner_id):
+            return False
+        return await _any_user_scoped_connection(db, ds_ids)
     return await _any_user_scoped_connection(db, ds_ids)
 
 

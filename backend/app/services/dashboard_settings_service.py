@@ -412,6 +412,17 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         await db.rollback()
         raise AppError.conflict(ErrorCode.DASHBOARD_SLUG_TAKEN)
     await db.refresh(artifact)
+    if switch_identity and identity == "creator":
+        from app.services.dashboard_data import release_snapshot_withheld
+
+        release = await published_release(db, artifact)
+        if release is not None and await release_snapshot_withheld(db, artifact, release):
+            # The stored rows are not the owner's (an editor published them):
+            # the owner's run replaces them now.
+            from app.core import fire_and_forget
+            from app.services.dashboard_refresh import refresh_as_identity
+
+            fire_and_forget.spawn(refresh_as_identity(str(artifact.id)))
     if cron is not None:
         from app.services.dashboard_refresh import org_timezone, register_job
 
