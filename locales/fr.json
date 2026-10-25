@@ -3899,6 +3899,12 @@
     "close": "Fermer",
     "copyClipboardFailed": "Échec de la copie dans le presse-papiers"
   },
+  "sharedReport": {
+    "tabReport": "Rapport",
+    "tabData": "Données ({count})",
+    "refreshedAt": "Actualisé {time}",
+    "madeWith": "Créé avec {brand}"
+  },
   "errors": {
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",

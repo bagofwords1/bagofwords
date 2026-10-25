@@ -3899,6 +3899,12 @@
     "close": "Schließen",
     "copyClipboardFailed": "In Zwischenablage kopieren fehlgeschlagen"
   },
+  "sharedReport": {
+    "tabReport": "Bericht",
+    "tabData": "Daten ({count})",
+    "refreshedAt": "Aktualisiert {time}",
+    "madeWith": "Erstellt mit {brand}"
+  },
   "errors": {
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",

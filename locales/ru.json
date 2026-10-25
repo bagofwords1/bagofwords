@@ -3899,6 +3899,12 @@
     "close": "Закрыть",
     "copyClipboardFailed": "Не удалось скопировать в буфер обмена"
   },
+  "sharedReport": {
+    "tabReport": "Отчёт",
+    "tabData": "Данные ({count})",
+    "refreshedAt": "Обновлено {time}",
+    "madeWith": "Сделано с помощью {brand}"
+  },
   "errors": {
     "saml_unavailable": "Настройки SSO недоступны. Обратитесь к администратору.",
     "saml_login_failed": "Не удалось войти через SSO. Повторите попытку или обратитесь к администратору.",

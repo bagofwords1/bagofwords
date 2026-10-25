@@ -3899,6 +3899,12 @@
     "close": "Stäng",
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
+  "sharedReport": {
+    "tabReport": "Rapport",
+    "tabData": "Data ({count})",
+    "refreshedAt": "Uppdaterad {time}",
+    "madeWith": "Skapad med {brand}"
+  },
   "errors": {
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",

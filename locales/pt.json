@@ -3899,6 +3899,12 @@
     "close": "Fechar",
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
+  "sharedReport": {
+    "tabReport": "Relatório",
+    "tabData": "Dados ({count})",
+    "refreshedAt": "Atualizado {time}",
+    "madeWith": "Feito com {brand}"
+  },
   "errors": {
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",

@@ -4229,6 +4229,12 @@
     "close": "Close",
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
+  "sharedReport": {
+    "tabReport": "Report",
+    "tabData": "Data ({count})",
+    "refreshedAt": "Refreshed {time}",
+    "madeWith": "Made with {brand}"
+  },
   "errors": {
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
