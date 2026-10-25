@@ -882,7 +882,7 @@
     "share": {
       "button": "Compartir",
       "title": "Compartir proyecto",
-      "hint": "Los colaboradores ven todos los informes y paneles de este proyecto (solo lectura) y pueden bifurcarlos.",
+      "hint": "Los colaboradores ven todos los informes de este proyecto (solo lectura) y pueden bifurcarlos. Pueden editar, publicar y compartir sus paneles.",
       "pickMember": "Elige un compañero…",
       "add": "Añadir",
       "roleOwner": "Propietario",

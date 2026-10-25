@@ -866,7 +866,7 @@
     "share": {
       "button": "Compartilhar",
       "title": "Compartilhar projeto",
-      "hint": "Colaboradores veem todos os relatórios e dashboards deste projeto (somente leitura) e podem bifurcá-los.",
+      "hint": "Colaboradores veem todos os relatórios deste projeto (somente leitura) e podem bifurcá-los. Podem editar, publicar e compartilhar seus dashboards.",
       "pickMember": "Escolha um colega…",
       "add": "Adicionar",
       "roleOwner": "Dono",

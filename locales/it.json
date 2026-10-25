@@ -866,7 +866,7 @@
     "share": {
       "button": "Condividi",
       "title": "Condividi progetto",
-      "hint": "I collaboratori vedono tutti i report e le dashboard del progetto (sola lettura) e possono farne un fork.",
+      "hint": "I collaboratori vedono tutti i report del progetto (sola lettura) e possono farne un fork. Possono modificare, pubblicare e condividere le sue dashboard.",
       "pickMember": "Scegli un collega…",
       "add": "Aggiungi",
       "roleOwner": "Proprietario",

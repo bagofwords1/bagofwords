@@ -866,7 +866,7 @@
     "share": {
       "button": "Teilen",
       "title": "Projekt teilen",
-      "hint": "Mitwirkende sehen alle Berichte und Dashboards dieses Projekts (schreibgeschützt) und können sie forken.",
+      "hint": "Mitwirkende sehen alle Berichte dieses Projekts (schreibgeschützt) und können sie forken. Seine Dashboards können sie bearbeiten, veröffentlichen und teilen.",
       "pickMember": "Teammitglied wählen…",
       "add": "Hinzufügen",
       "roleOwner": "Besitzer",

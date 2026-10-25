@@ -866,7 +866,7 @@
     "share": {
       "button": "Dela",
       "title": "Dela projektet",
-      "hint": "Medarbetare ser alla rapporter och instrumentpaneler i projektet (skrivskyddat) och kan grena dem.",
+      "hint": "Medarbetare ser alla rapporter i projektet (skrivskyddat) och kan grena dem. Projektets instrumentpaneler kan de redigera, publicera och dela.",
       "pickMember": "Välj en kollega…",
       "add": "Lägg till",
       "roleOwner": "Ägare",

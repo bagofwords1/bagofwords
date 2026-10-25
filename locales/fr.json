@@ -866,7 +866,7 @@
     "share": {
       "button": "Partager",
       "title": "Partager le projet",
-      "hint": "Les collaborateurs voient tous les rapports et tableaux de bord du projet (lecture seule) et peuvent les dupliquer.",
+      "hint": "Les collaborateurs voient tous les rapports du projet (lecture seule) et peuvent les dupliquer. Ils peuvent modifier, publier et partager ses tableaux de bord.",
       "pickMember": "Choisir un coéquipier…",
       "add": "Ajouter",
       "roleOwner": "Propriétaire",

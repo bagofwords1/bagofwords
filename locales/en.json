@@ -908,7 +908,7 @@
     "share": {
       "button": "Share",
       "title": "Share project",
-      "hint": "Collaborators see every report and dashboard in this project (read-only) and can fork them.",
+      "hint": "Collaborators see every report in this project (read-only) and can fork them. They can edit, publish and share its dashboards.",
       "pickMember": "Choose a teammate…",
       "add": "Add",
       "roleOwner": "Owner",
