@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "Échec de la copie dans le presse-papiers"
   },
   "sharedReport": {
+    "backToApp": "Retour à l’app",
     "tabReport": "Rapport",
     "tabData": "Données ({count})",
     "refreshedAt": "Actualisé {time}",

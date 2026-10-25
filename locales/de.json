@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "In Zwischenablage kopieren fehlgeschlagen"
   },
   "sharedReport": {
+    "backToApp": "Zurück zur App",
     "tabReport": "Bericht",
     "tabData": "Daten ({count})",
     "refreshedAt": "Aktualisiert {time}",

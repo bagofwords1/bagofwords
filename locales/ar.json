@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "تعذّر النسخ إلى الحافظة"
   },
   "sharedReport": {
+    "backToApp": "العودة إلى التطبيق",
     "tabReport": "التقرير",
     "tabData": "البيانات ({count})",
     "refreshedAt": "تم التحديث {time}",

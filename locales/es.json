@@ -4168,6 +4168,7 @@
     "copyClipboardFailed": "No se pudo copiar al portapapeles"
   },
   "sharedReport": {
+    "backToApp": "Volver a la app",
     "tabReport": "Informe",
     "tabData": "Datos ({count})",
     "refreshedAt": "Actualizado {time}",

@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "Falha ao copiar para a área de transferência"
   },
   "sharedReport": {
+    "backToApp": "Voltar ao app",
     "tabReport": "Relatório",
     "tabData": "Dados ({count})",
     "refreshedAt": "Atualizado {time}",

@@ -4230,6 +4230,7 @@
     "copyClipboardFailed": "Failed to copy to clipboard"
   },
   "sharedReport": {
+    "backToApp": "Back to app",
     "tabReport": "Report",
     "tabData": "Data ({count})",
     "refreshedAt": "Refreshed {time}",

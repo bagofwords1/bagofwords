@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "Impossibile copiare negli appunti"
   },
   "sharedReport": {
+    "backToApp": "Torna all’app",
     "tabReport": "Report",
     "tabData": "Dati ({count})",
     "refreshedAt": "Aggiornato {time}",

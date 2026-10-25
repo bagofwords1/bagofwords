@@ -4168,6 +4168,7 @@
     "copyClipboardFailed": "לא ניתן להעתיק ללוח"
   },
   "sharedReport": {
+    "backToApp": "חזרה לאפליקציה",
     "tabReport": "דוח",
     "tabData": "נתונים ({count})",
     "refreshedAt": "רוענן {time}",

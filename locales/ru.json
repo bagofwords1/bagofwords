@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "Не удалось скопировать в буфер обмена"
   },
   "sharedReport": {
+    "backToApp": "Назад в приложение",
     "tabReport": "Отчёт",
     "tabData": "Данные ({count})",
     "refreshedAt": "Обновлено {time}",

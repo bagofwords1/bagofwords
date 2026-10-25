@@ -3900,6 +3900,7 @@
     "copyClipboardFailed": "Det gick inte att kopiera till urklipp"
   },
   "sharedReport": {
+    "backToApp": "Tillbaka till appen",
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
