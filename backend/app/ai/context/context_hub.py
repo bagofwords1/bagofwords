@@ -360,7 +360,7 @@ class ContextHub:
         )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)
-        self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion)
+        self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion, data_sources=self.data_sources)
         
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)

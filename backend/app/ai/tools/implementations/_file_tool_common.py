@@ -408,7 +408,8 @@ async def resolve_file_client(
 
 def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     """Resolve a file id against the report's OWN file space (uploads,
-    attach_file results). The report.files list is the allow-list — a session
+    attach_file results, project files, the run agents' library files). That
+    list is the allow-list — a session
     id from another report resolves to None here, exactly like an unattached
     connection in resolve_file_client. Org membership is double-checked so a
     stale association can't cross tenants."""
@@ -417,10 +418,12 @@ def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     sid = str(file_id or "").strip()
     if not (report and sid):
         return None
-    # Report uploads + files inherited live from the report's project (the
-    # agent loop stages the latter in runtime_ctx as "project_files").
+    # Report uploads + files inherited live from the report's project and
+    # from the run agents' libraries (the agent loop stages those in
+    # runtime_ctx as "project_files" / "agent_files").
     candidates = list(getattr(report, "files", None) or [])
     candidates += list(runtime_ctx.get("project_files") or [])
+    candidates += list(runtime_ctx.get("agent_files") or [])
     for f in candidates:
         if str(getattr(f, "id", "")) != sid:
             continue
