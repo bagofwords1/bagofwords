@@ -45,7 +45,12 @@ logger = logging.getLogger(__name__)
 FULL_READ_MAX_CHARS = 50_000
 DEFAULT_RANGE_LIMIT = 400
 GREP_LINE_CLIP = 500
+GREP_WINDOW_BEFORE = 200  # of a long-line window's GREP_LINE_CLIP chars, how many precede the match
+GREP_WINDOW_MIN_AFTER = 150  # trailing context a later match needs inside a window to share it
 OUTLINE_MAX_ENTRIES = 300
+# Observation keys kept behind everything else: context for the read rather
+# than its answer, and big enough to push the answer out of a capped result.
+_BULKY_OBSERVATION_KEYS = ("visualization_profiles", "runtime_environment", "resources")
 
 
 def _outline_patterns(mode: str) -> List[re.Pattern]:
@@ -127,6 +132,9 @@ def grep_code(
 
     Returns (matches, total_matches, truncated). Each match carries the verbatim
     matching line plus verbatim before/after context and 1-based line numbers.
+    A line longer than GREP_LINE_CLIP yields one match per window around its
+    occurrences instead (see _line_windows); `col_start`/`col_end`/`line_length`
+    mark it, and the before/after context rides on the line's first window only.
     Raises re.error for an invalid pattern — callers surface that to the planner.
     """
     flags = re.IGNORECASE if ignore_case else 0
@@ -137,19 +145,64 @@ def grep_code(
     for i, line in enumerate(lines):
         if not rx.search(line):
             continue
-        total += 1
-        if len(matches) >= max_matches:
-            continue
         ctx_start = max(0, i - before)
-        clipped = line if len(line) <= GREP_LINE_CLIP else line[:GREP_LINE_CLIP]
-        matches.append({
-            "line_no": i + 1,
-            "line": clipped,
-            "before": lines[ctx_start:i],
-            "after": lines[i + 1:i + 1 + after],
-            "context_start_line": ctx_start + 1,
-        })
+        if len(line) <= GREP_LINE_CLIP:
+            entries = [{
+                "line_no": i + 1,
+                "line": line,
+                "before": lines[ctx_start:i],
+                "after": lines[i + 1:i + 1 + after],
+                "context_start_line": ctx_start + 1,
+            }]
+        else:
+            entries = []
+            for n, (start, end) in enumerate(_line_windows(rx, line)):
+                first = n == 0
+                entries.append({
+                    "line_no": i + 1,
+                    "line": line[start:end],
+                    "before": lines[ctx_start:i] if first else [],
+                    "after": lines[i + 1:i + 1 + after] if first else [],
+                    "context_start_line": ctx_start + 1 if first else i + 1,
+                    "col_start": start,
+                    "col_end": end,
+                    "line_length": len(line),
+                })
+        total += len(entries)
+        matches.extend(entries[:max(0, max_matches - len(matches))])
     return matches, total, total > len(matches)
+
+
+def _line_windows(rx: re.Pattern, line: str) -> List[Tuple[int, int]]:
+    """[start, end) windows of at most GREP_LINE_CLIP chars over a long line.
+
+    One window per occurrence, opening GREP_WINDOW_BEFORE chars ahead of it —
+    a head-of-line clip hid matches past the first GREP_LINE_CLIP chars while
+    still reporting the line as a hit, and generated JSX often keeps a whole
+    section on one line. Near the end of the line the window slides back to
+    stay full width, unless that would repeat more of the previous window than
+    its lead-in. An occurrence gets no window of its own when the
+    previous one already shows it along with GREP_WINDOW_MIN_AFTER chars of
+    what follows (or the rest of the line) — what follows a match is usually
+    what an edit needs, so a match in the last few chars of a window does not
+    count as shown.
+    """
+    windows: List[Tuple[int, int]] = []
+    for m in rx.finditer(line):
+        if windows:
+            prev_end = windows[-1][1]
+            if m.end() <= prev_end and (prev_end - m.end() >= GREP_WINDOW_MIN_AFTER or prev_end == len(line)):
+                continue
+        # A long occurrence gets less lead-in so the window opens on it.
+        start = m.start() - min(GREP_WINDOW_BEFORE, max(0, GREP_LINE_CLIP - (m.end() - m.start())))
+        start = max(0, min(start, len(line) - GREP_LINE_CLIP))
+        if windows:
+            # Overlap the previous window by at most the lead-in (dense
+            # occurrences, or the slide-back at the line end), so a frequent
+            # word doesn't repeat each char several times over.
+            start = max(start, min(m.start(), prev_end - GREP_WINDOW_BEFORE))
+        windows.append((start, min(len(line), start + GREP_LINE_CLIP)))
+    return windows
 
 
 class ReadArtifactTool(Tool):
@@ -364,6 +417,11 @@ class ReadArtifactTool(Tool):
                 if grep_truncated:
                     window_note += f", showing first {shown} (max_matches={data.max_matches}) — narrow the pattern for the rest"
                 window_note += ". Matched lines and before/after context are verbatim — safe to quote in SEARCH blocks."
+                if any("col_start" in m for m in matches):
+                    window_note += (
+                        f" Lines over {GREP_LINE_CLIP} chars come back as a window around each occurrence"
+                        " (col_start/col_end within line_length); read a whole line with offset=<line_no>, limit=1."
+                    )
 
         elif data.offset is not None or data.limit is not None:
             read_mode = "range"
@@ -577,6 +635,16 @@ class ReadArtifactTool(Tool):
             # Include render errors if stored (useful even without screenshot)
             if artifact.render_errors:
                 observation["render_errors"] = artifact.render_errors
+
+        # Bulky context goes last. The transcript keeps only the head of an
+        # oversized tool result (Transcript.to_model_messages, max_result_chars),
+        # and on a dashboard with many visualizations the profiles alone
+        # outgrew that head — every read, even a one-line range, reached the
+        # model with its code cut off. Everything else is small or is what
+        # the call asked for.
+        for key in _BULKY_OBSERVATION_KEYS:
+            if key in observation:
+                observation[key] = observation.pop(key)
 
         yield ToolEndEvent(
             type="tool.end",
