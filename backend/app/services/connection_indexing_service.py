@@ -777,7 +777,8 @@ class ConnectionIndexingService:
                 data_shape = data_shape_for(connection.type)
                 noun_sing, noun_plural = catalog_nouns_for(connection.type)
                 _entry = REGISTRY.get(connection.type)
-                catalog_ownership = _entry.catalog_ownership if _entry else "shared"
+                from app.schemas.data_source_registry import connection_catalog_ownership
+                catalog_ownership = connection_catalog_ownership(connection) if _entry else "shared"
 
                 # ── Per-user catalog scope ──────────────────────────────────
                 # A row carrying a user_id syncs THAT user's catalog with THAT
