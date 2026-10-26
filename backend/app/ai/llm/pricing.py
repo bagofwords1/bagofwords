@@ -176,6 +176,9 @@ _ANTHROPIC_READ_RATE_OVERRIDES = (
 # https://developers.openai.com/api/docs/models/gpt-6.1-sol
 _OPENAI_READ_RATE_OVERRIDES = (
     (("gpt-6.1-sol",), 0.05),
+    # GPT-6.1 Terra: $0.05 cached against $1.
+    # https://openai.com/index/introducing-gpt-6-1-terra/
+    (("gpt-6.1-terra",), 0.05),
     (("gpt-6-sol",), 0.10),
 )
 

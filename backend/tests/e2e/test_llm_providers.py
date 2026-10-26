@@ -279,6 +279,8 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     # GPT-6.1 Sol arrives alongside GPT-6 Sol without taking the default.
     assert by_model_id["gpt-6.1-sol"]["is_enabled"] is True
     assert by_model_id["gpt-6.1-sol"]["is_default"] is False
+    assert by_model_id["gpt-6.1-terra"]["is_enabled"] is True
+    assert by_model_id["gpt-6.1-terra"]["is_default"] is False
 
     # The 2.5 image models replace gpt-image-1 and arrive flagged as image
     # models (the sync used to add them unflagged); the retired id is disabled.

@@ -66,6 +66,23 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 10.00
     },
     {
+        # https://openai.com/index/introducing-gpt-6-1-terra/
+        # Successor to GPT-5.6 Terra at half its price: $1/$5, cached input
+        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES). Selectable, not
+        # the default: GPT-5.6 Terra keeps is_default until that is decided.
+        "name": "GPT-6.1 Terra",
+        "model_id": "gpt-6.1-terra",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 1.00,
+        "output_cost_per_million_tokens_usd": 5.00
+    },
+    {
         # https://developers.openai.com/api/docs/models/gpt-6-luna
         # Small default: half GPT-5.6 Luna's input price and under half its
         # output price, for the same 1.05M window.
