@@ -125,7 +125,7 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
 
             applied = redact_applied_params(applied, query.parameters, withheld=withheld) or {}
 
-        viz_data.append({
+        entry = {
             "id": str(viz.id),
             # Carried so an offline host can tell which visualizations a
             # declared query param is scoped to (declaration.query_ids).
@@ -137,7 +137,13 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
             "rows": data.get("rows", []) if data else [],
             "columns": data.get("columns", []) if data else [],
             "dataModel": step.data_model or {} if step else {},
-        })
+        }
+        if viewer is not UNSCOPED:
+            # Reader-scoped callers (the chat context, the public export) must
+            # be able to tell "this reader may not see these rows" from "the
+            # query returned nothing" — an empty `rows` means both.
+            entry["withheld"] = withheld
+        viz_data.append(entry)
 
     return viz_data
 
