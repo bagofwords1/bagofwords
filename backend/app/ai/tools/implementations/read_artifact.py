@@ -11,7 +11,7 @@ before/after context) to pull only the regions it needs into context.
 
 import logging
 import re
-from typing import AsyncIterator, Dict, Any, Optional, Tuple, Type, List
+from typing import AsyncIterator, Dict, Any, Optional, Type, List
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -30,6 +30,11 @@ from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._text_window import (
+    grep_lines,
+    outline_from_patterns,
+    slice_range,
+)
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_OBSERVATION,
     ANON_PREVIEW_NOTE,
@@ -43,8 +48,6 @@ logger = logging.getLogger(__name__)
 # Above it, a full read returns a structural outline instead, and the planner
 # is expected to follow up with range/grep reads.
 FULL_READ_MAX_CHARS = 50_000
-DEFAULT_RANGE_LIMIT = 400
-GREP_LINE_CLIP = 500
 OUTLINE_MAX_ENTRIES = 300
 
 
@@ -75,81 +78,12 @@ def build_outline(code: str, mode: str) -> str:
     Returns lines like `  123: function RevenueChart()` so the planner can
     navigate a long artifact and follow up with targeted range/grep reads.
     """
-    patterns = _outline_patterns(mode)
-    lines = code.split("\n")
-    entries: List[str] = []
-    for i, line in enumerate(lines):
-        if any(p.search(line) for p in patterns):
-            text = line.strip()
-            if len(text) > 160:
-                text = text[:160] + "…"
-            entries.append(f"{i + 1:>6}: {text}")
-            if len(entries) >= OUTLINE_MAX_ENTRIES:
-                entries.append(f"     … outline truncated at {OUTLINE_MAX_ENTRIES} entries ({len(lines)} lines total)")
-                break
-    if not entries:
-        # Nothing structural matched — show evenly spaced sample lines so the
-        # planner still gets landmarks to range-read around.
-        step = max(1, len(lines) // 40)
-        for i in range(0, len(lines), step):
-            text = lines[i].strip()
-            if text:
-                entries.append(f"{i + 1:>6}: {text[:160]}")
-            if len(entries) >= 40:
-                break
-    return "\n".join(entries)
+    return outline_from_patterns(code, _outline_patterns(mode), max_entries=OUTLINE_MAX_ENTRIES)
 
 
-def slice_range(code: str, offset: int, limit: Optional[int]) -> Tuple[str, int, int, int, bool]:
-    """Return (slice_text, start_line, end_line, total_lines, truncated) for a
-    1-based line range read. The slice is verbatim (no line-number prefixes) so
-    it can be quoted directly in edit_artifact SEARCH blocks."""
-    lines = code.split("\n")
-    total_lines = len(lines)
-    limit = limit or DEFAULT_RANGE_LIMIT
-    start = max(1, offset)
-    if start > total_lines:
-        return "", start, start - 1, total_lines, False
-    end = min(total_lines, start + limit - 1)
-    text = "\n".join(lines[start - 1:end])
-    return text, start, end, total_lines, end < total_lines
-
-
-def grep_code(
-    code: str,
-    pattern: str,
-    ignore_case: bool = False,
-    before: int = 0,
-    after: int = 0,
-    max_matches: int = 50,
-) -> Tuple[List[Dict[str, Any]], int, bool]:
-    """Grep the artifact code line-by-line.
-
-    Returns (matches, total_matches, truncated). Each match carries the verbatim
-    matching line plus verbatim before/after context and 1-based line numbers.
-    Raises re.error for an invalid pattern — callers surface that to the planner.
-    """
-    flags = re.IGNORECASE if ignore_case else 0
-    rx = re.compile(pattern, flags)
-    lines = code.split("\n")
-    matches: List[Dict[str, Any]] = []
-    total = 0
-    for i, line in enumerate(lines):
-        if not rx.search(line):
-            continue
-        total += 1
-        if len(matches) >= max_matches:
-            continue
-        ctx_start = max(0, i - before)
-        clipped = line if len(line) <= GREP_LINE_CLIP else line[:GREP_LINE_CLIP]
-        matches.append({
-            "line_no": i + 1,
-            "line": clipped,
-            "before": lines[ctx_start:i],
-            "after": lines[i + 1:i + 1 + after],
-            "context_start_line": ctx_start + 1,
-        })
-    return matches, total, total > len(matches)
+# Range/grep reads are shared with read_instruction; re-exported under the
+# names this module has always used.
+grep_code = grep_lines
 
 
 class ReadArtifactTool(Tool):
