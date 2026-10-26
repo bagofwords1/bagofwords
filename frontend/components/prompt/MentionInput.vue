@@ -1116,7 +1116,11 @@ function selectItem(item: MentionItem, category: string) {
     }
 
     fragment.appendChild(mentionNode)
-    fragment.appendChild(document.createTextNode(' '))
+    // A chip is always followed by a space — but mid-line the rest of the
+    // sentence usually starts with one already, and adding a second leaves a
+    // visible gap ("@Music Store  so I can review it").
+    const spacer = /^\s/.test(afterText) ? null : document.createTextNode(' ')
+    if (spacer) fragment.appendChild(spacer)
 
     if (afterText) {
       fragment.appendChild(document.createTextNode(afterText))
@@ -1125,15 +1129,12 @@ function selectItem(item: MentionItem, category: string) {
     // Replace the text node with our fragment
     textNode.parentNode?.replaceChild(fragment, textNode)
 
-    // Set cursor after the mention and space
+    // Set cursor after the mention and its space — before the rest of the line.
     const range = document.createRange()
-    const spaceNode = mentionNode.nextSibling
-    if (spaceNode) {
-      range.setStartAfter(spaceNode)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
+    range.setStartAfter(spacer || mentionNode)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
 
     // Update state
     textContent.value = inputRef.value.innerText
