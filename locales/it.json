@@ -3185,6 +3185,30 @@
         "likeRequired": "Indica il modello a cui somiglia",
         "customRequired": "La modalità personalizzata richiede campi per almeno un livello",
         "saveFailed": "Impossibile salvare le impostazioni di ragionamento"
+      },
+      "groupDefaults": {
+        "title": "Modelli predefiniti dei gruppi",
+        "subtitle": "I membri ricevono il modello predefinito del loro gruppo invece di quello dell'organizzazione. Il modello predefinito di un gruppo è sempre utilizzabile dai suoi membri, anche quando il modello è limitato.",
+        "colGroup": "Gruppo",
+        "colDefault": "Modello predefinito",
+        "colSmall": "Modello piccolo",
+        "colPriority": "Priorità",
+        "priorityTooltip": "Se un membro appartiene a più gruppi, vince il gruppo con il numero più basso.",
+        "inherit": "Predefinito dell'organizzazione",
+        "empty": "Nessun gruppo. Crea dei gruppi in Membri per assegnare a ciascuno il proprio modello predefinito.",
+        "saved": "Modelli predefiniti del gruppo aggiornati",
+        "saveFailed": "Impossibile aggiornare i modelli predefiniti del gruppo",
+        "coverageTitle": "Membri senza modello predefinito: {count}",
+        "coverageHint": "Non possono usare il modello predefinito dell'organizzazione e nessuno dei loro gruppi ne ha uno, quindi ricevono il primo modello consentito.",
+        "fallsBackTo": "ripiega su {model}",
+        "noModel": "nessun modello disponibile",
+        "andMore": "e altri {count}",
+        "badge": "Predefinito di {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "Questo è il modello predefinito dell'organizzazione. I membri non elencati qui sotto ricevono il predefinito del loro gruppo.",
+        "defaultForGroups": "Predefinito per i gruppi",
+        "defaultForGroupsHint": "I membri di questi gruppi possono sempre usare questo modello."
       }
     },
     "licensePage": {
@@ -3853,8 +3877,7 @@
     "chatNoAgents": "Nessun agente è collegato a questo report: la chat risponderà solo con i dati della dashboard.",
     "chatModel": "Modello predefinito",
     "chatModelDesc": "Il modello usato dalla chat per chi visualizza. Chi non vi ha accesso usa il proprio modello predefinito.",
-    "chatModelOrgDefault": "Predefinito dell'organizzazione ({name})",
-    "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
+    "chatModelViewerDefault": "Il predefinito di ciascun lettore",
     "chatModelReport": "Come nel report ({name})",
     "chatModelReportPlain": "Come nel report",
     "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
@@ -3924,7 +3947,9 @@
     "llm": {
       "model_id_required": "L'ID del modello non può essere vuoto",
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
-      "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
+      "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider",
+      "model_is_group_default": "Questo modello è il predefinito dei gruppi: {groups}. Cambia prima il loro predefinito.",
+      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione."
     },
     "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
     "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
@@ -5106,7 +5131,8 @@
       "checkinsTitle": "Follow-up dell'agente",
       "checkinsSubtitle": "Consente all'agente di ricontrollare in autonomia dopo una conversazione quando vale la pena (ad esempio dopo un aggiornamento dei dati). Ti notifica solo quando qualcosa di significativo è cambiato.",
       "checkinsSaved": "Preferenza di follow-up salvata",
-      "checkinsFailed": "Impossibile salvare la preferenza di follow-up"
+      "checkinsFailed": "Impossibile salvare la preferenza di follow-up",
+      "groupDefault": "Predefinito del gruppo ({group})"
     },
     "instructions": {
       "title": "Istruzioni personalizzate",

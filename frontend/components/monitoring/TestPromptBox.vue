@@ -158,7 +158,7 @@ async function loadModels() {
     const list = ((data as any)?.value || []).filter((m: any) => !m?.supports_image_generation)
     models.value = list
     // Prefer the user's personal default, then regular default, then small default, then first
-    const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_default)
+    const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_inherited_default) || list.find((m: any) => m.is_default)
     const small = list.find((m: any) => m.is_small_default)
     // Only default when nothing was handed down. An explicit choice must
     // survive the models list arriving after mount.

@@ -3455,6 +3455,30 @@
         "likeRequired": "Indica el modelo al que se parece",
         "customRequired": "El modo personalizado necesita campos para al menos un nivel",
         "saveFailed": "No se pudo guardar la configuración de razonamiento"
+      },
+      "groupDefaults": {
+        "title": "Modelos predeterminados por grupo",
+        "subtitle": "Los miembros usan el modelo predeterminado de su grupo en lugar del de la organización. El modelo predeterminado de un grupo siempre está disponible para sus miembros, aunque el modelo esté restringido.",
+        "colGroup": "Grupo",
+        "colDefault": "Modelo predeterminado",
+        "colSmall": "Modelo pequeño",
+        "colPriority": "Prioridad",
+        "priorityTooltip": "Si un miembro pertenece a varios grupos, gana el grupo con el número más bajo.",
+        "inherit": "Predeterminado de la organización",
+        "empty": "Aún no hay grupos. Crea grupos en Miembros para asignar a cada uno su propio modelo predeterminado.",
+        "saved": "Modelos predeterminados del grupo actualizados",
+        "saveFailed": "No se pudieron actualizar los modelos predeterminados del grupo",
+        "coverageTitle": "Miembros sin modelo predeterminado: {count}",
+        "coverageHint": "No pueden usar el modelo predeterminado de la organización y ninguno de sus grupos tiene uno, así que reciben el primer modelo que tienen permitido.",
+        "fallsBackTo": "usa {model} como alternativa",
+        "noModel": "ningún modelo disponible",
+        "andMore": "y {count} más",
+        "badge": "Predeterminado de {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "Este es el modelo predeterminado de la organización. Los miembros que no aparecen abajo usan el predeterminado de su grupo.",
+        "defaultForGroups": "Predeterminado para grupos",
+        "defaultForGroupsHint": "Los miembros de estos grupos siempre pueden usar este modelo."
       }
     },
     "licensePage": {
@@ -4121,8 +4145,7 @@
     "chatNoAgents": "No hay agentes asociados a este informe: el chat responderá solo con los datos del panel.",
     "chatModel": "Modelo predeterminado",
     "chatModelDesc": "El modelo que usa el chat para los espectadores. Quienes no tengan acceso a él usarán su propio modelo predeterminado.",
-    "chatModelOrgDefault": "Predeterminado de la organización ({name})",
-    "chatModelOrgDefaultPlain": "Predeterminado de la organización",
+    "chatModelViewerDefault": "El predeterminado de cada usuario",
     "chatModelReport": "Igual que el informe ({name})",
     "chatModelReportPlain": "Igual que el informe",
     "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado"
@@ -4192,7 +4215,9 @@
     "llm": {
       "model_id_required": "El ID del modelo no puede estar vacío",
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
-      "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
+      "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor",
+      "model_is_group_default": "Este modelo es el predeterminado de los grupos: {groups}. Cambia primero su modelo predeterminado.",
+      "group_default_invalid": "El modelo debe estar habilitado y ser un modelo de chat de esta organización."
     },
     "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada.",
     "memory.disabled": "La memoria del usuario está desactivada en esta organización.",
@@ -5399,7 +5424,8 @@
       "checkinsTitle": "Seguimientos del agente",
       "checkinsSubtitle": "Permite que el agente vuelva por su cuenta después de una conversación cuando vale la pena revisar algo (por ejemplo, tras una actualización de datos). Solo te notifica cuando algo cambió de forma significativa.",
       "checkinsSaved": "Preferencia de seguimiento guardada",
-      "checkinsFailed": "No se pudo guardar tu preferencia de seguimiento"
+      "checkinsFailed": "No se pudo guardar tu preferencia de seguimiento",
+      "groupDefault": "Predeterminado del grupo ({group})"
     },
     "instructions": {
       "title": "Instrucciones personalizadas",
