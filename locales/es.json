@@ -337,7 +337,10 @@
     "unchangedLineOne": "{n} línea sin cambios",
     "unchangedLineMany": "{n} líneas sin cambios",
     "loadPendingFailed": "No se pudieron cargar los cambios pendientes.",
-    "allPendingResolved": "No hay cambios pendientes: todo está resuelto."
+    "allPendingResolved": "No hay cambios pendientes: todo está resuelto.",
+    "pushToGit": "Enviar a Git",
+    "pushToGitTip": "Envía una compilación al repositorio conectado como una rama, con una solicitud de extracción si hay un token de acceso configurado",
+    "pushToGitDisabledTip": "Activa el acceso de escritura en la configuración del repositorio para enviar"
   },
   "smoke": {
     "hello": "Hola",
