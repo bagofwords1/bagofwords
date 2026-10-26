@@ -7,7 +7,8 @@ returns its id, later `typing` activities with that id replace the line, and
 a `message` with `streamType: final` closes it.
 
 Contract:
-- `start_run` opens a bubble when a 1:1 question arrives.
+- `start_run` opens a bubble when a 1:1 question arrives (closing the
+  previous question's bubble, so each question's bubble sits below it).
 - `notify_tool_started` swaps its line as the agent starts each tool, and
   reopens a bubble when the previous one was already closed.
 - Every outbound message to the conversation goes through `send_activity`,
@@ -25,14 +26,15 @@ which stops the run, like the web Stop button.
 State is in-process: the webhook, the background agent run and the block
 senders (models/completion_block.py) all run in the same worker, and the block
 senders already keep their dedupe state the same way. A restart mid-run drops
-the bubble; Teams expires it on its own.
+the bubble; Teams expires it on its own. Because a worker can miss the end of
+a run, bubbles stop after MAX_RUN_SECONDS no matter what.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
-from typing import Any, Awaitable, Callable, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from app.core.fire_and_forget import spawn
 from app.services.teams_status_strings import (
@@ -43,15 +45,21 @@ from app.services.teams_status_strings import (
 
 logger = logging.getLogger(__name__)
 
-# Teams ends a stream two minutes after its first chunk; close it first so the
-# bubble says "still working" instead of freezing on a stale line.
+# Teams ends a stream two minutes after its first chunk; hand over to a fresh
+# bubble before that.
 STREAM_MAX_SECONDS = 100.0
+# Hard stop for one chat's bubbles, in case this worker never sees the run
+# end (Stop handled by another worker, a run ended by a bulk UPDATE, …).
+MAX_RUN_SECONDS = 15 * 60.0
 # Teams throttles streaming requests at one per second.
 MIN_INTERVAL_SECONDS = 1.0
 # A finished run's last messages can still be on their way (background
 # completions flip to success before their blocks are delivered — see
 # completion_block.py), so wait this long before closing an unclaimed bubble.
 END_GRACE_SECONDS = 20.0
+# What TeamsAdapter.post_activity reports when a request was sent but its
+# answer never came back: Teams may have accepted it, so it is not resent.
+DELIVERY_UNKNOWN_STATUS = 599
 
 
 class _Conversation:
@@ -61,6 +69,8 @@ class _Conversation:
         self.locale = locale
         self.lock = asyncio.Lock()
         self.stream_id: Optional[str] = None
+        # Which question (start_run token) the open bubble belongs to.
+        self.stream_token = 0
         self.seq = 0
         self.text = ""
         self.pending_text: Optional[str] = None
@@ -69,10 +79,13 @@ class _Conversation:
         self.open_runs = 0
         self.run_ids: Set[str] = set()
         self.ended_ids: Set[str] = set()
+        # Questions are numbered; the newest one owns new bubbles.
+        self.last_token = 0
+        # Token of the question whose first bubble is still being opened.
+        self.first_bubble_token: Optional[int] = None
+        self.started_at = 0.0
         # A run in this chat ended in an error: an unclaimed bubble says so.
         self.failed = False
-        # The question's first bubble is still being opened in the background.
-        self.awaiting_first_bubble = False
         # Set when the user pressed Stop or Teams refused streaming outright;
         # no more bubbles until the next question.
         self.halted = False
@@ -113,12 +126,32 @@ def _forget_stream(conv: _Conversation) -> None:
     conv.expiry = None
 
 
+def _forget_conversation(conv: _Conversation) -> None:
+    if _conversations.get(conv.conversation_id) is conv:
+        del _conversations[conv.conversation_id]
+
+
 def _canceled_by_user(response: Any) -> bool:
+    if response is None or response.status_code != 403:
+        return False
     try:
         body = response.text or ""
     except Exception:
         body = ""
-    return response is not None and response.status_code == 403 and "cancel" in body.lower()
+    return "cancel" in body.lower()
+
+
+def _on_user_stop(conv: _Conversation) -> None:
+    """The user pressed Stop on the bubble: stop the runs still working."""
+    logger.info("TEAMS stream: stopped by user in %s", conv.conversation_id)
+    conv.halted = True
+    _forget_stream(conv)
+    spawn(_stop_runs(conv.run_ids - conv.ended_ids))
+
+
+def _transient(response: Any) -> bool:
+    """Network trouble, a lost answer or a busy Teams — not a refusal."""
+    return response is None or response.status_code >= 500 or response.status_code == 429
 
 
 async def _open(conv: _Conversation, text: str) -> None:
@@ -141,8 +174,7 @@ async def _open(conv: _Conversation, text: str) -> None:
             stream_id = None
     if not stream_id:
         conv.seq = 0
-        if response is None or response.status_code >= 500 or response.status_code == 429:
-            # Network trouble or a busy Teams: the next tool tries again.
+        if _transient(response):
             logger.info("TEAMS stream: open failed for %s, will retry", conv.conversation_id)
             return
         # Streaming refused (not a 1:1 chat, feature off for this bot, …):
@@ -152,6 +184,7 @@ async def _open(conv: _Conversation, text: str) -> None:
         conv.halted = True
         return
     conv.stream_id = str(stream_id)
+    conv.stream_token = conv.last_token
     conv.text = text
     conv.expiry = spawn(_expire(conv, conv.stream_id, STREAM_MAX_SECONDS))
 
@@ -172,10 +205,7 @@ async def _update(conv: _Conversation, text: str) -> None:
         conv.text = text
         return
     if _canceled_by_user(response):
-        logger.info("TEAMS stream: stopped by user in %s", conv.conversation_id)
-        conv.halted = True
-        _forget_stream(conv)
-        spawn(_stop_runs(set(conv.run_ids)))
+        _on_user_stop(conv)
         return
     if response is not None and response.status_code == 403:
         # Expired or already completed on Teams' side: the next tool reopens.
@@ -191,8 +221,11 @@ async def _close(conv: _Conversation, text: str) -> None:
         "text": text,
         "entities": [_stream_entity(conv, "final")],
     }
-    await conv.adapter.post_activity(conv.conversation_id, activity)
+    response = await conv.adapter.post_activity(conv.conversation_id, activity)
     conv.last_sent_at = _now()
+    if _canceled_by_user(response):
+        _on_user_stop(conv)
+        return
     _forget_stream(conv)
 
 
@@ -201,7 +234,8 @@ async def _expire(conv: _Conversation, stream_id: str, delay: float) -> None:
 
     The closing bubble keeps the step it was showing (it reads as progress
     history), and a new one picks up the same line at once so the live
-    indicator never goes away during a long step.
+    indicator never goes away during a long step — up to MAX_RUN_SECONDS,
+    after which the chat's bubbles stop for good.
     """
     await asyncio.sleep(delay)
     async with conv.lock:
@@ -209,12 +243,17 @@ async def _expire(conv: _Conversation, stream_id: str, delay: float) -> None:
             return
         line = conv.text or status_text(conv.locale, "still_working")
         await _close(conv, line)
+        if _now() - conv.started_at >= MAX_RUN_SECONDS:
+            logger.info("TEAMS stream: giving up on bubbles for %s", conv.conversation_id)
+            conv.halted = True
+            _forget_conversation(conv)
+            return
         if not conv.halted and conv.open_runs > 0:
             await _open(conv, line)
 
 
 async def _stop_runs(completion_ids: Set[str]) -> None:
-    """The user pressed Stop on the bubble: stop the run like the web button."""
+    """Stop the given runs like the web Stop button."""
     from app.services.completion_service import CompletionService
     from app.settings.database import create_async_session_factory
 
@@ -233,13 +272,12 @@ async def _stop_runs(completion_ids: Set[str]) -> None:
 
 
 def start_run(adapter: Any, conversation_id: str, question: Optional[str],
-              org_locale_loader: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
-              ) -> Optional[asyncio.Task]:
-    """A 1:1 question arrived: open (or keep) the bubble for this chat.
+              org_locale: Optional[str] = None) -> Optional[asyncio.Task]:
+    """A 1:1 question arrived: give it a bubble below it.
 
     Returns at once — the bubble opens in the background so the run never
-    waits on Teams. `org_locale_loader` (own DB session) supplies the org
-    locale fallback for questions whose script doesn't decide the language.
+    waits on Teams. A bubble still open from an earlier question is closed
+    (keeping its line) first.
     """
     if not conversation_id:
         return None
@@ -247,34 +285,37 @@ def start_run(adapter: Any, conversation_id: str, question: Optional[str],
     if conv is None:
         conv = _conversations[conversation_id] = _Conversation(adapter, conversation_id, "en")
     conv.adapter = adapter
-    conv.locale = status_locale(question, None)
+    conv.locale = status_locale(question, org_locale)
     conv.open_runs += 1
     conv.halted = False
     conv.failed = False
-    conv.awaiting_first_bubble = True
-    return spawn(_open_first_bubble(conv, question, org_locale_loader))
+    conv.started_at = _now()
+    conv.last_token += 1
+    conv.first_bubble_token = conv.last_token
+    return spawn(_open_first_bubble(conv, conv.last_token))
 
 
-async def _open_first_bubble(conv: _Conversation, question: Optional[str],
-                             org_locale_loader: Optional[Callable[[], Awaitable[Optional[str]]]]) -> None:
+async def _open_first_bubble(conv: _Conversation, token: int) -> None:
     try:
-        if org_locale_loader is not None:
-            try:
-                conv.locale = status_locale(question, await org_locale_loader())
-            except Exception:
-                logger.debug("TEAMS stream: org locale lookup failed", exc_info=True)
         async with conv.lock:
-            # Skip when the run already finished, a reply already went out, or
-            # a tool opened the bubble first — the bubble must never land
-            # below an answer.
+            # Skip when the run already finished, a reply already went out, a
+            # newer question took over, or this question's own tool opened
+            # the bubble first — a bubble must never land below an answer.
             if (_conversations.get(conv.conversation_id) is not conv or conv.open_runs <= 0
-                    or not conv.awaiting_first_bubble or conv.stream_id is not None):
+                    or conv.first_bubble_token != token or conv.halted):
                 return
+            if conv.stream_id is not None:
+                if conv.stream_token == token:
+                    return
+                await _close(conv, conv.text or status_text(conv.locale, "still_working"))
+                if conv.halted:
+                    return
             await _open(conv, status_text(conv.locale, "working"))
     except Exception:
         logger.exception("TEAMS stream: failed to open bubble")
     finally:
-        conv.awaiting_first_bubble = False
+        if conv.first_bubble_token == token:
+            conv.first_bubble_token = None
 
 
 def abort_run(conversation_id: Optional[str]) -> None:
@@ -295,7 +336,7 @@ def notify_tool_started(conversation_id: Optional[str], completion_id: Optional[
     conv = _conversations.get(conversation_id or "")
     if conv is None or conv.halted:
         return None
-    if completion_id:
+    if completion_id and completion_id not in conv.ended_ids:
         conv.run_ids.add(completion_id)
     conv.pending_text = tool_status_text(conv.locale, tool_name, title)
     return spawn(_apply_pending(conv))
@@ -326,7 +367,7 @@ async def send_activity(adapter: Any, conversation_id: str, activity: dict) -> b
     async with conv.lock:
         if conv.stream_id is None:
             # A reply beat the first bubble out: don't open one below it.
-            conv.awaiting_first_bubble = False
+            conv.first_bubble_token = None
             response = await adapter.post_activity(conversation_id, activity)
             conv.last_sent_at = _now()
             return _ok(response)
@@ -337,12 +378,29 @@ async def send_activity(adapter: Any, conversation_id: str, activity: dict) -> b
         }
         response = await adapter.post_activity(conversation_id, final)
         conv.last_sent_at = _now()
-        _forget_stream(conv)
         if _ok(response):
+            _forget_stream(conv)
             return True
-        # The bubble was gone on Teams' side (expired, stopped): deliver the
-        # message on its own so the reply is never lost.
+        if _canceled_by_user(response):
+            # The user stopped this reply: treat it as discarded.
+            _on_user_stop(conv)
+            return False
+        if response is not None and response.status_code == DELIVERY_UNKNOWN_STATUS:
+            # Sent, answer lost: Teams may already show it — resending risks a
+            # duplicate reply.
+            logger.warning("TEAMS stream: delivery of a reply unknown in %s", conversation_id)
+            _forget_stream(conv)
+            return False
+        # Rejected (or never reached Teams). Close the bubble with its own
+        # line when Teams is reachable, so it doesn't keep spinning above the
+        # reply, then send the reply on its own so it is never lost.
+        if response is not None:
+            await _close(conv, conv.text or status_text(conv.locale, "still_working"))
+            if conv.halted:
+                return False
+        _forget_stream(conv)
         response = await adapter.post_activity(conversation_id, activity)
+        conv.last_sent_at = _now()
         return _ok(response)
 
 
@@ -351,8 +409,8 @@ async def end_run(conversation_id: Optional[str], completion_id: Optional[str] =
     """A run in this chat finished (success, error or stopped).
 
     `failed` closes a bubble nobody claimed with an error line instead of
-    "Done". A run reported twice (status listener and crash handler) counts
-    once.
+    "Done". A run reported twice (status listener and the run's own finally)
+    counts once.
     """
     conv = _conversations.get(conversation_id or "")
     if conv is None:
@@ -361,6 +419,7 @@ async def end_run(conversation_id: Optional[str], completion_id: Optional[str] =
         if completion_id in conv.ended_ids:
             return
         conv.ended_ids.add(completion_id)
+        conv.run_ids.discard(completion_id)
     conv.open_runs = max(0, conv.open_runs - 1)
     if failed:
         conv.failed = True
@@ -377,5 +436,4 @@ async def _finish(conv: _Conversation, delay: float) -> None:
             return
         if conv.stream_id is not None:
             await _close(conv, status_text(conv.locale, "failed" if conv.failed else "done"))
-        if _conversations.get(conv.conversation_id) is conv:
-            del _conversations[conv.conversation_id]
+        _forget_conversation(conv)

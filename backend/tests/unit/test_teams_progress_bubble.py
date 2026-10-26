@@ -37,6 +37,9 @@ class FakeTeams:
         self.network_failures = 0
         # Requests Teams answers with 503 (busy).
         self.busy_responses = 0
+        # What happens to the next reply finals: a status code, or an
+        # httpx exception class raised instead of an answer.
+        self.final_failures = []
 
     async def async_handler(self, request: httpx.Request) -> httpx.Response:
         if self.gate is not None and "oauth2" not in request.url.path:
@@ -44,6 +47,14 @@ class FakeTeams:
         if self.network_failures and "oauth2" not in request.url.path:
             self.network_failures -= 1
             raise httpx.ConnectError("network down")
+        if self.final_failures and "oauth2" not in request.url.path:
+            activity = json.loads(request.content)
+            if _is_reply_final(activity):
+                failure = self.final_failures.pop(0)
+                self.activities.append(activity)
+                if isinstance(failure, type):
+                    raise failure("teams trouble")
+                return httpx.Response(failure, json={"error": {"code": "BadArgument"}})
         if self.busy_responses and "oauth2" not in request.url.path:
             self.busy_responses -= 1
             return httpx.Response(503, json={"error": {"code": "ServiceUnavailable"}})
@@ -78,6 +89,13 @@ class FakeTeams:
     def opens(self):
         return [a for a in self.activities
                 if a["type"] == "typing" and "streamId" not in (_stream_info(a) or {"streamId": 1})]
+
+
+def _is_reply_final(activity):
+    """A stream final carrying a reply (not one of our own status lines)."""
+    info = _stream_info(activity) or {}
+    status_lines = {line for strings in STRINGS.values() for line in strings.values()}
+    return info.get("streamType") == "final" and activity.get("text") not in status_lines
 
 
 def _stream_info(activity):
@@ -208,10 +226,7 @@ async def test_question_opens_bubble_and_tool_lines_update_it_in_place(teams):
 
 @pytest.mark.asyncio
 async def test_status_lines_fall_back_to_the_org_language(teams):
-    async def org_locale():
-        return "es"
-
-    await teams_stream.start_run(_adapter(), CONV, "How many sales?", org_locale)
+    await teams_stream.start_run(_adapter(), CONV, "How many sales?", "es")
 
     assert [a["text"] for a in teams.opens()] == [STRINGS["es"]["working"]]
 
@@ -219,15 +234,8 @@ async def test_status_lines_fall_back_to_the_org_language(teams):
 @pytest.mark.asyncio
 async def test_a_reply_that_beats_the_first_bubble_is_not_followed_by_one(teams):
     adapter = _adapter()
-    locale_ready = asyncio.Event()
-
-    async def slow_org_locale():
-        await locale_ready.wait()
-        return None
-
-    opening = teams_stream.start_run(adapter, CONV, "How many sales?", slow_org_locale)
+    opening = teams_stream.start_run(adapter, CONV, "How many sales?")
     assert await adapter.send_dm_in_thread("user-1", "Sales grew 12%.", CONV, channel_id=CONV)
-    locale_ready.set()
     await opening
 
     assert teams.opens() == []
@@ -326,6 +334,145 @@ async def test_a_passing_failure_does_not_switch_the_bubble_off(teams, failure):
 
 
 @pytest.mark.asyncio
+async def test_bubbles_stop_for_good_after_the_hard_cap(teams, monkeypatch):
+    monkeypatch.setattr(teams_stream, "STREAM_MAX_SECONDS", 0.0)
+    monkeypatch.setattr(teams_stream, "MAX_RUN_SECONDS", 0.0)
+    await teams_stream.start_run(_adapter(), CONV, "How many sales?")
+    first_timer = teams_stream._conversations[CONV].expiry
+    await first_timer
+
+    # The bubble closes with its line, no new one opens, the chat is dropped.
+    assert [f["text"] for f in teams.finals()] == [STRINGS["en"]["working"]]
+    assert len(teams.opens()) == 1
+    assert CONV not in teams_stream._conversations
+    assert teams_stream.notify_tool_started(CONV, "run-1", "create_data") is None
+
+
+@pytest.mark.asyncio
+async def test_a_new_question_gets_its_own_bubble_below_it(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "first?")
+    await teams_stream.notify_tool_started(CONV, "run-1", "create_data")
+    await teams_stream.start_run(adapter, CONV, "second?")
+
+    # The first question's bubble keeps its line; the second gets a new one.
+    assert [f["text"] for f in teams.finals()] == [STRINGS["en"]["query"]]
+    assert [o["text"] for o in teams.opens()] == [STRINGS["en"]["working"]] * 2
+    assert "streamId" not in _stream_info(teams.opens()[1])
+
+
+@pytest.mark.asyncio
+async def test_back_to_back_questions_still_get_a_bubble(teams):
+    adapter = _adapter()
+    first = teams_stream.start_run(adapter, CONV, "first?")
+    second = teams_stream.start_run(adapter, CONV, "second?")
+    await asyncio.gather(first, second)
+
+    assert len(teams.opens()) == 1
+    assert teams_stream._conversations[CONV].stream_id is not None
+
+
+@pytest.mark.asyncio
+async def test_reply_with_unknown_delivery_is_not_sent_twice(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "How many sales?")
+    teams.final_failures = [httpx.ReadTimeout]   # sent, but the answer never came back
+
+    assert not await adapter.send_dm_in_thread("user-1", "Sales grew 12%.", CONV, channel_id=CONV)
+
+    replies = [a for a in teams.activities if a.get("text") == "Sales grew 12%."]
+    assert len(replies) == 1
+
+
+@pytest.mark.asyncio
+async def test_reply_that_never_reached_teams_is_sent_again(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "How many sales?")
+    teams.network_failures = 1                   # the final never leaves this server
+
+    assert await adapter.send_dm_in_thread("user-1", "Sales grew 12%.", CONV, channel_id=CONV)
+
+    assert [m["text"] for m in teams.plain_messages()] == ["Sales grew 12%."]
+
+
+@pytest.mark.asyncio
+async def test_rejected_reply_closes_the_bubble_then_goes_out_on_its_own(teams, tmp_path):
+    adapter = _adapter()
+    chart = tmp_path / "chart.png"
+    chart.write_bytes(b"\x89PNG fake")
+    await teams_stream.start_run(adapter, CONV, "How many sales?")
+    teams.final_failures = [400]                 # Teams refuses the file as a stream final
+
+    assert await adapter.send_file_in_thread("user-1", str(chart), "Sales by month", CONV, channel_id=CONV)
+
+    # The bubble is closed with its own line, and the file goes out plain.
+    assert STRINGS["en"]["working"] in [f["text"] for f in teams.finals()]
+    assert [m["text"] for m in teams.plain_messages()] == ["Sales by month"]
+
+
+@pytest.mark.asyncio
+async def test_stop_noticed_on_a_reply_stops_the_run(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "How many sales?")
+    await teams_stream.notify_tool_started(CONV, "run-1", "create_data")
+    teams.stream_errors["s1"] = (403, "Content stream was canceled by user.")
+
+    with patch(
+        "app.services.completion_service.CompletionService.update_completion_sigkill",
+        new=AsyncMock(),
+    ) as sigkill:
+        sent = await adapter.send_dm_in_thread("user-1", "Sales grew 12%.", CONV, channel_id=CONV)
+        await _settle()
+
+    assert sent is False
+    assert [c.args[1] for c in sigkill.await_args_list] == ["run-1"]
+    assert teams.plain_messages() == []          # the stopped reply is discarded
+    assert teams_stream.notify_tool_started(CONV, "run-1", "create_data") is None
+
+
+@pytest.mark.asyncio
+async def test_stop_noticed_on_the_handover_stops_the_run(teams, monkeypatch):
+    monkeypatch.setattr(teams_stream, "STREAM_MAX_SECONDS", 0.0)
+    await teams_stream.start_run(_adapter(), CONV, "How many sales?")
+    conv = teams_stream._conversations[CONV]
+    conv.run_ids.add("run-1")
+    first_timer = conv.expiry
+    monkeypatch.setattr(teams_stream, "STREAM_MAX_SECONDS", 1000.0)
+    teams.stream_errors["s1"] = (403, "Content stream was canceled by user.")
+
+    with patch(
+        "app.services.completion_service.CompletionService.update_completion_sigkill",
+        new=AsyncMock(),
+    ) as sigkill:
+        await first_timer
+        await _settle()
+
+    assert [c.args[1] for c in sigkill.await_args_list] == ["run-1"]
+    assert len(teams.opens()) == 1               # no fresh bubble after Stop
+
+
+@pytest.mark.asyncio
+async def test_stop_leaves_finished_runs_alone(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "first?")
+    await teams_stream.notify_tool_started(CONV, "run-1", "create_data")
+    await teams_stream.start_run(adapter, CONV, "second?")
+    await teams_stream.end_run(CONV, "run-1")    # the first question is done
+    await teams_stream.notify_tool_started(CONV, "run-2", "create_data")
+    stream_id = teams_stream._conversations[CONV].stream_id
+    teams.stream_errors[stream_id] = (403, "Content stream was canceled by user.")
+
+    with patch(
+        "app.services.completion_service.CompletionService.update_completion_sigkill",
+        new=AsyncMock(),
+    ) as sigkill:
+        await teams_stream.notify_tool_started(CONV, "run-2", "describe_tables")
+        await _settle()
+
+    assert [c.args[1] for c in sigkill.await_args_list] == ["run-2"]
+
+
+@pytest.mark.asyncio
 async def test_stop_button_stops_the_run_and_the_bubble(teams):
     adapter = _adapter()
     await teams_stream.start_run(adapter, CONV, "How many sales?")
@@ -393,7 +540,9 @@ async def test_a_new_question_clears_an_earlier_failure(teams):
     await teams_stream.end_run(CONV, "run-2")
     await teams_stream.end_run(CONV, "run-3")
 
-    assert [f["text"] for f in teams.finals()] == [STRINGS["en"]["done"]]
+    closing_lines = [f["text"] for f in teams.finals()]
+    assert closing_lines[-1] == STRINGS["en"]["done"]
+    assert STRINGS["en"]["failed"] not in closing_lines
 
 
 @pytest.mark.asyncio
@@ -406,8 +555,10 @@ async def test_a_run_reported_ended_twice_counts_once(teams):
     await teams_stream.end_run(CONV, "run-1", failed=True)
     await teams_stream.end_run(CONV, "run-1", failed=True)
 
-    assert teams.finals() == []              # the second question still owns the bubble
-    assert CONV in teams_stream._conversations
+    # The second question still owns its bubble: nothing says Done/failed.
+    assert STRINGS["en"]["done"] not in [f["text"] for f in teams.finals()]
+    assert STRINGS["en"]["failed"] not in [f["text"] for f in teams.finals()]
+    assert teams_stream._conversations[CONV].stream_id is not None
 
 
 @pytest.mark.asyncio
@@ -418,10 +569,11 @@ async def test_run_end_keeps_the_bubble_while_another_question_is_running(teams)
 
     await teams_stream.end_run(CONV)
 
-    assert teams.finals() == []
-    assert len(teams.opens()) == 1           # the second question shared the bubble
+    # Only the hand-over from the first question's bubble, no "Done.".
+    assert [f["text"] for f in teams.finals()] == [STRINGS["en"]["working"]]
     await teams_stream.notify_tool_started(CONV, "run-2", "create_data")
     assert teams.activities[-1]["text"] == STRINGS["en"]["query"]
+    assert _stream_info(teams.activities[-1])["streamId"] == "s2"
 
 
 @pytest.mark.asyncio

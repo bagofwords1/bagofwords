@@ -202,7 +202,7 @@ def _bus_event(event_name: str, target) -> dict:
     return data
 
 
-_RUN_ENDED_STATUSES = ("success", "error", "stopped", "cancelled", "sigkill", "waiting")
+_RUN_ENDED_STATUSES = ("success", "error", "stopped", "cancelled")
 
 
 def after_insert_completion(mapper, connection, target):
@@ -228,8 +228,9 @@ def after_update_completion(mapper, connection, target):
             from app.models.completion_block import send_completion_blocks_to_slack
             spawn(send_completion_blocks_to_slack(str(target.id)))
 
-        # Teams 1:1 progress bubble: the run just stopped working (finished,
-        # failed, stopped or parked on a wait) — let it close the bubble.
+        # Teams 1:1 progress bubble: the run just finished, failed or was
+        # stopped — let it close the bubble. (The run's own finally in
+        # completion_service reports it too; end_run counts each run once.)
         if (target.external_platform == "teams" and
             target.role == "system" and
             target.status in _RUN_ENDED_STATUSES and

@@ -381,30 +381,16 @@ class ExternalPlatformManager:
         return value
 
     @staticmethod
-    async def _load_org_locale(organization_id: str) -> Optional[str]:
-        """The org's configured locale, or None when unset/unreadable.
-
-        Opens its own session: it runs in the background after the webhook
-        has returned (the Teams progress bubble must not delay the run).
-        """
-        from app.models.organization_settings import OrganizationSettings
-        from app.settings.config import settings as app_settings
-        from app.settings.database import create_async_session_factory
-        from sqlalchemy import select
-
+    def _org_locale(organization) -> Optional[str]:
+        """The org's configured locale, or None. Reads the already-loaded
+        settings, so it adds nothing to the message's response time."""
+        from app.dependencies import _locale_from_org
         try:
-            async with create_async_session_factory()() as db:
-                result = await db.execute(
-                    select(OrganizationSettings)
-                    .filter(OrganizationSettings.organization_id == organization_id)
-                )
-                org_settings = result.scalar_one_or_none()
-                locale = org_settings.get_config("locale") if org_settings else None
+            return _locale_from_org(organization)
         except Exception:
             # Only picks the progress bubble's language — never let it break
             # message handling.
             return None
-        return locale if locale in app_settings.bow_config.i18n.enabled_locales else None
 
     async def _find_recent_platform_report(
         self,
@@ -819,10 +805,8 @@ class ExternalPlatformManager:
         teams_bubble = platform_type == "teams" and channel_type == "personal"
         if teams_bubble:
             from app.services.platform_adapters import teams_stream
-            org_id = organization.id
             teams_stream.start_run(
-                adapter, channel_id, message_text,
-                lambda: self._load_org_locale(org_id),
+                adapter, channel_id, message_text, self._org_locale(organization),
             )
 
         # Create completion with thread context (background=True to avoid blocking the webhook)

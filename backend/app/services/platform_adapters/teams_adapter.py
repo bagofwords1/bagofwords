@@ -6,6 +6,7 @@ import jwt
 from typing import Dict, Any, Optional
 from .base_adapter import PlatformAdapter
 from . import teams_stream
+from .teams_stream import DELIVERY_UNKNOWN_STATUS
 from app.settings.config import settings
 
 
@@ -268,7 +269,13 @@ class TeamsAdapter(PlatformAdapter):
         }
 
     async def post_activity(self, conversation_id: str, activity: Dict[str, Any]) -> Optional[httpx.Response]:
-        """POST one activity to the Bot Connector; None when it never got there."""
+        """POST one activity to the Bot Connector.
+
+        None when the request never reached Teams (no token, connection
+        failed). A response with status DELIVERY_UNKNOWN_STATUS when it was
+        sent but the answer never came back (read timeout, dropped
+        connection): Teams may have accepted it, so callers must not resend.
+        """
         try:
             token = await self._get_access_token()
             if not token:
@@ -292,12 +299,13 @@ class TeamsAdapter(PlatformAdapter):
                 print(f"TEAMS: API error: {response.status_code} - {response.text}")
             return response
 
-        except httpx.ConnectTimeout:
-            print("TEAMS: API connection timeout")
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as e:
+            print(f"TEAMS: API not reached: {e!r}")
             return None
-        except httpx.ReadTimeout:
-            print("TEAMS: API read timeout")
-            return None
+        except httpx.TransportError as e:
+            # Sent, but no answer: delivery unknown.
+            print(f"TEAMS: API answer lost: {e!r}")
+            return httpx.Response(DELIVERY_UNKNOWN_STATUS)
         except Exception as e:
             print(f"TEAMS: Error sending activity: {e!r}")
             return None
@@ -499,10 +507,6 @@ class TeamsAdapter(PlatformAdapter):
             return False
 
         try:
-            token = await self._get_access_token()
-            if not token:
-                return False
-
             if not channel_id:
                 channel_id = await self._create_conversation(user_id)
                 if not channel_id:
