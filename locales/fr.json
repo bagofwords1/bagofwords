@@ -3185,6 +3185,30 @@
         "likeRequired": "Indiquez le modèle auquel il ressemble",
         "customRequired": "Le mode personnalisé nécessite des champs pour au moins un niveau",
         "saveFailed": "Impossible d'enregistrer les paramètres de raisonnement"
+      },
+      "groupDefaults": {
+        "title": "Modèles par défaut des groupes",
+        "subtitle": "Les membres utilisent le modèle par défaut de leur groupe au lieu de celui de l'organisation. Le modèle par défaut d'un groupe reste toujours utilisable par ses membres, même si le modèle est restreint.",
+        "colGroup": "Groupe",
+        "colDefault": "Modèle par défaut",
+        "colSmall": "Petit modèle",
+        "colPriority": "Priorité",
+        "priorityTooltip": "Si un membre appartient à plusieurs groupes, le groupe avec le plus petit nombre l'emporte.",
+        "inherit": "Défaut de l'organisation",
+        "empty": "Aucun groupe pour l'instant. Créez des groupes dans Membres pour donner à chacun son propre modèle par défaut.",
+        "saved": "Modèles par défaut du groupe mis à jour",
+        "saveFailed": "Impossible de mettre à jour les modèles par défaut du groupe",
+        "coverageTitle": "Membres sans modèle par défaut : {count}",
+        "coverageHint": "Ils ne peuvent pas utiliser le modèle par défaut de l'organisation et aucun de leurs groupes n'en a, ils reçoivent donc le premier modèle autorisé.",
+        "fallsBackTo": "utilise {model} en repli",
+        "noModel": "aucun modèle disponible",
+        "andMore": "et {count} de plus",
+        "badge": "Défaut de {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "C'est le modèle par défaut de l'organisation. Les membres absents de la liste ci-dessous utilisent le modèle par défaut de leur groupe.",
+        "defaultForGroups": "Par défaut pour les groupes",
+        "defaultForGroupsHint": "Les membres de ces groupes peuvent toujours utiliser ce modèle."
       }
     },
     "licensePage": {
@@ -3924,7 +3948,9 @@
     "llm": {
       "model_id_required": "L'ID du modèle ne peut pas être vide",
       "model_id_not_editable": "Seuls les modèles personnalisés sur les fournisseurs Azure, AWS Bedrock ou personnalisés (compatibles OpenAI) peuvent voir leur ID de modèle modifié",
-      "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur"
+      "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur",
+      "model_is_group_default": "Ce modèle est le modèle par défaut des groupes : {groups}. Modifiez d'abord leur modèle par défaut.",
+      "group_default_invalid": "Le modèle doit être activé et être un modèle de chat de cette organisation."
     },
     "data_source.in_use": "L'agent « {agent} » est encore utilisé ({reference}) ; il ne peut donc pas être supprimé. Rien n'a été supprimé.",
     "memory.disabled": "La mémoire utilisateur est désactivée dans cette organisation.",
@@ -5106,7 +5132,8 @@
       "checkinsTitle": "Suivis de l'agent",
       "checkinsSubtitle": "Permet à l'agent de revenir de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par exemple après une actualisation des données). Il ne vous notifie que lorsque quelque chose d'important a changé.",
       "checkinsSaved": "Préférence de suivi enregistrée",
-      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi"
+      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi",
+      "groupDefault": "Défaut du groupe ({group})"
     },
     "instructions": {
       "title": "Instructions personnalisées",

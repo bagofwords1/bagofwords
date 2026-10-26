@@ -473,3 +473,54 @@ async def remove_model_access(
 ):
     """Revoke a model access grant."""
     return await llm_service.remove_model_access(db, organization, current_user, model_id, grant_id)
+
+
+# ── Group-level default models (EE llm_access_control) ──────────────────────
+
+class GroupLLMDefaultsUpdate(BaseModel):
+    default_llm_model_id: Optional[str] = None
+    small_default_llm_model_id: Optional[str] = None
+    default_llm_priority: Optional[int] = None
+
+
+@router.get("/llm/group-defaults")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def list_group_llm_defaults(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Every group with its default / small default model and priority."""
+    return await llm_service.list_group_defaults(db, organization, current_user)
+
+
+@router.put("/llm/group-defaults/{group_id}")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def set_group_llm_defaults(
+    group_id: str,
+    payload: GroupLLMDefaultsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a group's default models. Only the fields sent are changed; send a
+    model id as null to clear it (the group then inherits the org default).
+    A group's default is usable by its members even when restricted."""
+    return await llm_service.set_group_defaults(
+        db, organization, current_user, group_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@router.get("/llm/default-coverage")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def get_llm_default_coverage(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Members who inherit no group or org default (e.g. the org default is
+    restricted and none of their groups has a default)."""
+    return await llm_service.get_default_coverage(db, organization, current_user)

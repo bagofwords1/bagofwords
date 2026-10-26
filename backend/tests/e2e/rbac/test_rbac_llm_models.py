@@ -233,10 +233,16 @@ def test_list_by_principal_member_denied(enterprise_license, test_client, cast, 
 
 
 @pytest.mark.e2e
-def test_cannot_restrict_default_model(enterprise_license, test_client, cast):
+def test_restricted_default_model_is_restricted(enterprise_license, test_client, cast):
+    """The org default can be restricted (so some groups can be kept off it);
+    members without access no longer see it, admins still do."""
     default = next(m for m in cast["models"] if m["is_default"])
     r = _restrict(test_client, cast["admin"]["token"], cast["org_id"], default["id"], True)
-    assert r.status_code == 400
+    assert r.status_code == 200, r.json()
+    member_ids = {m["id"] for m in _list_models(test_client, cast["member"]["token"], cast["org_id"])}
+    assert default["id"] not in member_ids
+    admin_ids = {m["id"] for m in _list_models(test_client, cast["admin"]["token"], cast["org_id"])}
+    assert default["id"] in admin_ids
 
 
 @pytest.mark.e2e
@@ -294,7 +300,7 @@ def test_get_model_by_id_enforces_access(enterprise_license, test_client, cast):
             # Admin allowed (full_admin_access bypass).
             assert await svc.get_model_by_id(db, organization, admin, mid) is not None
 
-            # Member still allowed on the default model (defaults always open).
+            # Member still allowed on the (unrestricted) default model.
             assert await svc.get_model_by_id(db, organization, member, default_id) is not None
 
     _run(_check())

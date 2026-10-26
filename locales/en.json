@@ -3535,6 +3535,30 @@
         "likeRequired": "Enter the model this one behaves like",
         "customRequired": "Custom mode needs raw fields for at least one level",
         "saveFailed": "Could not save reasoning settings"
+      },
+      "groupDefaults": {
+        "title": "Group default models",
+        "subtitle": "Members get their group's default instead of the organization default. A group's default is always usable by its members, even when the model is restricted.",
+        "colGroup": "Group",
+        "colDefault": "Default model",
+        "colSmall": "Small model",
+        "colPriority": "Priority",
+        "priorityTooltip": "When a member is in several groups, the group with the lowest number wins.",
+        "inherit": "Organization default",
+        "empty": "No groups yet. Create groups under Members to give each one its own default model.",
+        "saved": "Group defaults updated",
+        "saveFailed": "Could not update group defaults",
+        "coverageTitle": "Members without a default model: {count}",
+        "coverageHint": "They can't use the organization default and none of their groups has a default, so they get the first model they're allowed to use.",
+        "fallsBackTo": "falls back to {model}",
+        "noModel": "no model available",
+        "andMore": "and {count} more",
+        "badge": "{group} default"
+      },
+      "access": {
+        "restrictedDefaultHint": "This is the organization default. Members not listed below get their group's default instead.",
+        "defaultForGroups": "Default for groups",
+        "defaultForGroupsHint": "Members of these groups can always use this model."
       }
     },
     "licensePage": {
@@ -4252,7 +4276,9 @@
     "llm": {
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
-      "model_id_duplicate": "Model '{model_id}' already exists on this provider"
+      "model_id_duplicate": "Model '{model_id}' already exists on this provider",
+      "model_is_group_default": "This model is the default for group(s): {groups}. Change their default first.",
+      "group_default_invalid": "The model must be enabled and be a chat model in this organization."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",
@@ -5475,7 +5501,8 @@
       "checkinsTitle": "Agent follow-ups",
       "checkinsSubtitle": "Let the agent check back on its own after a conversation when something is worth revisiting (for example after a data refresh). It notifies you only when something meaningful changed.",
       "checkinsSaved": "Follow-up preference saved",
-      "checkinsFailed": "Could not save your follow-up preference"
+      "checkinsFailed": "Could not save your follow-up preference",
+      "groupDefault": "Group default ({group})"
     },
     "instructions": {
       "title": "Custom Instructions",

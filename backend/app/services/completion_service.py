@@ -578,7 +578,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
             org_settings = await organization.get_settings(db)
 
@@ -810,7 +810,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
 
             span.set_attribute("llm.model_id", model.model_id)
@@ -2403,7 +2403,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
             _log("model_resolved")
             _log("small_model_resolved")
@@ -3475,7 +3475,7 @@ class CompletionService:
         if not model:
             raise HTTPException(
                 status_code=400,
-                detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
             )
 
         prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}

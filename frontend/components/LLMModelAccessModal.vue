@@ -16,20 +16,40 @@
                 <div>
                     <div class="text-sm font-medium text-gray-900 dark:text-white">Restricted access</div>
                     <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        <template v-if="isDefaultModel">Default models are available to all members and cannot be restricted.</template>
-                        <template v-else-if="access.is_restricted">Only the users, groups and roles below can use this model.</template>
+                        <template v-if="access.is_restricted">Only the users, groups and roles below can use this model.</template>
                         <template v-else>This model is available to all members.</template>
                     </div>
+                    <div
+                        v-if="isDefaultModel && access.is_restricted"
+                        class="text-xs text-amber-700 dark:text-amber-400 mt-1"
+                        data-testid="llm-access-restricted-default-hint"
+                    >{{ $t('settings.llms.access.restrictedDefaultHint') }}</div>
                 </div>
                 <UToggle
                     data-testid="llm-access-restricted-toggle"
                     v-model="access.is_restricted"
-                    :disabled="isDefaultModel || savingRestricted"
+                    :disabled="savingRestricted"
                     @update:model-value="onToggleRestricted"
                 />
             </div>
 
-            <div v-if="access.is_restricted && !isDefaultModel">
+            <!-- Groups whose members get this model as their default (and so can use it) -->
+            <div v-if="access.default_for_groups.length > 0" class="mb-4" data-testid="llm-access-default-for-groups">
+                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5">{{ $t('settings.llms.access.defaultForGroups') }}</div>
+                <div class="flex flex-wrap gap-1.5">
+                    <span
+                        v-for="g in access.default_for_groups"
+                        :key="g.group_id"
+                        class="inline-flex items-center gap-1 text-xs bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300 px-1.5 py-0.5 rounded-md"
+                    >
+                        <UIcon name="i-heroicons-user-group" class="w-3.5 h-3.5" />
+                        {{ g.group_name }}
+                    </span>
+                </div>
+                <p class="text-[11px] text-gray-400 mt-1">{{ $t('settings.llms.access.defaultForGroupsHint') }}</p>
+            </div>
+
+            <div v-if="access.is_restricted">
                 <!-- Members list -->
                 <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Who can use this model</div>
                 <div v-if="access.members.length === 0" class="text-sm text-gray-400 dark:text-gray-500 py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-md mb-3">
@@ -99,8 +119,9 @@ const isOpen = computed({
 });
 
 type Member = { grant_id: string; principal_type: string; principal_id: string; principal_name?: string };
-const access = ref<{ is_restricted: boolean; is_default: boolean; is_small_default: boolean; members: Member[] }>({
-    is_restricted: false, is_default: false, is_small_default: false, members: [],
+type GroupDefault = { group_id: string; group_name: string; is_default: boolean; is_small_default: boolean };
+const access = ref<{ is_restricted: boolean; is_default: boolean; is_small_default: boolean; members: Member[]; default_for_groups: GroupDefault[] }>({
+    is_restricted: false, is_default: false, is_small_default: false, members: [], default_for_groups: [],
 });
 
 const isDefaultModel = computed(() => !!props.model?.is_default || !!props.model?.is_small_default || access.value.is_default || access.value.is_small_default);
@@ -138,7 +159,7 @@ function principalIcon(t: string) {
 
 async function loadAccess() {
     const { data } = await useMyFetch(`/llm/models/${props.model.id}/access`, { method: 'GET' });
-    if (data.value) access.value = data.value as any;
+    if (data.value) access.value = { default_for_groups: [], ...(data.value as any) };
 }
 
 async function loadCandidates() {

@@ -3185,6 +3185,30 @@
         "likeRequired": "Ange modellen den beter sig som",
         "customRequired": "Anpassat läge kräver fält för minst en nivå",
         "saveFailed": "Det gick inte att spara resonemangsinställningarna"
+      },
+      "groupDefaults": {
+        "title": "Standardmodeller för grupper",
+        "subtitle": "Medlemmar får sin grupps standardmodell i stället för organisationens. En grupps standardmodell kan alltid användas av gruppens medlemmar, även när modellen är begränsad.",
+        "colGroup": "Grupp",
+        "colDefault": "Standardmodell",
+        "colSmall": "Liten modell",
+        "colPriority": "Prioritet",
+        "priorityTooltip": "När en medlem tillhör flera grupper vinner gruppen med lägst nummer.",
+        "inherit": "Organisationens standard",
+        "empty": "Inga grupper ännu. Skapa grupper under Medlemmar för att ge varje grupp en egen standardmodell.",
+        "saved": "Gruppens standardmodeller uppdaterades",
+        "saveFailed": "Det gick inte att uppdatera gruppens standardmodeller",
+        "coverageTitle": "Medlemmar utan standardmodell: {count}",
+        "coverageHint": "De kan inte använda organisationens standardmodell och ingen av deras grupper har någon, så de får den första modell de har behörighet till.",
+        "fallsBackTo": "faller tillbaka på {model}",
+        "noModel": "ingen modell tillgänglig",
+        "andMore": "och {count} till",
+        "badge": "Standard för {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "Det här är organisationens standardmodell. Medlemmar som inte finns i listan nedan får sin grupps standardmodell i stället.",
+        "defaultForGroups": "Standard för grupper",
+        "defaultForGroupsHint": "Medlemmar i de här grupperna kan alltid använda modellen."
       }
     },
     "licensePage": {
@@ -3924,7 +3948,9 @@
     "llm": {
       "model_id_required": "Modell-ID:t får inte vara tomt",
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
-      "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
+      "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören",
+      "model_is_group_default": "Modellen är standardmodell för grupperna: {groups}. Ändra deras standardmodell först.",
+      "group_default_invalid": "Modellen måste vara aktiverad och vara en chattmodell i den här organisationen."
     },
     "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
     "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
@@ -5106,7 +5132,8 @@
       "checkinsTitle": "Agentens uppföljningar",
       "checkinsSubtitle": "Låter agenten återkomma på egen hand efter en konversation när något är värt att titta på igen (till exempel efter en datauppdatering). Den aviserar dig bara när något väsentligt har ändrats.",
       "checkinsSaved": "Uppföljningsinställningen sparades",
-      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning"
+      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning",
+      "groupDefault": "Gruppens standard ({group})"
     },
     "instructions": {
       "title": "Anpassade instruktioner",
