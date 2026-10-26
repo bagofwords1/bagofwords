@@ -5976,6 +5976,7 @@
       "cancel": "Abbrechen",
       "bodyYou": "Sie haben v{live} {when} veröffentlicht. v{n} enthält diese Änderungen nicht; beim Veröffentlichen verschwinden sie für Leser.",
       "bodyOther": "{name} hat v{live} {when} veröffentlicht. v{n} enthält diese Änderungen nicht; beim Veröffentlichen werden sie für Leser ersetzt.",
+      "bodyRestored": "v{live} wurde wiederhergestellt. v{n} enthält noch die Änderungen aus v{back}, die zurückgenommen wurden – wenn du es veröffentlichst, sehen Leser sie wieder.",
       "openLive": "v{n} öffnen",
       "publishNAnyway": "v{n} trotzdem veröffentlichen"
     },
@@ -6156,6 +6157,7 @@
       "changedBy": "Zuletzt geändert von {name} · {when} · v{n}",
       "changedByShort": "Geändert von {name} · {when}",
       "publishedSince": "{name} hat {when} veröffentlicht – diese Version enthält das nicht",
+      "restoredSince": "v{live} wurde wiederhergestellt – diese Version enthält noch v{back}, das zurückgenommen wurde",
       "agentEditingChart": "Agent von {name}: bearbeitet",
       "group": {
         "added": "Hinzugefügt",

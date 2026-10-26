@@ -5976,6 +5976,7 @@
       "cancel": "Avbryt",
       "bodyYou": "Du publicerade v{live} {when}. v{n} innehåller inte de ändringarna, så om du publicerar den försvinner de för läsarna.",
       "bodyOther": "{name} publicerade v{live} {when}. v{n} innehåller inte deras ändringar, så om du publicerar den ersätts de för läsarna.",
+      "bodyRestored": "v{live} återställdes. v{n} innehåller fortfarande ändringarna från v{back}, som rullades tillbaka – publicerar du den ser läsarna dem igen.",
       "openLive": "Öppna v{n}",
       "publishNAnyway": "Publicera v{n} ändå"
     },
@@ -6156,6 +6157,7 @@
       "changedBy": "Senast ändrad av {name} · {when} · v{n}",
       "changedByShort": "Ändrad av {name} · {when}",
       "publishedSince": "{name} publicerade {when} — den här versionen innehåller inte det",
+      "restoredSince": "v{live} återställdes – den här versionen innehåller fortfarande v{back}, som rullades tillbaka",
       "agentEditingChart": "{name}s agent: redigerar",
       "group": {
         "added": "Tillagda",

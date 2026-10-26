@@ -6352,6 +6352,7 @@
       "cancel": "Cancel",
       "bodyYou": "You published v{live} {when}. v{n} doesn't include those changes, so publishing it takes them away from viewers.",
       "bodyOther": "{name} published v{live} {when}. v{n} doesn't include their changes, so publishing it replaces them for viewers.",
+      "bodyRestored": "v{live} was restored. v{n} still includes the changes from v{back}, which were rolled back — publishing it brings them back for viewers.",
       "openLive": "Open v{n}",
       "publishNAnyway": "Publish v{n} anyway"
     },
@@ -6532,6 +6533,7 @@
       "changedBy": "Last changed by {name} · {when} · v{n}",
       "changedByShort": "Changed by {name} · {when}",
       "publishedSince": "{name} published {when} — this version doesn't include it",
+      "restoredSince": "v{live} was restored — this version still includes v{back}, which was rolled back",
       "agentEditingChart": "{name}'s agent: editing",
       "group": {
         "added": "Added",

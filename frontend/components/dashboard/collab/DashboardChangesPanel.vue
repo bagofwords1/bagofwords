@@ -20,7 +20,11 @@
                 class="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 px-3 py-2"
                 data-testid="changes-published-since">
                 <Icon name="heroicons:exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{{ $t('dashboardCollab.page.publishedSince', {
+                <span v-if="changes.published_since.restored">{{ $t('dashboardCollab.page.restoredSince', {
+                    live: changes.published_since.live_version,
+                    back: changes.published_since.rolled_back_version,
+                }) }}</span>
+                <span v-else>{{ $t('dashboardCollab.page.publishedSince', {
                     name: changes.published_since.by?.name || $t('dashboardCollab.page.someone'),
                     when: changes.published_since.at ? relativeTime(changes.published_since.at) : '',
                 }) }}</span>

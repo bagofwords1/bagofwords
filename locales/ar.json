@@ -5976,6 +5976,7 @@
       "cancel": "إلغاء",
       "bodyYou": "نشرت v{live} {when}. لا تتضمن v{n} تلك التغييرات، لذا سيؤدي نشرها إلى إزالتها عن القراء.",
       "bodyOther": "نشر {name} v{live} {when}. لا تتضمن v{n} تغييراته، لذا سيؤدي نشرها إلى استبدالها لدى القراء.",
+      "bodyRestored": "تمت استعادة الإصدار v{live}. لا يزال v{n} يتضمن تغييرات v{back} التي تم التراجع عنها، ونشره يعيدها للقراء.",
       "openLive": "فتح v{n}",
       "publishNAnyway": "نشر v{n} على أي حال"
     },
@@ -6156,6 +6157,7 @@
       "changedBy": "آخر تغيير بواسطة {name} · {when} · v{n}",
       "changedByShort": "غيّره {name} · {when}",
       "publishedSince": "نشر {name} {when} — هذا الإصدار لا يتضمن ذلك",
+      "restoredSince": "تمت استعادة v{live} — لا يزال هذا الإصدار يتضمن v{back} الذي تم التراجع عنه",
       "agentEditingChart": "وكيل {name}: يحرّر",
       "group": {
         "added": "مُضاف",

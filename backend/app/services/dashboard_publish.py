@@ -296,7 +296,8 @@ async def _refuse_failed_charts(db, version: ArtifactVersion) -> None:
 
 
 async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:
-    """409 when someone published since `version`'s draft started (collab01)."""
+    """409 when someone published since `version`'s draft started (collab01),
+    or when it would bring back a release a Restore rolled back."""
     from app.services.dashboard_collab import published_since
 
     since = await published_since(db, artifact, version)
@@ -306,7 +307,8 @@ async def _refuse_if_published_since(db, artifact: Artifact, version) -> None:
             by=(since["by"] or {}).get("name"), by_id=(since["by"] or {}).get("id"),
             at=since["at"].isoformat() if since["at"] else None,
             live_version_id=since["live_version_id"], live_version=since["live_version"],
-            version=getattr(version, "version", None))
+            version=getattr(version, "version", None),
+            restored=bool(since.get("restored")), rolled_back_version=since.get("rolled_back_version"))
 
 
 async def _publish_target(db, artifact: Artifact, version_id: str | None):

@@ -65,15 +65,20 @@ const toast = useToast();
 const { getErrorMessage, getErrorCode } = useErrorMessage();
 const { relativeTime } = useRelativeTime();
 
-// The 409 "published since your draft started" (collab01).
+// The 409 "published since your draft started" (collab01) -- or "a Restore
+// rolled back what your version still builds on".
 const sinceOpen = ref(false);
-const since = ref<{ by?: string | null; byMe?: boolean; at?: string | null; liveVersionId?: string | null; liveVersion?: number | null } | null>(null);
+const since = ref<{ by?: string | null; byMe?: boolean; at?: string | null; liveVersionId?: string | null; liveVersion?: number | null;
+    restored?: boolean; rolledBack?: number | null } | null>(null);
 const sinceWhen = computed(() => (since.value?.at ? relativeTime(since.value.at) : ''));
 const { data: sessionUser } = useAuth();
 const sinceBody = computed(() => {
     const s = since.value;
     if (!s) return '';
     const n = openNumber.value;
+    if (s.restored && s.liveVersion != null && s.rolledBack != null && n != null) {
+        return t('dashboardCollab.publishSince.bodyRestored', { live: s.liveVersion, back: s.rolledBack, n });
+    }
     if (s.liveVersion == null || n == null) {
         return tm('dashboardCollab.publishSince.body', props.artifact?.mode, { name: s.by || t('dashboardCollab.publishSince.someone'), when: sinceWhen.value });
     }
@@ -157,6 +162,7 @@ async function publish(force = false) {
                 since.value = {
                     by: params.by || null, byMe: !!me && params.by_id === me, at: params.at || null,
                     liveVersionId: params.live_version_id || null, liveVersion: params.live_version ?? null,
+                    restored: !!params.restored, rolledBack: params.rolled_back_version ?? null,
                 };
                 sinceOpen.value = true;
                 return;

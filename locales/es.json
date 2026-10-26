@@ -6323,6 +6323,7 @@
       "cancel": "Cancelar",
       "bodyYou": "Publicaste v{live} {when}. v{n} no incluye esos cambios, así que al publicarla los lectores dejarán de verlos.",
       "bodyOther": "{name} publicó v{live} {when}. v{n} no incluye sus cambios, así que al publicarla los reemplazará para los lectores.",
+      "bodyRestored": "Se restauró v{live}. v{n} todavía incluye los cambios de v{back}, que se revirtieron; publicarla los devuelve a los lectores.",
       "openLive": "Abrir v{n}",
       "publishNAnyway": "Publicar v{n} de todos modos"
     },
@@ -6503,6 +6504,7 @@
       "changedBy": "Último cambio de {name} · {when} · v{n}",
       "changedByShort": "Cambiado por {name} · {when}",
       "publishedSince": "{name} publicó {when}: esta versión no lo incluye",
+      "restoredSince": "Se restauró v{live}: esta versión todavía incluye v{back}, que se revirtió",
       "agentEditingChart": "Agente de {name}: editando",
       "group": {
         "added": "Añadidos",

@@ -5976,6 +5976,7 @@
       "cancel": "Cancelar",
       "bodyYou": "Você publicou a v{live} {when}. A v{n} não inclui essas alterações, então publicá-la as remove para os leitores.",
       "bodyOther": "{name} publicou a v{live} {when}. A v{n} não inclui as alterações dessa pessoa, então publicá-la as substitui para os leitores.",
+      "bodyRestored": "A v{live} foi restaurada. A v{n} ainda inclui as alterações da v{back}, que foram revertidas — publicá-la as traz de volta para os leitores.",
       "openLive": "Abrir v{n}",
       "publishNAnyway": "Publicar v{n} mesmo assim"
     },
@@ -6156,6 +6157,7 @@
       "changedBy": "Última alteração por {name} · {when} · v{n}",
       "changedByShort": "Alterado por {name} · {when}",
       "publishedSince": "{name} publicou {when} — esta versão não inclui isso",
+      "restoredSince": "A v{live} foi restaurada — esta versão ainda inclui a v{back}, que foi revertida",
       "agentEditingChart": "Agente de {name}: editando",
       "group": {
         "added": "Adicionados",

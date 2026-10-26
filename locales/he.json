@@ -6343,6 +6343,7 @@
       "cancel": "ביטול",
       "bodyYou": "פרסמת את v{live} {when}. v{n} לא כוללת את השינויים האלה, ופרסום שלה יסיר אותם מהצופים.",
       "bodyOther": "{name} פרסם/ה את v{live} {when}. v{n} לא כוללת את השינויים שלו/ה, ופרסום שלה יחליף אותם אצל הצופים.",
+      "bodyRestored": "v{live} שוחזרה. v{n} עדיין כוללת את השינויים של v{back}, שבוטלו — פרסום שלה יחזיר אותם לקוראים.",
       "openLive": "פתח את v{n}",
       "publishNAnyway": "פרסם את v{n} בכל זאת"
     },
@@ -6523,6 +6524,7 @@
       "changedBy": "שונה לאחרונה על ידי {name} · {when} · v{n}",
       "changedByShort": "שונה על ידי {name} · {when}",
       "publishedSince": "{name} פרסם/ה {when} — הגרסה הזו לא כוללת את זה",
+      "restoredSince": "v{live} שוחזרה — הגרסה הזו עדיין כוללת את v{back}, שבוטלה",
       "agentEditingChart": "הסוכן של {name}: עורך",
       "group": {
         "added": "נוספו",

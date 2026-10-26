@@ -274,18 +274,39 @@ async def lineage_ids(db, version: ArtifactVersion) -> list[str]:
 
 async def published_since(db, artifact: Artifact, version: ArtifactVersion) -> dict | None:
     """Who published, and when, a live release this version does not build
-    on -- None when the version grew from what is live (or nothing is)."""
+    on -- None when the version grew from what is live (or nothing is).
+
+    Or, after a Restore: a release published later than the live one (so
+    rolled back) that this version still builds on -- publishing it would
+    bring back what the restore undid. Then `restored`, with the version
+    rolled back."""
     from app.services.dashboard_access import published_release
 
     live = await published_release(db, artifact)
     if live is None or not live.source_version_id:
         return None
-    if str(live.source_version_id) in await lineage_ids(db, version):
-        return None
+    lineage = await lineage_ids(db, version)
+
+    async def number(version_id):
+        return (await db.execute(
+            select(ArtifactVersion.version).where(ArtifactVersion.id == str(version_id)))).scalar_one_or_none()
+
     # Which version is live, so the question can name it ("v4 is live; v3
-    # doesn't include it") -- and the person, who may be the asker.
-    live_number = (await db.execute(
-        select(ArtifactVersion.version).where(ArtifactVersion.id == str(live.source_version_id)))).scalar_one_or_none()
+    # doesn't include it").
+    live_number = await number(live.source_version_id)
+    if str(live.source_version_id) in lineage:
+        if live.published_at is None:
+            return None
+        rolled_back = [str(v) for (v,) in (await db.execute(select(ArtifactRelease.source_version_id).where(
+            ArtifactRelease.artifact_id == str(artifact.id), ArtifactRelease.status == "ready",
+            ArtifactRelease.published_at > live.published_at,
+            ArtifactRelease.source_version_id.in_(lineage)))).all() if v]
+        if not rolled_back:
+            return None
+        return {"by": None, "at": live.published_at, "release_id": str(live.id),
+                "live_version_id": str(live.source_version_id), "live_version": live_number,
+                "restored": True, "rolled_back_version": max([await number(v) or 0 for v in rolled_back])}
+    # And the person, who may be the asker.
     return {"by": await person(db, live.published_by), "at": live.published_at, "release_id": str(live.id),
             "live_version_id": str(live.source_version_id), "live_version": live_number}
 
@@ -951,8 +972,20 @@ async def rollback(db, artifact: Artifact, user, organization, release_id: str) 
     previous = str(locked.published_release_id) if locked.published_release_id else None
     if previous == str(release.id):
         return
+    # Its rows are as old as its own last run -- its last successful refresh
+    # (refhist01), else its publish -- not the release it replaces: the page
+    # says "refreshed" by it, and refresh-when-opened judges freshness by it.
+    from sqlalchemy import func
+
+    from app.models.dashboard_refresh_run import STATUS_SUCCESS, DashboardRefreshRun
+
+    refreshed = (await db.execute(select(func.max(DashboardRefreshRun.finished_at)).where(
+        DashboardRefreshRun.release_id == str(release.id), DashboardRefreshRun.status == STATUS_SUCCESS,
+    ))).scalar_one_or_none()
+    ran_at = max((t for t in (refreshed, release.published_at) if t is not None), default=None)
     await db.execute(update(Artifact).where(Artifact.id == str(artifact.id))
-                     .values(published_release_id=str(release.id)))
+                     .values(published_release_id=str(release.id), last_run_at=ran_at,
+                             last_run_status="success", last_run_error=None))
     await db.commit()
     await _audit(db, artifact, user, "dashboard.rolled_back", {"release_id": str(release.id), "from": previous})
 

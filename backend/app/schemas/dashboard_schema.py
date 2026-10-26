@@ -423,6 +423,10 @@ class DashboardPublishedSince(BaseModel):
     release_id: str | None = None
     live_version_id: str | None = None
     live_version: int | None = None
+    # A Restore made the live release live again; this version still builds
+    # on the later one it rolled back.
+    restored: bool = False
+    rolled_back_version: int | None = None
 
 
 class DashboardPresenceUpdate(BaseModel):
