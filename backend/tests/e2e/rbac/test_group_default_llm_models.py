@@ -390,3 +390,45 @@ def test_members_cannot_manage_group_defaults(test_client, cast):
     assert r.status_code == 403
     # Nothing changed for group 2.
     assert _resolve(cast.org, cast.users["g2"]["user_id"]) == cast.b
+
+
+# ── server-side generation uses the caller's model, not the org default ────
+
+
+@pytest.mark.e2e
+def test_data_source_generation_runs_on_callers_group_default(
+    test_client, cast, sqlite_data_source, grant_resource, monkeypatch
+):
+    """Generating data source summaries runs an LLM call on the caller's
+    behalf. With the org default restricted, each group's member must get
+    their own group's model — never the org default they can't use."""
+    import app.services.data_source_service as ds_service
+
+    assert _restrict(test_client, cast.admin_t, cast.org, cast.org_default).status_code == 200
+    ds = sqlite_data_source(name=f"ds-{uuid.uuid4().hex[:6]}", user_token=cast.admin_t, org_id=cast.org)
+
+    used = []
+
+    class _FakeAgent:  # LLM boundary: record the model instead of calling it
+        def __init__(self, *args, model=None, **kwargs):
+            used.append(str(model.id))
+
+        def generate_summary(self):
+            return "summary"
+
+    monkeypatch.setattr(ds_service, "DataSourceAgent", _FakeAgent)
+
+    for key, expected in (("g1", cast.a), ("g2", cast.b)):
+        u = cast.users[key]
+        g = grant_resource(
+            resource_type="data_source", resource_id=ds["id"], principal_type="user",
+            principal_id=u["user_id"], permissions=["manage"], user_token=cast.admin_t, org_id=cast.org,
+        )
+        assert g.status_code in (200, 201), g.text
+        used.clear()
+        r = test_client.get(
+            f"/api/data_sources/{ds['id']}/generate_items", params={"item": "summary"},
+            headers=_headers(u["token"], cast.org),
+        )
+        assert r.status_code == 200, r.text
+        assert used == [expected], key

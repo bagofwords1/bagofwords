@@ -3877,8 +3877,7 @@
     "chatNoAgents": "Nenhum agente está associado a este relatório — o chat responderá apenas com os dados do painel.",
     "chatModel": "Modelo padrão",
     "chatModelDesc": "O modelo que o chat usa para os visualizadores. Quem não tiver acesso a ele usará o próprio modelo padrão.",
-    "chatModelOrgDefault": "Padrão da organização ({name})",
-    "chatModelOrgDefaultPlain": "Padrão da organização",
+    "chatModelViewerDefault": "O padrão de cada leitor",
     "chatModelReport": "Igual ao relatório ({name})",
     "chatModelReportPlain": "Igual ao relatório",
     "chatModelUnavailable": "Modelo indisponível — usando o padrão"

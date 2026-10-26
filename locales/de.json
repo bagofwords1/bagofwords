@@ -3877,8 +3877,7 @@
     "chatNoAgents": "Diesem Bericht sind keine Agenten zugeordnet – der Chat antwortet nur mit den Dashboard-Daten.",
     "chatModel": "Standardmodell",
     "chatModelDesc": "Das Modell, das der Chat für Betrachter verwendet. Betrachter ohne Zugriff darauf nutzen ihr eigenes Standardmodell.",
-    "chatModelOrgDefault": "Standard der Organisation ({name})",
-    "chatModelOrgDefaultPlain": "Standard der Organisation",
+    "chatModelViewerDefault": "Standard des jeweiligen Betrachters",
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
     "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"

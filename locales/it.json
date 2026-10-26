@@ -3877,8 +3877,7 @@
     "chatNoAgents": "Nessun agente è collegato a questo report: la chat risponderà solo con i dati della dashboard.",
     "chatModel": "Modello predefinito",
     "chatModelDesc": "Il modello usato dalla chat per chi visualizza. Chi non vi ha accesso usa il proprio modello predefinito.",
-    "chatModelOrgDefault": "Predefinito dell'organizzazione ({name})",
-    "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
+    "chatModelViewerDefault": "Il predefinito di ciascun lettore",
     "chatModelReport": "Come nel report ({name})",
     "chatModelReportPlain": "Come nel report",
     "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"

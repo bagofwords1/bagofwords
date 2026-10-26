@@ -3877,8 +3877,7 @@
     "chatNoAgents": "Aucun agent n'est associé à ce rapport — le chat répondra uniquement à partir des données du tableau de bord.",
     "chatModel": "Modèle par défaut",
     "chatModelDesc": "Le modèle utilisé par le chat pour les lecteurs. Ceux qui n'y ont pas accès utilisent leur propre modèle par défaut.",
-    "chatModelOrgDefault": "Par défaut de l'organisation ({name})",
-    "chatModelOrgDefaultPlain": "Par défaut de l'organisation",
+    "chatModelViewerDefault": "Le modèle par défaut de chaque lecteur",
     "chatModelReport": "Identique au rapport ({name})",
     "chatModelReportPlain": "Identique au rapport",
     "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé"

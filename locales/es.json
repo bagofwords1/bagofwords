@@ -4145,8 +4145,7 @@
     "chatNoAgents": "No hay agentes asociados a este informe: el chat responderá solo con los datos del panel.",
     "chatModel": "Modelo predeterminado",
     "chatModelDesc": "El modelo que usa el chat para los espectadores. Quienes no tengan acceso a él usarán su propio modelo predeterminado.",
-    "chatModelOrgDefault": "Predeterminado de la organización ({name})",
-    "chatModelOrgDefaultPlain": "Predeterminado de la organización",
+    "chatModelViewerDefault": "El predeterminado de cada usuario",
     "chatModelReport": "Igual que el informe ({name})",
     "chatModelReportPlain": "Igual que el informe",
     "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado"

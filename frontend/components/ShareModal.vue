@@ -272,7 +272,7 @@ const chatScope = ref<'agents' | 'data_only'>('agents')
 const chatAgentIds = ref<string[]>([])
 const reportAgents = ref<{ id: string; name: string }[]>([])
 // Default model for artifact-page chat. Stored values: null = inherit the
-// report's own model, ORG_DEFAULT_MODEL = the organization default, else a
+// report's own model, ORG_DEFAULT_MODEL = each viewer's own default, else a
 // model id. USelectMenu treats '' as "nothing selected" (blank label), so
 // inherit carries its own sentinel and is sent as the backend's "" clear value.
 const INHERIT_MODEL = '__inherit__'
@@ -289,10 +289,11 @@ const chatModelValue = computed({
     set: (v: string) => { chatModelId.value = v },
 })
 const chatModelOptions = computed(() => {
-    const orgDefault = chatModels.value.find(m => m.isDefault)
+    // ORG_DEFAULT_MODEL pins nothing: each viewer runs on their own default
+    // (personal → group → organization), so no single model name applies.
     const orgOption = {
         value: ORG_DEFAULT_MODEL,
-        label: orgDefault ? t('share.chatModelOrgDefault', { name: orgDefault.name }) : t('share.chatModelOrgDefaultPlain'),
+        label: t('share.chatModelViewerDefault'),
     }
     const options = reportModelId.value
         ? (() => {

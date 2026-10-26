@@ -3877,8 +3877,7 @@
     "chatNoAgents": "لا يوجد وكلاء مرتبطون بهذا التقرير — ستجيب الدردشة من بيانات لوحة المعلومات فقط.",
     "chatModel": "النموذج الافتراضي",
     "chatModelDesc": "النموذج الذي تستخدمه الدردشة للمشاهدين. يعود المشاهدون الذين لا يملكون حق الوصول إليه إلى نموذجهم الافتراضي.",
-    "chatModelOrgDefault": "الافتراضي للمؤسسة ({name})",
-    "chatModelOrgDefaultPlain": "الافتراضي للمؤسسة",
+    "chatModelViewerDefault": "الافتراضي لكل مشاهد",
     "chatModelReport": "كما في التقرير ({name})",
     "chatModelReportPlain": "كما في التقرير",
     "chatModelUnavailable": "النموذج غير متاح — يتم استخدام الافتراضي"

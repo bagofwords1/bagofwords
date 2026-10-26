@@ -805,9 +805,13 @@ function setJudgeModel(cat: CategoryRuleUI, m: any) {
 function ensureDefaultJudgeModel(cat: CategoryRuleUI) {
   const currentVal = (getJudgeRule(cat, 'model_id').matcher as any).value
   if (currentVal) return
-  const small = (judgeModels.value || []).find((m: any) => m.is_small_default)
-  const reg = (judgeModels.value || []).find((m: any) => m.is_default)
-  const pick = small || reg || (judgeModels.value || [])[0]
+  // The list only holds models this user may use, so a restricted org
+  // default is absent; prefer their inherited (group) default next.
+  const list = judgeModels.value || []
+  const small = list.find((m: any) => m.is_small_default)
+  const inherited = list.find((m: any) => m.is_inherited_default)
+  const reg = list.find((m: any) => m.is_default)
+  const pick = small || inherited || reg || list[0]
   if (pick) {
     (getJudgeRule(cat, 'model_id').matcher as any).value = pick.model_id || pick.value || ''
   }

@@ -3877,8 +3877,7 @@
     "chatNoAgents": "Inga agenter är kopplade till den här rapporten — chatten svarar bara utifrån instrumentpanelens data.",
     "chatModel": "Standardmodell",
     "chatModelDesc": "Modellen som chatten använder för tittare. Tittare utan åtkomst till den använder sin egen standardmodell.",
-    "chatModelOrgDefault": "Organisationens standard ({name})",
-    "chatModelOrgDefaultPlain": "Organisationens standard",
+    "chatModelViewerDefault": "Varje läsares standard",
     "chatModelReport": "Samma som rapporten ({name})",
     "chatModelReportPlain": "Samma som rapporten",
     "chatModelUnavailable": "Modellen är inte tillgänglig — standard används"
