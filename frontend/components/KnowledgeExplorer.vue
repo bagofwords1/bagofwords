@@ -479,6 +479,7 @@
                       <div class="flex shrink-0 items-center gap-1.5"><button class="h-7 rounded-md px-3 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800" @click="cancelPrimary">{{ $t('agentsPage.cancel') }}</button><button class="h-7 rounded-md bg-blue-500 px-3 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button></div>
                     </div>
                     <div class="prose-instruction"><InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" :placeholder="$t('agentsPage.primaryPlaceholder')" /></div>
+                    <p class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(primaryDraft.text)) }) }}</p>
                   </div>
                   <AgentInstructionPreview v-else-if="agentDetail?.primary_instruction" :key="agentView.agentId + agentDetail.primary_instruction.id" :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
                     <template v-if="agentCanUpdate" #actions>
@@ -891,6 +892,7 @@
                   <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
                   <InstructionText v-else :key="(detail?.id || 'new') + '-view'" :text="draft.text" :references="detailTextRefs" :prose="true" :markdown="true" />
                 </div>
+                <p v-if="editing" class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(draft.text)) }) }}</p>
               </div>
             </div>
           </div>
@@ -1220,6 +1222,7 @@ import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
 import { fileIcon } from '~/utils/fileTree'
+import { estimateTokens, formatTokens } from '~/utils/tokens'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'

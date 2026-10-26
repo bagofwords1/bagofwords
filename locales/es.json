@@ -209,6 +209,7 @@
     "pendingMany": "{n} cambios pendientes están esperando revisión",
     "review": "Revisar",
     "untitledInstruction": "Instrucción sin título",
+    "tokenCount": "~{count} tokens",
     "addDescriptionOptional": "Añade una descripción (opcional)",
     "instructionPlaceholder": "Escribe la instrucción en markdown… (escribe {'@'} para mencionar una tabla o instrucción)",
     "details": "Detalles",
