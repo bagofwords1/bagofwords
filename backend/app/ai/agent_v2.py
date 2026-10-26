@@ -1809,6 +1809,15 @@ class AgentV2:
                         "columns": columns,
                     })
 
+            code = artifact.content.get("code") if isinstance(artifact.content, dict) else None
+            if code and artifact.mode == "page":
+                # Shown as edit_artifact matches it (positional viz[N] →
+                # vizById), so ops quoted from this context apply verbatim.
+                from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs
+                code, _ = migrate_positional_viz_refs(
+                    code, [str(v) for v in artifact.content.get("visualization_ids") or []]
+                )
+
             return {
                 "artifact_id": str(artifact.id),
                 "title": artifact.title,
@@ -1820,7 +1829,7 @@ class AgentV2:
                 # (create_artifact.code / edit_artifact ops), so the code
                 # IS the working context. Rendering caps it; oversize falls
                 # back to read_artifact.
-                "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
+                "code": code,
             }
         except Exception:
             logger.exception("_get_active_artifact failed")

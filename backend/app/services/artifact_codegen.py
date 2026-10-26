@@ -8,6 +8,7 @@ that the LLM would produce, but instantly.
 import re
 from typing import List, Optional
 
+from app.ai.tools.implementations._artifact_refs import viz_by_id_ref
 from app.ai.tools.schemas.create_data_model import normalize_group_by
 
 
@@ -30,7 +31,7 @@ _AXIS_LABEL_HEURISTIC = (
 )
 
 
-def _build_cartesian(data_model: dict, viz_index: int) -> str:
+def _build_cartesian(data_model: dict, visualization_id: str) -> str:
     """Bar / line / area chart option code.
 
     Always emits an IIFE so we can compute categories + rotation at runtime.
@@ -52,7 +53,7 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     is_area = dm_type == "area_chart"
     smooth = "true" if dm_type in ("line_chart", "area_chart") else "false"
 
-    rows_ref = f"viz[{viz_index}].rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
 
     # --- preamble (shared for group_by and traditional) ---
     code = (
@@ -127,7 +128,7 @@ def _build_cartesian(data_model: dict, viz_index: int) -> str:
     return code
 
 
-def _build_pie(data_model: dict, viz_index: int) -> str:
+def _build_pie(data_model: dict, visualization_id: str) -> str:
     """Pie chart option code."""
     series_list = data_model.get("series") or []
     if not series_list:
@@ -139,7 +140,7 @@ def _build_pie(data_model: dict, viz_index: int) -> str:
     if not key or not value:
         return "{}"
 
-    rows_ref = f"viz[{viz_index}].rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"{{ tooltip: {{ trigger: 'item', formatter: '{{b}}: {{c}} ({{d}}%)' }},\n"
         f"    series: [{{ type: 'pie', radius: ['40%', '70%'],\n"
@@ -148,7 +149,7 @@ def _build_pie(data_model: dict, viz_index: int) -> str:
     )
 
 
-def _build_scatter(data_model: dict, viz_index: int) -> str:
+def _build_scatter(data_model: dict, visualization_id: str) -> str:
     """Scatter plot option code."""
     series_list = data_model.get("series") or []
     if not series_list:
@@ -160,7 +161,7 @@ def _build_scatter(data_model: dict, viz_index: int) -> str:
     if not x_key or not y_key:
         return "{}"
 
-    rows_ref = f"viz[{viz_index}].rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"{{ tooltip: {{ trigger: 'item' }},\n"
         f"    xAxis: {{ type: 'value', name: '{_js_str(x_key)}' }},\n"
@@ -171,7 +172,7 @@ def _build_scatter(data_model: dict, viz_index: int) -> str:
     )
 
 
-def _build_heatmap(data_model: dict, viz_index: int) -> str:
+def _build_heatmap(data_model: dict, visualization_id: str) -> str:
     """Heatmap option code."""
     series_list = data_model.get("series") or []
     if not series_list:
@@ -184,7 +185,7 @@ def _build_heatmap(data_model: dict, viz_index: int) -> str:
     if not x_key or not y_key or not v_key:
         return "{}"
 
-    rows_ref = f"viz[{viz_index}].rows"
+    rows_ref = f"{viz_by_id_ref(visualization_id)}.rows"
     return (
         f"(() => {{\n"
         f"  const rows = {rows_ref};\n"
@@ -208,14 +209,14 @@ def _build_heatmap(data_model: dict, viz_index: int) -> str:
     )
 
 
-def _build_metric_card(data_model: dict, viz_index: int) -> str:
-    """Metric card / KPI — renders viz[N].rows[0][valueField] via KPICard."""
+def _build_metric_card(data_model: dict, visualization_id: str) -> str:
+    """Metric card / KPI — renders the viz's rows[0][valueField] via KPICard."""
     series_list = data_model.get("series") or []
     value_key = ""
     if series_list:
         value_key = series_list[0].get("value") or ""
 
-    v = f"viz[{viz_index}]"
+    v = viz_by_id_ref(visualization_id)
 
     if value_key:
         safe_key = _js_str(value_key)
@@ -243,10 +244,10 @@ def _build_metric_card(data_model: dict, viz_index: int) -> str:
     )
 
 
-def _build_table(data_model: dict, viz_index: int) -> str:
-    """Table JSX — renders viz[N] via the global <DataTable> component
+def _build_table(data_model: dict, visualization_id: str) -> str:
+    """Table JSX — renders the viz via the global <DataTable> component
     (sorting, pagination, hover/selection highlight, RTL, CSV export)."""
-    return f"<DataTable viz={{viz[{viz_index}]}} />"
+    return f"<DataTable viz={{{viz_by_id_ref(visualization_id)}}} />"
 
 
 # ---------------------------------------------------------------------------
@@ -280,22 +281,22 @@ def is_jsx_type(data_model: dict) -> bool:
 is_table_type = is_jsx_type
 
 
-def generate_echart_option_code(data_model: dict, viz_index: int) -> str:
+def generate_echart_option_code(data_model: dict, visualization_id: str) -> str:
     """Map a visualization's data_model to an ECharts option JS expression.
 
-    Returns a JS expression string referencing ``viz[N].rows``.
+    Returns a JS expression string referencing ``vizById("<id>").rows``.
     For table types, use ``generate_table_jsx`` instead.
     """
     dm_type = (data_model.get("type") or "bar_chart").lower()
     builder = _CHART_BUILDERS.get(dm_type, _build_cartesian)
-    return builder(data_model, viz_index)
+    return builder(data_model, visualization_id)
 
 
-def generate_jsx_section(title: str, data_model: dict, viz_index: int) -> str:
+def generate_jsx_section(title: str, data_model: dict, visualization_id: str) -> str:
     """Generate JSX for a non-chart visualization (table, metric_card, etc.)."""
     dm_type = (data_model.get("type") or "table").lower()
     builder = _JSX_BUILDERS.get(dm_type, _build_table)
-    jsx_expr = builder(data_model, viz_index)
+    jsx_expr = builder(data_model, visualization_id)
 
     # KPICard is self-contained — no SectionCard wrapper needed
     if dm_type == "metric_card":
@@ -303,7 +304,7 @@ def generate_jsx_section(title: str, data_model: dict, viz_index: int) -> str:
 
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
+        f'<SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
         f"        {{{jsx_expr}}}\n"
         f"      </SectionCard>"
     )
@@ -317,11 +318,11 @@ generate_table_jsx = generate_jsx_section
 # JSX wrappers
 # ---------------------------------------------------------------------------
 
-def generate_section_jsx(title: str, option_code: str, viz_index: int = 0, height: int = 350) -> str:
+def generate_section_jsx(title: str, option_code: str, visualization_id: str, height: int = 350) -> str:
     """Wrap an ECharts option expression in a <SectionCard><EChart /> block."""
     safe_title = _js_str(title)
     return (
-        f'<SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
+        f'<SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
         f"        <EChart height={{{height}}} option={{{option_code}}} />\n"
         f"      </SectionCard>"
     )
@@ -335,6 +336,8 @@ def generate_scaffold(sections: List[str]) -> str:
         "function App() {\n"
         "  const data = useArtifactData();\n"
         '  if (!data) return <div className="flex items-center justify-center h-screen"><LoadingSpinner /></div>;\n'
+        # Generated sections bind by id; `viz` stays declared so later
+        # agent-authored code that reads the list (viz.map, …) still runs.
         "  const viz = data.visualizations;\n"
         "  return (\n"
         '    <div className="min-h-full bg-gradient-to-br from-slate-50 to-slate-100 p-8 space-y-6">\n'
@@ -351,7 +354,7 @@ def inject_section_into_code(
     existing_code: str,
     title: str,
     data_model: dict,
-    viz_index: int,
+    visualization_id: str,
 ) -> Optional[str]:
     """Append a new visualization section to existing artifact code.
 
@@ -372,18 +375,18 @@ def inject_section_into_code(
     dm_type = (data_model.get("type") or "").lower()
 
     if dm_type in _JSX_BUILDERS:
-        jsx_section = generate_jsx_section(title, data_model, viz_index)
+        jsx_section = generate_jsx_section(title, data_model, visualization_id)
         body = (
             f"    return <div className=\"space-y-6\">\n"
             f"      {jsx_section}\n"
             f"    </div>;\n"
         )
     else:
-        option_code = generate_echart_option_code(data_model, viz_index)
+        option_code = generate_echart_option_code(data_model, visualization_id)
         body = (
             f"    var _opt = {option_code};\n"
             f"    return <div className=\"space-y-6\">\n"
-            f'      <SectionCard title="{safe_title}" viz={{viz[{viz_index}]}}>\n'
+            f'      <SectionCard title="{safe_title}" viz={{{viz_by_id_ref(visualization_id)}}}>\n'
             f"        <EChart height={{350}} option={{_opt}} />\n"
             f"      </SectionCard>\n"
             f"    </div>;\n"
@@ -450,7 +453,7 @@ def restore_removed_viz_references(code: str, visualization_id: str):
     no tagged stub for this id (i.e. there is nothing to restore and the
     caller should fall back to injecting a fresh section)."""
     pattern = re.compile(re.escape(_removed_stub(visualization_id)))
-    new_code, count = pattern.subn(f'vizById("{visualization_id}")', code)
+    new_code, count = pattern.subn(viz_by_id_ref(visualization_id), code)
     return new_code if count else None
 
 
