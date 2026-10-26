@@ -452,6 +452,26 @@ async def test_stop_noticed_on_the_handover_stops_the_run(teams, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_stop_on_the_previous_bubble_still_gives_the_new_question_a_bubble(teams):
+    adapter = _adapter()
+    await teams_stream.start_run(adapter, CONV, "first?")
+    await teams_stream.notify_tool_started(CONV, "run-1", "create_data")
+    teams.stream_errors["s1"] = (403, "Content stream was canceled by user.")
+
+    with patch(
+        "app.services.completion_service.CompletionService.update_completion_sigkill",
+        new=AsyncMock(),
+    ) as sigkill:
+        await teams_stream.start_run(adapter, CONV, "second?")
+        await _settle()
+
+    # The Stop stops the first question's run; the second still gets a bubble.
+    assert [c.args[1] for c in sigkill.await_args_list] == ["run-1"]
+    assert [o["text"] for o in teams.opens()] == [STRINGS["en"]["working"]] * 2
+    assert teams_stream.notify_tool_started(CONV, "run-2", "create_data") is not None
+
+
+@pytest.mark.asyncio
 async def test_stop_leaves_finished_runs_alone(teams):
     adapter = _adapter()
     await teams_stream.start_run(adapter, CONV, "first?")

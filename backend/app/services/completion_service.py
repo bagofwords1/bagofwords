@@ -1020,6 +1020,7 @@ class CompletionService:
                             # lease for the full lifecycle, including session
                             # setup and semaphore waits.
                             await agent.main_execution()
+                            run_outcome["finished"] = True
                         except Exception as e:
                             run_outcome["error"] = e
                             logging.exception("Agent background execution failed")
@@ -1046,12 +1047,15 @@ class CompletionService:
                         # Every way a run ends passes here (success, crash,
                         # early return, cancellation), so this is where the
                         # Teams 1:1 progress bubble learns the run is over.
+                        # Anything short of main_execution returning counts as
+                        # failed, so an unclaimed bubble never says "Done."
+                        # for a question that got no answer.
                         if external_platform == "teams" and external_channel_id:
                             from app.core.fire_and_forget import spawn
                             from app.services.platform_adapters import teams_stream
                             spawn(teams_stream.end_run(
                                 external_channel_id, str(_system_completion_id),
-                                failed="error" in run_outcome,
+                                failed=not run_outcome.get("finished"),
                             ))
                         await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))

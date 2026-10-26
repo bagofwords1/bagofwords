@@ -308,8 +308,10 @@ async def _open_first_bubble(conv: _Conversation, token: int) -> None:
                 if conv.stream_token == token:
                     return
                 await _close(conv, conv.text or status_text(conv.locale, "still_working"))
-                if conv.halted:
-                    return
+                # A Stop seen on that close belongs to the earlier question
+                # (its runs are already being stopped); this question still
+                # gets its bubble.
+                conv.halted = False
             await _open(conv, status_text(conv.locale, "working"))
     except Exception:
         logger.exception("TEAMS stream: failed to open bubble")
