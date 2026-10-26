@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.598 (October 26, 2026)
+- Fixed @mention autocomplete finding nothing when the mention is typed mid-sentence instead of at the end (#1475)
+
 ## Version 0.0.597 (October 26, 2026)
 - Added per-group default models, usable by the group even when restricted (#1466) — Settings → LLM → Group default models
 - Changed the organization default model so it can be restricted; members without access get their group's default (#1466)
