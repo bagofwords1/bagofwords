@@ -120,7 +120,7 @@
 				<!-- Fork summary separator -->
 				<div v-if="isFork && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-					<span class="text-2xs text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
+					<span class="text-chat-3 text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 				</div>
 
@@ -205,7 +205,7 @@
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
 									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
-									<span v-if="m.created_at" class="text-2xs text-ink-muted flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+									<span v-if="m.created_at" class="text-chat-3 text-ink-muted flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
 						</div>
@@ -225,24 +225,24 @@
 								</span>
 								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
 								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
-								<span v-if="m.created_at" class="text-2xs text-ink-muted flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+								<span v-if="m.created_at" class="text-chat-3 text-ink-muted flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
 								<Icon :name="expandedWebhookIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
 							</div>
-							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-2xs text-ink-muted italic">
+							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-chat-3 text-ink-muted italic">
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
 							</div>
 
 							<!-- The delivery itself: what arrived, and with which headers. -->
 							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
 								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-									<div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
-									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-2xs font-mono text-gray-500 dark:text-gray-400 truncate">
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
+									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-chat-3 font-mono text-gray-500 dark:text-gray-400 truncate">
 										<span class="text-ink-muted">{{ k }}:</span> {{ v }}
 									</div>
 								</div>
 								<div class="px-3 py-2">
-									<div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
-									<pre class="text-2xs font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
+									<pre class="text-chat-3 font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
 								</div>
 							</div>
 						</div>
@@ -264,7 +264,7 @@
 								<div class="group/usermsg flex flex-col items-end max-w-[85%] w-full mb-3 ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-2xs" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-chat-3" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 									</div>
@@ -303,13 +303,13 @@
 										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
-												class="text-2xs text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
 												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
 											</button>
 										</UTooltip>
-										<span v-if="m.created_at" class="text-2xs text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
+										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
 							</template>
@@ -348,7 +348,7 @@
 											     after them. -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
 												<div class="flex flex-col items-end max-w-[85%]">
-													<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+													<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
@@ -479,7 +479,7 @@
 										<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
 											<div class="flex flex-col items-end max-w-[85%]">
-												<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
@@ -508,7 +508,7 @@
 												</span>
 												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
 											</div>
-											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-2xs font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
+											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-chat-3 font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
 												{{ rn.message }}
 											</div>
 										</div>
@@ -558,7 +558,7 @@
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
-														<div class="text-2xs uppercase tracking-wide text-ink-muted mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
+														<div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
 														<div class="space-y-0.5">
 															<div
 																v-for="ins in visibleInstructions(m)"
@@ -569,8 +569,8 @@
 																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
-																<span class="text-2xs text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
-																<span class="text-2xs px-1.5 py-0.5 rounded flex-shrink-0"
+																<span class="text-chat-3 text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
+																<span class="text-chat-3 px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always'
 																		? 'bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-400'
 																		: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'">
@@ -593,8 +593,8 @@
 											</button>
 
 											<!-- Total run duration + AI message timestamp -->
-											<span v-if="runDurationLabel(m)" class="text-2xs text-ink-muted ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
-											<span v-if="m.created_at" class="text-2xs text-ink-muted ms-1">
+											<span v-if="runDurationLabel(m)" class="text-chat-3 text-ink-muted ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
+											<span v-if="m.created_at" class="text-chat-3 text-ink-muted ms-1">
 												<span v-if="runDurationLabel(m)" class="me-1">·</span>{{ formatMessageDate(m.created_at) }}
 											</span>
 										</div>
@@ -642,7 +642,7 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-2xs text-ink-muted uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
 								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
 								{{ $t('prompt.compactedHistoryAbove') }}
 							</span>

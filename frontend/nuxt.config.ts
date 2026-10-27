@@ -120,16 +120,24 @@ export default defineNuxtConfig({
     fallbackToApi: false,
   },
 
-  app: {
-    // The SPA previously had no route transitions at all: content vanished,
-    // blank frame, new content popped in — on every navigation. Classes are
-    // defined in assets/css/tokens.css.
-    //
-    // `out-in` runs leave then enter (90ms + 160ms) rather than overlapping
-    // them, which avoids two routes being painted at once on heavy pages.
-    pageTransition: { name: 'page', mode: 'out-in' },
-    layoutTransition: { name: 'layout', mode: 'out-in' },
-  },
+  // NOTE: no `app.pageTransition` / `app.layoutTransition` here, deliberately.
+  //
+  // They were added in 710c22b and reverted in the same PR after they blanked
+  // the home route. Vue's <Transition> can only animate a component whose
+  // template has a SINGLE ELEMENT root; anything else renders a Fragment and
+  // Vue bails with "node that cannot be animated". A leading HTML comment
+  // counts as a root node, so `<!-- … --> <div>` is already a fragment.
+  //
+  // 15 of this app's 68 pages are fragments today, among them the ones that
+  // matter most: index.vue, reports/[id]/index.vue, r/[id]/index.vue and all
+  // four users/* auth pages. Enabling route transitions would mean giving
+  // every one of them a single wrapper element — restructuring the DOM of the
+  // app's most important routes for a 160ms fade — and any new page that
+  // starts with a comment would silently break again.
+  //
+  // If you want this back, the prerequisite is a lint rule or test that
+  // enforces a single element root on every page component. Until then the
+  // trade is not worth it.
 
   colorMode: {
     preference: 'system'
