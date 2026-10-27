@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.ai.tools.artifact_read_budget import budget_artifact_read
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -48,9 +49,6 @@ GREP_LINE_CLIP = 500
 GREP_WINDOW_BEFORE = 200  # of a long-line window's GREP_LINE_CLIP chars, how many precede the match
 GREP_WINDOW_MIN_AFTER = 150  # trailing context a later match needs inside a window to share it
 OUTLINE_MAX_ENTRIES = 300
-# Observation keys kept behind everything else: context for the read rather
-# than its answer, and big enough to push the answer out of a capped result.
-_BULKY_OBSERVATION_KEYS = ("visualization_profiles", "runtime_environment", "resources")
 
 
 def _outline_patterns(mode: str) -> List[re.Pattern]:
@@ -223,6 +221,7 @@ class ReadArtifactTool(Tool):
                 "LONG ARTIFACTS: when the code is too large to return in full, a plain read returns a structural OUTLINE with line numbers instead of code. "
                 "Then use `offset`/`limit` to read a specific line range, or `grep_pattern` (with `before`/`after` context lines) to find the exact region to edit. "
                 "Both return VERBATIM code you can quote in edit_artifact SEARCH blocks or edit_doc find strings. "
+                "If next_read is present, use those exact arguments to continue; even a single long line can require character-offset paging. "
                 "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
                 "The screenshot is a STATIC capture at page load with nothing clicked: closed dropdowns/menus/modals and invisible hover states are EXPECTED there and prove nothing about whether a control works — diagnose interactive elements from the code, never from the image. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
@@ -378,7 +377,7 @@ class ReadArtifactTool(Tool):
                     ignore_case=data.ignore_case,
                     before=data.before,
                     after=data.after,
-                    max_matches=data.max_matches,
+                    max_matches=data.max_matches + data.match_offset,
                 )
             except re.error as e:
                 yield ToolEndEvent(
@@ -403,6 +402,7 @@ class ReadArtifactTool(Tool):
                     },
                 )
                 return
+            matches = matches[data.match_offset:]
             if grep_total == 0:
                 # No matches — return the outline as a navigation aid so the
                 # planner's next read is informed instead of another guess.
@@ -423,12 +423,19 @@ class ReadArtifactTool(Tool):
                         " (col_start/col_end within line_length); read a whole line with offset=<line_no>, limit=1."
                     )
 
-        elif data.offset is not None or data.limit is not None:
+        elif data.offset is not None or data.limit is not None or data.character_offset:
             read_mode = "range"
             offset = data.offset or 1
             code_view, start_line, end_line, total_lines, range_truncated = slice_range(
                 code, offset, data.limit
             )
+            first_line = code_view.split("\n", 1)[0]
+            if data.character_offset > len(first_line):
+                yield ToolEndEvent(type="tool.end", payload={"output": {}, "observation": {
+                    "artifact_id": str(artifact.id), "success": False,
+                    "error": {"type": "invalid_character_offset", "message": "character_offset exceeds the first line length."}}})
+                return
+            code_view = code_view[data.character_offset:]
             if not code_view and start_line > total_lines:
                 window_note = (
                     f"offset {start_line} is beyond the end of the code ({total_lines} lines total). "
@@ -464,7 +471,10 @@ class ReadArtifactTool(Tool):
 
         # Fetch associated visualizations and build profiles
         viz_profiles: List[Dict[str, Any]] = []
-        if visualization_ids:
+        include_profiles = data.include_visualization_profiles
+        if include_profiles is None:
+            include_profiles = read_mode not in ("range", "grep")
+        if visualization_ids and include_profiles:
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
             try:
                 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
@@ -636,15 +646,18 @@ class ReadArtifactTool(Tool):
             if artifact.render_errors:
                 observation["render_errors"] = artifact.render_errors
 
-        # Bulky context goes last. The transcript keeps only the head of an
-        # oversized tool result (Transcript.to_model_messages, max_result_chars),
-        # and on a dashboard with many visualizations the profiles alone
-        # outgrew that head — every read, even a one-line range, reached the
-        # model with its code cut off. Everything else is small or is what
-        # the call asked for.
-        for key in _BULKY_OBSERVATION_KEYS:
+        if not include_profiles:
+            observation.pop("visualization_profiles", None)
+        observation = budget_artifact_read(observation, data)
+        # The UI/audit output must describe the same source window the model saw.
+        for key in ("code", "read_mode", "start_line", "end_line", "start_character",
+                    "truncated", "next_read", "matches", "grep_truncated", "outline"):
             if key in observation:
-                observation[key] = observation.pop(key)
+                output[key] = observation[key]
+        output["code_preview"]["code"] = observation.get("code", observation.get("outline", ""))
+        if observation.get("matches"):
+            output["code_preview"]["code"] = "\n\n".join(m["line"] for m in observation["matches"])
+        output["artifact_preview"]["read_mode"] = observation.get("read_mode", read_mode)
 
         yield ToolEndEvent(
             type="tool.end",

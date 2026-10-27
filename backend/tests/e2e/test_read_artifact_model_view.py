@@ -1,12 +1,8 @@
 """read_artifact: the code the agent asked for reaches the model.
 
-The planner sees a tool result as the transcript renders it, and an oversized
-result is cut to its head (Transcript.to_model_messages, max_result_chars).
-read_artifact also carries a profile of every visualization on the dashboard,
-with sample rows — on a dashboard with many visualizations those profiles alone
-outgrow the cap. The contract: when the read itself fits the cap, what it asked
-for (full code, a line range, grep matches) and the artifact's identity fields
-are inside what the model receives; the profiles are what gets cut.
+The real tool and transcript must deliver valid bounded JSON, exact source
+windows with usable continuations, and optional profiles that cannot crowd out
+the requested source. Windowed reads omit profiles unless explicitly requested.
 
 Run:
     cd backend
@@ -94,7 +90,7 @@ async def _seed_dashboard(report_id, n_vizs, **version_fields):
         version = await seed_artifact(
             db, report_id=report_id, user_id=report.user_id, organization_id=report.organization_id,
             mode="page", title="Executive dashboard",
-            content={"code": _dashboard_code(), "visualization_ids": viz_ids},
+            content={"code": version_fields.pop("source_code", _dashboard_code()), "visualization_ids": viz_ids},
             **version_fields,
         )
         await db.commit()
@@ -156,11 +152,13 @@ def test_requested_code_reaches_the_model_when_profiles_overflow(dashboard, n_vi
     }[read]
 
     observation = asyncio.run(_read(report_id, user_id, tool_input))
-    assert len(observation["visualization_profiles"]) == n_vizs
+    if read in ("range", "grep"):
+        assert "visualization_profiles" not in observation
     sent = _model_view(observation)
 
-    # Precondition: this dashboard really is past the cap, or the test proves nothing.
-    assert "[truncated at" in sent
+    # Optional profiles must not turn the model response into truncated JSON.
+    assert "[truncated at" not in sent
+    json.loads(sent)
     payload = observation["matches"] if read == "grep" else observation["code"]
     payload_key = "matches" if read == "grep" else "code"
     assert f'"{payload_key}": ' in sent
@@ -181,7 +179,7 @@ def test_render_errors_reach_the_model_when_profiles_overflow(dashboard):
     report_id, user_id, artifact_id = dashboard(24, render_errors=errors)
     observation = asyncio.run(_read(report_id, user_id, {"artifact_id": artifact_id, "load_screenshot": True}))
     sent = _model_view(observation)
-    assert "[truncated at" in sent
+    assert "[truncated at" not in sent
     assert _escaped(errors[0]["message"]) in sent
 
 
@@ -193,3 +191,69 @@ def test_small_dashboard_reaches_the_model_whole(dashboard):
     assert "[truncated at" not in sent
     assert _escaped(_dashboard_code()) in sent
     assert json.loads(sent)["visualization_profiles"] == json.loads(json.dumps(observation["visualization_profiles"], default=str))
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("code,first_read", [
+    ("שלום" * 10_000, {}),  # raw full-read size fits; JSON-escaped size does not
+    ("漢字" * 60_000, {"offset": 1, "limit": 1}),  # one oversized line
+    ("\n".join(["مرحبا" * 500] * 30), {"offset": 1, "limit": 30}),
+], ids=["hebrew-full", "cjk-long-line", "arabic-multiline"])
+def test_source_continuations_cover_requested_source_verbatim(dashboard, code, first_read):
+    report_id, user_id, artifact_id = dashboard(0, source_code=code)
+    args = {"artifact_id": artifact_id, **first_read}
+    cursor = 0
+    for _ in range(40):
+        observation = asyncio.run(_read(report_id, user_id, args))
+        sent = json.loads(_model_view(observation))
+        assert len(_model_view(observation)) < 100_000
+        assert sent["artifact_id"] == artifact_id
+        assert sent["version"] > 0
+        start = sum(len(line) + 1 for line in code.split("\n")[:args.get("offset", 1) - 1]) + args.get("character_offset", 0)
+        assert start == cursor
+        part = sent["code"]
+        assert part and code[start:start + len(part)] == part
+        cursor += len(part)
+        if not sent.get("next_read"):
+            break
+        args = sent["next_read"]
+    else:
+        pytest.fail("continuation failed to finish")
+    assert cursor == len(code)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("read", [{"offset": 1, "limit": 1}, {"grep_pattern": "Part"}])
+def test_windowed_reads_offer_explicit_profiles(dashboard, read):
+    report_id, user_id, artifact_id = dashboard(2)
+    args = {"artifact_id": artifact_id, **read}
+    default = asyncio.run(_read(report_id, user_id, args))
+    assert "visualization_profiles" not in default
+    requested = asyncio.run(_read(report_id, user_id, {**args, "include_visualization_profiles": True}))
+    assert len(json.loads(_model_view(requested))["visualization_profiles"]) == 2
+
+
+@pytest.mark.e2e
+def test_grep_continuation_preserves_every_match_and_bounds_context(dashboard):
+    code = "\n".join("שלום" * 150 + f"needle{i}" for i in range(160))
+    report_id, user_id, artifact_id = dashboard(0, source_code=code)
+    args = {"artifact_id": artifact_id, "grep_pattern": "needle", "max_matches": 200}
+    lines = []
+    for _ in range(20):
+        sent = json.loads(_model_view(asyncio.run(_read(report_id, user_id, args))))
+        lines.extend(m["line_no"] for m in sent["matches"])
+        if not sent.get("next_read"):
+            break
+        args = sent["next_read"]
+    assert lines == list(range(1, 161))
+
+
+@pytest.mark.e2e
+def test_oversized_grep_context_is_explicitly_omitted(dashboard):
+    code = "漢" * 40_000 + "\nneedle\n" + "ש" * 40_000
+    report_id, user_id, artifact_id = dashboard(0, source_code=code)
+    sent = json.loads(_model_view(asyncio.run(_read(report_id, user_id, {
+        "artifact_id": artifact_id, "grep_pattern": "needle", "before": 1, "after": 1}))))
+    assert sent["matches"][0]["line"] == "needle"
+    assert sent["matches"][0]["context_omitted"]
+    assert "context_note" in sent
