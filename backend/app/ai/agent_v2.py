@@ -1907,7 +1907,8 @@ class AgentV2:
             return None
 
     def _open_artifact_version_id(self) -> Optional[str]:
-        prompt = (getattr(self.head_completion, "prompt", None) or {}) if self.head_completion else {}
+        head = getattr(self, "head_completion", None)
+        prompt = (getattr(head, "prompt", None) or {}) if head else {}
         value = prompt.get("artifact_version_id") if isinstance(prompt, dict) else None
         return str(value) if value else None
 
