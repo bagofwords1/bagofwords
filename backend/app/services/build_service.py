@@ -1093,6 +1093,10 @@ class BuildService:
                 detail=f"Build cannot be approved (current status: {build.status})"
             )
 
+        # An approved build is no longer a pending suggestion, so a share it
+        # still carries would leave the review unseen (see promote_build).
+        await self._refuse_unresolved_shares(db, build)
+
         build.status = 'approved'
         build.approved_by_user_id = approved_by_user_id
         build.approved_at = datetime.utcnow()
@@ -1246,6 +1250,75 @@ class BuildService:
                     org_id, build_id, attempt + 2, attempts,
                 )
 
+    async def get_scope_changes(
+        self, db: AsyncSession, build_ids, instruction_ids=None,
+    ) -> dict:
+        """{(build_id, instruction_id): scope_change} for the rows that propose
+        a share (BuildContent.scope_change), in one query."""
+        bids = sorted({str(b) for b in build_ids if b})
+        if not bids:
+            return {}
+        conds = [BuildContent.build_id.in_(bids), BuildContent.scope_change.isnot(None)]
+        if instruction_ids is not None:
+            conds.append(BuildContent.instruction_id.in_(sorted({str(i) for i in instruction_ids})))
+        return {
+            (str(b), str(i)): sc
+            for b, i, sc in (await db.execute(
+                select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.scope_change)
+                .where(and_(*conds))
+            )).all()
+        }
+
+    async def set_scope_change(
+        self, db: AsyncSession, build_id: str, instruction_id: str, scope_change,
+    ) -> None:
+        """Record (or clear, with None) the share this build proposes for the
+        instruction. The row must already exist (add_to_build). Writes only —
+        the caller commits."""
+        await db.execute(
+            sql_update(BuildContent)
+            .where(and_(BuildContent.build_id == str(build_id),
+                        BuildContent.instruction_id == str(instruction_id)))
+            .values(scope_change=scope_change)
+        )
+
+    async def unresolved_shares(self, db: AsyncSession, build: InstructionBuild,
+                                instruction_ids=None) -> List[str]:
+        """Instructions this build still proposes to share with an agent they
+        are not attached to, with no reviewer rejection — the same rule the
+        review row follows (field_changes.unresolved_scope_adds)."""
+        from app.services.field_changes import scope_add_ids, unresolved_scope_adds
+        proposals = await self.get_scope_changes(db, [build.id], instruction_ids)
+        shares = {iid: scope_add_ids(sc) for (_b, iid), sc in proposals.items() if scope_add_ids(sc)}
+        if not shares:
+            return []
+        live = await self.get_instruction_scopes(db, sorted(shares))
+        rejected_by_iid: dict = {}
+        for r in (getattr(build, "rejected_hunks", None) or []):
+            rejected_by_iid.setdefault(str(r.get("instruction_id")), set()).add(r.get("key"))
+        return [
+            iid for iid, add in shares.items()
+            if unresolved_scope_adds(add, live.get(iid, ()), rejected_by_iid.get(iid, ()))
+        ]
+
+    async def _refuse_unresolved_shares(self, db: AsyncSession, build: InstructionBuild) -> None:
+        """Raise when this build still proposes sharing an instruction with an
+        agent it is not attached to and no reviewer has rejected that share.
+        The whole build is checked: a partial publish prunes only NEW
+        instructions, and a share is always on an existing one, so every share
+        the build carries will be published."""
+        from app.errors import AppError, ErrorCode
+        unresolved = await self.unresolved_shares(db, build)
+        if not unresolved:
+            return
+        if unresolved:
+            raise AppError.bad_request(
+                ErrorCode.BUILD_SHARE_PENDING_REVIEW,
+                "This build shares an instruction with another agent. Accept or reject "
+                "that share in the instruction's review before publishing.",
+                instruction_ids=unresolved,
+            )
+
     async def promote_build(
         self,
         db: AsyncSession,
@@ -1276,6 +1349,15 @@ class BuildService:
                 status_code=400,
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
+
+        # A share with another agent (edit_instruction add_agents) is applied
+        # only by a reviewer accepting it in the per-hunk review; promotion
+        # never attaches agents. Promoting a build that still carries an
+        # unresolved share would publish its text and silently drop the share
+        # — the build becomes main and stops being a pending suggestion — so
+        # refuse until the share is accepted or rejected. Every publish path
+        # (builds page, chat card, Self Learning, auto-merge) lands here.
+        await self._refuse_unresolved_shares(db, build)
 
         await self._claim_main(
             db,
@@ -1450,10 +1532,16 @@ class BuildService:
         if build.status == 'approved':
             raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
 
+        # Before anything is written: the filter below DELETES the
+        # instructions a partial publish leaves out, and the auto-approve
+        # after it takes the build out of the pending set — a refusal after
+        # either would lose work (promote_build refuses too, as the backstop).
+        await self._refuse_unresolved_shares(db, build)
+
         # Filter build contents if instruction_ids provided
         if instruction_ids is not None:
             await self._filter_build_contents(db, build_id, instruction_ids)
-        
+
         # Auto-approve if needed (reusing existing methods)
         if build.status == 'draft':
             build = await self.submit_build(db, build_id)
@@ -1516,7 +1604,7 @@ class BuildService:
         # Apply user's removals
         for instruction_id in user_diff['removed']:
             await self.remove_from_build(db, merged.id, instruction_id)
-        
+
         # Finalize merged build
         merged.status = 'approved'
         merged.approved_by_user_id = user_id

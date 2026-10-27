@@ -569,9 +569,12 @@ class ReadInstructionTool(Tool):
                     }
                     for h in hunks[:5]
                 ],
-                # Non-text proposals, e.g. turning the instruction off.
+                # Non-text proposals, e.g. turning the instruction off. A scope
+                # change reads as agent names (an empty list = all agents).
                 **({"field_changes": [
-                    {"field": f.get("field"), "from": f.get("from"), "to": f.get("to")}
+                    {"field": f.get("field"),
+                     "from": f.get("from_names", f.get("from")),
+                     "to": f.get("to_names", f.get("to"))}
                     for f in fields
                 ]} if fields else {}),
             })

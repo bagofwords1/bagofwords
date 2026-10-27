@@ -190,7 +190,7 @@ class InstructionVersionService:
         await db.refresh(version)
 
         return version
-    
+
     async def get_version(
         self,
         db: AsyncSession,
