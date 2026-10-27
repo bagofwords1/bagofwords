@@ -6,8 +6,19 @@ stay verbatim; continuation arguments describe exactly where to resume.
 
 import json
 
-MODEL_READ_MAX_CHARS = 90_000
+from app.ai.context.result_parts import METADATA_KEYS
+from app.ai.context.transcript import MAX_RESULT_CHARS
+
+# Headroom under the transport cut for the notes model_text() appends to a
+# result (failure marker, released-images note) and for JSON punctuation.
+MODEL_READ_HEADROOM = 10_000
+MODEL_READ_MAX_CHARS = MAX_RESULT_CHARS - MODEL_READ_HEADROOM
 SOURCE_MAX_CHARS = 65_000
+# Room one context-stripped grep match needs, because a page always keeps its
+# first one. Worst case is read_artifact's GREP_LINE_CLIP (500) chars of
+# astral-plane text, which escape to 12 each ("\udbff\udfff") = 6,000, plus
+# ~200 for the line_no/col/context keys.
+GREP_MATCH_MAX_CHARS = 8_192
 SECONDARY_KEYS = ("render_errors", "runtime_environment", "resources", "visualization_profiles")
 
 
@@ -16,9 +27,7 @@ def _size(value):
 
 
 def _visible_size(observation):
-    return _size(
-        {k: v for k, v in observation.items() if k not in {"images", "images_provided_as_vision", "bookkeeping_ack"}}
-    )
+    return _size({k: v for k, v in observation.items() if k not in METADATA_KEYS})
 
 
 def _prefix(text, budget):
@@ -32,6 +41,17 @@ def _prefix(text, budget):
     return text[:lo]
 
 
+def _append_note(summary, note):
+    """Keep the read's own description; add the continuation note to it.
+
+    The summary is what survives tier decay for this tool, so replacing it
+    would drop the window note, the match count and the quote-safety line on
+    exactly the turns that need them.
+    """
+    summary = (summary or "").rstrip()
+    return f"{summary} {note}".strip()
+
+
 def budget_artifact_read(observation, request):
     """Return a complete JSON observation with bounded source and optional context."""
     result = dict(observation)
@@ -41,8 +61,10 @@ def budget_artifact_read(observation, request):
     # choosing a source window. The source ceiling is in escaped JSON chars.
     identity = {k: v for k, v in result.items() if k not in {"code", "matches", "outline"}}
     source_budget = min(SOURCE_MAX_CHARS, MODEL_READ_MAX_CHARS - _visible_size(identity) - 2000)
-    # A 500-character grep window can occupy 3,000 escaped chars.
-    if source_budget < 4096:
+    # A source window narrower than this says nothing useful. Grep needs the
+    # wider floor so its first match always fits (see the match loop); a code
+    # or outline read is prefix-trimmed and safe at any width.
+    if source_budget < 4096 or ("matches" in result and source_budget < GREP_MATCH_MAX_CHARS):
         return _metadata_error(result)
     code = result.get("code")
     if code is not None:
@@ -73,8 +95,9 @@ def budget_artifact_read(observation, request):
                     ),
                 },
             )
-            result["summary"] = (
-                "Partial verbatim source; continue with next_read. end_line may be partial when character_offset is nonzero."
+            result["summary"] = _append_note(
+                result.get("summary"),
+                "Partial verbatim source; continue with next_read. end_line may be partial when character_offset is nonzero.",
             )
         elif result.get("truncated"):
             result["next_read"] = {
@@ -93,8 +116,11 @@ def budget_artifact_read(observation, request):
             if _size(match) > source_budget:
                 match.update(before=[], after=[], context_start_line=match["line_no"], context_omitted=True)
                 context_omitted = True
-            if _size(kept + [match]) > source_budget:
+            if kept and _size(kept + [match]) > source_budget:
                 break
+            # The first match rides even if it alone overshoots: an empty page
+            # whose next_read repeats the incoming match_offset would never
+            # advance. One overshoot stays inside MODEL_READ_HEADROOM.
             kept.append(match)
         result["matches"] = kept
         consumed = request.match_offset + len(kept)
@@ -109,7 +135,10 @@ def budget_artifact_read(observation, request):
                 "max_matches": request.max_matches,
                 "match_offset": consumed,
             }
-            result["summary"] = "Partial grep results; continue with next_read. Match text is verbatim."
+            result["summary"] = _append_note(
+                result.get("summary"),
+                "Partial grep results; continue with next_read. Match text is verbatim.",
+            )
         if context_omitted:
             result["context_note"] = (
                 "Oversized before/after context omitted; read offset=line_no with limit and character_offset for source."
@@ -119,7 +148,10 @@ def budget_artifact_read(observation, request):
         result["outline"] = _prefix(result["outline"], source_budget)
         result["outline_truncated"] = True
         result["next_read"] = {"artifact_id": artifact_id, "offset": 1, "limit": 400}
-        result["summary"] = "Partial structural outline; read source with next_read or grep_pattern."
+        result["summary"] = _append_note(
+            result.get("summary"),
+            "Partial structural outline; read source with next_read or grep_pattern.",
+        )
 
     # Add optional fields only when they fit whole. Profiles can be paged by
     # visualization id with read_query; never silently clip a profile's rows.

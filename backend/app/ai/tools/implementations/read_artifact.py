@@ -394,7 +394,8 @@ class ReadArtifactTool(Tool):
                 shown = len(matches)
                 window_note = f"{grep_total} match(es) for pattern {data.grep_pattern!r}"
                 if grep_truncated:
-                    window_note += f", showing first {shown} (max_matches={data.max_matches}) — narrow the pattern for the rest"
+                    position = f"matches {data.match_offset + 1}-{data.match_offset + shown}" if data.match_offset else f"first {shown}"
+                    window_note += f", showing {position} (max_matches={data.max_matches}) — narrow the pattern for the rest"
                 window_note += ". Matched lines and before/after context are verbatim — safe to quote in SEARCH blocks."
                 if any("col_start" in m for m in matches):
                     window_note += (
@@ -410,9 +411,35 @@ class ReadArtifactTool(Tool):
             )
             first_line = code_view.split("\n", 1)[0]
             if data.character_offset > len(first_line):
-                yield ToolEndEvent(type="tool.end", payload={"output": {}, "observation": {
-                    "artifact_id": str(artifact.id), "success": False,
-                    "error": {"type": "invalid_character_offset", "message": "character_offset exceeds the first line length."}}})
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": ReadArtifactOutput(
+                            artifact_id=str(artifact.id),
+                            title=artifact.title,
+                            mode=artifact.mode,
+                            code="",
+                            visualization_ids=content.get("visualization_ids", []),
+                            version=artifact.version,
+                            read_mode="range",
+                            total_lines=total_lines,
+                            total_chars=total_chars,
+                            start_line=start_line,
+                        ).model_dump(),
+                        "observation": {
+                            "summary": (
+                                f"character_offset {data.character_offset} exceeds line {start_line}, which is "
+                                f"{len(first_line)} chars. Re-read the line with character_offset=0."
+                            ),
+                            "artifact_id": str(artifact.id),
+                            "success": False,
+                            "error": {
+                                "type": "invalid_character_offset",
+                                "message": "character_offset exceeds the first line length.",
+                            },
+                        },
+                    },
+                )
                 return
             code_view = code_view[data.character_offset:]
             if not code_view and start_line > total_lines:
@@ -633,7 +660,12 @@ class ReadArtifactTool(Tool):
                     "truncated", "next_read", "matches", "grep_truncated", "outline"):
             if key in observation:
                 output[key] = observation[key]
-        output["code_preview"]["code"] = observation.get("code", observation.get("outline", ""))
+        if observation.get("success") is False:
+            # A budgeted-away read returns an error; the audit row must not
+            # still show the source the model never received.
+            for key in ("code", "matches", "outline"):
+                output[key] = None if key != "code" else ""
+        output["code_preview"]["code"] = observation.get("code", observation.get("outline", "")) or ""
         if observation.get("matches"):
             output["code_preview"]["code"] = "\n\n".join(m["line"] for m in observation["matches"])
         output["artifact_preview"]["read_mode"] = observation.get("read_mode", read_mode)

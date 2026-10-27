@@ -108,6 +108,17 @@ async def _read(report_id, user_id, tool_input):
     return ends[-1].payload["observation"]
 
 
+async def _read_output(report_id, user_id, tool_input):
+    """Both halves of the tool.end payload: the UI/audit output and the observation."""
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        ctx = {"db": db, "report": report, "user": await db.get(User, user_id),
+               "organization": await db.get(Organization, report.organization_id)}
+        events = [e async for e in ReadArtifactTool().run_stream(tool_input, ctx)]
+    end = [e for e in events if e.type == "tool.end"][-1]
+    return end.payload["output"], end.payload["observation"]
+
+
 def _model_view(observation):
     """The tool_result text the planner model receives for this observation."""
     t = Transcript()
@@ -257,3 +268,33 @@ def test_oversized_grep_context_is_explicitly_omitted(dashboard):
     assert sent["matches"][0]["line"] == "needle"
     assert sent["matches"][0]["context_omitted"]
     assert "context_note" in sent
+
+
+@pytest.mark.e2e
+def test_summary_of_a_paged_read_still_describes_the_artifact(dashboard):
+    """A continuation must not cost the planner the read's own description.
+
+    `summary` is the only field that survives tier decay for this tool, so a
+    bounded page has to keep saying which artifact and window it read.
+    """
+    report_id, user_id, artifact_id = dashboard(0, source_code="שלום" * 10_000)
+    sent = json.loads(_model_view(asyncio.run(_read(report_id, user_id, {"artifact_id": artifact_id}))))
+
+    assert sent.get("next_read"), "expected this read to be paged"
+    assert str(sent["total_chars"]) in sent["summary"] or "40,000" in sent["summary"]
+    assert sent["title"] in sent["summary"]
+    assert "next_read" in sent["summary"]
+
+
+@pytest.mark.e2e
+def test_a_rejected_character_offset_returns_the_normal_output_shape(dashboard):
+    report_id, user_id, artifact_id = dashboard(0, source_code="short line\nand another")
+    events_output, observation = asyncio.run(_read_output(report_id, user_id, {
+        "artifact_id": artifact_id, "offset": 1, "character_offset": 9_999}))
+
+    assert observation["success"] is False
+    assert observation["error"]["type"] == "invalid_character_offset"
+    # The UI card and the audit row read these; every other branch sets them.
+    assert events_output["artifact_id"] == artifact_id
+    assert events_output["total_lines"] == 2
+    assert events_output["read_mode"] == "range"
