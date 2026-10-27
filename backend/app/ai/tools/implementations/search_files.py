@@ -195,14 +195,13 @@ class SearchFilesTool(Tool):
         multiple file connections) — the caller then uses the per-connection
         live scan, which is scoped by construction."""
         from ._file_tool_common import FILE_SOURCE_TYPES
-        report = runtime_ctx.get("report")
+        from .agent_focus_common import run_scope_agents
         sid = str(connection_id)
         attached = []
-        if report:
-            for ds in (report.data_sources or []):
-                for conn in (ds.connections or []):
-                    if conn.type in FILE_SOURCE_TYPES:
-                        attached.append((ds, conn))
+        for ds in run_scope_agents(runtime_ctx):
+            for conn in (ds.connections or []):
+                if conn.type in FILE_SOURCE_TYPES:
+                    attached.append((ds, conn))
         for ds, conn in attached:
             if str(conn.id) == sid:
                 return conn.id
