@@ -33,12 +33,12 @@ def _mcp_caller(test_client, api_key):
     return call
 
 
-def _sqlite_agent(create_data_source, *, user_token, org_id, name):
+def _sqlite_agent(create_data_source, database, *, user_token, org_id, name):
     """A plain (non-public) agent, so access is grant-based."""
     return create_data_source(
         name=name,
         type="sqlite",
-        config={"database": "db/app.db"},
+        config={"database": database},
         credentials={},
         user_token=user_token,
         org_id=org_id,
@@ -57,13 +57,14 @@ def org_admin(create_user, login_user, whoami, create_api_key, enable_mcp):
 
 @pytest.mark.e2e
 def test_mcp_lists_published_saved_queries_with_their_definition(
-    test_client, org_admin, create_data_source, create_global_entity,
+    test_client, org_admin, create_data_source, create_global_entity, dynamic_sqlite_db,
 ):
     """A published saved query is listed, and describe_entity returns the code
     it is defined by — the whole point of the surface."""
     suffix = uuid.uuid4().hex[:8]
     ds = _sqlite_agent(
-        create_data_source, user_token=org_admin["token"], org_id=org_admin["org_id"],
+        create_data_source, dynamic_sqlite_db,
+        user_token=org_admin["token"], org_id=org_admin["org_id"],
         name=f"Warehouse {suffix}",
     )
     definition = "select count(*) as active_users from users where deleted_at is null"
@@ -98,12 +99,13 @@ def test_mcp_lists_published_saved_queries_with_their_definition(
 @pytest.mark.e2e
 @pytest.mark.parametrize("handle", ["id", "slug", "title", "partial_title"])
 def test_mcp_describe_entity_resolves_any_handle(
-    test_client, org_admin, create_data_source, create_global_entity, handle,
+    test_client, org_admin, create_data_source, create_global_entity, dynamic_sqlite_db, handle,
 ):
     """A client holding any of the names a saved query goes by reaches it."""
     suffix = uuid.uuid4().hex[:8]
     ds = _sqlite_agent(
-        create_data_source, user_token=org_admin["token"], org_id=org_admin["org_id"],
+        create_data_source, dynamic_sqlite_db,
+        user_token=org_admin["token"], org_id=org_admin["org_id"],
         name=f"Warehouse {suffix}",
     )
     entity = create_global_entity(
@@ -132,12 +134,13 @@ def test_mcp_describe_entity_resolves_any_handle(
 
 @pytest.mark.e2e
 def test_mcp_does_not_serve_unpublished_saved_queries(
-    test_client, org_admin, create_data_source, create_global_entity,
+    test_client, org_admin, create_data_source, create_global_entity, dynamic_sqlite_db,
 ):
     """Drafts are not the organization's agreed definition yet."""
     suffix = uuid.uuid4().hex[:8]
     ds = _sqlite_agent(
-        create_data_source, user_token=org_admin["token"], org_id=org_admin["org_id"],
+        create_data_source, dynamic_sqlite_db,
+        user_token=org_admin["token"], org_id=org_admin["org_id"],
         name=f"Warehouse {suffix}",
     )
     draft = create_global_entity(
@@ -160,14 +163,15 @@ def test_mcp_does_not_serve_unpublished_saved_queries(
 
 @pytest.mark.e2e
 def test_mcp_saved_queries_follow_agent_access(
-    test_client, org_admin, create_data_source, create_global_entity,
+    test_client, org_admin, create_data_source, create_global_entity, dynamic_sqlite_db,
     create_user, login_user, create_api_key,
 ):
     """A member with no grant on the agent neither sees nor reads its saved
     query — the same gate every other entity surface applies."""
     suffix = uuid.uuid4().hex[:8]
     ds = _sqlite_agent(
-        create_data_source, user_token=org_admin["token"], org_id=org_admin["org_id"],
+        create_data_source, dynamic_sqlite_db,
+        user_token=org_admin["token"], org_id=org_admin["org_id"],
         name=f"Private warehouse {suffix}",
     )
     entity = create_global_entity(
@@ -212,13 +216,14 @@ def test_mcp_saved_queries_follow_agent_access(
 
 @pytest.mark.e2e
 def test_mcp_get_context_advertises_saved_queries_on_the_report(
-    test_client, org_admin, create_data_source, create_global_entity,
+    test_client, org_admin, create_data_source, create_global_entity, dynamic_sqlite_db,
 ):
     """get_context is what a client calls to learn what a session has; a saved
     query on the session's agents belongs in that answer."""
     suffix = uuid.uuid4().hex[:8]
     ds = _sqlite_agent(
-        create_data_source, user_token=org_admin["token"], org_id=org_admin["org_id"],
+        create_data_source, dynamic_sqlite_db,
+        user_token=org_admin["token"], org_id=org_admin["org_id"],
         name=f"Warehouse {suffix}",
     )
     entity = create_global_entity(
