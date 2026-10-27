@@ -97,11 +97,13 @@
 			:forked-from-user-name="report.forked_from_user_name"
 		/>
 		<!-- A conversation that joined a dashboard (collab01): whose work it
-		     continues and what changed before. Renders nothing otherwise. -->
+		     continues and what changed before. Renders nothing otherwise.
+		     No remount on its rerun-done: the dashboard watches its own
+		     pending queries and loads the rows itself (ArtifactFrame
+		     watchHydration), and a remount would drop which ones failed. -->
 		<ContinuedFromCard
 			v-if="reportLoaded && report?.id"
 			:report-id="report.id"
-			@rerun-done="artifactFrameKey += 1"
 		/>
 
 		<!-- Messages -->

@@ -4295,7 +4295,20 @@
     "publishFailed": "Publiceringen misslyckades",
     "notPublishedYet": "Inte publicerad ännu",
     "unpublishedChanges": "Du har ändringar som inte är publicerade",
-    "publishedUpToDate": "Publicerad och aktuell"
+    "publishedUpToDate": "Publicerad och aktuell",
+    "hydrating": {
+      "title": "Kör frågorna som dig…",
+      "progress": "{done} av {total}",
+      "failedTitle": "{failed} av {total} frågor kunde inte köras för dig",
+      "noAccess": "Du har inte åtkomst till den här frågans data.",
+      "noReason": "Frågan misslyckades utan angiven orsak.",
+      "runAgain": "Kör igen",
+      "showAnyway": "Visa instrumentpanelen",
+      "timeout": "Frågorna tar längre tid än väntat. Ladda om för att se vad som är klart.",
+      "reload": "Ladda om",
+      "stillRunning": "Frågorna körs fortfarande. Försök igen om en stund.",
+      "stillFailing": "{failed} misslyckades fortfarande vid ny körning."
+    }
   },
   "filter": {
     "selectColumn": "Välj kolumn",

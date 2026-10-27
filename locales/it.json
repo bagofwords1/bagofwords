@@ -4295,7 +4295,20 @@
     "publishFailed": "Pubblicazione non riuscita",
     "notPublishedYet": "Non ancora pubblicata",
     "unpublishedChanges": "Ci sono modifiche non pubblicate",
-    "publishedUpToDate": "Pubblicata e aggiornata"
+    "publishedUpToDate": "Pubblicata e aggiornata",
+    "hydrating": {
+      "title": "Esecuzione delle query a tuo nome…",
+      "progress": "{done} di {total}",
+      "failedTitle": "{failed} query su {total} non sono state eseguite per te",
+      "noAccess": "Non hai accesso ai dati di questa query.",
+      "noReason": "La query non è riuscita senza un motivo.",
+      "runAgain": "Esegui di nuovo",
+      "showAnyway": "Mostra la dashboard",
+      "timeout": "Le query richiedono più tempo del previsto. Ricarica per vedere cosa è terminato.",
+      "reload": "Ricarica",
+      "stillRunning": "Le query sono ancora in esecuzione. Riprova tra un momento.",
+      "stillFailing": "{failed} non riescono ancora dopo una nuova esecuzione."
+    }
   },
   "filter": {
     "selectColumn": "Seleziona colonna",

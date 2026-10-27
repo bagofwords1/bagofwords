@@ -347,6 +347,58 @@
         </div>
       </div>
 
+      <!-- Brought in from elsewhere (bring / Edit here / fork): the copied
+           queries are running again as this user and have no rows yet. Cover
+           the dashboard until they finish instead of letting it render empty. -->
+      <div
+        v-if="hydration && !isLoading && hasArtifact && !isPendingArtifact && !showViewerGate"
+        data-testid="artifact-hydration"
+        class="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto py-8 px-4 bg-white/95 dark:bg-gray-900/95"
+      >
+        <div v-if="hydration.phase === 'running'" class="flex flex-col items-center gap-3 text-center max-w-sm">
+          <Spinner class="w-6 h-6 text-gray-400" />
+          <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.title') }}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400">
+            {{ t('artifactFrame.hydrating.progress', { done: hydration.done, total: hydration.total }) }}
+          </div>
+          <div class="w-48 h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+            <div class="h-full bg-blue-500 transition-all" :style="{ width: `${hydration.total ? Math.round(100 * hydration.done / hydration.total) : 0}%` }" />
+          </div>
+        </div>
+        <div v-else-if="hydration.phase === 'timeout'" class="flex flex-col items-center gap-3 text-center max-w-sm">
+          <Icon name="heroicons:clock" class="w-6 h-6 text-amber-500" />
+          <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.timeout') }}</div>
+          <div class="flex gap-2">
+            <UButton size="xs" color="gray" variant="soft" @click="reloadAfterHydration">{{ t('artifactFrame.hydrating.reload') }}</UButton>
+            <UButton size="xs" color="gray" variant="ghost" @click="dismissHydration">{{ t('artifactFrame.hydrating.showAnyway') }}</UButton>
+          </div>
+        </div>
+        <div v-else class="flex flex-col gap-3 w-full max-w-md">
+          <div class="flex items-start gap-2">
+            <Icon name="heroicons:exclamation-triangle" class="w-5 h-5 shrink-0 text-amber-500 mt-0.5" />
+            <div class="text-sm text-gray-800 dark:text-gray-100">
+              {{ t('artifactFrame.hydrating.failedTitle', { failed: hydration.failed.length, total: hydration.total }) }}
+            </div>
+          </div>
+          <ul class="flex flex-col gap-2">
+            <li v-for="f in hydration.failed" :key="f.queryId"
+              class="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2">
+              <div class="text-xs font-medium text-gray-800 dark:text-gray-100">{{ f.title || t('artifactFrame.dataUntitledQuery') }}</div>
+              <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 break-words whitespace-pre-line">
+                {{ f.noAccess ? t('artifactFrame.hydrating.noAccess') : (f.reason || t('artifactFrame.hydrating.noReason')) }}
+              </div>
+            </li>
+          </ul>
+          <div v-if="hydration.rerunError" class="text-[11px] text-red-600 dark:text-red-400 break-words">{{ hydration.rerunError }}</div>
+          <div class="flex gap-2">
+            <UButton size="xs" color="blue" :loading="hydration.rerunning" data-testid="hydration-run-again" @click="runFailedAgain">
+              {{ t('artifactFrame.hydrating.runAgain') }}
+            </UButton>
+            <UButton size="xs" color="gray" variant="ghost" @click="dismissHydration">{{ t('artifactFrame.hydrating.showAnyway') }}</UButton>
+          </div>
+        </div>
+      </div>
+
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
@@ -1987,6 +2039,139 @@ const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
 // whose hydration ran only part of the dashboard) rather than snapshots
 // withheld from a viewer. Banner-only: it must never reach showViewerGate.
 const ownerFailedCharts = ref(false);
+
+// ── Brought in: the copies run again as this user ──────────────────────────
+// A dashboard brought into this conversation (bring, "Edit vN here", "Edit in
+// my conversation", Fork) arrives with its code and queries but no rows: the
+// server reruns each copied step as the person who brought it, in the
+// background. Whenever a load finds steps still pending, poll their statuses
+// (no rows) until they settle, then load the data once. State-driven, so every
+// entry point is covered, including a page reload mid-run.
+type HydrationFailure = { queryId: string; title: string; reason: string | null; noAccess: boolean };
+const hydration = ref<null | {
+  phase: 'running' | 'failed' | 'timeout';
+  total: number; done: number; failed: HydrationFailure[];
+  rerunning: boolean; rerunError: string | null;
+}>(null);
+const HYDRATION_POLL_MS = 2000;
+const HYDRATION_MAX_MS = 10 * 60 * 1000;
+let hydrationTimer: ReturnType<typeof setTimeout> | null = null;
+let hydrationToken = 0;
+let hydrationStartedAt = 0;
+let hydrationArtifactId: string | null = null;
+const SETTLING = new Set(['pending', 'running']);
+
+function stopHydrationPolling() {
+  hydrationToken += 1;
+  if (hydrationTimer) clearTimeout(hydrationTimer);
+  hydrationTimer = null;
+}
+function dismissHydration() {
+  stopHydrationPolling();
+  hydration.value = null;
+}
+function failuresOf(statuses: any[]): HydrationFailure[] {
+  return statuses.filter(s => s.status === 'error').map(s => ({
+    queryId: s.query_id, title: s.title || '', reason: s.status_reason || null, noAccess: s.error_code === 'no_access',
+  }));
+}
+// Called by fetchData with the steps it just loaded.
+function watchHydration(artifactId: string | undefined | null, steps: any[]) {
+  const settling = steps.filter(s => s && SETTLING.has(s.status));
+  if (!settling.length || !artifactId || props.verificationPreview) {
+    if (hydration.value?.phase === 'running') hydration.value = null;
+    return;
+  }
+  if (hydration.value?.phase === 'running' && hydrationArtifactId === artifactId && hydrationTimer) return;
+  stopHydrationPolling();
+  hydrationArtifactId = artifactId;
+  hydrationStartedAt = Date.now();
+  hydration.value = {
+    phase: 'running', total: steps.length, done: steps.length - settling.length,
+    failed: [], rerunning: false, rerunError: null,
+  };
+  scheduleHydrationPoll(hydrationToken);
+}
+function scheduleHydrationPoll(token: number) {
+  if (token !== hydrationToken) return;
+  if (typeof document !== 'undefined' && document.hidden) return; // resumed on visibilitychange
+  hydrationTimer = setTimeout(() => pollHydration(token), HYDRATION_POLL_MS);
+}
+async function pollHydration(token: number) {
+  hydrationTimer = null;
+  const artifactId = hydrationArtifactId;
+  if (token !== hydrationToken || !artifactId || !hydration.value) return;
+  if (Date.now() - hydrationStartedAt > HYDRATION_MAX_MS) {
+    hydration.value = { ...hydration.value, phase: 'timeout' };
+    return;
+  }
+  let statuses: any[] | null = null;
+  try {
+    const { data, error } = await useMyFetch('/api/queries/statuses', {
+      query: { report_id: props.reportId, artifact_id: artifactId },
+    });
+    if (!error.value && Array.isArray(data.value)) statuses = data.value as any[];
+  } catch { /* a missed poll just waits for the next */ }
+  if (token !== hydrationToken || artifactId !== selectedArtifactId.value) return;
+  if (!statuses) { scheduleHydrationPoll(token); return; }
+  const settling = statuses.filter(s => SETTLING.has(s.status));
+  hydration.value = { ...hydration.value!, total: statuses.length, done: statuses.length - settling.length };
+  if (settling.length) { scheduleHydrationPoll(token); return; }
+  // Everything ran: load the rows once.
+  const failed = failuresOf(statuses);
+  await fetchData(artifactId, { inPlace: dataReady.value });
+  if (token !== hydrationToken) return;
+  hydration.value = failed.length
+    ? { phase: 'failed', total: statuses.length, done: statuses.length, failed, rerunning: false, rerunError: null }
+    : null;
+}
+async function reloadAfterHydration() {
+  const artifactId = hydrationArtifactId || selectedArtifactId.value;
+  dismissHydration();
+  await fetchData(artifactId || undefined, { inPlace: dataReady.value });
+}
+// "Run again": the conversation is this user's, so the report rerun runs the
+// dashboard's queries with their credentials and identity.
+async function runFailedAgain() {
+  const h = hydration.value;
+  const artifactId = hydrationArtifactId || selectedArtifactId.value;
+  if (!h || h.rerunning || !artifactId) return;
+  hydration.value = { ...h, rerunning: true, rerunError: null };
+  let rerunError: string | null = null;
+  try {
+    const { data, error } = await useMyFetch(`/api/reports/${props.reportId}/rerun?artifact_id=${encodeURIComponent(artifactId)}`, { method: 'POST' });
+    if (error.value) rerunError = (error.value as any)?.data?.detail?.message || (error.value as any)?.data?.detail || t('artifactFrame.refreshFailed');
+    else if ((data.value as any)?.skipped) rerunError = t('artifactFrame.hydrating.stillRunning');
+    else if ((data.value as any)?.steps_failed) rerunError = t('artifactFrame.hydrating.stillFailing', { failed: (data.value as any).steps_failed });
+  } catch (e: any) {
+    rerunError = e?.message || t('artifactFrame.refreshFailed');
+  }
+  let statuses: any[] = [];
+  try {
+    const { data } = await useMyFetch('/api/queries/statuses', { query: { report_id: props.reportId, artifact_id: artifactId } });
+    statuses = Array.isArray(data.value) ? data.value as any[] : [];
+  } catch { /* keep the previous list */ }
+  await fetchData(artifactId, { inPlace: dataReady.value });
+  if (hydration.value?.phase === 'running') return; // fetchData found steps still running and is polling
+  const failed = statuses.length ? failuresOf(statuses) : h.failed;
+  hydration.value = failed.length
+    ? { phase: 'failed', total: statuses.length || h.total, done: statuses.length || h.total, failed, rerunning: false,
+        rerunError: typeof rerunError === 'string' ? rerunError : null }
+    : null;
+}
+function onHydrationVisibility() {
+  if (document.hidden) {
+    if (hydrationTimer) { clearTimeout(hydrationTimer); hydrationTimer = null; }
+  } else if (hydration.value?.phase === 'running' && !hydrationTimer) {
+    pollHydration(hydrationToken);
+  }
+}
+onMounted(() => document.addEventListener('visibilitychange', onHydrationVisibility));
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', onHydrationVisibility);
+  stopHydrationPolling();
+});
+watch(selectedArtifactId, () => dismissHydration());
 // Every query on the dashboard is withheld — nothing to render but the gate.
 const allWithheld = ref(false);
 // Some own run was refused by the provider (classified server-side as
@@ -2719,6 +2904,7 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
       }
     }
     queryParamSpecs.value = nextParamSpecs;
+    watchHydration(artifactId, queries.map((q: any) => q.default_step).filter((st: any) => st && !st.snapshot_withheld));
 
     // Stable control choices (static options + options-source query rows).
     await resolveParamOptions(queries, async () => {

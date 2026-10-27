@@ -718,3 +718,103 @@ def test_an_editors_own_run_covers_the_filter_option_queries(corpus, corpus_rows
     assert ids["options_sources/q_genres"] in seen["query_ids"]
     assert ids["options_sources/q_by_id"] in seen["query_ids"]
     assert seen["admitted_editor"] is True
+
+
+# ── bringing a dashboard in: the copies run again as the person who brought it ──
+
+IDENTITY_ECHO = (
+    "def generate_df(ds_clients, excel_files, params):\n"
+    "    import pandas as pd\n"
+    "    return pd.DataFrame({'who': [params.get('UserEmail')], 'n': [1]})\n"
+)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("bringer", ["member", "group_share"])
+def test_a_brought_dashboard_runs_again_as_the_person_who_brought_it(corpus, corpus_rows, test_client, spawned,
+                                                                     bringer):
+    """A query bound to the viewer's identity: the owner's rows are her
+    slice. Whoever brings the dashboard into their own conversation gets the
+    query back pending, and once it runs again its rows -- and the identity
+    recorded as the one it ran with -- are theirs, never the owner's. The
+    dashboard polls the statuses (no rows) until then."""
+    aid = own(corpus_rows, corpus, "identity_param/dash")
+    owner_email = corpus.cast.people["owner"].email
+    bringer_email = corpus.cast.people[bringer].email
+    source_step = corpus.ids["identity_param/q_sales/step"]
+    corpus_rows.update("steps", source_step, code=IDENTITY_ECHO, applied_params={"UserEmail": owner_email},
+                       data={"rows": [{"who": owner_email, "n": 1}, {"who": MARKER, "n": 2}],
+                             "columns": [{"field": "who"}, {"field": "n"}]})
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    if bringer == "group_share":
+        _grant_editor(test_client, corpus, aid, groups=("analysts",))
+    else:
+        _grant_editor(test_client, corpus, aid, bringer)
+    headers = as_(corpus, bringer)
+    mine = test_client.post("/api/reports", json={"title": "my questions"}, headers=headers)
+    assert mine.status_code in (200, 201), mine.text
+    report_id = mine.json()["id"]
+
+    brought = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id}, headers=headers)
+    assert brought.status_code == 200, brought.text
+    version_id = brought.json()["version_id"]
+    assert brought.json()["rerunning"] is True
+
+    statuses = test_client.get("/api/queries/statuses", params={"report_id": report_id, "artifact_id": version_id},
+                               headers=headers)
+    assert statuses.status_code == 200, statuses.text
+    assert statuses.json() and all(s["status"] == "pending" for s in statuses.json())
+    assert "rows" not in statuses.text and MARKER not in statuses.text and owner_email not in statuses.text
+    # Somebody else's conversation: nothing of it.
+    assert test_client.get("/api/queries/statuses", params={"report_id": report_id},
+                           headers=as_(corpus, "direct_share")).json() == []
+
+    _finish(spawned)
+
+    after = _rows(corpus_rows, "SELECT s.status, s.data, s.applied_params, q.user_id AS query_user, "
+                               "r.user_id AS report_user FROM queries q JOIN steps s ON s.id = q.default_step_id "
+                               "JOIN reports r ON r.id = q.report_id WHERE q.report_id = :r", r=report_id)
+    assert after and all(s["status"] == "success" for s in after)
+    for s in after:
+        data = s["data"] if isinstance(s["data"], dict) else json.loads(s["data"])
+        applied = s["applied_params"] if isinstance(s["applied_params"], dict) else json.loads(s["applied_params"])
+        assert [r["who"] for r in data["rows"]] == [bringer_email]
+        assert applied == {"UserEmail": bringer_email}
+        assert s["report_user"] == corpus.cast.id(bringer)
+    dump = json.dumps(after, ensure_ascii=False, default=str)
+    assert owner_email not in dump and MARKER not in dump
+    done = test_client.get("/api/queries/statuses", params={"report_id": report_id, "artifact_id": version_id},
+                           headers=headers).json()
+    assert done and all(s["status"] == "success" for s in done)
+    # The owner's own step is untouched.
+    (src,) = _rows(corpus_rows, "SELECT data FROM steps WHERE id = :s", s=source_step)
+    assert owner_email in json.dumps(src, default=str)
+
+
+@pytest.mark.e2e
+def test_a_brought_query_that_fails_says_why_to_the_person_who_brought_it_only(corpus, corpus_rows, test_client,
+                                                                               spawned):
+    aid = own(corpus_rows, corpus, DASH)
+    for key, value in corpus.ids.items():
+        if key.startswith(f"{CONV}/") and key.endswith("/step"):
+            corpus_rows.update("steps", value, code=(
+                "def generate_df(ds_clients, excel_files):\n"
+                "    raise ValueError('column zz_missing does not exist')\n"))
+    assert _publish_api(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    _grant_editor(test_client, corpus, aid, "member")
+    member = as_(corpus, "member")
+    report_id = test_client.post("/api/reports", json={"title": "mine"}, headers=member).json()["id"]
+    body = test_client.post(f"/api/artifacts/{aid}/bring", json={"report_id": report_id}, headers=member).json()
+    _finish(spawned)
+    statuses = test_client.get("/api/queries/statuses",
+                               params={"report_id": report_id, "artifact_id": body["version_id"]},
+                               headers=member).json()
+    assert statuses and all(s["status"] == "error" and s["status_reason"] for s in statuses)
+    # The run was theirs, so is its reason; to anyone else who can read the
+    # conversation it is a status alone.
+    for other in ("admin", "owner"):
+        seen = test_client.get("/api/queries/statuses", params={"report_id": report_id}, headers=as_(corpus, other))
+        assert seen.status_code == 200
+        assert all(s["status_reason"] is None for s in seen.json())

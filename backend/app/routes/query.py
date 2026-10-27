@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
-from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema
+from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema, QueryStepStatusSchema
 from app.services.query_service import QueryService
 
 
@@ -159,6 +159,54 @@ async def list_queries(
         if lr and not (schema.default_step and schema.default_step.snapshot_withheld):
             schema.last_run = QueryLastRunSchema(**lr)
         result.append(schema)
+    return result
+
+@router.get("/statuses", response_model=list[QueryStepStatusSchema])
+@requires_permission('view_reports')
+async def list_query_step_statuses(
+    report_id: str,
+    artifact_id: str | None = None,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """The status of each query's default step behind a dashboard, in one
+    request and without rows -- what the dashboard polls while the queries
+    it was brought in with run again as the person who brought it.
+
+    The same queries, filtered by the same read checks, as ``GET /queries``.
+    A step's failure reason is the run's own error, so it is given only to
+    the owner of the conversation the step lives on (the person whose run
+    it was); anyone else gets the status alone.
+    """
+    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+    from app.services.bow_source_access import can_read, report_access
+    from app.services.row_owner import query_report_id
+
+    queries = await service.list_queries(
+        db, report_id=report_id, artifact_id=artifact_id, organization_id=str(organization.id),
+    )
+    owners: dict = {}
+    result = []
+    for q in queries:
+        rid = await query_report_id(db, q)
+        if not await can_read(db, await report_access(db, rid), current_user):
+            continue
+        if not await _can_read_query(db, q, current_user, organization):
+            continue
+        if rid not in owners:
+            owners[rid] = (await db.execute(
+                select(Report.user_id).where(Report.id == str(rid))
+            )).scalar_one_or_none() if rid else None
+        mine = owners[rid] is not None and str(owners[rid]) == str(current_user.id)
+        step = q.default_step
+        status = getattr(step, "status", None)
+        reason = getattr(step, "status_reason", None) if status == "error" else None
+        result.append(QueryStepStatusSchema(
+            query_id=str(q.id), title=q.title, step_id=str(step.id) if step else None, status=status,
+            status_reason=reason if mine else None,
+            error_code=NO_ACCESS_CODE if reason == NO_ACCESS_REASON else None,
+        ))
     return result
 
 @router.post("", response_model=QuerySchema)

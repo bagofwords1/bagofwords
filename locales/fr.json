@@ -4295,7 +4295,20 @@
     "publishFailed": "Échec de la publication",
     "notPublishedYet": "Pas encore publié",
     "unpublishedChanges": "Vous avez des modifications non publiées",
-    "publishedUpToDate": "Publié et à jour"
+    "publishedUpToDate": "Publié et à jour",
+    "hydrating": {
+      "title": "Exécution des requêtes en votre nom…",
+      "progress": "{done} sur {total}",
+      "failedTitle": "{failed} requêtes sur {total} n'ont pas pu s'exécuter pour vous",
+      "noAccess": "Vous n'avez pas accès aux données de cette requête.",
+      "noReason": "La requête a échoué sans raison indiquée.",
+      "runAgain": "Relancer",
+      "showAnyway": "Afficher le tableau de bord",
+      "timeout": "Les requêtes prennent plus de temps que prévu. Rechargez pour voir ce qui est terminé.",
+      "reload": "Recharger",
+      "stillRunning": "Les requêtes sont toujours en cours. Réessayez dans un instant.",
+      "stillFailing": "{failed} échouent encore après relance."
+    }
   },
   "filter": {
     "selectColumn": "Sélectionner une colonne",

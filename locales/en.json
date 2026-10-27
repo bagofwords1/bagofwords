@@ -4657,7 +4657,20 @@
     "publishFailed": "Publish failed",
     "notPublishedYet": "Not published yet",
     "unpublishedChanges": "You have changes that aren't published",
-    "publishedUpToDate": "Published and up to date"
+    "publishedUpToDate": "Published and up to date",
+    "hydrating": {
+      "title": "Running the queries as you…",
+      "progress": "{done} of {total}",
+      "failedTitle": "{failed} of {total} queries could not run for you",
+      "noAccess": "You don't have access to this query's data.",
+      "noReason": "The query failed without a reason.",
+      "runAgain": "Run again",
+      "showAnyway": "Show dashboard",
+      "timeout": "The queries are taking longer than expected. Reload to see what has finished.",
+      "reload": "Reload",
+      "stillRunning": "The queries are still running. Try again in a moment.",
+      "stillFailing": "{failed} still failed when run again."
+    }
   },
   "filter": {
     "selectColumn": "Select column",

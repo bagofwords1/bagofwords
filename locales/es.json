@@ -4577,7 +4577,20 @@
     "publishFailed": "Error al publicar",
     "notPublishedYet": "Aún no publicado",
     "unpublishedChanges": "Tienes cambios sin publicar",
-    "publishedUpToDate": "Publicado y actualizado"
+    "publishedUpToDate": "Publicado y actualizado",
+    "hydrating": {
+      "title": "Ejecutando las consultas como tú…",
+      "progress": "{done} de {total}",
+      "failedTitle": "{failed} de {total} consultas no se pudieron ejecutar para ti",
+      "noAccess": "No tienes acceso a los datos de esta consulta.",
+      "noReason": "La consulta falló sin indicar el motivo.",
+      "runAgain": "Ejecutar de nuevo",
+      "showAnyway": "Mostrar el panel",
+      "timeout": "Las consultas están tardando más de lo esperado. Recarga para ver lo que ya terminó.",
+      "reload": "Recargar",
+      "stillRunning": "Las consultas siguen en ejecución. Inténtalo de nuevo en un momento.",
+      "stillFailing": "{failed} siguen fallando al ejecutarse de nuevo."
+    }
   },
   "filter": {
     "selectColumn": "Selecciona una columna",

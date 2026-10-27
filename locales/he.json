@@ -4597,7 +4597,20 @@
     "publishFailed": "הפרסום נכשל",
     "notPublishedYet": "הדשבורד עוד לא פורסם",
     "unpublishedChanges": "יש שינויים שעוד לא פורסמו",
-    "publishedUpToDate": "פורסם ומעודכן"
+    "publishedUpToDate": "פורסם ומעודכן",
+    "hydrating": {
+      "title": "מריצים את השאילתות בשמך…",
+      "progress": "{done} מתוך {total}",
+      "failedTitle": "{failed} מתוך {total} שאילתות לא רצו עבורך",
+      "noAccess": "אין לך גישה לנתונים של שאילתה זו.",
+      "noReason": "השאילתה נכשלה ללא סיבה.",
+      "runAgain": "הרצה מחדש",
+      "showAnyway": "הצגת הגלריה",
+      "timeout": "השאילתות לוקחות יותר זמן מהצפוי. יש לטעון מחדש כדי לראות מה הסתיים.",
+      "reload": "טעינה מחדש",
+      "stillRunning": "השאילתות עדיין רצות. נסו שוב בעוד רגע.",
+      "stillFailing": "{failed} עדיין נכשלו בהרצה מחדש."
+    }
   },
   "filter": {
     "selectColumn": "בחר עמודה",

@@ -4295,7 +4295,20 @@
     "publishFailed": "فشل النشر",
     "notPublishedYet": "لم يُنشر بعد",
     "unpublishedChanges": "لديك تغييرات غير منشورة",
-    "publishedUpToDate": "منشور ومحدَّث"
+    "publishedUpToDate": "منشور ومحدَّث",
+    "hydrating": {
+      "title": "جارٍ تشغيل الاستعلامات باسمك…",
+      "progress": "{done} من {total}",
+      "failedTitle": "تعذّر تشغيل {failed} من {total} استعلامات لك",
+      "noAccess": "ليس لديك حق الوصول إلى بيانات هذا الاستعلام.",
+      "noReason": "فشل الاستعلام دون سبب.",
+      "runAgain": "تشغيل مرة أخرى",
+      "showAnyway": "عرض لوحة المعلومات",
+      "timeout": "تستغرق الاستعلامات وقتًا أطول من المتوقع. أعد التحميل لرؤية ما اكتمل.",
+      "reload": "إعادة التحميل",
+      "stillRunning": "لا تزال الاستعلامات قيد التشغيل. حاول مرة أخرى بعد لحظة.",
+      "stillFailing": "لا يزال {failed} يفشل عند التشغيل مرة أخرى."
+    }
   },
   "filter": {
     "selectColumn": "اختر عمودًا",

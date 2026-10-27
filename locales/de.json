@@ -4295,7 +4295,20 @@
     "publishFailed": "Veröffentlichung fehlgeschlagen",
     "notPublishedYet": "Noch nicht veröffentlicht",
     "unpublishedChanges": "Sie haben nicht veröffentlichte Änderungen",
-    "publishedUpToDate": "Veröffentlicht und aktuell"
+    "publishedUpToDate": "Veröffentlicht und aktuell",
+    "hydrating": {
+      "title": "Abfragen werden als Sie ausgeführt…",
+      "progress": "{done} von {total}",
+      "failedTitle": "{failed} von {total} Abfragen konnten für Sie nicht ausgeführt werden",
+      "noAccess": "Sie haben keinen Zugriff auf die Daten dieser Abfrage.",
+      "noReason": "Die Abfrage ist ohne Angabe eines Grundes fehlgeschlagen.",
+      "runAgain": "Erneut ausführen",
+      "showAnyway": "Dashboard anzeigen",
+      "timeout": "Die Abfragen dauern länger als erwartet. Laden Sie neu, um zu sehen, was fertig ist.",
+      "reload": "Neu laden",
+      "stillRunning": "Die Abfragen laufen noch. Versuchen Sie es gleich noch einmal.",
+      "stillFailing": "{failed} schlagen beim erneuten Ausführen weiterhin fehl."
+    }
   },
   "filter": {
     "selectColumn": "Spalte auswählen",
