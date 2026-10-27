@@ -59,6 +59,48 @@ guidance. Range and grep reads skip loading visualization profiles unless
 `read_query(visualization_ids=...)`. The audit/UI source window follows the same
 budgeted source as the model observation.
 
+## Review follow-up
+
+Five review findings, each with a negative control:
+
+- **The continuation note replaced the read's own summary.** `summary` is the
+  only field surviving tier decay for this tool (`read_artifact` declares no
+  `digest_keys`, so `digest_of` falls back to summary plus the reference ids),
+  so a paged read told the planner only that something was partial — not which
+  artifact, which lines, or how many matches. `_append_note` now adds to it.
+- **A grep page could repeat the call that produced it.** When the first match
+  did not fit even with its context stripped, the page came back empty while
+  reporting more to come, with `next_read.match_offset` equal to the incoming
+  one. A page now always carries its first match, and the floor
+  (`GREP_MATCH_MAX_CHARS`) guarantees room for one, derived from
+  `GREP_LINE_CLIP` at 12 escaped chars per astral-plane character. The floor
+  applies to grep only: a code or outline read is prefix-trimmed and safe at
+  any width.
+- **The transport contract was copied, not referenced.** `METADATA_KEYS` now
+  comes from `result_parts`, and the ceiling is derived from
+  `transcript.MAX_RESULT_CHARS` (newly named) minus `MODEL_READ_HEADROOM`.
+- **`invalid_character_offset` yielded `output: {}`** where every other branch
+  yields a full `ReadArtifactOutput`; the UI card and audit row read those
+  fields.
+- **The audit row kept source on the metadata-error path**, contradicting the
+  "same source window" invariant one line below it.
+
+Verification:
+
+```sh
+TESTING=true ENVIRONMENT=production uv run pytest \
+  tests/unit/test_artifact_read_budget.py \
+  tests/unit/test_read_artifact_windowing.py \
+  tests/e2e/test_read_artifact_model_view.py -q --db=sqlite
+```
+
+86 passed. Reverting each fix in turn fails the matching test: the four summary
+cases plus the tool-level summary test, the grep-progress sweep across the
+budget band where one astral match does not fit, and the output-shape test.
+`tests/unit` at this head and at base `c824abc` fail the identical set of
+pre-existing tests (87 in a sandbox missing optional data-source drivers; 7 of
+them are what CI's `unit-tests` job reports, none in files this PR touches).
+
 ## Bounds
 
 No global JSON encoding or transcript cap changes. No changes to edit execution,
