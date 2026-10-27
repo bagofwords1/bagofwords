@@ -755,6 +755,50 @@ class ContextHub:
             except Exception:
                 pass
 
+    async def prime_entities(
+        self,
+        *,
+        user_text: str | None = None,
+        data_source_ids: Optional[List[str]] = None,
+        top_k: int = 5,
+    ) -> None:
+        """Build the saved-queries (entities) section on its own.
+
+        ``refresh_warm`` builds entities as part of the agent's per-turn
+        refresh. One-shot consumers that never run that loop — the MCP tools,
+        which prime static context and generate code once — need the section
+        too: without it the coder writes a definition for a term the org has
+        already saved. Stores into the same warm slot, so ``get_view()`` and
+        ``build_codegen_context`` pick it up unchanged.
+        """
+        allow_llm_see_data = True
+        try:
+            org_settings = await self.organization.get_settings(self.db)
+            cfg = org_settings.get_config("allow_llm_see_data") if org_settings else None
+            allow_llm_see_data = bool(cfg.value) if cfg is not None else True
+        except Exception:
+            allow_llm_see_data = True
+
+        async with self._db_lock:
+            try:
+                section = await self.entity_builder.build_for_turn(
+                    top_k=top_k,
+                    require_source_assoc=True,
+                    user_text=user_text or "",
+                    allow_llm_see_data=allow_llm_see_data,
+                    data_source_ids=data_source_ids or self._run_agent_ids(),
+                )
+            except Exception:
+                _hub_logger.exception("[context_hub:prime_entities] build failed")
+                return
+        if section is None:
+            return
+        self._warm_cache["entities"] = section
+        try:
+            self.metadata.entities_count = len(getattr(section, "items", []) or [])
+        except Exception:
+            pass
+
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
 
