@@ -13,6 +13,8 @@ from typing import Any
 
 DEFAULT_RANGE_LIMIT = 400
 GREP_LINE_CLIP = 500
+GREP_WINDOW_BEFORE = 200  # of a long-line window's GREP_LINE_CLIP chars, how many precede the match
+GREP_WINDOW_MIN_AFTER = 150  # trailing context a later match needs inside a window to share it
 
 
 def slice_range(text: str, offset: int, limit: int | None) -> tuple[str, int, int, int, bool]:
@@ -41,6 +43,9 @@ def grep_lines(
 
     Returns (matches, total_matches, truncated). Each match carries the verbatim
     matching line plus verbatim before/after context and 1-based line numbers.
+    A line longer than GREP_LINE_CLIP yields one match per window around its
+    occurrences instead (see _line_windows); `col_start`/`col_end`/`line_length`
+    mark it, and the before/after context rides on the line's first window only.
     Raises re.error for an invalid pattern — callers surface that to the planner.
     """
     flags = re.IGNORECASE if ignore_case else 0
@@ -51,19 +56,64 @@ def grep_lines(
     for i, line in enumerate(lines):
         if not rx.search(line):
             continue
-        total += 1
-        if len(matches) >= max_matches:
-            continue
         ctx_start = max(0, i - before)
-        clipped = line if len(line) <= GREP_LINE_CLIP else line[:GREP_LINE_CLIP]
-        matches.append({
-            "line_no": i + 1,
-            "line": clipped,
-            "before": lines[ctx_start:i],
-            "after": lines[i + 1:i + 1 + after],
-            "context_start_line": ctx_start + 1,
-        })
+        if len(line) <= GREP_LINE_CLIP:
+            entries = [{
+                "line_no": i + 1,
+                "line": line,
+                "before": lines[ctx_start:i],
+                "after": lines[i + 1:i + 1 + after],
+                "context_start_line": ctx_start + 1,
+            }]
+        else:
+            entries = []
+            for n, (start, end) in enumerate(_line_windows(rx, line)):
+                first = n == 0
+                entries.append({
+                    "line_no": i + 1,
+                    "line": line[start:end],
+                    "before": lines[ctx_start:i] if first else [],
+                    "after": lines[i + 1:i + 1 + after] if first else [],
+                    "context_start_line": ctx_start + 1 if first else i + 1,
+                    "col_start": start,
+                    "col_end": end,
+                    "line_length": len(line),
+                })
+        total += len(entries)
+        matches.extend(entries[:max(0, max_matches - len(matches))])
     return matches, total, total > len(matches)
+
+
+def _line_windows(rx: re.Pattern, line: str) -> list[tuple[int, int]]:
+    """[start, end) windows of at most GREP_LINE_CLIP chars over a long line.
+
+    One window per occurrence, opening GREP_WINDOW_BEFORE chars ahead of it —
+    a head-of-line clip hid matches past the first GREP_LINE_CLIP chars while
+    still reporting the line as a hit, and generated JSX often keeps a whole
+    section on one line. Near the end of the line the window slides back to
+    stay full width, unless that would repeat more of the previous window than
+    its lead-in. An occurrence gets no window of its own when the
+    previous one already shows it along with GREP_WINDOW_MIN_AFTER chars of
+    what follows (or the rest of the line) — what follows a match is usually
+    what an edit needs, so a match in the last few chars of a window does not
+    count as shown.
+    """
+    windows: list[tuple[int, int]] = []
+    for m in rx.finditer(line):
+        if windows:
+            prev_end = windows[-1][1]
+            if m.end() <= prev_end and (prev_end - m.end() >= GREP_WINDOW_MIN_AFTER or prev_end == len(line)):
+                continue
+        # A long occurrence gets less lead-in so the window opens on it.
+        start = m.start() - min(GREP_WINDOW_BEFORE, max(0, GREP_LINE_CLIP - (m.end() - m.start())))
+        start = max(0, min(start, len(line) - GREP_LINE_CLIP))
+        if windows:
+            # Overlap the previous window by at most the lead-in (dense
+            # occurrences, or the slide-back at the line end), so a frequent
+            # word doesn't repeat each char several times over.
+            start = max(start, min(m.start(), prev_end - GREP_WINDOW_BEFORE))
+        windows.append((start, min(len(line), start + GREP_LINE_CLIP)))
+    return windows
 
 
 def outline_from_patterns(

@@ -65,9 +65,10 @@ def _looks_like_session_file_id(file_id: str) -> bool:
 # rationally concludes the read returned nothing (then re-reads in a loop).
 # Past observations are compacted to "N chars" by ObservationContextBuilder,
 # so only the latest read pays this context cost in full.
-_OBS_DETAILS_MAX_CHARS = 4000
-# Windowed reads exist for sequential consumption — give them a bigger budget
-# and tell the model how to page losslessly (pass length <= this budget).
+# Same as the windowed budget: at 4,000 the model read a large catalogue in
+# a few small pieces and guessed the rest instead of paging or grepping.
+_OBS_DETAILS_MAX_CHARS = 8000
+# Windowed reads: tell the model how to page losslessly (pass length <= this).
 _OBS_WINDOW_DETAILS_MAX_CHARS = 8000
 
 # Default page for a windowed read when the model omits `length`. The same
