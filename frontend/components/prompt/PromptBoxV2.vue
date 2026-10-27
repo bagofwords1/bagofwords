@@ -1185,8 +1185,10 @@ async function loadModels() {
                     // router actually engages (sends model_id=null).
                     selectedModel.value = AUTO
                 } else {
-                // Personal default first, then the org-wide default
-                const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
+                // Personal default first, then the inherited one (group → org), then the org default
+                const defaultModel = models.value.find(m => m.is_user_default)
+                    || models.value.find(m => m.is_inherited_default)
+                    || models.value.find(m => m.is_default)
                 if (defaultModel) {
                     selectedModel.value = defaultModel.id
                 } else {

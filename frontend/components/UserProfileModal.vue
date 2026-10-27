@@ -152,7 +152,7 @@
                         <Icon name="heroicons-building-office" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                       </div>
                       <div class="flex flex-col flex-1 text-start min-w-0">
-                        <span class="font-medium truncate">{{ $t('profile.general.orgDefault') }}</span>
+                        <span class="font-medium truncate">{{ inheritedDefaultLabel }}</span>
                         <span v-if="orgDefaultModel" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ orgDefaultModel.name }}</span>
                       </div>
                       <Icon v-if="!userDefaultModelId" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
@@ -692,10 +692,19 @@ const modelsLoaded = ref(false)
 const userDefaultModelId = ref<string | null>(null)
 const savingDefaultModel = ref(false)
 
-const orgDefaultModel = computed(() => models.value.find((m: any) => m.is_default) || null)
+// What the user gets with no personal preference: their group's default, else
+// the org default (the backend marks it as is_inherited_default).
+const orgDefaultModel = computed(() =>
+  models.value.find((m: any) => m.is_inherited_default) || models.value.find((m: any) => m.is_default) || null
+)
+const inheritedDefaultLabel = computed(() =>
+  orgDefaultModel.value?.inherited_default_source === 'group' && orgDefaultModel.value?.inherited_default_group_name
+    ? t('profile.general.groupDefault', { group: orgDefaultModel.value.inherited_default_group_name })
+    : t('profile.general.orgDefault')
+)
 const selectedDefaultModel = computed(() => models.value.find((m: any) => m.id === userDefaultModelId.value) || null)
 const selectedDefaultModelLabel = computed(() =>
-  selectedDefaultModel.value?.name || t('profile.general.orgDefault')
+  selectedDefaultModel.value?.name || inheritedDefaultLabel.value
 )
 
 async function loadModels() {

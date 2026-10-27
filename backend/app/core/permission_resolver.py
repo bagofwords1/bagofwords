@@ -323,7 +323,11 @@ async def _resolve_permissions_inner(
     """Inner implementation of permission resolution."""
     # 1. Get user's group IDs in this org
     group_stmt = (
-        select(GroupMembership.group_id)
+        select(
+            GroupMembership.group_id,
+            Group.default_llm_model_id,
+            Group.small_default_llm_model_id,
+        )
         .join(Group, Group.id == GroupMembership.group_id)
         .where(
             GroupMembership.user_id == user_id,
@@ -331,7 +335,11 @@ async def _resolve_permissions_inner(
         )
     )
     group_result = await db.execute(group_stmt)
-    group_ids = [row[0] for row in group_result.all()]
+    group_rows = group_result.all()
+    group_ids = [row[0] for row in group_rows]
+    group_default_model_ids = _group_default_model_ids(
+        (row[1], row[2]) for row in group_rows
+    )
 
     # 2. Build principal matching condition (user directly OR via groups)
     principal_conditions = [
@@ -489,11 +497,27 @@ async def _resolve_permissions_inner(
     for ds_id in await _owned_data_source_ids(db, user_id, org_id):
         resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
 
+    # A group's default / small-default model is usable by its members, even
+    # when the model is restricted — setting a group default implies access.
+    for model_id in group_default_model_ids:
+        resource_permissions.setdefault(("llm_model", model_id), set()).add("use")
+
     return ResolvedPermissions(
         org_permissions=expand_org_permissions(org_permissions),
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+def _group_default_model_ids(pairs) -> set:
+    """Model ids set as default/small default on any of the given groups."""
+    out = set()
+    for default_id, small_id in pairs:
+        if default_id:
+            out.add(str(default_id))
+        if small_id:
+            out.add(str(small_id))
+    return out
 
 
 async def _owned_data_source_ids(
@@ -565,15 +589,18 @@ async def resolve_permissions_bulk(
     try:
         # 1. Group memberships across all requested orgs (1 query).
         group_rows = (await db.execute(
-            select(Group.organization_id, GroupMembership.group_id)
+            select(Group.organization_id, GroupMembership.group_id,
+                   Group.default_llm_model_id, Group.small_default_llm_model_id)
             .join(Group, Group.id == GroupMembership.group_id)
             .where(GroupMembership.user_id == user_id,
                    Group.organization_id.in_(org_ids))
         )).all()
         groups_by_org: dict[str, list] = {}
+        group_defaults_by_org: dict[str, list] = {}
         all_group_ids: list = []
-        for org_id, group_id in group_rows:
+        for org_id, group_id, default_id, small_id in group_rows:
             groups_by_org.setdefault(org_id, []).append(group_id)
+            group_defaults_by_org.setdefault(org_id, []).append((default_id, small_id))
             all_group_ids.append(group_id)
 
         # 2. Role assignments + role data (1 query). Mirrors the per-org filter:
@@ -682,6 +709,8 @@ async def resolve_permissions_bulk(
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             for ds_id in owned_by_org.get(org_id, []):
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
+            for model_id in _group_default_model_ids(group_defaults_by_org.get(org_id, [])):
+                res_perms.setdefault(("llm_model", model_id), set()).add("use")
             result[org_id] = ResolvedPermissions(
                 org_permissions=expand_org_permissions(org_perms[org_id]),
                 resource_permissions=res_perms,
@@ -831,9 +860,10 @@ async def get_accessible_model_ids(
 
     - is_admin=True means the user has full_admin_access; callers should not
       filter (every model is accessible).
-    - model_ids are LLMModel ids granted directly, via group, or via role.
-      Unrestricted models and org defaults are NOT included here — callers
-      handle those via ``user_can_use_model`` / the restriction flag.
+    - model_ids are LLMModel ids granted directly, via group, or via role,
+      plus the defaults of the user's groups (a group default implies `use`).
+      Unrestricted models are NOT included here — callers handle those via
+      ``user_can_use_model`` / the restriction flag.
     """
     resolved = await resolve_permissions(db, str(user_id), str(org_id))
     if FULL_ADMIN in resolved.org_permissions:
@@ -849,8 +879,9 @@ async def user_can_use_model(
 ) -> bool:
     """Capability check for a single LLM model.
 
-    Order: feature off (fail open) → unrestricted → org default/small-default
-    (always available) → full admin → explicit `use` grant.
+    Order: feature off (fail open) → unrestricted → full admin → `use`
+    grant (direct, group, role, or one of the user's group defaults).
+    A restricted org default is restricted like any other model.
     """
     if not llm_access_control_active():
         return True
@@ -861,10 +892,13 @@ async def user_can_use_model(
 
 
 def model_open_to_all(model) -> bool:
-    """Unrestricted, or an org default/small default (D3: always available)."""
-    if not getattr(model, "is_restricted", False):
-        return True
-    return bool(getattr(model, "is_default", False) or getattr(model, "is_small_default", False))
+    """Usable by every member: the model is not restricted.
+
+    Org defaults used to be always open (design D3). That was lifted so a
+    restricted org default can be kept from some groups, who then fall back
+    to their own group default (see LLMService.get_default_model).
+    """
+    return not getattr(model, "is_restricted", False)
 
 
 async def filter_models_user_can_use(db: AsyncSession, user_id: str, org_id: str, models) -> list:

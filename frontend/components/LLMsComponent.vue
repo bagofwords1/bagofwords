@@ -192,6 +192,12 @@
                                         <UTooltip v-if="model.is_small_default" :text="$t('settings.llms.smallDefaultTooltip')">
                                             <span class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                                         </UTooltip>
+                                        <span
+                                            v-for="g in groupDefaultsByModel[model.id] || []"
+                                            :key="g"
+                                            class="text-xs bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300 px-1.5 py-0.5 rounded-md"
+                                            data-testid="llm-group-default-badge"
+                                        >{{ $t('settings.llms.groupDefaults.badge', { group: g }) }}</span>
                                     </div>
                                     <div v-if="model.model_id !== model.name" class="text-xs text-gray-500 dark:text-gray-400">
                                         {{ $t('settings.llms.modelIdLabel') }}: {{ model.model_id }}
@@ -306,6 +312,15 @@
             </div>
         </div>
 
+        <!-- Group-level default models (Enterprise, same license as model access) -->
+        <LLMGroupDefaults
+            v-if="canManageAccess && models.length > 0"
+            ref="groupDefaultsRef"
+            :models="models"
+            @updated="getModels"
+            @rows="onGroupDefaultRows"
+        />
+
         <!-- Empty state -->
         <div v-else class="text-center py-12 bg-white dark:bg-gray-900 rounded-lg mt-20">
             <div class="w-48 mx-auto mb-4 flex items-center justify-center">
@@ -368,7 +383,7 @@
             v-model="accessModalOpen"
             :model="accessModel"
             :organization-id="organization.id"
-            @updated="getModels"
+            @updated="onAccessUpdated"
         />
 
 
@@ -595,10 +610,26 @@ const llmFallbackLicensed = computed(() => hasFeature('llm_fallback'));
 const accessModalOpen = ref(false);
 const accessModel = ref<Model | null>(null);
 
-const accessIsRestricted = (model: Model) => !!model.is_restricted && !model.is_default && !model.is_small_default;
-const accessLabel = (model: Model) => {
-    if (model.is_default || model.is_small_default) return 'Everyone (default)';
-    return model.is_restricted ? 'Restricted' : 'Everyone';
+// Org defaults can be restricted too: members outside the access list then
+// inherit their group's default instead.
+const accessIsRestricted = (model: Model) => !!model.is_restricted;
+const accessLabel = (model: Model) => (model.is_restricted ? 'Restricted' : 'Everyone');
+
+// Group defaults: badge each model with the groups that default to it.
+const groupDefaultsRef = ref<{ refresh: () => Promise<void> } | null>(null);
+const groupDefaultsByModel = ref<Record<string, string[]>>({});
+const onGroupDefaultRows = (rows: any[]) => {
+    const map: Record<string, string[]> = {};
+    for (const r of rows || []) {
+        for (const id of new Set([r.default_llm_model_id, r.small_default_llm_model_id].filter(Boolean))) {
+            (map[id as string] ||= []).push(r.group_name);
+        }
+    }
+    groupDefaultsByModel.value = map;
+};
+const onAccessUpdated = async () => {
+    await getModels();
+    await groupDefaultsRef.value?.refresh();
 };
 const openAccess = (model: Model) => {
     accessModel.value = model;

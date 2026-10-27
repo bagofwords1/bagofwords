@@ -413,6 +413,7 @@ class LLMService:
                 status_code=400,
                 detail="Cannot delete the default or small default model. Make another model the default first.",
             )
+        await self._ensure_not_group_default(db, organization, [str(model.id)])
 
         provider = (await db.execute(
             select(LLMProvider).filter(LLMProvider.id == model.provider_id)
@@ -570,11 +571,21 @@ class LLMService:
                 return role_names.get(g.principal_id)
             return user_names.get(g.principal_id)
 
+        default_for_groups = await self._groups_defaulting_to(db, organization, [str(model.id)])
+
         return {
             "model_id": str(model.id),
             "is_restricted": bool(getattr(model, "is_restricted", False)),
             "is_default": bool(model.is_default),
             "is_small_default": bool(model.is_small_default),
+            # Groups whose members get this model as their default (and so may
+            # use it even while restricted).
+            "default_for_groups": [
+                {"group_id": str(g.id), "group_name": g.name,
+                 "is_default": str(g.default_llm_model_id or "") == str(model.id),
+                 "is_small_default": str(g.small_default_llm_model_id or "") == str(model.id)}
+                for g in default_for_groups
+            ],
             "members": [
                 {
                     "grant_id": g.id,
@@ -595,12 +606,11 @@ class LLMService:
         is_restricted: bool,
     ):
         """Toggle whether a model is access-restricted."""
+        # Org defaults may be restricted too: members who can't use a
+        # restricted org default inherit their group default instead (see
+        # resolve_inherited_default). get_default_coverage reports anyone left
+        # without one so the admin UI can warn.
         model = await self._get_owned_model(db, organization, model_id)
-        if is_restricted and (model.is_default or model.is_small_default):
-            raise HTTPException(
-                status_code=400,
-                detail="Default models are available to all members and cannot be restricted.",
-            )
         model.is_restricted = is_restricted
         db.add(model)
         await db.commit()
@@ -717,6 +727,160 @@ class LLMService:
             pass
         return {"success": True}
 
+    async def _groups_defaulting_to(self, db: AsyncSession, organization: Organization, model_ids: list):
+        """Groups in the org that use any of these models as default or small default."""
+        from app.models.group import Group
+        from sqlalchemy import or_
+        if not model_ids:
+            return []
+        result = await db.execute(
+            select(Group)
+            .where(
+                Group.organization_id == str(organization.id),
+                or_(Group.default_llm_model_id.in_(model_ids), Group.small_default_llm_model_id.in_(model_ids)),
+            )
+            .order_by(Group.name.asc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def _ensure_not_group_default(self, db: AsyncSession, organization: Organization, model_ids: list):
+        """Refuse to delete/disable a model that a group still uses as its default."""
+        groups = await self._groups_defaulting_to(db, organization, model_ids)
+        if groups:
+            names = ", ".join(g.name for g in groups)
+            raise AppError.bad_request(
+                ErrorCode.LLM_MODEL_IS_GROUP_DEFAULT,
+                f"This model is the default for group(s): {names}. Change their default first.",
+                groups=names,
+            )
+
+    def _group_defaults_row(self, group, models_by_id: dict) -> dict:
+        def _m(mid):
+            m = models_by_id.get(str(mid)) if mid else None
+            return {"id": str(m.id), "name": m.name or m.model_id} if m is not None else None
+        return {
+            "group_id": str(group.id),
+            "group_name": group.name,
+            "default_llm_model_id": group.default_llm_model_id,
+            "small_default_llm_model_id": group.small_default_llm_model_id,
+            "default_llm_priority": group.default_llm_priority if group.default_llm_priority is not None else 100,
+            "default_model": _m(group.default_llm_model_id),
+            "small_default_model": _m(group.small_default_llm_model_id),
+        }
+
+    async def list_group_defaults(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Every group in the org with its LLM defaults and priority."""
+        from app.models.group import Group
+        groups = (await db.execute(
+            select(Group)
+            .where(Group.organization_id == str(organization.id))
+            .order_by(Group.default_llm_priority.asc(), Group.name.asc())
+        )).scalars().unique().all()
+        ids = {str(i) for g in groups for i in (g.default_llm_model_id, g.small_default_llm_model_id) if i}
+        models_by_id = {}
+        if ids:
+            rows = (await db.execute(
+                select(LLMModel).filter(LLMModel.id.in_(ids), LLMModel.organization_id == organization.id)
+            )).scalars().unique().all()
+            models_by_id = {str(m.id): m for m in rows}
+        return [self._group_defaults_row(g, models_by_id) for g in groups]
+
+    async def set_group_defaults(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        group_id: str,
+        fields: dict,
+    ):
+        """Set a group's default / small default model and priority.
+
+        ``fields`` holds only the keys the caller sent; a None model id clears
+        it (the group then inherits the org default). Setting a model makes it
+        usable by the group's members even when restricted.
+        """
+        from app.models.group import Group
+        group = (await db.execute(
+            select(Group).where(Group.id == group_id, Group.organization_id == str(organization.id))
+        )).scalars().first()
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        for key in ("default_llm_model_id", "small_default_llm_model_id"):
+            if key not in fields:
+                continue
+            mid = fields[key]
+            if mid:
+                model = await self._live_chat_model(db, organization, mid)
+                if model is None:
+                    raise AppError.bad_request(
+                        ErrorCode.LLM_GROUP_DEFAULT_INVALID,
+                        "The model must exist in this organization, be enabled, and be a chat model.",
+                    )
+                setattr(group, key, str(model.id))
+            else:
+                setattr(group, key, None)
+        if "default_llm_priority" in fields and fields["default_llm_priority"] is not None:
+            group.default_llm_priority = int(fields["default_llm_priority"])
+
+        db.add(group)
+        await db.commit()
+        await db.refresh(group)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="group.llm_defaults_changed",
+                user_id=str(current_user.id),
+                resource_type="group",
+                resource_id=str(group.id),
+                details={k: fields[k] for k in fields},
+            )
+        except Exception:
+            pass
+
+        ids = [i for i in (group.default_llm_model_id, group.small_default_llm_model_id) if i]
+        models_by_id = {}
+        if ids:
+            rows = (await db.execute(select(LLMModel).filter(LLMModel.id.in_(ids)))).scalars().unique().all()
+            models_by_id = {str(m.id): m for m in rows}
+        return self._group_defaults_row(group, models_by_id)
+
+    async def get_default_coverage(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Members who inherit no proper default.
+
+        For every active member, resolve the default they inherit (group →
+        org). Anyone who only gets the "first model they may use" fallback, or
+        no model at all, is listed so admins can fix the gap (typically: the
+        org default is restricted and the member's groups have no default).
+        Personal preferences are ignored — they can go stale at any time.
+        """
+        from app.models.membership import Membership
+        from app.models.user import User as UserModel
+        rows = (await db.execute(
+            select(UserModel)
+            .join(Membership, Membership.user_id == UserModel.id)
+            .where(
+                Membership.organization_id == str(organization.id),
+                Membership.deleted_at.is_(None),
+            )
+            .order_by(UserModel.email.asc())
+        )).scalars().unique().all()
+        uncovered = []
+        for u in rows:
+            resolved = await self.resolve_inherited_default(db, organization, u)
+            if resolved["source"] in ("group", "org"):
+                continue
+            m = resolved["model"]
+            uncovered.append({
+                "user_id": str(u.id),
+                "name": u.name or u.email,
+                "email": u.email,
+                "fallback_model": ({"id": str(m.id), "name": m.name or m.model_id} if m is not None else None),
+            })
+        return {"members_total": len(rows), "members_without_default": uncovered}
+
     async def list_models_for_principal(
         self,
         db: AsyncSession,
@@ -802,6 +966,7 @@ class LLMService:
         for model in models:
             if model.is_default or model.is_small_default:
                 raise HTTPException(status_code=400, detail="Cannot delete models that are set as default or small default")
+        await self._ensure_not_group_default(db, organization, [str(m.id) for m in models])
 
         provider.deleted_at = datetime.now()
         provider.is_enabled = False
@@ -878,20 +1043,12 @@ class LLMService:
         result = await db.execute(query)
         models = result.unique().scalars().all()
 
-        # Per-model access control: hide restricted models the user can't use.
+        # Per-model access control: hide restricted models the user can't use
+        # (a restricted org default included; group defaults count as grants).
         # No-op when the feature is unlicensed (fail open) or nothing is restricted.
-        from app.core.permission_resolver import llm_access_control_active, get_accessible_model_ids
-        if current_user is not None and llm_access_control_active() and any(getattr(m, "is_restricted", False) for m in models):
-            is_admin, granted = await get_accessible_model_ids(db, current_user.id, organization.id)
-            if not is_admin:
-                granted_set = set(granted)
-                models = [
-                    m for m in models
-                    if not getattr(m, "is_restricted", False)
-                    or getattr(m, "is_default", False)
-                    or getattr(m, "is_small_default", False)
-                    or str(m.id) in granted_set
-                ]
+        from app.core.permission_resolver import filter_models_user_can_use
+        if current_user is not None:
+            models = await filter_models_user_can_use(db, current_user.id, organization.id, models)
 
         # Mark the caller's personal default so clients can preselect it without
         # a second request. Transient attribute (feeds LLMModelSchema.is_user_default),
@@ -902,8 +1059,22 @@ class LLMService:
         visible_ids = {str(m.id) for m in models}
         if user_default_id not in visible_ids:
             user_default_id = None
+        # Mark the default the caller inherits without a personal preference
+        # (group default → org default → fallback), so pickers preselect the
+        # right model and can say where it comes from.
+        inherited = {"model": None, "source": None, "group_name": None}
+        if current_user is not None:
+            try:
+                inherited = await self.resolve_inherited_default(db, organization, current_user)
+            except Exception:
+                logger.exception("inherited default resolution failed; model list unmarked")
+        inherited_id = str(inherited["model"].id) if inherited.get("model") is not None else None
         for m in models:
             m.is_user_default = (str(m.id) == user_default_id)
+            is_inherited = (str(m.id) == inherited_id)
+            m.is_inherited_default = is_inherited
+            m.inherited_default_source = inherited.get("source") if is_inherited else None
+            m.inherited_default_group_name = inherited.get("group_name") if is_inherited else None
 
         # Prefer small default models first, then regular default, then by provider/name
         def _sort_key(m):
@@ -1014,6 +1185,8 @@ class LLMService:
 
         if model.is_default or model.is_small_default:
             raise HTTPException(status_code=400, detail="Cannot disable models that are set as default or small default")
+        if not enabled:
+            await self._ensure_not_group_default(db, organization, [str(model.id)])
 
         model.is_enabled = enabled
         await db.commit()
@@ -1115,6 +1288,8 @@ class LLMService:
                 status_code=400,
                 detail="Default and small default models cannot be marked as image-generation models. Set another default first.",
             )
+        if enabled:
+            await self._ensure_not_group_default(db, organization, [str(model.id)])
 
         model.supports_image_generation_override = enabled
         model.supports_image_generation = enabled
@@ -2310,36 +2485,126 @@ class LLMService:
         current_user: User,
         is_small: bool = False
     ):
-        """Get the default model for an organization. If is_small=True, prefer small default, fallback to regular, then first enabled."""
+        """Default model for a caller, ignoring their personal preference.
+
+        Resolution (each step skipped when stale or not usable by the caller):
+        1. is_small only: the small default of the caller's groups (by group
+           priority), then the org small default;
+        2. the default of the caller's groups (by group priority);
+        3. the org default;
+        4. the first enabled chat model the caller may use.
+
+        With no user (system jobs) group steps are skipped and the org
+        defaults are returned as-is, like before.
+        """
+        resolved = await self.resolve_inherited_default(db, organization, current_user, is_small=is_small)
+        return resolved["model"]
+
+    async def _user_groups_with_llm_defaults(self, db: AsyncSession, organization: Organization, user: User):
+        """The user's groups that carry an LLM default, highest priority first
+        (lower ``default_llm_priority`` wins, ties broken by name)."""
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+        from sqlalchemy import or_
+        if user is None:
+            return []
+        result = await db.execute(
+            select(Group)
+            .join(GroupMembership, GroupMembership.group_id == Group.id)
+            .where(
+                GroupMembership.user_id == str(user.id),
+                Group.organization_id == str(organization.id),
+                or_(Group.default_llm_model_id.isnot(None), Group.small_default_llm_model_id.isnot(None)),
+            )
+            .order_by(Group.default_llm_priority.asc(), Group.name.asc(), Group.id.asc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def _live_chat_model(self, db: AsyncSession, organization: Organization, model_id):
+        """The model with this id if it is enabled, on a live provider, in the
+        org, and a chat model — else None."""
+        if not model_id:
+            return None
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == str(model_id))
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMModel.is_enabled == True)
+            .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        return result.unique().scalar_one_or_none()
+
+    async def resolve_inherited_default(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        is_small: bool = False,
+    ) -> dict:
+        """Resolve the default a caller inherits (no personal preference).
+
+        Returns ``{"model", "source", "group_id", "group_name"}`` where source
+        is "group", "org", "fallback" or None (nothing usable).
+        """
+        from app.core.permission_resolver import llm_access_control_active, user_can_use_model
+        enforce = llm_access_control_active()
+
+        async def _usable(m) -> bool:
+            if m is None:
+                return False
+            if user is None or not enforce or not getattr(m, "is_restricted", False):
+                return True
+            return await user_can_use_model(db, user.id, organization.id, m)
+
+        def _out(model, source, group=None):
+            return {
+                "model": model,
+                "source": source,
+                "group_id": str(group.id) if group is not None else None,
+                "group_name": group.name if group is not None else None,
+            }
+
+        groups = await self._user_groups_with_llm_defaults(db, organization, user)
+
         if is_small:
-            small_default = await db.execute(
+            for g in groups:
+                m = await self._live_chat_model(db, organization, g.small_default_llm_model_id)
+                if await _usable(m):
+                    return _out(m, "group", g)
+            small_default = (await db.execute(
                 select(LLMModel)
                 .filter(LLMModel.organization_id == organization.id)
                 .filter(getattr(LLMModel, "is_small_default") == True)
                 .filter(LLMModel.is_enabled == True)
-            )
+            )).scalars().first()
             # .first() so a duplicated small-default flag resolves to one model
             # instead of raising MultipleResultsFound on the hot completion path.
-            small_default = small_default.scalars().first()
-            if small_default:
-                return small_default
-        # Regular default
-        default = await db.execute(
+            if await _usable(small_default):
+                return _out(small_default, "org")
+
+        for g in groups:
+            m = await self._live_chat_model(db, organization, g.default_llm_model_id)
+            if await _usable(m):
+                return _out(m, "group", g)
+
+        default_model = (await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
-        )
-        default_model = default.scalars().first()
-        if default_model:
-            return default_model
-        
-        # Fallback when the org has no usable default (e.g. custom providers
-        # without is_default set): the first enabled chat model the caller may
-        # use. Only the org default is exempt from access control, so this
-        # pick must not hand out a restricted model the caller has no grant
-        # for. Unrestricted models come first; with no user (system jobs)
-        # only unrestricted models qualify.
+        )).scalars().first()
+        if await _usable(default_model):
+            return _out(default_model, "org")
+
+        # Fallback when nothing above is usable (no default set, or the org
+        # default is restricted and the caller has no group default): the
+        # first enabled chat model the caller may use. Unrestricted models
+        # come first; with no user (system jobs) only unrestricted models
+        # qualify.
         candidates = await db.execute(
             select(LLMModel)
             .join(LLMModel.provider)
@@ -2351,16 +2616,12 @@ class LLMService:
             .filter(LLMProvider.deleted_at == None)
             .order_by(LLMModel.is_restricted.asc(), LLMModel.created_at.asc(), LLMModel.id.asc())
         )
-        from app.core.permission_resolver import llm_access_control_active, user_can_use_model
-        enforce = llm_access_control_active()
         for model in candidates.unique().scalars().all():
             if not enforce or not model.is_restricted:
-                return model
-            if current_user is not None and await user_can_use_model(
-                db, current_user.id, organization.id, model
-            ):
-                return model
-        return None
+                return _out(model, "fallback")
+            if user is not None and await user_can_use_model(db, user.id, organization.id, model):
+                return _out(model, "fallback")
+        return _out(None, None)
 
     async def get_user_default_model_id(
         self,

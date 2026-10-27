@@ -119,6 +119,8 @@ class ErrorCode(str, Enum):
     LLM_MODEL_ID_REQUIRED = "llm.model_id_required"
     LLM_MODEL_ID_NOT_EDITABLE = "llm.model_id_not_editable"
     LLM_MODEL_ID_DUPLICATE = "llm.model_id_duplicate"
+    LLM_MODEL_IS_GROUP_DEFAULT = "llm.model_is_group_default"
+    LLM_GROUP_DEFAULT_INVALID = "llm.group_default_invalid"
 
     # Member attributes
     MEMBER_ATTRIBUTES_INVALID = "member_attributes.invalid"

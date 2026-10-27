@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.597 (October 26, 2026)
+- Added per-group default models, usable by the group even when restricted (#1466) — Settings → LLM → Group default models
+- Changed the organization default model so it can be restricted; members without access get their group's default (#1466)
+
 ## Version 0.0.596 (October 23, 2026)
 - Added a clear-all button to the Diagnosis query bar (#1452)
 - Changed dashboards on /r and /reports to load faster (#1449)

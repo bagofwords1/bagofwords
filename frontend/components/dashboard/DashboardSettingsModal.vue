@@ -524,11 +524,9 @@ const chatModelValue = computed({
     set: (v: string) => { chatModelId.value = v },
 })
 const chatModelOptions = computed(() => {
-    const orgDefault = chatModels.value.find(m => m.isDefault)
-    const options = [{
-        value: ORG_DEFAULT_MODEL,
-        label: orgDefault ? t('share.chatModelOrgDefault', { name: orgDefault.name }) : t('share.chatModelOrgDefaultPlain'),
-    }]
+    // ORG_DEFAULT_MODEL pins nothing: each viewer runs on their own default
+    // (personal → group → organization), so no single model name applies.
+    const options = [{ value: ORG_DEFAULT_MODEL, label: t('share.chatModelViewerDefault') }]
     if (reportModelId.value) {
         const inherited = chatModels.value.find(m => m.id === reportModelId.value)
         options.unshift({ value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelReportPlain') })

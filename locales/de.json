@@ -3187,6 +3187,30 @@
         "likeRequired": "Modell angeben, dem es entspricht",
         "customRequired": "Der benutzerdefinierte Modus braucht Felder für mindestens eine Stufe",
         "saveFailed": "Reasoning-Einstellungen konnten nicht gespeichert werden"
+      },
+      "groupDefaults": {
+        "title": "Standardmodelle für Gruppen",
+        "subtitle": "Mitglieder erhalten das Standardmodell ihrer Gruppe statt des Standardmodells der Organisation. Das Standardmodell einer Gruppe ist für ihre Mitglieder immer nutzbar, auch wenn das Modell eingeschränkt ist.",
+        "colGroup": "Gruppe",
+        "colDefault": "Standardmodell",
+        "colSmall": "Kleines Modell",
+        "colPriority": "Priorität",
+        "priorityTooltip": "Ist ein Mitglied in mehreren Gruppen, gewinnt die Gruppe mit der niedrigsten Zahl.",
+        "inherit": "Standard der Organisation",
+        "empty": "Noch keine Gruppen. Lege unter Mitglieder Gruppen an, um jeder ein eigenes Standardmodell zu geben.",
+        "saved": "Standardmodelle der Gruppe aktualisiert",
+        "saveFailed": "Standardmodelle der Gruppe konnten nicht aktualisiert werden",
+        "coverageTitle": "Mitglieder ohne Standardmodell: {count}",
+        "coverageHint": "Sie können das Standardmodell der Organisation nicht nutzen und keine ihrer Gruppen hat eines, daher erhalten sie das erste Modell, das sie nutzen dürfen.",
+        "fallsBackTo": "weicht auf {model} aus",
+        "noModel": "kein Modell verfügbar",
+        "andMore": "und {count} weitere",
+        "badge": "Standard von {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "Das ist das Standardmodell der Organisation. Mitglieder, die unten nicht aufgeführt sind, erhalten stattdessen das Standardmodell ihrer Gruppe.",
+        "defaultForGroups": "Standard für Gruppen",
+        "defaultForGroupsHint": "Mitglieder dieser Gruppen können dieses Modell immer nutzen."
       }
     },
     "licensePage": {
@@ -3873,8 +3897,7 @@
     "chatNoAgentsSlides": "Diesem Bericht sind keine Agenten zugeordnet – der Chat antwortet nur mit den Präsentations-Daten.",
     "chatModel": "Standardmodell",
     "chatModelDesc": "Das Modell, das der Chat für Betrachter verwendet. Betrachter ohne Zugriff darauf nutzen ihr eigenes Standardmodell.",
-    "chatModelOrgDefault": "Standard der Organisation ({name})",
-    "chatModelOrgDefaultPlain": "Standard der Organisation",
+    "chatModelViewerDefault": "Standard des jeweiligen Betrachters",
     "chatModelReport": "Wie im Bericht ({name})",
     "chatModelReportPlain": "Wie im Bericht",
     "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet",
@@ -3970,7 +3993,9 @@
     "llm": {
       "model_id_required": "Die Modell-ID darf nicht leer sein",
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
-      "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
+      "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter",
+      "model_is_group_default": "Dieses Modell ist das Standardmodell der Gruppen: {groups}. Ändere zuerst deren Standardmodell.",
+      "group_default_invalid": "Das Modell muss aktiviert und ein Chatmodell dieser Organisation sein."
     },
     "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
     "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",
@@ -5188,7 +5213,8 @@
       "checkinsTitle": "Nachfassen des Agenten",
       "checkinsSubtitle": "Lässt den Agenten nach einem Gespräch selbstständig nachsehen, wenn sich ein erneuter Blick lohnt (zum Beispiel nach einer Datenaktualisierung). Er benachrichtigt dich nur, wenn sich etwas Wesentliches geändert hat.",
       "checkinsSaved": "Nachfass-Einstellung gespeichert",
-      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden"
+      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden",
+      "groupDefault": "Gruppenstandard ({group})"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",

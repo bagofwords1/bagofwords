@@ -559,7 +559,13 @@ const ruleSecondaryText = (row: CaseRow, it: { rule: any, originalIdx: number })
 
 // ---- Model / provider ---------------------------------------------------
 
-const orgDefaultModel = computed<any | null>(() => (models.value || []).find((m: any) => m?.is_default) || null)
+// A case with no model ran on the runner's inherited default (group, else
+// org), which the models list marks per caller.
+const orgDefaultModel = computed<any | null>(() =>
+  (models.value || []).find((m: any) => m?.is_inherited_default)
+  || (models.value || []).find((m: any) => m?.is_default)
+  || null
+)
 const resolveModel = (modelId?: string, caseObj?: TestCase): any | null => {
   const m = modelById.value[String(modelId || '')]
   if (m) return m

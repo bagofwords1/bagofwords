@@ -3187,6 +3187,30 @@
         "likeRequired": "Informe o modelo com o qual ele se parece",
         "customRequired": "O modo personalizado precisa de campos para pelo menos um nível",
         "saveFailed": "Não foi possível salvar as configurações de raciocínio"
+      },
+      "groupDefaults": {
+        "title": "Modelos padrão por grupo",
+        "subtitle": "Os membros recebem o modelo padrão do seu grupo em vez do padrão da organização. O modelo padrão de um grupo está sempre disponível para os seus membros, mesmo quando o modelo é restrito.",
+        "colGroup": "Grupo",
+        "colDefault": "Modelo padrão",
+        "colSmall": "Modelo pequeno",
+        "colPriority": "Prioridade",
+        "priorityTooltip": "Quando um membro está em vários grupos, vence o grupo com o menor número.",
+        "inherit": "Padrão da organização",
+        "empty": "Ainda não há grupos. Crie grupos em Membros para dar a cada um o seu próprio modelo padrão.",
+        "saved": "Modelos padrão do grupo atualizados",
+        "saveFailed": "Não foi possível atualizar os modelos padrão do grupo",
+        "coverageTitle": "Membros sem modelo padrão: {count}",
+        "coverageHint": "Não podem usar o modelo padrão da organização e nenhum dos seus grupos tem um, por isso recebem o primeiro modelo que têm permissão para usar.",
+        "fallsBackTo": "usa {model} como alternativa",
+        "noModel": "nenhum modelo disponível",
+        "andMore": "e mais {count}",
+        "badge": "Padrão de {group}"
+      },
+      "access": {
+        "restrictedDefaultHint": "Este é o modelo padrão da organização. Os membros que não estão listados abaixo recebem o padrão do seu grupo.",
+        "defaultForGroups": "Padrão para grupos",
+        "defaultForGroupsHint": "Os membros destes grupos podem sempre usar este modelo."
       }
     },
     "licensePage": {
@@ -3873,8 +3897,7 @@
     "chatNoAgentsSlides": "Nenhum agente está vinculado a este relatório — o chat responderá apenas com os dados da apresentação.",
     "chatModel": "Modelo padrão",
     "chatModelDesc": "O modelo que o chat usa para os visualizadores. Quem não tiver acesso a ele usará o próprio modelo padrão.",
-    "chatModelOrgDefault": "Padrão da organização ({name})",
-    "chatModelOrgDefaultPlain": "Padrão da organização",
+    "chatModelViewerDefault": "O padrão de cada leitor",
     "chatModelReport": "Igual ao relatório ({name})",
     "chatModelReportPlain": "Igual ao relatório",
     "chatModelUnavailable": "Modelo indisponível — usando o padrão",
@@ -3970,7 +3993,9 @@
     "llm": {
       "model_id_required": "O ID do modelo não pode ficar vazio",
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
-      "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor"
+      "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor",
+      "model_is_group_default": "Este modelo é o padrão dos grupos: {groups}. Altere primeiro o padrão deles.",
+      "group_default_invalid": "O modelo tem de estar ativado e ser um modelo de chat desta organização."
     },
     "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
     "memory.disabled": "A memória do usuário está desativada nesta organização.",
@@ -5188,7 +5213,8 @@
       "checkinsTitle": "Acompanhamentos do agente",
       "checkinsSubtitle": "Permite que o agente volte por conta própria após uma conversa quando vale a pena revisitar algo (por exemplo, após uma atualização de dados). Ele só notifica você quando algo significativo mudou.",
       "checkinsSaved": "Preferência de acompanhamento salva",
-      "checkinsFailed": "Não foi possível salvar sua preferência de acompanhamento"
+      "checkinsFailed": "Não foi possível salvar sua preferência de acompanhamento",
+      "groupDefault": "Padrão do grupo ({group})"
     },
     "instructions": {
       "title": "Instruções personalizadas",

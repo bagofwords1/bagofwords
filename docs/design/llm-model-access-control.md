@@ -29,7 +29,8 @@ These were settled during design and are fixed for v1:
 |---|----------|-------|
 | D1 | Granularity | **Per model** (not per provider). A grant targets a single `LLMModel`. |
 | D2 | Default visibility | **Open by default.** A model is usable by everyone unless explicitly marked restricted. |
-| D3 | Default models | The org **default** and **small-default** models (big or small) are **always accessible to every member**, regardless of restriction. |
+| D3 | Default models | ~~The org **default** and **small-default** models are **always accessible to every member**, regardless of restriction.~~ **Superseded by D6** (see [§11](#11-group-default-models)): an org default can be restricted like any other model. A migration un-restricted any model that was both restricted and an org default, so existing orgs keep their effective access. |
+| D6 | Group defaults | Each group may set its own **default** and **small default** model. A group's default is **usable by its members even when restricted** (it acts as a `use` grant). See [§11](#11-group-default-models). |
 | D4 | Principal types | A model's access list may contain **users, groups, or roles** (same as data-source grants). "Role" is a principal you grant to — not the organizing unit of the feature. |
 | D5 | Licensing | This is an **Enterprise** feature, gated by a new license feature flag `llm_access_control`. Community/unlicensed installs behave exactly as today (all models open). |
 
@@ -293,10 +294,10 @@ Tracked decisions that ship with a recommended default in v1:
    - **Recommendation: keep this behavior** — it's consistent with how
      data-source grants already work and is the expected RBAC semantic.
 
-3. **Restricting the current default.** D3 keeps defaults open to everyone, so
-   marking a default model restricted has no usage effect until it stops being the
-   default. v1 surfaces this by **disabling** the restriction toggle for default
-   models (§6.2) rather than allowing a confusing no-op state.
+3. **Restricting the current default.** ~~v1 disabled the restriction toggle for
+   default models.~~ Since group defaults (D6) the org default can be restricted;
+   members without access inherit their group default instead, and the admin is
+   warned about anyone left without one (§11.4).
 
 ## 9. Backward compatibility
 
@@ -320,3 +321,66 @@ Tracked decisions that ship with a recommended default in v1:
 - [ ] Frontend `LLMsComponent.vue`: Access column + manage-access panel + EE gating.
 - [ ] Tests: resolver unit (user/group/role grants, default bypass, admin bypass),
       enforcement on `get_model_by_id`, license-off no-op, expiry fail-open.
+
+## 11. Group default models
+
+Status: Implemented. Same license feature (`llm_access_control`).
+
+**Use case:** group 1 and group 2 each get their own default model, and neither
+group can use the other's model — e.g. Finance defaults to Claude Opus 5.5,
+Marketing to GPT-6 Sol, both models restricted.
+
+### 11.1 Data model
+
+`groups` gains three columns (migration `grpllm01`):
+
+| Column | Meaning |
+|---|---|
+| `default_llm_model_id` | Group default. Soft reference to `llm_models.id` (no FK, same convention as `memberships.default_llm_model_id`). |
+| `small_default_llm_model_id` | Group small default (background tasks: titles, judges, routing). |
+| `default_llm_priority` | Integer, default 100. For a member of several groups the **lowest number wins**, ties broken by group name. |
+
+### 11.2 Resolution order
+
+`LLMService.resolve_inherited_default` (behind `get_default_model`), each step
+skipped silently when the model is stale (deleted/disabled/provider off/image
+model) or not usable by the caller:
+
+```
+report model → personal default → group default (by priority) → org default → first usable model
+small model:  group small default → org small default → [regular chain from "group default"]
+```
+
+System jobs (no user) skip the group steps and use the org defaults as before.
+
+### 11.3 Access
+
+`_resolve_permissions_inner` / `resolve_permissions_bulk` add an implicit
+`("llm_model", id) → {"use"}` entry for each default and small default of the
+user's groups, read in the same query that loads group membership. Everything
+that already checks `user_can_use_model` (model list, `get_model_by_id`, the
+fallback chain, the auto router, sub-agent model options) picks this up with no
+other change. Removing a member from the group, or clearing the group default,
+revokes that access immediately.
+
+`model_open_to_all` is now just "not restricted" — org defaults are no longer
+special-cased.
+
+### 11.4 Admin surface
+
+| Route (`manage_llm` + EE) | Purpose |
+|---|---|
+| `GET /llm/group-defaults` | Every group with its default, small default and priority. |
+| `PUT /llm/group-defaults/{group_id}` | Partial update; a `null` model id clears it (inherit the org default). Model must be an enabled chat model in the org (`llm.group_default_invalid`). |
+| `GET /llm/default-coverage` | Members who inherit no group or org default — they get the "first usable model" fallback, or nothing. Shown as a warning on Settings → LLM. |
+
+Guards: a model that is any group's default cannot be disabled, deleted (or its
+provider deleted), or marked as an image model (`llm.model_is_group_default`).
+`GET /llm/models/{id}/access` also returns `default_for_groups`.
+
+`GET /llm/models` marks the caller's inherited default (`is_inherited_default`,
+`inherited_default_source` = group/org/fallback, `inherited_default_group_name`);
+the prompt box and profile picker preselect it.
+
+Tests: `backend/tests/e2e/rbac/test_group_default_llm_models.py`. Live loop:
+`docs/feedback-loops/2026-10-26-group-default-llm-models.md`.
