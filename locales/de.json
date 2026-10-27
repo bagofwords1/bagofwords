@@ -1097,7 +1097,24 @@
     "steerFailed": "Steuern des laufenden Agentenlaufs fehlgeschlagen",
     "instructionUnavailableTitle": "Anweisung nicht verfügbar",
     "instructionUnavailableBody": "Sie wurde möglicherweise gelöscht, oder Sie haben keinen Zugriff darauf.",
-    "loopRetryNotice": "Interner Fehler aufgetreten — neuer Versuch mit dem aktuellsten Kontext (Versuch {attempt}/{max})"
+    "loopRetryNotice": "Interner Fehler aufgetreten — neuer Versuch mit dem aktuellsten Kontext (Versuch {attempt}/{max})",
+    "display": {
+      "title": "Anzeige",
+      "textSize": "Textgröße",
+      "pixels": "{n} px",
+      "scales": {
+        "default": "Standard",
+        "large": "Groß",
+        "larger": "Größer",
+        "largest": "Am größten"
+      },
+      "width": "Breite",
+      "widths": {
+        "standard": "Standard",
+        "wide": "Breit"
+      },
+      "scopeHint": "Gilt für Ihre Unterhaltungen in diesem Browser."
+    }
   },
   "tools": {
     "common": {

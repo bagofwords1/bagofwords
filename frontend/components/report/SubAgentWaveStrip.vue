@@ -4,8 +4,8 @@
     :data-testid="`wave-strip-${wave.id}`"
     dir="auto"
   >
-    <Spinner v-if="isLive" class="w-3 h-3 flex-shrink-0 text-gray-400" />
-    <Icon v-else :name="wave.status === 'stopped' ? 'heroicons-stop-circle' : 'heroicons-squares-2x2'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+    <Spinner v-if="isLive" class="w-3 h-3 flex-shrink-0 text-ink-muted" />
+    <Icon v-else :name="wave.status === 'stopped' ? 'heroicons-stop-circle' : 'heroicons-squares-2x2'" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
     <span class="truncate">
       {{ t('subAgents.wave', { n: waveNumber }) }} · {{ t('subAgents.count', { count: wave.total || wave.sub_agents.length }) }}
       <template v-if="isLive"> · {{ t('subAgents.running', { count: runningCount }) }}</template>
@@ -15,7 +15,7 @@
     </span>
     <button
       v-if="isLive && !readonly"
-      class="ms-auto inline-flex items-center gap-0.5 text-[10px] text-red-600 hover:text-red-800 flex-shrink-0"
+      class="ms-auto inline-flex items-center gap-0.5 text-2xs text-red-600 hover:text-red-800 flex-shrink-0"
       :disabled="stopping"
       data-testid="wave-stop-all"
       @click.stop="emit('stopWave', wave.id)"

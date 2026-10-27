@@ -160,6 +160,11 @@ async def set_sharing(db, artifact, *, visibility: str, user_ids: list[str] | No
     release = await published_release(db, artifact)
     if visibility != "none" and release is None and not before_publish:
         raise AppError.conflict(ErrorCode.DASHBOARD_SHARE_REQUIRES_PUBLISH)
+    if visibility == "public" and artifact.visibility != "public":
+        # No new public links while the organization has them off. An
+        # unchanged 'public' re-sent with other edits opens nothing new.
+        from app.services.public_sharing_policy import assert_public_sharing_allowed
+        await assert_public_sharing_allowed(db, artifact.organization_id)
     if visibility == "public" and artifact.visibility != "public" and CAP_MAKE_PUBLIC not in caps:
         raise AppError.forbidden(ErrorCode.DASHBOARD_PUBLIC_OWNER_ONLY,
                                  "Only the owner can make this dashboard public")

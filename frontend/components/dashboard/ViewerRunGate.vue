@@ -7,7 +7,7 @@
     <div class="text-center max-w-sm mx-auto px-6">
         <!-- Loading: auto-run (or a retry) in flight -->
         <template v-if="state === 'loading'">
-            <Spinner class="w-10 h-10 mx-auto mb-3 text-gray-400 text-[40px]" />
+            <Spinner class="w-10 h-10 mx-auto mb-3 text-ink-muted text-4xl" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Loading your data
             </h3>
@@ -20,7 +20,7 @@
              brand icon says which account the sign-in unlocks. -->
         <template v-else-if="state === 'signin'">
             <DataSourceIcon v-if="sourceType" :type="sourceType" class="h-10 mx-auto mb-3" />
-            <Icon v-else name="heroicons:user-circle" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon v-else name="heroicons:user-circle" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Sign in to see your data
             </h3>
@@ -35,7 +35,7 @@
 
         <!-- The viewer's own connection is missing (e.g. Power BI not linked) -->
         <template v-else-if="state === 'connect'">
-            <Icon name="heroicons:link" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon name="heroicons:link" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Connect {{ sourceNames }} to see your data
             </h3>
@@ -57,7 +57,7 @@
         <!-- The viewer has no permission on the data source: nothing they can
              self-serve — name the source and point at an admin. -->
         <template v-else-if="state === 'no_access'">
-            <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon name="heroicons:lock-closed" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 You don't have access to this dashboard's data
             </h3>
@@ -68,7 +68,7 @@
 
         <!-- The run failed for another reason -->
         <template v-else-if="state === 'error'">
-            <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 Couldn't load your data
             </h3>
@@ -83,7 +83,7 @@
 
         <!-- Safe default: run hasn't started (auto-run normally covers this) -->
         <template v-else>
-            <Icon name="heroicons:chart-bar" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon name="heroicons:chart-bar" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
                 See your data
             </h3>

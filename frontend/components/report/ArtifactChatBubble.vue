@@ -16,7 +16,7 @@
                     <Icon name="heroicons:chat-bubble-left-right" class="w-4 h-4 text-blue-600 flex-shrink-0" />
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">Ask about this dashboard</span>
                 </div>
-                <button @click="open = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <button @click="open = false" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300">
                     <Icon name="heroicons:x-mark" class="w-4 h-4" />
                 </button>
             </div>
@@ -42,7 +42,7 @@
                 <div ref="scrollEl" class="flex-1 overflow-y-auto px-3 py-3 space-y-3" data-testid="chat-messages">
                     <div v-if="messages.length === 0 && !isStreaming" class="text-center mt-10 px-4">
                         <Icon name="heroicons:sparkles" class="w-6 h-6 text-gray-300 mx-auto mb-2" />
-                        <p class="text-xs text-gray-400">
+                        <p class="text-xs text-ink-muted">
                             {{ status?.scope === 'data_only'
                                 ? "Ask about the data on this dashboard."
                                 : "Ask about this dashboard — I can also run live queries to dig deeper." }}
@@ -70,23 +70,23 @@
                                      region"), but never expandable. This is a text-only
                                      surface (Teams-style) — the answer itself carries the
                                      data, so tool results need no UI of their own here. -->
-                                <div v-if="block.tool_execution" class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 ps-1 min-w-0 max-w-full">
-                                    <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3 me-1.5 text-gray-400 flex-shrink-0" />
+                                <div v-if="block.tool_execution" class="flex items-center text-2xs text-gray-500 dark:text-gray-400 ps-1 min-w-0 max-w-full">
+                                    <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3 me-1.5 text-ink-muted flex-shrink-0" />
                                     <Icon v-else-if="block.status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500 flex-shrink-0" />
                                     <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500 flex-shrink-0" />
                                     <span class="flex-shrink-0" :class="block.status === 'in_progress' ? 'tool-shimmer' : 'text-gray-700 dark:text-gray-300'">
                                         {{ toolLabel(block) }}
                                     </span>
-                                    <span v-if="toolDetail(block)" class="ms-1 text-gray-400 truncate">— {{ toolDetail(block) }}</span>
-                                    <span v-if="toolDuration(block)" class="ms-1.5 text-gray-400 flex-shrink-0">{{ toolDuration(block) }}</span>
+                                    <span v-if="toolDetail(block)" class="ms-1 text-ink-muted truncate">— {{ toolDetail(block) }}</span>
+                                    <span v-if="toolDuration(block)" class="ms-1.5 text-ink-muted flex-shrink-0">{{ toolDuration(block) }}</span>
                                 </div>
-                                <div v-else-if="!block.content && block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
+                                <div v-else-if="!block.content && block.title" class="flex items-center gap-1.5 text-2xs text-ink-muted ps-1">
                                     <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
                                     <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
                                     <span class="truncate max-w-[280px]">{{ block.title }}</span>
                                 </div>
                             </template>
-                            <div v-if="msg.status === 'error' && !hasContent(msg)" class="text-[11px] text-red-400 ps-1">
+                            <div v-if="msg.status === 'error' && !hasContent(msg)" class="text-2xs text-red-400 ps-1">
                                 Something went wrong. Try again.
                             </div>
                         </div>
@@ -111,10 +111,10 @@
                             <Icon name="heroicons:paper-airplane" class="w-3.5 h-3.5" />
                         </button>
                     </div>
-                    <p v-if="status?.scope === 'agents' && status?.agents?.length" class="text-[10px] text-gray-300 dark:text-gray-600 mt-1 ps-1 truncate">
+                    <p v-if="status?.scope === 'agents' && status?.agents?.length" class="text-2xs text-gray-300 dark:text-gray-600 mt-1 ps-1 truncate">
                         Can query: {{ status.agents.map((a: any) => a.name).join(', ') }}
                     </p>
-                    <p v-else-if="status?.scope === 'data_only'" class="text-[10px] text-gray-300 dark:text-gray-600 mt-1 ps-1">
+                    <p v-else-if="status?.scope === 'data_only'" class="text-2xs text-gray-300 dark:text-gray-600 mt-1 ps-1">
                         Answers from dashboard data only
                     </p>
                 </div>

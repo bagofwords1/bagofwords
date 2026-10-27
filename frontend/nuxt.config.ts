@@ -91,6 +91,11 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    // tokens.css first: it defines the CSS variables (and the global
+    // baseline) that the sheets below, and tailwind.config.ts, resolve
+    // against. Order matters — anything that overrides a token must load
+    // after it.
+    '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
@@ -114,6 +119,25 @@ export default defineNuxtConfig({
     },
     fallbackToApi: false,
   },
+
+  // NOTE: no `app.pageTransition` / `app.layoutTransition` here, deliberately.
+  //
+  // They were added in 710c22b and reverted in the same PR after they blanked
+  // the home route. Vue's <Transition> can only animate a component whose
+  // template has a SINGLE ELEMENT root; anything else renders a Fragment and
+  // Vue bails with "node that cannot be animated". A leading HTML comment
+  // counts as a root node, so `<!-- … --> <div>` is already a fragment.
+  //
+  // 15 of this app's 68 pages are fragments today, among them the ones that
+  // matter most: index.vue, reports/[id]/index.vue, r/[id]/index.vue and all
+  // four users/* auth pages. Enabling route transitions would mean giving
+  // every one of them a single wrapper element — restructuring the DOM of the
+  // app's most important routes for a 160ms fade — and any new page that
+  // starts with a comment would silently break again.
+  //
+  // If you want this back, the prerequisite is a lint rule or test that
+  // enforces a single element root on every page component. Until then the
+  // trade is not worth it.
 
   colorMode: {
     preference: 'system'

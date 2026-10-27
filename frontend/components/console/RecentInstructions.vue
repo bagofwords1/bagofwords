@@ -12,7 +12,7 @@
                 </div>
             </div>
             <div v-else-if="recentInstructions.length === 0" class="text-center py-8">
-                <UIcon name="i-heroicons-document-text" class="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
+                <UIcon name="i-heroicons-document-text" class="mx-auto h-8 w-8 text-ink-muted" />
                 <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">No recent instructions</p>
             </div>
             <div v-else class="space-y-3 p-4 pt-0">

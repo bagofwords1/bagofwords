@@ -1097,7 +1097,24 @@
     "steerFailed": "Falha ao orientar a resposta em andamento",
     "instructionUnavailableTitle": "Instrução indisponível",
     "instructionUnavailableBody": "Pode ter sido excluída, ou você pode não ter acesso a ela.",
-    "loopRetryNotice": "Ocorreu um erro interno — tentando novamente a partir do contexto mais recente (tentativa {attempt}/{max})"
+    "loopRetryNotice": "Ocorreu um erro interno — tentando novamente a partir do contexto mais recente (tentativa {attempt}/{max})",
+    "display": {
+      "title": "Exibição",
+      "textSize": "Tamanho do texto",
+      "pixels": "{n}px",
+      "scales": {
+        "default": "Padrão",
+        "large": "Grande",
+        "larger": "Maior",
+        "largest": "Máximo"
+      },
+      "width": "Largura",
+      "widths": {
+        "standard": "Padrão",
+        "wide": "Largo"
+      },
+      "scopeHint": "Aplica-se às suas conversas neste navegador."
+    }
   },
   "tools": {
     "common": {

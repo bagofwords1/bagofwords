@@ -4,7 +4,7 @@
         <button
             type="button"
             @click.stop="toggle"
-            class="flex items-center justify-center w-6 h-6 rounded-md text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            class="flex items-center justify-center w-6 h-6 rounded-md text-ink-muted hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             :class="{ 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300': open }"
             aria-label="Primary instruction actions"
         >
@@ -19,11 +19,11 @@
             <!-- Default action list -->
             <div v-if="view === 'menu'" class="py-1">
                 <button type="button" @click.stop="onEdit" class="menu-item">
-                    <UIcon name="heroicons-pencil-square" class="w-4 h-4 text-gray-400" />
+                    <UIcon name="heroicons-pencil-square" class="w-4 h-4 text-ink-muted" />
                     <span>Edit instruction</span>
                 </button>
                 <button type="button" @click.stop="openReplace" class="menu-item">
-                    <UIcon name="heroicons-arrow-path-rounded-square" class="w-4 h-4 text-gray-400" />
+                    <UIcon name="heroicons-arrow-path-rounded-square" class="w-4 h-4 text-ink-muted" />
                     <span>Replace with existing…</span>
                 </button>
 
@@ -33,7 +33,7 @@
                         <UIcon name="heroicons-academic-cap" class="w-4 h-4 text-sky-500" />
                         <span>Start a training session</span>
                     </button>
-                    <div class="px-3 pb-1.5 pt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-600">
+                    <div class="px-3 pb-1.5 pt-0.5 text-2xs leading-tight text-ink-muted">
                         Opens a new report in training mode to refine this agent's instructions.
                     </div>
                 </template>
@@ -42,11 +42,11 @@
             <!-- Replace view: searchable existing instructions -->
             <div v-else-if="view === 'replace'">
                 <div class="flex items-center gap-1.5 p-2 border-b border-gray-100 dark:border-gray-800">
-                    <button type="button" @click.stop="view = 'menu'" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                    <button type="button" @click.stop="view = 'menu'" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-ink-muted hover:text-gray-700 dark:hover:text-gray-300">
                         <UIcon name="heroicons-chevron-left" class="w-4 h-4" />
                     </button>
                     <div class="relative flex-1">
-                        <UIcon name="heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                        <UIcon name="heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
                         <input
                             ref="searchRef"
                             v-model="search"
@@ -60,8 +60,8 @@
                 </div>
 
                 <div class="max-h-64 overflow-y-auto py-1">
-                    <div v-if="loading" class="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-600">Loading…</div>
-                    <div v-else-if="items.length === 0" class="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-600">No instructions found</div>
+                    <div v-if="loading" class="px-3 py-4 text-center text-xs text-ink-muted">Loading…</div>
+                    <div v-else-if="items.length === 0" class="px-3 py-4 text-center text-xs text-ink-muted">No instructions found</div>
                     <button
                         v-for="inst in items"
                         :key="inst.id"
@@ -73,13 +73,13 @@
                     >
                         <div class="flex items-center gap-1.5">
                             <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ inst.title || 'Untitled instruction' }}</span>
-                            <span v-if="inst.id === currentInstructionId" class="text-[9px] px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">Current</span>
+                            <span v-if="inst.id === currentInstructionId" class="text-2xs px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">Current</span>
                         </div>
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">{{ inst.preview ?? inst.text }}</div>
+                        <div class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">{{ inst.preview ?? inst.text }}</div>
                     </button>
                 </div>
 
-                <div class="px-3 py-2 border-t border-gray-100 dark:border-gray-800 text-[10px] text-gray-400 dark:text-gray-600">
+                <div class="px-3 py-2 border-t border-gray-100 dark:border-gray-800 text-2xs text-ink-muted">
                     The previous primary stays in your library — it's only unlinked.
                 </div>
             </div>

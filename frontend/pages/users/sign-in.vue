@@ -1,7 +1,7 @@
 <template>
   <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
     <div class="w-full max-w-[360px]">
-      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+      <h1 class="text-2xl leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
         {{ $t('auth.welcomeTitle') }}
       </h1>
       <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
@@ -26,7 +26,7 @@
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+          <span class="px-3 text-2xs uppercase tracking-widest text-ink-muted bg-white dark:bg-gray-950">
             {{ $t('auth.or') }}
           </span>
         </div>
@@ -44,7 +44,7 @@
             <NuxtLink
               v-if="smtpEnabled"
               to="/users/forgot-password"
-              class="mb-1.5 text-[13px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+              class="mb-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
             >
               {{ $t('auth.forgotPassword') }}
             </NuxtLink>
@@ -147,7 +147,7 @@
   const showSso = computed(() =>
     authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
-  const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
+  const labelClass = 'block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5'
 
   // Monochrome controls: the only color on the page is the provider logos and
   // the one primary action.

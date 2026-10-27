@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.0.599 (October 28, 2026)
+- Added Publish for dashboards: viewers see the published version until the next Publish succeeds (#1455)
+- Added a link, people, schedule, refresh-on-open, chat and Data tab for each dashboard, instead of one per conversation (#1455)
+- Added Can view / Can edit sharing for dashboards, with a Google Docs–style Share dialog (#1459)
+- Added editing a dashboard together: each editor works in their own conversation and every query runs again as them (#1459)
+- Added one version list with the Live version marked, Publish vN and Restore of the last 5 releases (#1459)
+- Added a Settings window for dashboards: name, link, refresh, viewers, access, data, notes and history (#1459)
+- Added live presence on dashboards, showing who else is editing and which chart another editor's agent is changing (#1459)
+- Added a warning before publishing over a newer live version, naming both versions and who published (#1459)
+- Added an organization setting to turn off public link sharing (#1491)
+- Changed the dashboard API to /api/artifacts/…; rollback is now restore (#1459)
+- Changed dashboard wording to "document" or "presentation" for docs and slides (#1459)
+- Fixed a published dashboard disappearing when its conversation is deleted (#1455)
+- Fixed currency amounts like "$2,329 … $5.65" rendering as math in chat (#1461)
+- Fixed the shared dashboard page's top bar, banner and badge staying in English (#1463)
+
 ## Version 0.0.598 (October 27, 2026)
 - Added GPT-6.1 Terra to the OpenAI catalog and made it the provider default in place of GPT-5.6 Terra (#1476)
 - Added saved queries to the BOW MCP server, so external clients run the organization's definitions instead of inventing their own (#1478)

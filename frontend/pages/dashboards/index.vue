@@ -22,7 +22,7 @@
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
-                                class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
+                                class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                             />
                         </div>
                     </div>
@@ -145,7 +145,7 @@
                                 :class="[
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
                                     currentPage === 1
-                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-ink-muted cursor-not-allowed border-gray-200 dark:border-gray-700'
                                         : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
@@ -158,7 +158,7 @@
                                 :class="[
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors min-w-[36px]',
                                     page === currentPage
-                                        ? 'bg-blue-500 text-white border-blue-500'
+                                        ? 'bg-blue-600 text-white border-blue-500'
                                         : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
@@ -170,7 +170,7 @@
                                 :class="[
                                     'px-3 py-1.5 text-xs font-medium rounded-md border transition-colors',
                                     currentPage === pagination.total_pages
-                                        ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed border-gray-200 dark:border-gray-700'
+                                        ? 'bg-gray-100 dark:bg-gray-800 text-ink-muted cursor-not-allowed border-gray-200 dark:border-gray-700'
                                         : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 border-gray-300 dark:border-gray-600'
                                 ]"
                             >
@@ -184,7 +184,7 @@
                 <div v-else class="mt-12 flex flex-col items-center text-center">
                     <Icon
                         name="heroicons:chart-bar-square"
-                        class="mx-auto h-12 w-12 text-gray-400"
+                        class="mx-auto h-12 w-12 text-ink-muted"
                     />
                     <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                         {{ $t('dashboards.empty') }}

@@ -25,7 +25,7 @@
                     <template v-for="(item, idx) in tabs" :key="item.key">
                         <div v-if="idx > 0 && item.group !== tabs[idx - 1].group" class="hidden sm:block h-px bg-gray-200 dark:bg-gray-700 my-2 mx-2" />
                         <div v-if="item.groupLabel && (idx === 0 || item.group !== tabs[idx - 1].group)"
-                            class="hidden sm:block px-3 pt-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">{{ item.groupLabel }}</div>
+                            class="hidden sm:block px-3 pt-1 pb-1 text-2xs font-medium uppercase tracking-wide text-ink-muted">{{ item.groupLabel }}</div>
                         <button type="button" role="tab" :aria-selected="tab === item.key" :data-testid="`settings-tab-${item.key}`"
                             class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap text-start transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                             :class="tab === item.key
@@ -47,7 +47,7 @@
                         <p v-if="currentTab.desc" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ currentTab.desc }}</p>
                     </div>
                     <button @click="requestClose" :aria-label="$t('common.close')"
-                        class="p-1.5 -me-1.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-300 outline-none">
+                        class="p-1.5 -me-1.5 rounded-full text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-300 outline-none">
                         <Icon name="heroicons:x-mark" class="w-5 h-5" />
                     </button>
                 </div>
@@ -55,7 +55,7 @@
                 <div class="flex-1 min-h-0 overflow-y-auto px-6 pt-1 pb-4">
                     <!-- Settings (General and Viewers save together) -->
                     <div v-if="isSettingsTab && loading" class="flex items-center justify-center py-16">
-                        <Spinner class="w-5 h-5 text-gray-400" />
+                        <Spinner class="w-5 h-5 text-ink-muted" />
                     </div>
                     <template v-else>
                         <!-- General: its name, its link, when its data refreshes -->
@@ -66,7 +66,7 @@
                                     :placeholder="tm('artifactFrame.renamePlaceholder', artifactMode)"
                                     class="w-full h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60" />
                                 <!-- No rename here: the owner renames it from a conversation of their own. -->
-                                <p v-if="!rename" class="text-[11px] text-gray-400 mt-1">{{ capabilities?.includes('transfer') ? tm('dashboardSettings.renameInConversation', artifactMode) : $t('dashboardSettings.ownerOnly') }}</p>
+                                <p v-if="!rename" class="text-2xs text-ink-muted mt-1">{{ capabilities?.includes('transfer') ? tm('dashboardSettings.renameInConversation', artifactMode) : $t('dashboardSettings.ownerOnly') }}</p>
                             </div>
 
                             <div data-testid="settings-link">
@@ -81,7 +81,7 @@
                                         class="flex-1 min-w-0 border-none outline-none bg-transparent px-3 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
                                         :placeholder="slugSuggestion || 'my-dashboard'" />
                                 </div>
-                                <p v-if="!slugValid" class="text-[11px] text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
+                                <p v-if="!slugValid" class="text-2xs text-red-500 mt-1">{{ $t("errors['dashboard.slug_invalid']") }}</p>
                                 <!-- Empty: offer the name as a link name in one click. -->
                                 <button v-else-if="!slugDraft && slugSuggestion && canSettings" type="button" data-testid="link-name-suggest"
                                     class="mt-1.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:underline" @click="slugDraft = slugSuggestion">
@@ -99,7 +99,7 @@
                                         {{ linkCopied ? $t('share.copied') : $t('share.copyLink') }}
                                     </button>
                                 </div>
-                                <p v-if="!slugDraft && saved.slug" class="text-[11px] text-gray-400 mt-1">{{ $t('share.linkNameRemove') }}</p>
+                                <p v-if="!slugDraft && saved.slug" class="text-2xs text-ink-muted mt-1">{{ $t('share.linkNameRemove') }}</p>
                             </div>
 
                             <div data-testid="settings-refresh">
@@ -144,7 +144,7 @@
                                     <div class="flex items-center gap-1">
                                         <button v-for="d in weekdays" :key="d.value" type="button" :disabled="!canSettings"
                                             @click="toggleRecurDay(d.value)" :title="d.label" :aria-pressed="recurDays.includes(d.value)"
-                                            class="flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium border transition-colors"
+                                            class="flex items-center justify-center w-6 h-6 rounded-full text-2xs font-medium border transition-colors"
                                             :class="recurDays.includes(d.value)
                                                 ? 'bg-blue-600 text-white border-blue-600'
                                                 : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'">
@@ -160,10 +160,10 @@
                                     </select>
                                 </template>
                             </div>
-                            <p v-if="refreshMode === 'recurring' && scheduleLabel" class="mt-2 text-xs text-gray-400">{{ scheduleLabel }}</p>
-                            <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400">{{ tm('dashboardSettings.onOpenNote', artifactMode) }}</p>
+                            <p v-if="refreshMode === 'recurring' && scheduleLabel" class="mt-2 text-xs text-ink-muted">{{ scheduleLabel }}</p>
+                            <p v-if="refreshMode === 'on_open'" class="text-xs text-ink-muted">{{ tm('dashboardSettings.onOpenNote', artifactMode) }}</p>
                             <!-- Last run, and the way to every refresh (the Refreshes tab, refhist01). -->
-                            <p v-if="lastRunAt || capabilities?.includes('edit')" class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-400">
+                            <p v-if="lastRunAt || capabilities?.includes('edit')" class="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-ink-muted">
                                 <span v-if="lastRunAt">{{ $t('dashboardSettings.lastRun', { at: formatDateTime(lastRunAt) }) }}</span>
                                 <span v-if="lastRunAt && capabilities?.includes('edit')" aria-hidden="true">·</span>
                                 <button v-if="capabilities?.includes('edit')" type="button" data-testid="settings-view-refreshes"
@@ -199,12 +199,12 @@
                                             <button v-for="m in subMatches" :key="m.id" @mousedown.prevent="addSubMember(m)"
                                                 class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col">
                                                 <span class="text-gray-900 dark:text-white">{{ m.name || m.email }}</span>
-                                                <span v-if="m.name" class="text-xs text-gray-400">{{ m.email }}</span>
+                                                <span v-if="m.name" class="text-xs text-ink-muted">{{ m.email }}</span>
                                             </button>
                                         </div>
                                     </div>
                                 </div>
-                                <p class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.notifyDesc') }}</p>
+                                <p class="text-2xs text-ink-muted mt-1">{{ $t('dashboardSettings.notifyDesc') }}</p>
                             </div>
                             </div>
 
@@ -259,7 +259,7 @@
                                                     :disabled="!canSettings || reportAgents.length === 0" />
                                                 <span class="flex flex-col">
                                                     <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
-                                                    <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeAgentsDesc') }}</span>
+                                                    <span class="text-2xs text-ink-muted">{{ $t('share.chatScopeAgentsDesc') }}</span>
                                                 </span>
                                             </label>
                                             <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
@@ -272,16 +272,16 @@
                                                 <input type="radio" value="data_only" v-model="chatScope" class="mt-0.5" :disabled="!canSettings" />
                                                 <span class="flex flex-col">
                                                     <span class="text-xs text-gray-700 dark:text-gray-300">{{ tm('share.chatScopeDataOnly', artifactMode) }}</span>
-                                                    <span class="text-[11px] text-gray-400">{{ tm('share.chatScopeDataOnlyDesc', artifactMode) }}</span>
+                                                    <span class="text-2xs text-ink-muted">{{ tm('share.chatScopeDataOnlyDesc', artifactMode) }}</span>
                                                 </span>
                                             </label>
-                                            <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ tm('share.chatNoAgents', artifactMode) }}</p>
+                                            <p v-if="reportAgents.length === 0" class="text-2xs text-ink-muted">{{ tm('share.chatNoAgents', artifactMode) }}</p>
                                         </div>
                                         <div data-testid="chat-model">
                                             <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('share.chatModel') }}</div>
                                             <USelectMenu v-model="chatModelValue" :options="chatModelOptions" value-attribute="value"
                                                 option-attribute="label" size="sm" :disabled="!canSettings" :ui="{ rounded: 'rounded-lg' }" />
-                                            <p class="text-[11px] text-gray-400 mt-1">{{ $t('share.chatModelDesc') }}</p>
+                                            <p class="text-2xs text-ink-muted mt-1">{{ $t('share.chatModelDesc') }}</p>
                                         </div>
                                     </div>
                                 </div>
@@ -292,7 +292,7 @@
                                     <div class="min-w-0">
                                         <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('share.runOnBehalf') }}</div>
                                         <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ hasRls ? tm('share.runOnBehalfRlsDisabled', artifactMode) : tm('share.runOnBehalfDesc', artifactMode) }}</div>
-                                        <div v-if="!hasRls && !canRunIdentity" class="text-[11px] text-gray-400 mt-1">{{ $t('dashboardSettings.ownerOnly') }}</div>
+                                        <div v-if="!hasRls && !canRunIdentity" class="text-2xs text-ink-muted mt-1">{{ $t('dashboardSettings.ownerOnly') }}</div>
                                     </div>
                                     <UToggle v-model="runAsCreator" :disabled="hasRls || !canRunIdentity" class="flex-shrink-0 mt-0.5" />
                                 </div>

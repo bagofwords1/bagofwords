@@ -1116,7 +1116,24 @@
     "steerFailed": "No se pudo dirigir la respuesta en curso",
     "instructionUnavailableTitle": "Instrucción no disponible",
     "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella.",
-    "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})"
+    "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})",
+    "display": {
+      "title": "Visualización",
+      "textSize": "Tamaño del texto",
+      "pixels": "{n}px",
+      "scales": {
+        "default": "Predeterminado",
+        "large": "Grande",
+        "larger": "Más grande",
+        "largest": "Máximo"
+      },
+      "width": "Ancho",
+      "widths": {
+        "standard": "Estándar",
+        "wide": "Ampliado"
+      },
+      "scopeHint": "Se aplica a tus conversaciones en este navegador."
+    }
   },
   "tools": {
     "common": {
@@ -3068,7 +3085,7 @@
         },
         "workspace": {
           "title": "Espacio de trabajo",
-          "description": "Webhooks, bifurcaciones y retención de datos"
+          "description": "Enlaces públicos, webhooks, bifurcaciones y retención de datos"
         },
         "other": {
           "title": "Otros",
@@ -3186,6 +3203,10 @@
         "allow_forks": {
           "name": "Permitir bifurcaciones",
           "description": "Permite a los usuarios bifurcar informes publicados hacia su propio espacio de trabajo"
+        },
+        "allow_public_sharing": {
+          "name": "Compartir con enlace público",
+          "description": "Permite compartir paneles y conversaciones con cualquier persona que tenga el enlace, incluidas personas ajenas a la organización. Si se desactiva, los enlaces que ya son públicos solo se abren para los miembros de esta organización que hayan iniciado sesión; al volver a activarlo se restauran."
         },
         "mcp_enabled": {
           "name": "MCP",
@@ -4134,6 +4155,7 @@
     "visibilityInternalDesc": "Todos los miembros de la organización pueden acceder",
     "visibilityPublic": "Cualquiera con el enlace",
     "visibilityPublicDesc": "Cualquiera puede ver",
+    "visibilityPublicDisabledDesc": "Desactivado por el administrador de su organización",
     "runOnBehalf": "Ejecutar en mi nombre",
     "runOnBehalfDesc": "Este panel usa conexiones de datos por usuario. Por defecto, los espectadores lo ejecutan con su propia conexión; actívalo para que sus ejecuciones usen la tuya. Cada espectador sigue viendo solo sus propios resultados.",
     "runOnBehalfDescDoc": "Este documento usa conexiones de datos por usuario. Por defecto, los espectadores lo ejecutan con su propia conexión; actívalo para que sus ejecuciones usen la tuya. Cada espectador sigue viendo solo sus propios resultados.",
@@ -4144,6 +4166,8 @@
     "publicPerUserNote": "Los datos de este panel son por usuario. Los visitantes deben iniciar sesión y tener acceso a los datos; los demás solo ven el diseño.",
     "publicPerUserNoteDoc": "Los datos de este documento son por usuario. Los visitantes deben iniciar sesión y tener acceso a los datos; los demás solo ven el diseño.",
     "publicPerUserNoteSlides": "Los datos de esta presentación son por usuario. Los visitantes deben iniciar sesión y tener acceso a los datos; los demás solo ven el diseño.",
+    "publicDisabledNote": "Los enlaces públicos están desactivados en su organización, por lo que solo los miembros que hayan iniciado sesión pueden abrir este enlace.",
+    "publicLinksOff": "Los enlaces públicos están desactivados en su organización.",
     "copyLink": "Copiar enlace",
     "copied": "¡Copiado!",
     "sharingUpdated": "Compartir actualizado",
@@ -4309,7 +4333,8 @@
     "dashboard.join_no_access": "Necesitas acceso a {name} para editar este panel.",
     "dashboard.creator_publish_owner_only": "Este panel se ejecuta con las credenciales de su propietario, así que solo el propietario puede publicarlo.",
     "dashboard.published_since": "{by} publicó este panel después de que empezara tu borrador.",
-    "dashboard.draft_name_taken": "Ya existe un borrador con este nombre."
+    "dashboard.draft_name_taken": "Ya existe un borrador con este nombre.",
+    "sharing.public_disabled": "Compartir con enlace público está desactivado en esta organización."
   },
   "email": {
     "dashboardShare": {

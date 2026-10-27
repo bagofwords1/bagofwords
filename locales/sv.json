@@ -1097,7 +1097,24 @@
     "steerFailed": "Det gick inte att styra den pågående completion",
     "instructionUnavailableTitle": "Instruktionen är inte tillgänglig",
     "instructionUnavailableBody": "Den kan ha tagits bort, eller så saknar du åtkomst till den.",
-    "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})"
+    "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})",
+    "display": {
+      "title": "Visning",
+      "textSize": "Textstorlek",
+      "pixels": "{n} px",
+      "scales": {
+        "default": "Standard",
+        "large": "Stor",
+        "larger": "Större",
+        "largest": "Störst"
+      },
+      "width": "Bredd",
+      "widths": {
+        "standard": "Standard",
+        "wide": "Bred"
+      },
+      "scopeHint": "Gäller dina konversationer i den här webbläsaren."
+    }
   },
   "tools": {
     "common": {

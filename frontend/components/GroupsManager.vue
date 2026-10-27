@@ -12,7 +12,7 @@
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                     />
                 </div>
             </div>
@@ -59,7 +59,7 @@
                             <tr v-for="group in filteredGroups" :key="group.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800 transition-colors">
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex items-center gap-2">
-                                        <Icon name="heroicons:user-group" class="h-5 w-5 text-gray-400" />
+                                        <Icon name="heroicons:user-group" class="h-5 w-5 text-ink-muted" />
                                         <span class="text-sm font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
                                         <!-- A synced group whose directory name couldn't be read is
                                              shown by a truncated placeholder, so expose the full
@@ -70,7 +70,7 @@
                                         </UBadge>
                                     </div>
                                 </td>
-                                <td class="px-4 py-2 text-xs text-gray-400">
+                                <td class="px-4 py-2 text-xs text-ink-muted">
                                     {{ group.description || "-" }}
                                 </td>
                                 <td class="px-4 py-2">
@@ -93,7 +93,7 @@
                                                 <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
                                                     {{ cap(r.name) }}
                                                 </UBadge>
-                                                <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
+                                                <span v-if="getGroupRoles(group).length === 0" class="text-ink-muted text-sm italic">{{ $t('groupsManager.none') }}</span>
                                             </div>
                                         </template>
                                     </USelectMenu>
@@ -101,7 +101,7 @@
                                         <UBadge v-for="r in getGroupRoles(group)" :key="r.id" size="xs" color="gray">
                                             {{ cap(r.name) }}
                                         </UBadge>
-                                        <span v-if="getGroupRoles(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('groupsManager.none') }}</span>
+                                        <span v-if="getGroupRoles(group).length === 0" class="text-ink-muted text-sm italic">{{ $t('groupsManager.none') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
@@ -137,7 +137,7 @@
                                                 >
                                                     {{ policy.name }}
                                                 </UBadge>
-                                                <span v-if="getGroupQuotaPolicies(group).length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                                <span v-if="getGroupQuotaPolicies(group).length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
                                             </span>
                                         </template>
                                         <template #option="{ option }">
@@ -149,7 +149,7 @@
                                     <UBadge v-if="group.external_provider" size="xs" color="blue" variant="subtle">
                                         {{ group.external_provider }}
                                     </UBadge>
-                                    <span v-else class="text-gray-400 italic">{{ $t('groupsManager.manual') }}</span>
+                                    <span v-else class="text-ink-muted italic">{{ $t('groupsManager.manual') }}</span>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div class="flex gap-2">
@@ -177,7 +177,7 @@
                                     <div class="flex flex-col items-center">
                                         <Icon
                                             name="heroicons:user-group"
-                                            class="mx-auto h-12 w-12 text-gray-400"
+                                            class="mx-auto h-12 w-12 text-ink-muted"
                                         />
                                         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                                             {{ $t('groupsManager.noGroupsFound') }}

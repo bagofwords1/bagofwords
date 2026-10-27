@@ -8,7 +8,7 @@
                         <div class="min-w-0">
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white break-words">{{ agentInfo?.name || $t('data.connectionsTitle') }}</h3>
                             <p v-if="agentInfo?.description" class="mt-1 text-sm leading-5 text-gray-500 whitespace-pre-wrap break-words">{{ agentInfo.description }}</p>
-                            <p v-if="agentInfo" class="mt-2 text-xs text-gray-400">{{ $t('data.connectionsTitle') }}</p>
+                            <p v-if="agentInfo" class="mt-2 text-xs text-ink-muted">{{ $t('data.connectionsTitle') }}</p>
                         </div>
                     </div>
                     <div class="flex items-center gap-2">
@@ -27,7 +27,7 @@
                 </div>
             </div>
 
-            <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">{{ $t('common.loading') }}</div>
+            <div v-if="!ready" class="py-6 text-center text-sm text-ink-muted">{{ $t('common.loading') }}</div>
 
             <div v-else-if="displayConnections.length === 0" class="py-8 text-center">
                 <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
@@ -53,7 +53,7 @@
                                     {{ getStatusLabel(conn) }}
                                 </div>
                                 <button v-if="canToggleIdentity(conn)" type="button" :disabled="switchingIdentityId === conn.id"
-                                    class="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium disabled:opacity-50"
+                                    class="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium disabled:opacity-50"
                                     :class="conn.user_status?.query_identity === 'service_account' ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'"
                                     :aria-label="t('schemaIdentity.changeIdentity')" :title="t('schemaIdentity.changeIdentity')"
                                     @click="toggleIdentity(conn)">
@@ -61,7 +61,7 @@
                                     {{ identityLabel(conn) }}
                                     <UIcon v-if="switchingIdentityId !== conn.id" name="i-heroicons-arrows-right-left" class="h-3 w-3" />
                                 </button>
-                                <span v-else-if="conn.auth_policy === 'user_required'" class="mt-1.5 inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">{{ identityLabel(conn) }}</span>
+                                <span v-else-if="conn.auth_policy === 'user_required'" class="mt-1.5 inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-2xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">{{ identityLabel(conn) }}</span>
                                 <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
                                     <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
                                 </div>

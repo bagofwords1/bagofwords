@@ -14,7 +14,7 @@
                 class="group inline-flex items-center justify-center rounded-md p-0.5 -m-0.5 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors relative"
             >
                 <DataSourceIcon :type="props.type" :connector-key="props.connectorKey" :icon-token="displayToken" :class="props.iconClass || 'w-4 h-4'" class="shrink-0" />
-                <UIcon name="i-heroicons-pencil" class="w-2.5 h-2.5 text-gray-400 dark:text-gray-500 absolute -bottom-1 -end-1 opacity-0 group-hover:opacity-100 bg-white dark:bg-gray-900 rounded-full" />
+                <UIcon name="i-heroicons-pencil" class="w-2.5 h-2.5 text-ink-muted absolute -bottom-1 -end-1 opacity-0 group-hover:opacity-100 bg-white dark:bg-gray-900 rounded-full" />
             </button>
             <button
                 v-else
@@ -28,7 +28,7 @@
                 <div class="p-3 w-64">
                     <!-- Use one of the agent's connection icons -->
                     <template v-if="connectionOptions.length">
-                        <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Use a connection icon</div>
+                        <div class="text-2xs text-ink-muted mb-2">Use a connection icon</div>
                         <div class="flex flex-wrap gap-1 mb-3">
                             <button
                                 v-for="c in connectionOptions"
@@ -44,7 +44,7 @@
                         </div>
                     </template>
 
-                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Pick an emoji</div>
+                    <div class="text-2xs text-ink-muted mb-2">Pick an emoji</div>
                     <div class="grid grid-cols-8 gap-1 mb-3">
                         <button
                             v-for="e in PRESET_EMOJIS"
@@ -56,7 +56,7 @@
                         >{{ e }}</button>
                     </div>
 
-                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mb-1">Or paste any emoji</div>
+                    <div class="text-2xs text-ink-muted mb-1">Or paste any emoji</div>
                     <div class="flex items-center gap-2">
                         <input
                             v-model="freeInput"
@@ -77,7 +77,7 @@
                     <div v-if="hasCustom" class="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
                         <button
                             type="button"
-                            class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex items-center gap-1"
+                            class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 inline-flex items-center gap-1"
                             @click="clear(); close()"
                         >
                             <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />

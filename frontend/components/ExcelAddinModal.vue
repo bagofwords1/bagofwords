@@ -27,7 +27,7 @@
         <div v-else class="space-y-5">
             <!-- Instructions -->
             <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.setup') }}</div>
+                <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.setup') }}</div>
                 <ol class="text-sm text-gray-600 dark:text-gray-400 space-y-1.5 list-decimal list-inside">
                     <li>{{ $t('settings.integrations.channels.excel.step1') }}</li>
                     <li>{{ $t('settings.integrations.channels.excel.step2') }}</li>
@@ -41,7 +41,7 @@
 
             <!-- Manifest -->
             <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.manifest') }}</div>
+                <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.manifest') }}</div>
                 <div v-if="error" class="text-sm text-red-500 py-2">{{ error }}</div>
                 <div v-else class="space-y-3">
                     <div class="flex items-center gap-2">
@@ -63,7 +63,7 @@
                     </div>
                     <button
                         @click="showManifest = !showManifest"
-                        class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                     >
                         <UIcon
                             :name="showManifest ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -79,7 +79,7 @@
 
             <!-- Tenant-wide deployment -->
             <div class="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.tenantWide') }}</div>
+                <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.excel.tenantWide') }}</div>
                 <p class="text-sm text-gray-600 dark:text-gray-400">
                     {{ $t('settings.integrations.channels.excel.tenantWideDesc') }}
                 </p>

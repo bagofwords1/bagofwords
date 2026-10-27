@@ -1,6 +1,6 @@
 <template>
   <div v-if="rows.length" class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
-    <table class="w-full text-[11px] border-collapse">
+    <table class="w-full text-2xs border-collapse">
       <thead>
         <tr class="bg-gray-50 dark:bg-gray-900/60">
           <th
@@ -11,7 +11,7 @@
           >
             {{ h }}
           </th>
-          <th v-if="hiddenCols" class="px-2 py-1 text-start font-normal text-gray-400 whitespace-nowrap border-b border-gray-200 dark:border-gray-700">
+          <th v-if="hiddenCols" class="px-2 py-1 text-start font-normal text-ink-muted whitespace-nowrap border-b border-gray-200 dark:border-gray-700">
             +{{ hiddenCols }}
           </th>
         </tr>
@@ -36,7 +36,7 @@
       </tbody>
     </table>
   </div>
-  <div v-if="footer" class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ footer }}</div>
+  <div v-if="footer" class="mt-1 text-2xs text-ink-muted">{{ footer }}</div>
 </template>
 
 <script setup lang="ts">

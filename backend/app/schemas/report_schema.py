@@ -174,6 +174,10 @@ class ReportSchema(ReportBase):
     # share dialog only shows the run-identity toggle then — on system-only
     # credentials creator vs viewer identity resolves to the same credentials.
     has_user_scoped: bool = False
+    # Org setting allow_public_sharing. False = the share dialog hides
+    # "anyone with the link", and a 'public' share here only opens for org
+    # members (see app/services/public_sharing_policy.py).
+    public_sharing_allowed: bool = True
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     artifact_shared_group_ids: List[str] = []

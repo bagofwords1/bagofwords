@@ -15,13 +15,13 @@
         <div class="flex gap-1 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit">
           <button
             type="button"
-            class="px-2.5 py-1 text-[11px] rounded transition-colors"
+            class="px-2.5 py-1 text-2xs rounded transition-colors"
             :class="targetType === 'users' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
             @click="targetType = 'users'"
           >{{ $t('prompts.targetMembers') }}</button>
           <button
             type="button"
-            class="px-2.5 py-1 text-[11px] rounded transition-colors"
+            class="px-2.5 py-1 text-2xs rounded transition-colors"
             :class="targetType === 'group' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
             @click="targetType = 'group'"
           >{{ $t('prompts.targetGroup') }}</button>
@@ -34,7 +34,7 @@
             <span
               v-for="m in selectedMembers"
               :key="m.id"
-              class="inline-flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px] px-1.5 py-0.5 rounded-full"
+              class="inline-flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs px-1.5 py-0.5 rounded-full"
             >
               {{ m.name || m.email }}
               <button class="hover:text-red-500" @click="removeMember(m.id)">
@@ -62,7 +62,7 @@
                   @mousedown.prevent="addMember(m)"
                 >
                   <span class="text-gray-900 dark:text-white">{{ m.name || m.email }}</span>
-                  <span v-if="m.name" class="text-[10px] text-gray-400">{{ m.email }}</span>
+                  <span v-if="m.name" class="text-2xs text-ink-muted">{{ m.email }}</span>
                 </button>
               </div>
             </div>
@@ -85,12 +85,12 @@
         <!-- Parameters note -->
         <div v-if="hasParams" class="rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-2.5">
           <div class="flex items-center justify-between">
-            <span class="text-[11px] text-gray-500 dark:text-gray-400">
+            <span class="text-2xs text-gray-500 dark:text-gray-400">
               {{ paramsCollected ? $t('prompts.paramsReady') : $t('prompts.paramsNeeded') }}
             </span>
             <button
               type="button"
-              class="text-[11px] text-blue-500 hover:text-blue-600"
+              class="text-2xs text-blue-500 hover:text-blue-600"
               @click="openParams"
             >{{ paramsCollected ? $t('prompts.editParams') : $t('prompts.fillParams') }}</button>
           </div>
@@ -98,20 +98,20 @@
 
         <!-- Delivery channels (in addition to the report + inbox each target gets) -->
         <div v-if="teamsEnabled || smtpEnabled" class="rounded-md border border-gray-100 dark:border-gray-800 p-2.5">
-          <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.deliverLabel') }}</div>
+          <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.deliverLabel') }}</div>
           <div class="space-y-1.5">
             <label v-if="teamsEnabled" class="flex items-start gap-2 cursor-pointer">
               <input type="checkbox" v-model="deliverTeams" class="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500" />
               <span class="text-xs text-gray-700 dark:text-gray-200">
                 {{ $t('prompts.deliverTeams') }}
-                <span class="block text-[10px] text-gray-400">{{ $t('prompts.deliverTeamsHint') }}</span>
+                <span class="block text-2xs text-ink-muted">{{ $t('prompts.deliverTeamsHint') }}</span>
               </span>
             </label>
             <label v-if="smtpEnabled" class="flex items-start gap-2 cursor-pointer">
               <input type="checkbox" v-model="deliverEmail" class="mt-0.5 rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500" />
               <span class="text-xs text-gray-700 dark:text-gray-200">
                 {{ $t('prompts.deliverEmail') }}
-                <span class="block text-[10px] text-gray-400">{{ $t('prompts.deliverEmailHint') }}</span>
+                <span class="block text-2xs text-ink-muted">{{ $t('prompts.deliverEmailHint') }}</span>
               </span>
             </label>
           </div>
