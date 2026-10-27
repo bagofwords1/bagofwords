@@ -20,7 +20,7 @@ from sqlalchemy import create_engine
 from alembic import command
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
-MAIN_BASE_REVISION = "submsg02"
+MAIN_BASE_REVISION = "grpllm01"
 
 # The last schema-only revision of this branch: the corpus stops here unless
 # a test asks for the data migration (phase 9), so the tests written for
