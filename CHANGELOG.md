@@ -3,6 +3,7 @@
 ## Version 0.0.598 (October 27, 2026)
 - Added GPT-6.1 Terra to the OpenAI catalog and made it the provider default in place of GPT-5.6 Terra (#1476)
 - Added saved queries to the BOW MCP server, so external clients run the organization's definitions instead of inventing their own (#1478)
+- Added a shared service-account option for Google Drive, so members read the shared files without connecting their own Google account (#1483) — Service Account (shared) on the Drive connection
 - Added Push to Git to the Agents page, pushing an instruction build as a branch and a pull request (#1473)
 - Added a Copy button on finished AI replies in chat, copying the answer as markdown (#1469)
 - Added an estimated token count under the instruction editor while editing (#1471)
