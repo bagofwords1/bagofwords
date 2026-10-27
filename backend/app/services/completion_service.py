@@ -278,9 +278,10 @@ class CompletionService:
         self.llm_service = LLMService()
         self.data_source_service = DataSourceService()
 
-    async def _heartbeat_completion(self, completion_id: str) -> None:
+    async def _heartbeat_completion(self, completion_id: str, owner_task=None) -> None:
         """Persist a renewable execution lease without sharing the agent session."""
         session_factory = create_async_session_factory()
+        lease_deadline = asyncio.get_running_loop().time() + _COMPLETION_STALE_AFTER_SECONDS
         while True:
             await asyncio.sleep(_COMPLETION_HEARTBEAT_SECONDS)
             try:
@@ -292,18 +293,27 @@ class CompletionService:
                     )
                     await db.commit()
                     if touched.rowcount != 1:
+                        current = await db.get(Completion, completion_id)
+                        if (owner_task is not None and current is not None
+                                and isinstance(current.completion, dict)
+                                and current.completion.get('error_type') == 'stale_execution'):
+                            owner_task.cancel()
                         return
+                    lease_deadline = asyncio.get_running_loop().time() + _COMPLETION_STALE_AFTER_SECONDS
             except asyncio.CancelledError:
                 raise
             except Exception:
                 logging.warning("Completion heartbeat failed for %s", completion_id, exc_info=True)
+                if owner_task is not None and asyncio.get_running_loop().time() >= lease_deadline:
+                    owner_task.cancel()
+                    return
 
     def _start_completion_lease(self, completion_id: str) -> asyncio.Task:
         """Keep a row's lease fresh, including while waiting for an agent slot."""
         completion_id = str(completion_id)
         _ACTIVE_COMPLETION_RUNS.add(completion_id)
-        heartbeat = asyncio.create_task(self._heartbeat_completion(completion_id))
         owner_task = asyncio.current_task()
+        heartbeat = asyncio.create_task(self._heartbeat_completion(completion_id, owner_task))
         if owner_task is not None:
             owner_task.add_done_callback(
                 lambda _done: self._cancel_completion_lease(completion_id, heartbeat)
@@ -898,6 +908,8 @@ class CompletionService:
 
             try:
                 db.add(system_completion)
+                from app.services.background_jobs import checkpoint_completion
+                await checkpoint_completion(db, system_completion)
                 await db.commit()
                 await db.refresh(system_completion)
             except Exception as e:

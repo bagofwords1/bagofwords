@@ -1,4 +1,3 @@
-import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select
@@ -209,7 +208,8 @@ async def trigger_scheduled_prompt(
     # caller gets a clean 404 instead of a silent no-op.
     await _ensure_scheduled_prompt_in_report(db, report_id, sp_id)
     await scheduled_prompt_service.get_scheduled_prompt(db, sp_id)
-    asyncio.create_task(scheduled_prompt_service.scheduled_run_prompt(sp_id, force=True))
+    from app.services.scheduled_prompt_service import enqueue_scheduled_prompt
+    await enqueue_scheduled_prompt(sp_id, force=True)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="scheduled_prompt.triggered",

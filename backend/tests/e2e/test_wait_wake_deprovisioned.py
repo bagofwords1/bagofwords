@@ -71,7 +71,7 @@ async def _fire(report_id, user_id, org_id) -> bool:
 
     with patch.object(ws, "claim_scheduled_run", lambda job_id: True), \
          patch("app.services.machine_turn.run_machine_turn", _fake_turn):
-        await ws.run_wait_wake(
+        await ws.deliver_wait_wake(
             job_id=f"wait:{report_id}:{uuid.uuid4().hex[:6]}", report_id=report_id,
             user_id=user_id, organization_id=org_id, reason="check again",
         )

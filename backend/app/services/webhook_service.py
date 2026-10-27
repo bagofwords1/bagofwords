@@ -596,8 +596,10 @@ class WebhookService:
                 delivery_id = adapter.event_id(headers, payload)
                 norm = adapter.normalize(headers, payload)
 
+                from app.services.background_jobs import delivery_event
+                resume_event = await delivery_event(db)
                 # Idempotency: same delivery id for this webhook → no-op
-                if delivery_id:
+                if delivery_id and resume_event is None:
                     dup = (await db.execute(
                         select(Completion).where(
                             Completion.webhook_id == webhook_id,
@@ -627,31 +629,35 @@ class WebhookService:
                 turn = (last.turn_index + 1) if last else 0
 
                 # 1) Visible event entry (role='external', webhook_id set)
-                event = Completion(
-                    prompt={"content": norm["summary"], "summary": norm["summary"],
-                            "details": norm["details"], "raw": norm["raw"],
-                            "meta": {"headers": self._safe_headers(headers or {}),
-                                     "delivery_id": delivery_id,
-                                     "source": wh.source}},
-                    completion={"content": ""},
-                    model="webhook",
-                    report_id=report.id,
-                    turn_index=turn,
-                    message_type="webhook_event",
-                    role="external",
-                    # Eyes (👀) from the start when the classifier/agent will run;
-                    # only flips to success (✅) once that work is complete. Alert-only
-                    # webhooks have no follow-on work, so they're success immediately.
-                    status="in_progress" if wh.classify_enabled else "success",
-                    user_id=wh.user_id,
-                    webhook_id=wh.id,
-                    external_platform=wh.source,
-                    external_message_id=delivery_id,
-                )
-                db.add(event)
-                wh.last_delivery_at = datetime.utcnow()
-                await db.commit()
-                await db.refresh(event)
+                event = resume_event
+                if event is None:
+                    event = Completion(
+                        prompt={"content": norm["summary"], "summary": norm["summary"],
+                                "details": norm["details"], "raw": norm["raw"],
+                                "meta": {"headers": self._safe_headers(headers or {}),
+                                         "delivery_id": delivery_id,
+                                         "source": wh.source}},
+                        completion={"content": ""},
+                        model="webhook",
+                        report_id=report.id,
+                        turn_index=turn,
+                        message_type="webhook_event",
+                        role="external",
+                        # Eyes (👀) from the start when the classifier/agent will run;
+                        # only flips to success (✅) once that work is complete. Alert-only
+                        # webhooks have no follow-on work, so they're success immediately.
+                        status="in_progress" if wh.classify_enabled else "success",
+                        user_id=wh.user_id,
+                        webhook_id=wh.id,
+                        external_platform=wh.source,
+                        external_message_id=delivery_id,
+                    )
+                    db.add(event)
+                    wh.last_delivery_at = datetime.utcnow()
+                    from app.services.background_jobs import checkpoint_event
+                    await checkpoint_event(db, event)
+                    await db.commit()
+                    await db.refresh(event)
 
                 if not wh.classify_enabled:
                     logger.info("Webhook %s: classifier disabled — alert only", webhook_id)
@@ -742,6 +748,7 @@ class WebhookService:
             except Exception as e:
                 logger.error("Webhook %s: delivery processing failed: %s", webhook_id, e)
                 await db.rollback()
+                raise
 
     async def _process_trigger_delivery(self, db, session_maker, wh: Webhook, delivery_id, norm: dict, headers: dict | None = None):
         """Spawn-mode delivery: classify (pre-spawn, no orphan reports) →
@@ -787,73 +794,81 @@ class WebhookService:
                 logger.info("Trigger %s: classifier declined (%s)", wh.id, decision.reason)
                 return
 
-        # 2) Spawn the session. create_report re-validates the creator's
-        #    access to each agent at spawn time (access drift → dropped).
-        from app.services.report_service import ReportService
-        from app.schemas.report_schema import ReportCreate
-        # Spawn untitled: the agent's own title generator (agent_v2
-        # _start_title_generation) only names placeholder-titled reports, and
-        # an LLM reads a raw event far better than any per-source template —
-        # e.g. ServiceNow's nested {value, display_value} reference fields.
-        # A run that dies before titling falls back to the summary below.
-        title = ""
-        fallback_title = (norm.get("summary") or wh.name or "Trigger run")[:120]
-        # Sessions land in the trigger's project when it has one. If the owner
-        # lost access to that project since setup, spawn at the root rather than
-        # dropping the delivery — the run still belongs to them either way.
-        report_schema = None
-        if wh.project_id:
-            try:
+        from app.services.background_jobs import delivery_event
+        event = await delivery_event(db)
+        if event is not None:
+            report = await db.get(Report, event.report_id)
+        else:
+            # 2) Spawn the session. create_report re-validates the creator's
+            #    access to each agent at spawn time (access drift → dropped).
+            from app.services.report_service import ReportService
+            from app.schemas.report_schema import ReportCreate
+            # Spawn untitled: the agent's own title generator (agent_v2
+            # _start_title_generation) only names placeholder-titled reports, and
+            # an LLM reads a raw event far better than any per-source template —
+            # e.g. ServiceNow's nested {value, display_value} reference fields.
+            # A run that dies before titling falls back to the summary below.
+            title = ""
+            fallback_title = (norm.get("summary") or wh.name or "Trigger run")[:120]
+            # Sessions land in the trigger's project when it has one. If the owner
+            # lost access to that project since setup, spawn at the root rather than
+            # dropping the delivery — the run still belongs to them either way.
+            report_schema = None
+            if wh.project_id:
+                try:
+                    report_schema = await ReportService().create_report(
+                        db=db,
+                        report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
+                                                 project_id=str(wh.project_id)),
+                        current_user=user,
+                        organization=organization,
+                    )
+                except HTTPException as e:
+                    logger.warning(
+                        "Trigger %s: cannot spawn into project %s (%s) — spawning at the root",
+                        wh.id, wh.project_id, getattr(e, "detail", e),
+                    )
+            if report_schema is None:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
-                                             project_id=str(wh.project_id)),
+                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
                     current_user=user,
                     organization=organization,
                 )
-            except HTTPException as e:
-                logger.warning(
-                    "Trigger %s: cannot spawn into project %s (%s) — spawning at the root",
-                    wh.id, wh.project_id, getattr(e, "detail", e),
-                )
-        if report_schema is None:
-            report_schema = await ReportService().create_report(
-                db=db,
-                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
-                current_user=user,
-                organization=organization,
+            report = await db.get(Report, report_schema.id)
+            report.webhook_id = str(wh.id)  # ⚡ provenance stamp
+            report.mode = wh.mode or "chat"
+            wh.last_delivery_at = datetime.utcnow()
+
+            # 3) Visible event entry in the spawned session
+            event = Completion(
+                prompt={"content": norm["summary"], "summary": norm["summary"],
+                        "details": norm["details"], "raw": norm["raw"],
+                        "meta": {"headers": self._safe_headers(headers or {}),
+                                 "delivery_id": delivery_id,
+                                 "source": wh.source}},
+                completion={"content": "", **({"decision": {
+                    "act": decision.act, "confidence": decision.confidence,
+                    "reason": decision.reason, "task": decision.task,
+                }} if decision else {})},
+                model="webhook",
+                report_id=report.id,
+                turn_index=0,
+                message_type="webhook_event",
+                role="external",
+                status="in_progress",
+                user_id=wh.user_id,
+                webhook_id=wh.id,
+                external_platform=wh.source,
+                external_message_id=delivery_id,
             )
-        report = await db.get(Report, report_schema.id)
-        report.webhook_id = str(wh.id)  # ⚡ provenance stamp
-        report.mode = wh.mode or "chat"
-        wh.last_delivery_at = datetime.utcnow()
+            db.add(event)
+            from app.services.background_jobs import checkpoint_event
+            await checkpoint_event(db, event)
+            await db.commit()
+            await db.refresh(event)
 
-        # 3) Visible event entry in the spawned session
-        event = Completion(
-            prompt={"content": norm["summary"], "summary": norm["summary"],
-                    "details": norm["details"], "raw": norm["raw"],
-                    "meta": {"headers": self._safe_headers(headers or {}),
-                             "delivery_id": delivery_id,
-                             "source": wh.source}},
-            completion={"content": "", **({"decision": {
-                "act": decision.act, "confidence": decision.confidence,
-                "reason": decision.reason, "task": decision.task,
-            }} if decision else {})},
-            model="webhook",
-            report_id=report.id,
-            turn_index=0,
-            message_type="webhook_event",
-            role="external",
-            status="in_progress",
-            user_id=wh.user_id,
-            webhook_id=wh.id,
-            external_platform=wh.source,
-            external_message_id=delivery_id,
-        )
-        db.add(event)
-        await db.commit()
-        await db.refresh(event)
-
+        fallback_title = (norm.get("summary") or wh.name or "Trigger run")[:120]
         # 4) Agent run: task_template wins; classifier-authored task is the
         #    fallback; a generic instruction is the last resort.
         task_text = (wh.task_template or "").strip() \

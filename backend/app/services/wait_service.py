@@ -1,35 +1,19 @@
-"""Wait service — one-shot "pause then resume" for the agent loop.
+"""Persist a one-shot agent resume before registering its scheduler wake hint.
 
-The ``wait`` tool ends the current agent turn (like clarify) and arms a *single*
-APScheduler ``date`` job through this service. When the job fires, the agent is
-resumed on the SAME report by creating a fresh completion whose prompt is the
-``reason`` the agent gave when it paused. Full conversation history reloads
-automatically, so it can retry exactly where it left off.
-
-This is deliberately NOT a scheduled task:
-  - one-shot (``trigger='date'``), never recurring;
-  - no user-visible ``ScheduledPrompt`` row — the only record is the ``wait``
-    tool execution, which the UI already renders;
-  - it self-deletes after firing once.
-
-It reuses the shared scheduler (``app.core.scheduler``) and the cross-worker
-run-claim so a fire executes exactly once across uvicorn workers / replicas.
-
-NOTE: the job callable is the MODULE-LEVEL ``run_wait_wake`` function, not a
-bound method. APScheduler's ``SQLAlchemyJobStore`` serializes the callable by
-import path; a bound method deserializes without ``self`` and would crash on
-fire after a restart. A module-level function round-trips cleanly.
+Consumers claim durable receipts across processes. A timer may disappear during
+worker death without losing the pending resume; cancellation and listing also
+consult receipts. Once an agent completion exists, recovery reports interruption
+instead of replaying potentially irreversible tool effects.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from apscheduler.jobstores.base import JobLookupError
 
-from app.core.scheduler import scheduler, claim_scheduled_run
+from app.core.scheduler import scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +24,7 @@ def _job_id(report_id: str, token: str) -> str:
     return f"{_JOB_PREFIX}{report_id}:{token}"
 
 
-async def run_wait_wake(
+async def deliver_wait_wake(
     job_id: str,
     report_id: str,
     user_id: str,
@@ -54,11 +38,6 @@ async def run_wait_wake(
     ``reason`` as a synthesized continuation prompt instead of reading a stored
     ScheduledPrompt.
     """
-    # Every worker/replica runs its own scheduler against the shared job store,
-    # so this may fire N times. Claim it so exactly one proceeds.
-    if not await asyncio.to_thread(claim_scheduled_run, job_id):
-        return
-
     from app.dependencies import async_session_maker
     from app.services.machine_turn import run_machine_turn
     from app.models.user import User
@@ -105,6 +84,17 @@ async def run_wait_wake(
             )
         except Exception as e:
             logger.error("wait wake %s: resume failed: %s", job_id, e)
+            raise
+
+
+async def run_wait_wake(job_id: str, report_id: str, user_id: str, organization_id: str,
+                        reason: str, attempt: int = 1):
+    from app.services.background_jobs import enqueue, session_factory
+    async with session_factory()() as db:
+        await enqueue(db, key=job_id, kind='wait', payload=dict(
+            job_id=job_id, report_id=report_id, user_id=user_id,
+            organization_id=organization_id, reason=reason, attempt=attempt))
+        await db.commit()
 
 
 class WaitService:
@@ -125,6 +115,10 @@ class WaitService:
         job_id = _job_id(report_id, token)
         wake_at = datetime.now(timezone.utc) + timedelta(minutes=int(delay_minutes))
 
+        from app.services.background_jobs import enqueue_sync
+        enqueue_sync(key=job_id, kind='wait', available_at=wake_at.replace(tzinfo=None),
+                     payload=dict(job_id=job_id, report_id=report_id, user_id=user_id,
+                                  organization_id=organization_id, reason=reason, attempt=int(attempt)))
         scheduler.add_job(
             func=run_wait_wake,
             trigger="date",
@@ -148,13 +142,14 @@ class WaitService:
         """Remove a pending resume job. Returns True if a job was removed."""
         if not job_id or not job_id.startswith(_JOB_PREFIX):
             return False
+        from app.services.background_jobs import cancel_pending
+        cancelled = cancel_pending(job_id)
         try:
             scheduler.remove_job(job_id=job_id)
             logger.info("Cancelled wait %s", job_id)
             return True
         except JobLookupError:
-            # Already fired or already cancelled — idempotent success.
-            return False
+            return cancelled
 
     def list_waits(self, report_id: str) -> list[dict]:
         """Pending (not yet fired) waits for a report.
@@ -178,6 +173,17 @@ class WaitService:
                 })
         except Exception as e:
             logger.warning("list_waits(%s) failed: %s", report_id, e)
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select
+        from app.core.scheduler import _engine
+        from app.models.background_job import BackgroundJob
+        with Session(_engine) as db:
+            rows = db.execute(select(BackgroundJob).where(
+                BackgroundJob.kind == 'wait', BackgroundJob.status == 'pending',
+            )).scalars().all()
+            for row in rows:
+                if row.payload.get('report_id') == str(report_id) and not any(x['job_id'] == row.key for x in out):
+                    out.append(dict(job_id=row.key, wake_at=row.available_at.isoformat(), reason=row.payload.get('reason')))
         out.sort(key=lambda j: j.get("wake_at") or "")
         return out
 
@@ -192,6 +198,18 @@ class WaitService:
         except Exception as e:
             logger.warning("cancel_waits_for_user(%s) failed: %s", user_id, e)
             return cancelled
+        from sqlalchemy.orm import Session
+        from sqlalchemy import select
+        from types import SimpleNamespace
+        from app.core.scheduler import _engine
+        from app.models.background_job import BackgroundJob
+        with Session(_engine) as db:
+            pending = db.execute(select(BackgroundJob).where(
+                BackgroundJob.kind == 'wait', BackgroundJob.status == 'pending',
+            )).scalars().all()
+            jobs = list(jobs)
+            known = {str(j.id) for j in jobs}
+            jobs.extend(SimpleNamespace(id=row.key, kwargs=row.payload) for row in pending if row.key not in known)
         for job in jobs:
             if not str(job.id).startswith(_JOB_PREFIX):
                 continue

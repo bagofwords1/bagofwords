@@ -11,6 +11,7 @@ item's agent: ``run_eval`` (eval-only), ``run_training`` (force-train), plus
 feed just deep-links), and auto-resolve when the pending change clears.
 """
 from __future__ import annotations
+from app.services.worker_recovery import monitored
 
 import asyncio
 import logging
@@ -504,6 +505,7 @@ class ReviewService:
             return
         asyncio.create_task(self._run_workflow(organization_id, data_source_id, item_id, kind, train_override, user_id, brief))
 
+    @monitored(ReviewItem, 'item_id', 'in_progress')
     async def _run_workflow(self, organization_id, data_source_id, item_id, kind, train_override, user_id, brief=None):
         from app.settings.database import create_async_session_factory
         from app.models.organization import Organization
@@ -533,7 +535,9 @@ class ReviewService:
         try:
             async with factory() as db:
                 item = await db.get(ReviewItem, str(item_id))
-                if item is not None:
+                if item is not None and item.status == STATUS_IN_PROGRESS:
+                    from app.services.worker_recovery import require_running
+                    await require_running(db, ReviewItem, item_id, STATUS_IN_PROGRESS)
                     # Rebuild with fresh dicts so the JSON column is marked dirty.
                     spawned = []
                     for s in (item.spawned_json or []):

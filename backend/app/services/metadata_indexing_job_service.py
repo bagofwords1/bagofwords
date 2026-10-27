@@ -1,3 +1,4 @@
+from app.services.worker_recovery import monitored, require_running
 import logging
 from collections import defaultdict
 from fastapi import HTTPException, Depends
@@ -700,6 +701,7 @@ class MetadataIndexingJobService:
         logger.info(f"Scheduled background indexing task for job {job.id}")
         return {"status": "started", "message": "Indexing job started in background", "job_id": job.id}
 
+    @monitored(MetadataIndexingJob, 'job_id', ('pending', 'running'))
     async def _run_file_indexing_job(
         self,
         repository_id: str,
@@ -730,7 +732,7 @@ class MetadataIndexingJobService:
                     error_message = f"Organization {organization_id} not found"
                     await db.execute(
                         update(MetadataIndexingJob)
-                        .where(MetadataIndexingJob.id == job_id)
+                        .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                         .values({
                             "status": "failed",
                             "completed_at": datetime.utcnow(),
@@ -750,7 +752,7 @@ class MetadataIndexingJobService:
                     error_message = f"GitRepository {repository_id} not found"
                     await db.execute(
                         update(MetadataIndexingJob)
-                        .where(MetadataIndexingJob.id == job_id)
+                        .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                         .values({
                             "status": "failed",
                             "completed_at": datetime.utcnow(),
@@ -771,7 +773,7 @@ class MetadataIndexingJobService:
                 # Phase 1: Walk files
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values(current_phase='parsing', processed_files=0)
                 )
                 await db.commit()
@@ -782,7 +784,7 @@ class MetadataIndexingJobService:
 
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values(current_phase='syncing', total_files=total_files, processed_files=0)
                 )
                 await db.commit()
@@ -808,7 +810,7 @@ class MetadataIndexingJobService:
 
                     await db.execute(
                         update(MetadataIndexingJob)
-                        .where(MetadataIndexingJob.id == job_id)
+                        .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                         .values(build_id=sync_build.id)
                     )
                     await db.commit()
@@ -844,7 +846,7 @@ class MetadataIndexingJobService:
                     if (i + 1) % 10 == 0 or i == total_files - 1:
                         await db.execute(
                             update(MetadataIndexingJob)
-                            .where(MetadataIndexingJob.id == job_id)
+                            .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                             .values(processed_files=i + 1)
                         )
                         await db.commit()
@@ -876,10 +878,11 @@ class MetadataIndexingJobService:
                 elif sync_build and build_id:
                     logger.info(f"Job {job_id}: Build {sync_build.id} left in draft for manual review")
 
+                await require_running(db, MetadataIndexingJob, job_id, "running")
                 # Update job status
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values({
                         "status": "completed",
                         "completed_at": datetime.utcnow(),
@@ -907,7 +910,7 @@ class MetadataIndexingJobService:
                 error_message = f"File indexing failed: {str(e)[:500]}"
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values({
                         "status": "failed",
                         "completed_at": datetime.utcnow(),
@@ -928,6 +931,7 @@ class MetadataIndexingJobService:
                 except Exception as cleanup_e:
                     logger.error(f"Job {job_id}: Error cleaning up {repo_path}: {cleanup_e}")
 
+    @monitored(MetadataIndexingJob, 'job_id', ('pending', 'running'))
     async def _run_indexing_job(
         self,
         # The db: AsyncSession parameter is removed from the signature
@@ -969,7 +973,7 @@ class MetadataIndexingJobService:
                 # Update job phase to 'parsing'
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values(current_phase='parsing', processed_files=0)
                 )
                 await db.commit()
@@ -1108,7 +1112,7 @@ class MetadataIndexingJobService:
                     total_resources = len(all_created_resources)
                     await db.execute(
                         update(MetadataIndexingJob)
-                        .where(MetadataIndexingJob.id == job_id)
+                        .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                         .values(current_phase='syncing', total_files=total_resources, processed_files=0)
                     )
                     await db.commit()
@@ -1145,7 +1149,7 @@ class MetadataIndexingJobService:
                         # Link the build to the job
                         await db.execute(
                             update(MetadataIndexingJob)
-                            .where(MetadataIndexingJob.id == job_id)
+                            .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                             .values(build_id=sync_build.id)
                         )
                         await db.commit()
@@ -1172,7 +1176,7 @@ class MetadataIndexingJobService:
                         if (i + 1) % 10 == 0 or i == total_resources - 1:
                             await db.execute(
                                 update(MetadataIndexingJob)
-                                .where(MetadataIndexingJob.id == job_id)
+                                .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                                 .values(processed_files=i + 1)
                             )
                             await db.commit()
@@ -1194,10 +1198,11 @@ class MetadataIndexingJobService:
                         # Pre-created build stays in draft for user review
                         logger.info(f"Job {job_id}: Build {sync_build.id} left in draft status for manual review")
 
+                await require_running(db, MetadataIndexingJob, job_id, "running")
                 # All database operations below will use the new session
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values({
                         "status": job_status,
                         "completed_at": datetime.utcnow(),
@@ -1231,7 +1236,7 @@ class MetadataIndexingJobService:
                 error_message = f"Parsing failed: {str(e)[:500]}"
                 await db.execute(
                     update(MetadataIndexingJob)
-                    .where(MetadataIndexingJob.id == job_id)
+                    .where(MetadataIndexingJob.id == job_id, MetadataIndexingJob.status.in_(('pending', 'running')))
                     .values({
                         "status": "failed",
                         "completed_at": datetime.utcnow(),

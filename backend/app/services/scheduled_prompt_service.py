@@ -100,6 +100,24 @@ def _parse_cron_expression(cron_expression: str) -> Optional[dict]:
         return None
 
 
+async def enqueue_scheduled_prompt(scheduled_prompt_id: str, force: bool = False):
+    import time
+    import uuid
+    from app.services.background_jobs import enqueue, session_factory
+    fire = str(uuid.uuid4()) if force else str(int(time.time() // 30))
+    async with session_factory()() as db:
+        sp = await db.get(ScheduledPrompt, scheduled_prompt_id)
+        if sp is None or sp.deleted_at or (not sp.is_active and not force):
+            return
+        key = (f'scheduled_once:{sp.id}:{sp.run_once_at.isoformat()}'
+               if sp.run_once_at is not None and not force else f'scheduled:{sp.id}:{fire}')
+        await enqueue(db, key=key, kind='scheduled_prompt', payload={
+            'scheduled_prompt_id': scheduled_prompt_id, 'force': force,
+            'expected_once_at': sp.run_once_at.isoformat() if sp.run_once_at else None,
+        })
+        await db.commit()
+
+
 class ScheduledPromptService:
 
     def _job_id(self, sp_id: str) -> str:
@@ -471,7 +489,8 @@ class ScheduledPromptService:
 
     # ---- Execution (called by APScheduler, no HTTP context) ----
 
-    async def scheduled_run_prompt(self, scheduled_prompt_id: str, force: bool = False):
+    async def scheduled_run_prompt(self, scheduled_prompt_id: str, force: bool = False,
+                                   recovered_delivery: bool = False, expected_once_at: str | None = None):
         """Execute a scheduled prompt. Called by APScheduler cron trigger.
 
         ``force=True`` bypasses the cross-worker claim and is used for manual
@@ -482,7 +501,7 @@ class ScheduledPromptService:
         # Every uvicorn worker/replica runs its own scheduler against the shared
         # job store, so this fires once per worker. Claim the run so exactly one
         # worker proceeds — otherwise subscribers get one email per worker.
-        if not force and not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
+        if not force and not recovered_delivery and not await asyncio.to_thread(claim_scheduled_run, self._job_id(scheduled_prompt_id)):
             return
         from app.dependencies import async_session_maker
         from app.services.completion_service import CompletionService
@@ -501,7 +520,10 @@ class ScheduledPromptService:
             # now": deactivate it before running so it never fires again. The
             # conditional UPDATE lets exactly one fire win when several workers
             # (or a fire and a manual run) race for it.
-            if sp.run_once_at is not None:
+            if recovered_delivery and expected_once_at is not None:
+                if sp.run_once_at is None or sp.run_once_at.isoformat() != expected_once_at:
+                    return  # edited since the delivery was scheduled
+            if sp.run_once_at is not None and not recovered_delivery:
                 consumed = await db.execute(
                     update(ScheduledPrompt)
                     .where(ScheduledPrompt.id == sp.id, ScheduledPrompt.is_active == True)  # noqa: E712
@@ -571,6 +593,9 @@ class ScheduledPromptService:
                 raised = e
                 logger.error(f"Scheduled prompt {sp.id} execution failed: {e}")
 
+            if sp.run_once_at is not None and recovered_delivery:
+                sp.is_active = False
+                self._remove_job(sp.id)
             # Update last_run_at
             sp.last_run_at = datetime.utcnow()
             await db.commit()
@@ -766,9 +791,14 @@ class ScheduledPromptService:
 
     def _register_job(self, sp: ScheduledPrompt):
         if sp.run_once_at is not None:
+            from app.services.background_jobs import enqueue_sync
+            enqueue_sync(key=f'scheduled_once:{sp.id}:{sp.run_once_at.isoformat()}',
+                         kind='scheduled_prompt', available_at=sp.run_once_at,
+                         payload={'scheduled_prompt_id': str(sp.id), 'force': False,
+                                  'expected_once_at': sp.run_once_at.isoformat()})
             # An absolute instant, so no org timezone is involved.
             scheduler.add_job(
-                func=self.scheduled_run_prompt,
+                func=enqueue_scheduled_prompt,
                 trigger='date',
                 run_date=sp.run_once_at.replace(tzinfo=timezone.utc),
                 id=self._job_id(sp.id),
@@ -787,7 +817,7 @@ class ScheduledPromptService:
         if tz:
             cron_params = {**cron_params, 'timezone': tz}
         scheduler.add_job(
-            func=self.scheduled_run_prompt,
+            func=enqueue_scheduled_prompt,
             trigger='cron',
             id=self._job_id(sp.id),
             args=[sp.id],

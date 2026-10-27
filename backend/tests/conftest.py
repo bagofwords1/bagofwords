@@ -468,7 +468,12 @@ def _dispose_async_engine():
     can neither lock nor corrupt the next test's database.
     """
     from app.dependencies import engine
+    from app.core.scheduler import _engine as scheduler_engine
     import asyncio
+
+    # Durable timers now write through the scheduler's synchronous engine too.
+    # Release its SQLite file handles before the per-test DB is replaced.
+    scheduler_engine.dispose()
 
     async def _dispose():
         await engine.dispose()
