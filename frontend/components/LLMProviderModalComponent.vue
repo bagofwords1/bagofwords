@@ -268,7 +268,7 @@
                                     <Icon name="heroicons:chevron-right" class="w-3" />
                                 </span>
                                 Custom headers
-                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                             </button>
                             <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                 <div>
@@ -637,7 +637,7 @@
                                         <Icon name="heroicons:chevron-right" class="w-3" />
                                     </span>
                                     Custom headers
-                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                                 </button>
                                 <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                     <div>

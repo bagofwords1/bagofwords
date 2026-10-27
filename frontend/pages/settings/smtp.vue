@@ -79,11 +79,11 @@
       </div>
       <div class="grid grid-cols-2 gap-3 mb-1">
         <div>
-          <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
+          <label class="block text-sm font-medium mb-1">Username <span class="text-ink-muted font-normal">(optional)</span></label>
           <input v-model="form.username" type="text" data-testid="smtp-username" :disabled="!form.enabled" :class="fieldClass" />
         </div>
         <div>
-          <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
+          <label class="block text-sm font-medium mb-1">Password <span class="text-ink-muted font-normal">(optional)</span></label>
           <input v-model="form.password" type="password" data-testid="smtp-password" :disabled="!form.enabled" :class="fieldClass"
             :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
           <p v-if="passwordSet" class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep the saved password.</p>
@@ -102,7 +102,7 @@
         :class="form.enabled ? 'cursor-pointer' : 'cursor-default'">
         <UToggle v-model="form.validate_certs" :disabled="!form.enabled" />
         <span class="text-sm text-gray-700 dark:text-gray-300">Validate TLS certificates</span>
-        <span class="text-xs text-gray-400 dark:text-gray-600">— turn off for self-signed / internal-CA relays</span>
+        <span class="text-xs text-ink-muted">— turn off for self-signed / internal-CA relays</span>
       </label>
       </fieldset>
 
@@ -115,7 +115,7 @@
           class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
           {{ testing ? 'Sending…' : 'Save & send test email' }}
         </button>
-        <span v-if="form.enabled && currentUserEmail" class="text-xs text-gray-400 dark:text-gray-500">
+        <span v-if="form.enabled && currentUserEmail" class="text-xs text-ink-muted">
           sends to {{ currentUserEmail }}
         </span>
       </div>

@@ -14,7 +14,7 @@
                     v-model="suiteName"
                     type="text"
                     placeholder="Suite name"
-                    class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                    class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
                     @keyup.enter="create"
                 />
             </div>

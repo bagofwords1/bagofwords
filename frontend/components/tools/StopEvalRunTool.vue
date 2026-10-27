@@ -2,20 +2,20 @@
   <div class="mt-1">
     <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.stopEvalRun.stopping') }}
       </span>
       <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-red-400" />
         <span class="align-middle">{{ t('tools.stopEvalRun.stopped') }}</span>
-        <span v-if="total" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400">{{ passed }}/{{ total }} {{ t('tools.stopEvalRun.passedAtStop') }}</span>
+        <span v-if="total" class="ms-1.5 text-2xs text-gray-500 dark:text-gray-400">{{ passed }}/{{ total }} {{ t('tools.stopEvalRun.passedAtStop') }}</span>
       </span>
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">{{ message || t('tools.stopEvalRun.failed') }}</span>
       </span>
     </div>
-    <div v-if="runId" class="text-[10px] text-gray-400 ms-1">
+    <div v-if="runId" class="text-2xs text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.stopEvalRun.openRun') }}

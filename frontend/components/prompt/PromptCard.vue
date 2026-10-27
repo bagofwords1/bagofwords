@@ -10,7 +10,7 @@
         <span
           v-for="a in agentChips"
           :key="a.id"
-          class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border text-violet-700 border-violet-200 bg-violet-50 dark:text-violet-300 dark:border-violet-900 dark:bg-violet-900/20"
+          class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border text-violet-700 border-violet-200 bg-violet-50 dark:text-violet-300 dark:border-violet-900 dark:bg-violet-900/20"
         >
           <DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="h-3 w-auto" />
           {{ a.name }}
@@ -19,7 +19,7 @@
       <!-- Global / Private: simple icon chip -->
       <span
         v-else
-        class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border"
+        class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border"
         :class="scopeChipClass"
       >
         <UIcon :name="scopeIcon" class="w-3 h-3" />
@@ -31,14 +31,14 @@
         class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
       >
         <button
-          class="p-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+          class="p-1 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
           :title="$t('prompts.edit')"
           @click.stop="$emit('edit', prompt)"
         >
           <UIcon name="heroicons-pencil-square" class="w-3.5 h-3.5" />
         </button>
         <button
-          class="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+          class="p-1 rounded text-ink-muted hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
           :title="$t('prompts.delete')"
           @click.stop="$emit('delete', prompt)"
         >
@@ -67,13 +67,13 @@
     <div class="flex flex-wrap items-center gap-1.5 mt-3">
       <span
         v-if="paramCount > 0"
-        class="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800"
+        class="text-2xs px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800"
       >
         {{ $t('prompts.nParams', { n: paramCount }) }}
       </span>
       <span
         v-if="prompt.mode && prompt.mode !== 'chat'"
-        class="text-[10px] px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800"
+        class="text-2xs px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800"
       >
         {{ prompt.mode }}
       </span>

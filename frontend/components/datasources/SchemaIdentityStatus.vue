@@ -3,18 +3,18 @@
     <DataSourceIcon :type="connection.type" class="h-4 w-4" />
     <span class="font-medium text-gray-700 dark:text-gray-200">{{ connection.name }}</span>
     <button v-if="canSwitchIdentity" type="button" :disabled="busy || disabled" @click="detailsOpen = true"
-      class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50"
+      class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors disabled:opacity-50"
       :class="identityPillClass" :title="t('schemaIdentity.changeIdentity')">
       {{ identityLabel }}<UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
     </button>
-    <span v-else class="rounded-full border px-2 py-0.5 text-[11px] font-medium" :class="identityPillClass">{{ identityLabel }}</span>
-    <span v-if="displayScope !== scope" class="text-[11px] text-gray-500">{{ displayedScopeLabel }}</span>
-    <span class="inline-flex items-center gap-1 text-[11px] text-gray-500" :title="notice || refreshedLabel">
+    <span v-else class="rounded-full border px-2 py-0.5 text-2xs font-medium" :class="identityPillClass">{{ identityLabel }}</span>
+    <span v-if="displayScope !== scope" class="text-2xs text-gray-500">{{ displayedScopeLabel }}</span>
+    <span class="inline-flex items-center gap-1 text-2xs text-gray-500" :title="notice || refreshedLabel">
       <span class="h-1.5 w-1.5 rounded-full" :class="busy ? 'bg-blue-500' : warning ? 'bg-amber-500' : job?.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'" />
       <time v-if="timestamp" :datetime="job?.finished_at || undefined">{{ timestamp }}</time>
       <span v-else>—</span>
     </span>
-    <span v-if="disconnected || (hasRequested && notice)" role="status" class="max-w-64 truncate text-[11px]"
+    <span v-if="disconnected || (hasRequested && notice)" role="status" class="max-w-64 truncate text-2xs"
       :class="warning ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'" :title="notice">{{ notice }}</span>
     <ConnectionDetailModal v-model="detailsOpen" :connection="connection" @updated="emit('identity-changed')" />
   </div>

@@ -2,10 +2,10 @@
   <div class="mb-2">
     <!-- Main Header: Creating Data (always collapsible) -->
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCreateData">
-      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.createData.creating') }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createData.created') }}</span>
@@ -28,19 +28,19 @@
                 />
                 <span>{{ nm }}</span><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
               </span>
-              <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-gray-400 dark:text-gray-500">&nbsp;+{{ group.more }}</span></UTooltip>
+              <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-ink-muted">&nbsp;+{{ group.more }}</span></UTooltip>
             </span>
           </template>
         </span>
       </Transition>
-      <span v-if="status === 'running' && liveStageKey" class="ms-1.5 text-gray-400">
+      <span v-if="status === 'running' && liveStageKey" class="ms-1.5 text-ink-muted">
         · <span class="tool-shimmer">{{ $t(`tools.createData.${liveStageKey}`) }}</span>
       </span>
-      <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
+      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
     <!-- Stopped/Error message below header -->
-    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-xs text-gray-400 italic">{{ $t('tools.common.generationStopped') }}</div>
+    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-xs text-ink-muted italic">{{ $t('tools.common.generationStopped') }}</div>
     <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
       {{ lastErrorMessage }}
     </div>
@@ -61,12 +61,12 @@
           </div>
           <Transition name="fade">
             <div v-if="attemptCodeExpanded[idx]" class="mt-1 ms-4">
-              <div v-if="attempt.code" class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 font-mono text-[10px] max-h-28 overflow-y-auto mb-1">
+              <div v-if="attempt.code" class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 font-mono text-2xs max-h-28 overflow-y-auto mb-1">
                 <pre class="text-gray-600 dark:text-gray-400 whitespace-pre-wrap m-0">{{ attempt.code }}</pre>
               </div>
             </div>
           </Transition>
-          <div class="mt-0.5 ms-4 text-[11px] text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
+          <div class="mt-0.5 ms-4 text-2xs text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
             {{ attempt.error }}
           </div>
         </div>
@@ -76,15 +76,15 @@
              render a row that expands to nothing. -->
         <div v-if="canViewCode">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
-            <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
+            <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
             <span v-if="isCodeGenerating && status !== 'stopped'" class="tool-shimmer">{{ $t('tools.createData.generatingCode') }}</span>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createData.generatedCode') }}</span>
-            <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ms-1.5 text-gray-400">{{ $t('tools.common.attemptSuffix', { n: failedAttempts.length + 1 }) }}</span>
-            <span v-if="isCodeGenerating && currentAttempt > 1" class="ms-1.5 text-gray-400">{{ $t('tools.common.attemptSuffix', { n: currentAttempt }) }}</span>
+            <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ms-1.5 text-ink-muted">{{ $t('tools.common.attemptSuffix', { n: failedAttempts.length + 1 }) }}</span>
+            <span v-if="isCodeGenerating && currentAttempt > 1" class="ms-1.5 text-ink-muted">{{ $t('tools.common.attemptSuffix', { n: currentAttempt }) }}</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
@@ -107,40 +107,40 @@
         <!-- Executing Code section -->
         <div v-if="showExecutingSection">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
-            <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
             <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
             <span v-if="isExecuting && status !== 'stopped'" class="tool-shimmer">{{ $t('tools.createData.executing') }}</span>
             <span v-else-if="executionFailed" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createData.executionFailed') }}</span>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createData.executionSucceeded') }}</span>
-            <span v-if="executionDone && executionRowCount != null" class="ms-1.5 text-gray-400">· {{ $t('tools.common.rows', { n: executionRowCount }) }}</span>
-            <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-gray-400">· {{ formatExecutionDuration }}</span>
+            <span v-if="executionDone && executionRowCount != null" class="ms-1.5 text-ink-muted">· {{ $t('tools.common.rows', { n: executionRowCount }) }}</span>
+            <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-ink-muted">· {{ formatExecutionDuration }}</span>
           </div>
           <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
-          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-[11px] text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
+          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-2xs text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
             <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
           </div>
         </div>
 
         <!-- Retry indicator (live only) -->
         <div v-if="isRetrying" class="flex items-center text-xs text-gray-500 dark:text-gray-400">
-          <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
           <span class="tool-shimmer">{{ $t('tools.createData.retrying', { n: currentAttempt }) }}</span>
         </div>
 
         <!-- Visualizing section -->
         <div v-if="showVisualizingSection">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
-            <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+            <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
+            <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
             <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="isVisualizing && status !== 'stopped'" class="tool-shimmer">{{ $t('tools.createData.visualizing') }}</span>
             <span v-else-if="vizError" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createData.visualizing') }}</span>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ chartTypeLabel }}</span>
-            <span v-if="vizSummary && !vizError" class="ms-1.5 text-gray-400">· {{ vizSummary }}</span>
+            <span v-if="vizSummary && !vizError" class="ms-1.5 text-ink-muted">· {{ vizSummary }}</span>
           </div>
           <div v-if="vizError" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">{{ vizError }}</div>
         </div>

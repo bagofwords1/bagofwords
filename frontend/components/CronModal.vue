@@ -32,8 +32,8 @@
                             v-for="opt in refreshModeOptions"
                             :key="opt.value"
                             type="button"
-                            class="px-2.5 py-0.5 text-[11px] rounded transition-colors"
-                            :class="refreshMode === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                            class="px-2.5 py-0.5 text-2xs rounded transition-colors"
+                            :class="refreshMode === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
                             @click="refreshMode = opt.value"
                         >
                             {{ opt.label }}
@@ -72,7 +72,7 @@
                                     @click="toggleRecurDay(d.value)"
                                     :title="d.label"
                                     :aria-pressed="recurDays.includes(d.value)"
-                                    class="flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium border transition-colors"
+                                    class="flex items-center justify-center w-6 h-6 rounded-full text-2xs font-medium border transition-colors"
                                     :class="recurDays.includes(d.value)
                                         ? 'bg-blue-500 text-white border-blue-500'
                                         : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'"
@@ -89,13 +89,13 @@
                         </template>
                     </div>
 
-                    <p v-if="scheduleEnabled && scheduleLabel" class="mt-2 text-xs text-gray-400 dark:text-gray-600">
+                    <p v-if="scheduleEnabled && scheduleLabel" class="mt-2 text-xs text-ink-muted">
                         {{ scheduleLabel }}
                     </p>
 
                     <!-- The rate limit belongs next to the choice: "when opened"
                          does not mean "on every open". -->
-                    <p v-if="refreshMode === 'on_open'" class="text-xs text-gray-400 dark:text-gray-600">
+                    <p v-if="refreshMode === 'on_open'" class="text-xs text-ink-muted">
                         Reruns this report's queries when someone opens its shared page, at most once every 5 minutes.
                     </p>
                 </div>
@@ -111,7 +111,7 @@
                     <Icon name="heroicons:envelope" class="w-4 h-4" />
                     Notify after each run
                 </div>
-                <p class="text-xs text-gray-400 dark:text-gray-600 mb-3">Recipients will receive an email with results after each scheduled run.</p>
+                <p class="text-xs text-ink-muted mb-3">Recipients will receive an email with results after each scheduled run.</p>
 
                 <!-- Recipient input -->
                 <div class="flex flex-wrap items-center gap-1.5 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 min-h-[38px] focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
@@ -139,7 +139,7 @@
                                 class="w-full text-start px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
                                 <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
-                                <span v-if="member.name" class="text-xs text-gray-400 dark:text-gray-600">{{ member.email }}</span>
+                                <span v-if="member.name" class="text-xs text-ink-muted">{{ member.email }}</span>
                             </button>
                         </div>
                     </div>

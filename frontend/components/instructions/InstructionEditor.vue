@@ -37,7 +37,7 @@
         <!-- Placeholder when empty -->
         <div
           v-if="editor?.isEmpty && isEditable"
-          class="absolute top-2 start-0 text-xs text-gray-400 dark:text-gray-600 pointer-events-none select-none whitespace-pre-line"
+          class="absolute top-2 start-0 text-xs text-ink-muted pointer-events-none select-none whitespace-pre-line"
         >{{ placeholder || 'Write instructions using markdown... (type @ to mention a table or instruction)' }}</div>
       </div>
 
@@ -69,18 +69,18 @@
             <template v-if="item.type === 'instruction'">
               <span v-if="item.name" class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
               <span v-else class="text-gray-700 dark:text-gray-300 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
-              <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
+              <span v-if="item.name && item.textPreview" class="text-2xs text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
             </template>
             <template v-else-if="item.type === 'connection_tool'">
               <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
-              <span v-if="item.textPreview" class="text-[10px] text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
-              <span v-if="item.dataSourceName" class="text-[10px] text-gray-400 dark:text-gray-600 truncate block">{{ item.dataSourceName }}</span>
+              <span v-if="item.textPreview" class="text-2xs text-gray-500 dark:text-gray-400 truncate block">{{ item.textPreview }}</span>
+              <span v-if="item.dataSourceName" class="text-2xs text-ink-muted truncate block">{{ item.dataSourceName }}</span>
             </template>
             <template v-else>
               <span class="font-mono font-medium text-gray-900 dark:text-white block">{{ item.name }}</span>
               <div class="flex items-center gap-1 mt-0.5">
                 <DataSourceIcon v-if="item.dataSourceType || item.dataSourceIcon || item.dataSourceIconToken" :type="item.dataSourceType" :icon-token="item.dataSourceIconToken" :icon="item.dataSourceIcon" class="h-2.5" />
-                <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ item.dataSourceName }}</span>
+                <span class="text-2xs text-gray-500 dark:text-gray-400">{{ item.dataSourceName }}</span>
               </div>
             </template>
           </div>

@@ -27,14 +27,14 @@
             </button>
             <template #panel="{ close }">
               <div class="p-1 w-64 max-h-72 overflow-auto">
-                <p v-if="availableOptions.length === 0" class="px-2 py-3 text-xs text-gray-400 text-center">
+                <p v-if="availableOptions.length === 0" class="px-2 py-3 text-xs text-ink-muted text-center">
                   {{ $t('artifactFrame.dataNoQueriesToAdd') }}
                 </p>
                 <button
                   v-for="opt in availableOptions"
                   :key="opt.id"
                   :title="opt.reason || ''"
-                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start text-[13px] text-gray-700 dark:text-gray-200"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start text-sm text-gray-700 dark:text-gray-200"
                   @click="close(); addQuery(opt.id)"
                 >
                   <span
@@ -54,9 +54,9 @@
       <!-- Dashboard query list -->
       <div class="flex-1 min-h-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
         <div v-if="isLoading" class="flex items-center justify-center h-full">
-          <Spinner class="w-5 h-5 text-gray-400" />
+          <Spinner class="w-5 h-5 text-ink-muted" />
         </div>
-        <div v-else-if="dashboardQueries.length === 0" class="flex items-center justify-center h-full text-gray-400">
+        <div v-else-if="dashboardQueries.length === 0" class="flex items-center justify-center h-full text-ink-muted">
           <p>{{ $t('artifactFrame.dataEmpty') }}</p>
         </div>
         <div v-else>
@@ -78,7 +78,7 @@
                 <button
                   @click.stop="confirmTarget = q"
                   :disabled="removingIds[q.id] || isMutating"
-                  class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50 shrink-0"
+                  class="p-1 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-ink-muted hover:text-red-500 transition-colors disabled:opacity-50 shrink-0"
                 >
                   <Spinner v-if="removingIds[q.id]" class="w-3.5 h-3.5" />
                   <Icon v-else name="heroicons:trash" class="w-3.5 h-3.5" />
@@ -88,7 +88,7 @@
 
             <!-- Second line: last-run status, error reason, artifact usage -->
             <template #header-subtitle>
-              <div class="mt-1 ps-5 flex items-center gap-2 text-[11px] text-gray-400 min-w-0">
+              <div class="mt-1 ps-5 flex items-center gap-2 text-2xs text-ink-muted min-w-0">
                 <template v-if="q.last_run">
                   <span
                     class="w-2 h-2 rounded-full shrink-0"
@@ -118,7 +118,7 @@
                   class="ms-auto shrink-0"
                 >
                   <span
-                    class="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    class="px-1.5 py-0.5 rounded text-2xs font-medium"
                     :class="isInUse(q)
                       ? 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'
                       : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'"

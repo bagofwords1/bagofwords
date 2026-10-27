@@ -16,7 +16,7 @@
                         <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('instructionModal.related') }}</h3>
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ related.length }}</span>
                     </div>
-                    <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
+                    <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-ink-muted transition-transform" />
                 </div>
                 <div v-show="showRelated" class="border-t border-gray-100 dark:border-gray-800 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                     <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500 dark:text-gray-400">
@@ -30,14 +30,14 @@
                                 <div v-if="expandedInstructionId !== inst.id">
                                     <p class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
                                     <div class="mt-1 flex items-center gap-2">
-                                        <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
+                                        <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
                                               :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                             {{ inst.status }}
                                         </span>
-                                        <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
+                                        <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
                                         <button
                                             @click="expandedInstructionId = inst.id"
-                                            class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline"
+                                            class="text-2xs text-blue-600 hover:text-blue-800 hover:underline"
                                         >
                                             {{ $t('instructionModal.readMore') }}
                                         </button>
@@ -49,14 +49,14 @@
                                         <MDC :value="inst.text" class="text-xs text-gray-900 dark:text-white prose prose-xs max-w-none" />
                                     </div>
                                     <div class="flex items-center gap-2">
-                                        <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
+                                        <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
                                               :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                             {{ inst.status }}
                                         </span>
-                                        <span class="text-[10px] text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
+                                        <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
                                         <button
                                             @click="expandedInstructionId = null"
-                                            class="text-[10px] text-blue-600 hover:text-blue-800 hover:underline"
+                                            class="text-2xs text-blue-600 hover:text-blue-800 hover:underline"
                                         >
                                             {{ $t('instructionModal.showLess') }}
                                         </button>
@@ -79,7 +79,7 @@
                             </span>
                         </UTooltip>
                     </div>
-                    <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
+                    <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-ink-muted transition-transform" />
                 </div>
                 <div v-show="showImpact" class="border-t border-gray-100 dark:border-gray-800 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                     <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('instructionModal.sampleImpacted') }}</p>
@@ -91,7 +91,7 @@
                         <li v-for="(prompt, idx) in impactedPrompts" :key="idx" class="py-2">
                             <div class="flex items-start justify-between gap-3">
                                 <p class="text-xs text-gray-900 dark:text-white flex-1">{{ prompt.content }}</p>
-                                <span v-if="prompt.created_at" class="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
+                                <span v-if="prompt.created_at" class="text-2xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
                             </div>
                         </li>
                     </ul>

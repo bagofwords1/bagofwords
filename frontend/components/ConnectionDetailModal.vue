@@ -12,12 +12,12 @@
             <span v-if="headerCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: headerCheckedDisplay }) }}</span></span>
           </div>
         </div>
-        <button :aria-label="$t('common.close')" @click="isOpen = false" class="-me-2 -mt-2 p-2 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><UIcon name="heroicons-x-mark" class="w-4 h-4" /></button>
+        <button :aria-label="$t('common.close')" @click="isOpen = false" class="-me-2 -mt-2 p-2 rounded-md text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800"><UIcon name="heroicons-x-mark" class="w-4 h-4" /></button>
       </header>
       <p v-if="headerStatus === 'error' && !canUpdateDataSource" class="access-meta mt-3 text-gray-600 dark:text-gray-400">{{ $t('data.contactConnectionAdmin') }}</p>
       <div class="access-meta mt-3 flex items-start gap-2" data-testid="connection-used-by">
         <span class="shrink-0 text-gray-500">{{ $t('data.usedBy') }}</span>
-        <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-gray-400" />
+        <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-ink-muted" />
         <span v-else-if="agentsError" class="text-gray-500">{{ $t('data.requestFailed') }}</span>
         <span v-else-if="!accessibleAgents.length" class="text-gray-500">{{ $t('data.noAccessibleAgents') }}</span>
         <span v-else class="min-w-0 text-gray-700 dark:text-gray-300">

@@ -4,7 +4,7 @@
       <div class="flex items-center gap-2 mb-4 shrink-0">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
-        <button :aria-label="$t('common.close')" class="ms-auto text-gray-400 hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
+        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
       <div class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
         <div class="min-w-0 px-6 py-6 md:px-8 md:max-h-[70vh] md:overflow-y-auto">
@@ -23,8 +23,8 @@
           </div>
           <div v-if="!needsPersonalSignIn" class="space-y-1 mb-6">
             <div class="flex items-start gap-2 status-body text-gray-800 dark:text-gray-200">
-              <Spinner v-if="state.busy" class="w-4 h-4 shrink-0 mt-0.5 text-gray-400" data-testid="connection-testing-spinner" />
-              <UIcon v-else :name="testIsError ? 'heroicons-exclamation-circle' : testWarning ? 'heroicons-exclamation-triangle' : lastResult?.success ? 'heroicons-check-circle' : 'heroicons-minus-circle'" class="w-4 h-4 shrink-0 mt-0.5" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-600' : lastResult?.success ? 'text-green-600' : 'text-gray-400'" />
+              <Spinner v-if="state.busy" class="w-4 h-4 shrink-0 mt-0.5 text-ink-muted" data-testid="connection-testing-spinner" />
+              <UIcon v-else :name="testIsError ? 'heroicons-exclamation-circle' : testWarning ? 'heroicons-exclamation-triangle' : lastResult?.success ? 'heroicons-check-circle' : 'heroicons-minus-circle'" class="w-4 h-4 shrink-0 mt-0.5" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-600' : lastResult?.success ? 'text-green-600' : 'text-ink-muted'" />
               <p role="status" class="whitespace-pre-wrap break-words" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-700 dark:text-amber-400' : ''">{{ state.busy ? $t('data.testing') : state.error || state.warning || (lastResult?.success && !testWarning ? $t('data.lastConnectionTestPassed') : state.message || lastResult?.message || $t('data.never')) }}</p>
             </div>
             <p class="status-meta text-gray-500 ps-6">{{ $t('data.lastChecked') }} · {{ checkedAt ? new Date(checkedAt).toLocaleString(locale) : $t('data.never') }}</p>

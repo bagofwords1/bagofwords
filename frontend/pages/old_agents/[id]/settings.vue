@@ -24,7 +24,7 @@
                             v-if="canManageDs"
                             @click="saveName"
                             :disabled="saving.name || form.name.trim() === '' || form.name === original.name"
-                            :class="['px-3 py-1.5 text-xs rounded-lg border transition-colors', (saving.name || form.name.trim() === '' || form.name === original.name) ? 'border-gray-200 dark:border-gray-700 text-gray-400 bg-gray-50 dark:bg-gray-900 cursor-not-allowed' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800']"
+                            :class="['px-3 py-1.5 text-xs rounded-lg border transition-colors', (saving.name || form.name.trim() === '' || form.name === original.name) ? 'border-gray-200 dark:border-gray-700 text-ink-muted bg-gray-50 dark:bg-gray-900 cursor-not-allowed' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800']"
                         >
                             {{ saving.name ? 'Saving…' : 'Save' }}
                         </button>
@@ -73,16 +73,16 @@
                                         <div class="flex items-center gap-1.5">
                                             <UIcon
                                                 :name="principalIcon(m)"
-                                                class="w-3.5 h-3.5 text-gray-400 flex-shrink-0"
+                                                class="w-3.5 h-3.5 text-ink-muted flex-shrink-0"
                                             />
                                             <div class="min-w-0">
                                                 <div class="flex items-center gap-1.5">
                                                     <span class="text-sm font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
                                                     <template v-if="m.principal_type === 'group'">
-                                                        <span class="text-xs text-gray-400">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
+                                                        <span class="text-xs text-ink-muted">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                                         <button
                                                             @click="toggleGroupExpand(m.principal_id)"
-                                                            class="w-4 h-4 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
+                                                            class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
                                                         >
                                                             {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                                         </button>
@@ -98,9 +98,9 @@
                                                     >
                                                         <UIcon name="i-heroicons-user" class="w-3 h-3 text-gray-300 flex-shrink-0" />
                                                         <span>{{ gm.user_name || gm.user_email }}</span>
-                                                        <span v-if="gm.user_name && gm.user_email" class="text-gray-400">{{ gm.user_email }}</span>
+                                                        <span v-if="gm.user_name && gm.user_email" class="text-ink-muted">{{ gm.user_email }}</span>
                                                     </div>
-                                                    <div v-if="!groupMembers[m.principal_id]?.length" class="text-xs text-gray-400 italic">No members</div>
+                                                    <div v-if="!groupMembers[m.principal_id]?.length" class="text-xs text-ink-muted italic">No members</div>
                                                 </div>
                                             </div>
                                         </div>
@@ -132,7 +132,7 @@
                                                         {{ formatPermission(p) }}
                                                     </UBadge>
                                                 </span>
-                                                <span v-else class="text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
+                                                <span v-else class="text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
                                             </UButton>
                                         </UDropdown>
                                         <div v-else class="flex gap-1 flex-wrap">
@@ -145,7 +145,7 @@
                                             >
                                                 {{ formatPermission(p) }}
                                             </UBadge>
-                                            <span v-if="!m.permissions?.length" class="text-xs text-gray-400" title="This member can query the agent but has no extra management rights">Query only</span>
+                                            <span v-if="!m.permissions?.length" class="text-xs text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
                                         </div>
                                     </td>
                                     <td v-if="canManageDsMembers" class="px-4 py-3">

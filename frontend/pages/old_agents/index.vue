@@ -3,7 +3,7 @@
         <div class="w-full max-w-7xl px-4 ps-0 py-2 h-full">
             <!-- Full page loading spinner -->
             <div v-if="loading" class="flex flex-col items-center justify-center py-20">
-                <Spinner class="h-4 w-4 text-gray-400 dark:text-gray-500" />
+                <Spinner class="h-4 w-4 text-ink-muted" />
                 <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
             </div>
 
@@ -30,7 +30,7 @@
                                 />
                                 <UIcon
                                     name="i-heroicons-magnifying-glass"
-                                    class="absolute start-3 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500"
+                                    class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                                 />
                             </div>
                         </div>
@@ -61,7 +61,7 @@
 
                     <!-- Sample databases -->
                     <div v-if="uninstalledDemos.length > 0 && allAgents.length === 0" class="mb-4">
-                        <div class="text-xs text-gray-400 dark:text-gray-500 mb-2">{{ $t('data.trySample') }}</div>
+                        <div class="text-xs text-ink-muted mb-2">{{ $t('data.trySample') }}</div>
                         <div class="flex flex-wrap gap-2">
                             <button
                                 v-for="demo in uninstalledDemos"
@@ -73,7 +73,7 @@
                                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                                 {{ demo.name }}
-                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/10 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+                                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-500/10 px-1.5 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
                             </button>
                         </div>
                     </div>
@@ -91,20 +91,20 @@
                                 <div class="flex items-center gap-1.5 mb-1">
                                     <span class="font-medium text-gray-900 dark:text-white text-sm leading-tight">{{ ds.name }}</span>
                                     <UTooltip v-if="ds.admin_only" :text="$t('data.adminOnlyHint')">
-                                        <span class="text-[9px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
+                                        <span class="text-2xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-500/10 px-1.5 py-0.5 rounded">{{ $t('data.adminOnlyTag') }}</span>
                                     </UTooltip>
                                     <!-- Publishing lifecycle badge (only when not the default published) -->
                                     <UTooltip v-if="ds.publish_status && ds.publish_status !== 'published'" :text="publishStatusDescription(ds.publish_status)">
-                                        <span :class="['text-[9px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded border', publishStatusBadgeClass(ds.publish_status)]">{{ publishStatusLabel(ds.publish_status) }}</span>
+                                        <span :class="['text-2xs font-medium uppercase tracking-wide px-1.5 py-0.5 rounded border', publishStatusBadgeClass(ds.publish_status)]">{{ publishStatusLabel(ds.publish_status) }}</span>
                                     </UTooltip>
                                 </div>
 
                                 <!-- Metadata -->
-                                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500 mb-2">
+                                <div class="flex items-center gap-1.5 text-2xs text-ink-muted mb-2">
                                     <UTooltip v-for="conn in (ds.connections || []).slice(0, 3)" :key="conn.id" :text="conn.name">
                                         <DataSourceIcon class="h-3.5" :type="conn.type" />
                                     </UTooltip>
-                                    <span v-if="(ds.connections || []).length > 3" class="text-gray-400 dark:text-gray-500">+{{ (ds.connections || []).length - 3 }}</span>
+                                    <span v-if="(ds.connections || []).length > 3" class="text-ink-muted">+{{ (ds.connections || []).length - 3 }}</span>
                                     <span v-if="userHasAccess(ds) && catalogFor(ds).shouldShow">{{ catalogFor(ds).label }}</span>
                                 </div>
 
@@ -142,11 +142,11 @@
 
                     <!-- Empty state for search with no results -->
                     <div v-else-if="searchQuery.trim()" class="py-12 text-center border border-dashed border-gray-200 dark:border-gray-800 rounded-lg">
-                        <div class="text-gray-400 dark:text-gray-500 mb-2">
+                        <div class="text-ink-muted mb-2">
                             <UIcon name="heroicons-magnifying-glass" class="w-8 h-8 mx-auto opacity-50" />
                         </div>
                         <p class="text-sm text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.noAgentsFound') }}</p>
-                        <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('data.noAgentsHint') }}</p>
+                        <p class="text-xs text-ink-muted">{{ $t('data.noAgentsHint') }}</p>
                     </div>
                 </div>
 

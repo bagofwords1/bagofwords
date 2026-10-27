@@ -37,9 +37,9 @@
                             v-model="searchQuery"
                             type="text"
                             placeholder="Search all labels"
-                            class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            class="w-full ps-10 pe-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
                         />
-                        <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-gray-400" />
+                        <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted" />
                     </div>
                 </div>
 

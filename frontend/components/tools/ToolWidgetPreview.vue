@@ -7,16 +7,16 @@
       <div class="flex items-center justify-between w-full min-w-0">
         <div class="flex items-center min-w-0">
           <Icon v-if="!expanded" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
-          <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-gray-400 flex-shrink-0" />
+          <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
-          <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-[10px] text-gray-400 inline-flex items-center gap-1">
+          <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-2xs text-ink-muted inline-flex items-center gap-1">
             <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
             {{ $t('tools.createData.bowSource') }}
           </span>
           <button
             v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
             @click.stop="onEditClick"
-            class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
+            class="text-xs px-2 py-0.5 text-ink-muted rounded transition-colors flex items-center"
             :title="$t('tools.widgetPreview.editQueryCode')"
           >
             <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 me-1" />
@@ -27,18 +27,18 @@
           <UTooltip v-if="queryId" :text="$t('tools.widgetPreview.copyIdTooltip')">
             <button
               @click.stop="copyQueryId"
-              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
+              class="flex items-center gap-0.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
             >
               <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
               {{ queryId.slice(0, 8) }}
             </button>
           </UTooltip>
-          <div v-if="rowCount" class="text-[11px] text-gray-400 leading-none flex items-center gap-1 whitespace-nowrap" data-testid="widget-row-count">
-            <Spinner v-if="isHydratingStep" class="w-3 h-3 text-gray-400" :title="$t('tools.widgetPreview.loadingRows')" />
+          <div v-if="rowCount" class="text-2xs text-ink-muted leading-none flex items-center gap-1 whitespace-nowrap" data-testid="widget-row-count">
+            <Spinner v-if="isHydratingStep" class="w-3 h-3 text-ink-muted" :title="$t('tools.widgetPreview.loadingRows')" />
             {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
           <UTooltip v-if="cardParamSpecs.length" text="Parameterized query">
-            <div class="text-[11px] text-gray-400 leading-none flex items-center gap-0.5" data-testid="card-param-chip">
+            <div class="text-2xs text-ink-muted leading-none flex items-center gap-0.5" data-testid="card-param-chip">
               <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ cardParamSpecs.length }}
             </div>
           </UTooltip>
@@ -47,7 +47,7 @@
             <button
               type="button"
               @click.stop="openInPanel"
-              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
+              class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
               :aria-label="$t('tools.widgetPreview.openInPanel')"
               data-testid="widget-open-panel"
             >
@@ -57,7 +57,7 @@
           <UTooltip v-if="hasChartForDownload" :text="$t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
-              class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
+              class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
             >
               <Icon name="heroicons:photo" class="w-3.5 h-3.5" />
             </button>
@@ -72,14 +72,14 @@
             <UTooltip :text="$t('tools.widgetPreview.download')">
               <button
                 type="button"
-                class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
+                class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
               >
                 <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
                 <Icon name="heroicons:chevron-down" class="w-3 h-3 -ml-0.5 rtl-flip" />
               </button>
             </UTooltip>
             <template #item="{ item }">
-              <Icon :name="item.icon" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+              <Icon :name="item.icon" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
               <span class="text-xs truncate">{{ item.label }}</span>
             </template>
           </UDropdown>
@@ -96,7 +96,7 @@
       <div v-if="!isCollapsed" class="widget-content" :class="{ 'widget-content--expanded': expanded }">
         <!-- Error / empty state when step has an error -->
         <template v-if="hasStepError">
-          <div class="min-h-[80px] flex items-center text-xs text-gray-400">
+          <div class="min-h-[80px] flex items-center text-xs text-ink-muted">
             {{ $t('tools.widgetPreview.noData') }}
           </div>
         </template>
@@ -106,7 +106,7 @@
                changes through the editor's Save, never from here. -->
           <div v-if="cardParamSpecs.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
             <label v-for="spec in editableCardSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-              <span class="text-[11px]">{{ spec.label || spec.name }}</span>
+              <span class="text-2xs">{{ spec.label || spec.name }}</span>
               <select v-if="cardParamOptions[spec.name] && spec.type !== 'list'" v-model="cardParamValues[spec.name]"
                 class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900" :data-testid="`card-param-${spec.name}`">
                 <option :value="null">All</option>
@@ -118,7 +118,7 @@
                 :data-testid="`card-param-${spec.name}`" />
             </label>
             <span v-for="spec in identityCardSpecs" :key="spec.name"
-              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]">
+              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-2xs">
               {{ spec.label || spec.name }}: scoped to you
             </span>
             <button v-if="editableCardSpecs.length && !readonly" @click.stop="runCardParams" :disabled="cardRunLoading"
@@ -126,10 +126,10 @@
               data-testid="card-param-run">
               <Icon name="heroicons-play" class="w-3 h-3" />{{ cardRunLoading ? 'Running…' : 'Run' }}
             </button>
-            <span v-if="cardAppliedParams" class="text-[10px] text-gray-400" data-testid="card-applied">
+            <span v-if="cardAppliedParams" class="text-2xs text-ink-muted" data-testid="card-applied">
               ran with {{ formatAppliedParams(cardAppliedParams) }}
             </span>
-            <span v-if="cardRunError" class="text-[10px] text-red-500">{{ cardRunError }}</span>
+            <span v-if="cardRunError" class="text-2xs text-red-500">{{ cardRunError }}</span>
           </div>
 
           <!-- Tab Navigation -->
@@ -141,7 +141,7 @@
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
                 activeTab === 'chart'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabChart') }}
@@ -153,7 +153,7 @@
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
                 activeTab === 'table'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabData') }}
@@ -165,7 +165,7 @@
                 'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
                 activeTab === 'code'
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                  : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
               {{ $t('tools.widgetPreview.tabCode') }}
@@ -193,7 +193,7 @@
                      layout shift) until that fetch settles. -->
                 <div v-if="awaitingFullRows" :class="chartHeightClass" :style="chartHeightStyle" data-testid="chart-awaiting-rows">
                   <div class="flex items-center justify-center w-full h-full">
-                    <Spinner class="w-5 h-5 text-gray-400" />
+                    <Spinner class="w-5 h-5 text-ink-muted" />
                   </div>
                 </div>
                 <div v-else-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
@@ -210,7 +210,7 @@
                     />
                     <template #fallback>
                       <div class="flex items-center justify-center w-full h-full">
-                        <Spinner class="w-5 h-5 text-gray-400" />
+                        <Spinner class="w-5 h-5 text-ink-muted" />
                       </div>
                     </template>
                   </Suspense>
@@ -220,7 +220,7 @@
                     <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                     <template #fallback>
                       <div class="flex items-center justify-center w-full h-full">
-                        <Spinner class="w-5 h-5 text-gray-400" />
+                        <Spinner class="w-5 h-5 text-ink-muted" />
                       </div>
                     </template>
                   </Suspense>
@@ -252,7 +252,7 @@
                       <button
                         @click="showFullCode = false"
                         :class="[
-                          'px-2 py-0.5 text-[11px] rounded transition-colors',
+                          'px-2 py-0.5 text-2xs rounded transition-colors',
                           !showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
@@ -261,7 +261,7 @@
                       <button
                         @click="showFullCode = true"
                         :class="[
-                          'px-2 py-0.5 text-[11px] rounded transition-colors',
+                          'px-2 py-0.5 text-2xs rounded transition-colors',
                           showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
@@ -314,13 +314,13 @@
                         />
                         <template #fallback>
                           <div class="flex items-center justify-center w-full h-full">
-                            <Spinner class="w-5 h-5 text-gray-400" />
+                            <Spinner class="w-5 h-5 text-ink-muted" />
                           </div>
                         </template>
                       </Suspense>
                       <template #fallback>
                         <div class="flex items-center justify-center w-full h-full">
-                          <Spinner class="w-5 h-5 text-gray-400" />
+                          <Spinner class="w-5 h-5 text-ink-muted" />
                         </div>
                       </template>
                     </ClientOnly>
@@ -328,7 +328,7 @@
                 </div>
 
                 <!-- Execution details -->
-                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400 flex-shrink-0">
+                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-2xs text-ink-muted flex-shrink-0">
                   <span v-if="executionDuration">
                     <Icon name="heroicons-clock" class="w-3 h-3 inline-block me-1" />
                     {{ executionDuration }}
@@ -352,7 +352,7 @@
                     <div v-if="attemptsExpanded" class="mt-2 ms-4">
                       <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
                         <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
-                          <span class="text-gray-400 me-2 flex-shrink-0">{{ idx + 1 }}.</span>
+                          <span class="text-ink-muted me-2 flex-shrink-0">{{ idx + 1 }}.</span>
                           <span class="text-red-500">{{ att }}</span>
                         </li>
                       </ul>

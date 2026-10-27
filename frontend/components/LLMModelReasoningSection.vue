@@ -37,7 +37,7 @@
                     :key="opt.value || 'default'"
                     type="button"
                     :disabled="modeDraft === 'off' && !!opt.value"
-                    class="flex-auto px-1 py-0.5 rounded text-[11px] whitespace-nowrap transition-colors"
+                    class="flex-auto px-1 py-0.5 rounded text-2xs whitespace-nowrap transition-colors"
                     :class="defaultDraft === opt.value
                         ? 'bg-white dark:bg-gray-900 shadow-sm text-gray-900 dark:text-white font-medium'
                         : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'"
@@ -48,7 +48,7 @@
         </div>
 
         <!-- What each level runs as with the saved settings -->
-        <div class="mt-2 text-[11px] text-gray-500 dark:text-gray-400" data-testid="card-reasoning-summary">
+        <div class="mt-2 text-2xs text-gray-500 dark:text-gray-400" data-testid="card-reasoning-summary">
             <template v-if="reasoning?.supported">
                 <span v-for="(lvl, i) in LEVELS" :key="lvl">
                     <span v-if="i" class="mx-1 text-gray-300">·</span>{{ $t(`prompt.effort.levels.${lvl}`) }} → <code class="text-gray-700 dark:text-gray-300">{{ reasoning.levels?.[lvl] || '—' }}</code>
@@ -67,15 +67,15 @@
         >
             <UIcon :name="showAdvanced ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3.5 h-3.5 rtl:-scale-x-100" />
             {{ $t('settings.llms.reasoning.rawTitle') }}
-            <span v-if="rawCount" class="text-gray-400">({{ rawCount }})</span>
+            <span v-if="rawCount" class="text-ink-muted">({{ rawCount }})</span>
         </button>
         <div v-if="showAdvanced" class="mt-2 space-y-2">
-            <p class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('settings.llms.reasoning.rawHelp') }}</p>
+            <p class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('settings.llms.reasoning.rawHelp') }}</p>
             <div v-for="lvl in LEVELS" :key="lvl" class="space-y-1">
                 <div class="flex items-center justify-between">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t(`prompt.effort.levels.${lvl}`) }}</span>
                     <div class="flex items-center gap-2">
-                        <span v-if="testResults[lvl]" class="text-[11px]" :class="testResults[lvl].success ? 'text-green-600' : 'text-red-600'" :data-testid="`card-reasoning-result-${lvl}`">
+                        <span v-if="testResults[lvl]" class="text-2xs" :class="testResults[lvl].success ? 'text-green-600' : 'text-red-600'" :data-testid="`card-reasoning-result-${lvl}`">
                             <template v-if="testResults[lvl].success">
                                 ✓ {{ $t('settings.llms.reasoning.ranAs', { level: testResults[lvl].runs_as || '—' }) }}
                                 <template v-if="testResults[lvl].api"> · {{ testResults[lvl].api }}</template>
@@ -101,11 +101,11 @@
                     spellcheck="false"
                     :placeholder="rawPlaceholder"
                     :data-testid="`card-reasoning-raw-${lvl}`"
-                    class="w-full font-mono text-[11px] border rounded px-2 py-1 dark:bg-gray-800 focus:outline-none"
+                    class="w-full font-mono text-2xs border rounded px-2 py-1 dark:bg-gray-800 focus:outline-none"
                     :class="rawErrors[lvl] ? 'border-red-400 focus:border-red-500' : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'"
                     dir="ltr"
                 />
-                <p v-if="rawErrors[lvl]" class="text-[11px] text-red-600">{{ rawErrors[lvl] }}</p>
+                <p v-if="rawErrors[lvl]" class="text-2xs text-red-600">{{ rawErrors[lvl] }}</p>
             </div>
         </div>
     </div>

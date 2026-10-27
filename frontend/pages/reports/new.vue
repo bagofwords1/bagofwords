@@ -10,7 +10,7 @@
 			<div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
 				<GoBackChevron />
 				<h1 class="text-sm md:text-start text-center w-[500px]">
-					<span class="font-semibold text-sm p-1 text-gray-400 dark:text-gray-500">{{ $t('reports.newReport') }}</span>
+					<span class="font-semibold text-sm p-1 text-ink-muted">{{ $t('reports.newReport') }}</span>
 				</h1>
 			</div>
 		</header>

@@ -8,11 +8,11 @@
       <UDropdown :items="menuItems" :popper="{ placement: 'bottom-end' }">
         <UButton color="white" trailing-icon="i-heroicons-bars-3" />
         <template #monitoring="{ item }">
-          <ActivityIcon class="w-4 h-4 text-gray-400" />
+          <ActivityIcon class="w-4 h-4 text-ink-muted" />
           <span class="truncate">{{ item.label }}</span>
         </template>
         <template #mcp="{ item }">
-          <McpIcon class="w-4 h-4 text-gray-400" />
+          <McpIcon class="w-4 h-4 text-ink-muted" />
           <span class="truncate">{{ item.label }}</span>
         </template>
       </UDropdown>
@@ -52,7 +52,7 @@
          default layout; the home page no longer renders its own duplicate. -->
 
     <div v-if="isLoading" class="flex flex-col items-center justify-center flex-grow py-20">
-      <Spinner class="h-4 w-4 text-gray-400" />
+      <Spinner class="h-4 w-4 text-ink-muted" />
       <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
     </div>
 

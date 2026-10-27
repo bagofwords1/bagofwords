@@ -16,7 +16,7 @@
                 :aria-label="$t('exports.label')"
                 class="inline-flex items-center gap-1 rounded px-2 py-1 transition-colors disabled:opacity-50"
                 :class="variant === 'subtle'
-                    ? 'text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
+                    ? 'text-xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
                     : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'"
             >
                 <UIcon
@@ -29,7 +29,7 @@
 
         <template #item="{ item }">
             <div class="flex items-center gap-2 text-start w-full">
-                <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span class="text-xs font-medium text-gray-900 dark:text-white">{{ item.label }}</span>
             </div>
         </template>

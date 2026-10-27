@@ -4,17 +4,17 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
             <span :key="queryLabel || ''">{{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
           </Transition>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
             <span :key="queryLabel || ''" class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
           </Transition>
-          <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-400">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-2xs text-ink-muted">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -30,13 +30,13 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
               <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">
                 {{ displayTitle(item) }}
               </div>
-              <span v-if="item.category" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
-              <span v-if="item.load_mode" class="ms-1 text-[9px] px-1 py-0.5 rounded flex-shrink-0"
+              <span v-if="item.category" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
+              <span v-if="item.load_mode" class="ms-1 text-2xs px-1 py-0.5 rounded flex-shrink-0"
                 :class="item.load_mode === 'always' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">
                 {{ getLoadModeLabel(item.load_mode) }}
               </span>
@@ -44,12 +44,12 @@
             <!-- Detail row -->
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
-                <div class="instruction-content text-[12px] text-gray-700 dark:text-gray-300 leading-relaxed mb-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
+                <div class="instruction-content text-xs text-gray-700 dark:text-gray-300 leading-relaxed mb-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
                      @click="emit('openInstruction', item.id)">
                   <InstructionText :text="item.text || ''" :markdown="true" />
                 </div>
                 <button
-                  class="text-[10px] text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5"
+                  class="text-2xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5"
                   @click="emit('openInstruction', item.id)"
                 >
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
@@ -63,7 +63,7 @@
     </Transition>
 
     <!-- Empty state (after search completes with no results) -->
-    <div v-if="status !== 'running' && !instructions.length" class="text-xs text-gray-400 ms-1">
+    <div v-if="status !== 'running' && !instructions.length" class="text-xs text-ink-muted ms-1">
       {{ $t('tools.searchInstructions.empty') }}
     </div>
   </div>

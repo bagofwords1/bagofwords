@@ -45,9 +45,9 @@
         >
           <div class="flex items-center space-x-2 min-w-0">
             <Icon :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-            <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ category.label }}</span>
+            <span class="text-xs text-gray-900 dark:text-white truncate">{{ category.label }}</span>
           </div>
-          <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+          <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
         </div>
         <div v-if="categoryList.length === 0" class="px-2 py-4 text-xs text-gray-500 dark:text-gray-400">
           {{ $t('mentionInput.noResults') }}
@@ -59,15 +59,15 @@
         <!-- Back row when a single category was entered (no active query). -->
         <div
           v-if="activeCategory && !hasQuery"
-          class="px-2 py-1 mb-1 cursor-pointer flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+          class="px-2 py-1 mb-1 cursor-pointer flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
           @click="backToCategories"
         >
           <Icon name="heroicons-chevron-left" class="w-3.5 h-3.5 flex-shrink-0" />
           <span>{{ $t('mentionInput.allCategories') }}</span>
         </div>
         <div v-for="(category, categoryIndex) in filteredCategories" :key="category.name">
-          <div class="px-2 py-1 text-[12px] font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
-          <div v-if="category.items.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noResults') }}</div>
+          <div class="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
+          <div v-if="category.items.length === 0" class="px-2 py-2 text-xs text-ink-muted">{{ $t('mentionInput.noResults') }}</div>
           <div
             v-for="(item, itemIndex) in category.items"
             :key="item.id"
@@ -95,8 +95,8 @@
               <Icon v-else-if="category.name === 'prompts'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
-                <span v-if="category.name === 'tables' && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
+                <span class="text-xs text-gray-900 dark:text-white truncate">{{ item.name }}</span>
+                <span v-if="category.name === 'tables' && item.subtitle" class="text-2xs text-ink-muted truncate">{{ item.subtitle }}</span>
               </div>
             </div>
 
@@ -105,7 +105,7 @@
               v-if="item.needs_connect"
               type="button"
               :disabled="connectingId === item.id"
-              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               @click.stop="connectAgent(item)"
             >
               <Spinner v-if="connectingId === item.id" class="w-3 h-3" />
@@ -115,7 +115,7 @@
             <button
               v-else-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
-              class="text-gray-400 hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="text-ink-muted hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5" />
             </button>
@@ -137,62 +137,62 @@
             <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" :icon-token="expandedItem?.icon_token" :icon="expandedItem?.icon" class="h-3.5 flex-shrink-0" />
             <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-            <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
+            <div class="text-sm font-medium truncate">{{ expandedItem?.name }}</div>
           </div>
           <button @click="selectItem(expandedItem, expandedCategory)" class="text-sm text-blue-600 hover:text-blue-700 font-medium px-1">+</button>
         </div>
 
         <!-- Agent details: description + tables + tools -->
         <div v-if="expandedCategory === 'data_sources'" class="space-y-2">
-          <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
+          <div v-if="expandedItem?.description" class="text-xs text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
-            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
-            <div v-if="isLoadingTables" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
+            <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
+            <div v-if="isLoadingTables" class="px-2 py-2 text-xs text-ink-muted flex items-center gap-1">
               <Spinner class="w-3 h-3" />
             </div>
             <div v-else class="max-h-40 overflow-auto border rounded">
               <div
                 v-for="t in tablesForExpandedDataSource"
                 :key="t.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2 py-1 text-xs flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                 @click="selectItem(t, 'tables')"
               >
                 <DataSourceIcon :type="t.icon_type" class="h-3" />
                 <span class="truncate flex-1">{{ t.name }}</span>
-                <Icon name="heroicons-plus" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+                <Icon name="heroicons-plus" class="w-3 h-3 flex-shrink-0 text-ink-muted" />
               </div>
-              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTables') }}</div>
+              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-xs text-ink-muted">{{ $t('mentionInput.noTables') }}</div>
             </div>
           </div>
         </div>
 
         <!-- Table details: connection/data source info + columns list -->
         <div v-else-if="expandedCategory === 'tables'" class="space-y-1">
-          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-2xs text-gray-500 dark:text-gray-400">
             <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.connection_name }}</span>
             <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.data_source_name }}</span>
           </div>
-          <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('mentionInput.columns') }}</div>
+          <div class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('mentionInput.columns') }}</div>
           <div class="flex flex-wrap gap-1 max-h-40 overflow-auto">
             <span
               v-for="(col, idx) in (expandedItem?.columns || [])"
               :key="idx"
-              class="px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-[11px] text-gray-700 dark:text-gray-300"
+              class="px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-2xs text-gray-700 dark:text-gray-300"
             >
               {{ typeof col === 'string' ? col : (col as any).name }}
-              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
+              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-ink-muted ms-1">({{ (col as any).dtype }})</span>
             </span>
-            <span v-if="!(expandedItem?.columns || []).length" class="text-[12px] text-gray-400">{{ $t('mentionInput.noColumns') }}</span>
+            <span v-if="!(expandedItem?.columns || []).length" class="text-xs text-ink-muted">{{ $t('mentionInput.noColumns') }}</span>
           </div>
         </div>
 
         <!-- Entity details: inline description + data preview inside dropdown -->
         <div v-else-if="expandedCategory === 'entities'" class="space-y-2">
-          <div v-if="entityLoading" class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
+          <div v-if="entityLoading" class="text-2xs text-gray-500 dark:text-gray-400 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
           <template v-else>
-            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-[11px] text-gray-600 dark:text-gray-400 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
+            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-2xs text-gray-600 dark:text-gray-400 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
             <div v-if="entityPreviewColumns.length && entityPreviewRows.length" class="overflow-auto border rounded">
-              <table class="min-w-full text-[11px]">
+              <table class="min-w-full text-2xs">
                 <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0 border-b">
                   <tr>
                     <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-start font-medium text-gray-700 dark:text-gray-300">{{ col }}</th>
@@ -205,9 +205,9 @@
                 </tbody>
               </table>
             </div>
-            <div v-else class="text-[12px] text-gray-400">{{ $t('mentionInput.noData') }}</div>
+            <div v-else class="text-xs text-ink-muted">{{ $t('mentionInput.noData') }}</div>
             <div class="pt-1">
-              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">{{ $t('mentionInput.openPage') }}</NuxtLink>
+              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">{{ $t('mentionInput.openPage') }}</NuxtLink>
             </div>
           </template>
         </div>

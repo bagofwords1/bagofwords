@@ -13,7 +13,7 @@
       />
       <div v-if="!selectedExistingId" class="relative my-4">
         <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-gray-200 dark:border-gray-800" /></div>
-        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-gray-400 dark:text-gray-500">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
+        <div class="relative flex justify-center"><span class="bg-white dark:bg-gray-900 px-2 text-xs text-ink-muted">{{ $t('settings.mcpModal.orCreateNew') }}</span></div>
       </div>
     </div>
 
@@ -30,7 +30,7 @@
                   <button type="button" @click="iconPickerOpen = !iconPickerOpen" :title="$t('data.iconLabel')"
                     class="w-9 h-9 flex items-center justify-center border border-gray-300 dark:border-gray-700 rounded-md text-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                     <span v-if="form.icon">{{ form.icon.replace('emoji:', '') }}</span>
-                    <UIcon v-else name="heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400" />
+                    <UIcon v-else name="heroicons-cog-6-tooth" class="w-4 h-4 text-ink-muted" />
                   </button>
                   <div v-if="iconPickerOpen" class="absolute z-20 mt-1 p-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg grid grid-cols-6 gap-1 w-52">
                     <button v-for="e in iconPalette" :key="e" type="button" @click="pickIcon(e)"
@@ -39,7 +39,7 @@
                     </button>
                     <button type="button" @click="pickIcon(null)" :title="$t('data.iconClear')"
                       class="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-800">
-                      <UIcon name="heroicons-x-mark" class="w-4 h-4 text-gray-400" />
+                      <UIcon name="heroicons-x-mark" class="w-4 h-4 text-ink-muted" />
                     </button>
                   </div>
                 </div>
@@ -93,15 +93,15 @@
                 <summary class="cursor-pointer text-gray-500 dark:text-gray-400">{{ $t('data.advancedOauth') }}</summary>
                 <div class="mt-2 space-y-2">
                   <div>
-                    <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.authorizeUrl') }}</label>
+                    <label class="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.authorizeUrl') }}</label>
                     <input v-model="form.authorize_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.tokenUrl') }}</label>
+                    <label class="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.tokenUrl') }}</label>
                     <input v-model="form.token_url" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
                   </div>
                   <div>
-                    <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.scopes') }}</label>
+                    <label class="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.scopes') }}</label>
                     <input v-model="form.scopes" type="text" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
                   </div>
                 </div>
@@ -127,18 +127,18 @@
             <div>
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 {{ $t('data.customHeaders') }}
-                <span class="text-gray-400 dark:text-gray-500 font-normal">({{ $t('data.customHeadersHint') }})</span>
+                <span class="text-ink-muted font-normal">({{ $t('data.customHeadersHint') }})</span>
               </label>
               <div class="space-y-1.5">
                 <div v-for="(header, idx) in customHeaders" :key="idx" class="flex items-center gap-2">
                   <input v-model="header.key" type="text" :placeholder="$t('data.headerName')" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
                   <input v-model="header.value" type="text" :placeholder="$t('data.kvValue')" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                  <button type="button" @click="customHeaders.splice(idx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5">
+                  <button type="button" @click="customHeaders.splice(idx, 1)" class="text-ink-muted hover:text-red-500 p-0.5">
                     <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
-              <button type="button" @click="customHeaders.push({ key: '', value: '' })" class="mt-1.5 text-[11px] text-blue-600 hover:text-blue-800">
+              <button type="button" @click="customHeaders.push({ key: '', value: '' })" class="mt-1.5 text-2xs text-blue-600 hover:text-blue-800">
                 {{ $t('data.addHeader') }}
               </button>
             </div>
@@ -151,11 +151,11 @@
                   <input type="checkbox" v-model="form.csrf_token_flow" class="mt-0.5" />
                   <span>
                     <span class="block text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.csrfFlowLabel') }}</span>
-                    <span class="block text-[11px] text-gray-400 dark:text-gray-500">{{ $t('data.csrfFlowHint') }}</span>
+                    <span class="block text-2xs text-ink-muted">{{ $t('data.csrfFlowHint') }}</span>
                   </span>
                 </label>
                 <div v-if="form.csrf_token_flow">
-                  <label class="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.csrfFetchPath') }}</label>
+                  <label class="block text-2xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('data.csrfFetchPath') }}</label>
                   <input v-model="form.csrf_fetch_path" type="text" placeholder="/" class="w-full border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
                 </div>
               </div>
@@ -177,13 +177,13 @@
             <div class="flex items-center justify-between mb-2">
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
                 {{ $t('data.toolsTitle') }}
-                <span v-if="endpoints.length" class="text-gray-400 dark:text-gray-500 font-normal">({{ endpoints.length }})</span>
+                <span v-if="endpoints.length" class="text-ink-muted font-normal">({{ endpoints.length }})</span>
               </label>
               <div class="flex items-center gap-3">
-                <button type="button" @click="toggleRawMode" class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+                <button type="button" @click="toggleRawMode" class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
                   {{ rawMode ? $t('data.visualEditor') : $t('data.rawJson') }}
                 </button>
-                <button v-if="!rawMode" type="button" @click="addTool" data-testid="add-tool" class="text-[11px] font-medium text-blue-600 hover:text-blue-800 flex items-center gap-0.5">
+                <button v-if="!rawMode" type="button" @click="addTool" data-testid="add-tool" class="text-2xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-0.5">
                   <UIcon name="heroicons-plus" class="w-3 h-3" /> {{ $t('data.addTool') }}
                 </button>
               </div>
@@ -192,7 +192,7 @@
             <!-- Visual builder -->
             <div v-if="!rawMode" class="space-y-2">
               <div v-if="!endpoints.length" class="border border-dashed border-gray-200 dark:border-gray-800 rounded-md px-4 py-8 text-center">
-                <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">{{ $t('data.noToolsYet') }}</p>
+                <p class="text-xs text-ink-muted mb-2">{{ $t('data.noToolsYet') }}</p>
                 <button type="button" @click="addTool" class="text-xs font-medium text-blue-600 hover:text-blue-800">
                   {{ $t('data.addTool') }}
                 </button>
@@ -201,15 +201,15 @@
               <div v-for="(ep, epIdx) in endpoints" :key="epIdx" class="border border-gray-200 dark:border-gray-800 rounded-md overflow-hidden">
                 <!-- Collapsed row -->
                 <div class="w-full flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 select-none" :data-testid="`tool-row-${epIdx}`" @click="toggleExpand(epIdx)">
-                  <UIcon name="heroicons-chevron-right" :class="['w-3.5 h-3.5 text-gray-400 transition-transform flex-shrink-0', expanded === epIdx ? 'rtl-own-transform rotate-90' : '']" />
-                  <span :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0', methodChipClass(ep.method)]">{{ ep.method }}</span>
+                  <UIcon name="heroicons-chevron-right" :class="['w-3.5 h-3.5 text-ink-muted transition-transform flex-shrink-0', expanded === epIdx ? 'rtl-own-transform rotate-90' : '']" />
+                  <span :class="['text-2xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0', methodChipClass(ep.method)]">{{ ep.method }}</span>
                   <span class="text-xs font-mono text-gray-800 dark:text-gray-200 truncate">{{ ep.name || $t('data.untitledTool') }}</span>
-                  <span class="text-[11px] text-gray-400 dark:text-gray-500 font-mono truncate hidden sm:inline">{{ ep.path }}</span>
+                  <span class="text-2xs text-ink-muted font-mono truncate hidden sm:inline">{{ ep.path }}</span>
                   <span class="ms-auto flex items-center gap-1.5 flex-shrink-0">
-                    <span :class="['text-[10px] px-1.5 py-0.5 rounded', resolvedPolicy(ep) === 'ask' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400']">
+                    <span :class="['text-2xs px-1.5 py-0.5 rounded', resolvedPolicy(ep) === 'ask' ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400']">
                       {{ policyBadgeLabel(ep) }}
                     </span>
-                    <button type="button" @click.stop="removeTool(epIdx)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.removeEndpoint')" :data-testid="`remove-tool-${epIdx}`">
+                    <button type="button" @click.stop="removeTool(epIdx)" class="text-ink-muted hover:text-red-500 p-0.5" :title="$t('data.removeEndpoint')" :data-testid="`remove-tool-${epIdx}`">
                       <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
                     </button>
                   </span>
@@ -228,7 +228,7 @@
 
                   <!-- Parameters -->
                   <div>
-                    <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.parameters') }}</div>
+                    <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.parameters') }}</div>
                     <div v-if="ep.parameters.length" class="space-y-1.5">
                       <div v-for="(p, pIdx) in ep.parameters" :key="pIdx" class="space-y-1">
                         <div class="flex items-center gap-1.5">
@@ -239,41 +239,41 @@
                           <select v-model="p.type" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                             <option v-for="ty in typeOptions" :key="ty" :value="ty">{{ ty }}</option>
                           </select>
-                          <label v-if="!p.pinned" class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
+                          <label v-if="!p.pinned" class="flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                             <input type="checkbox" v-model="p.required" /> {{ $t('data.reqShort') }}
                           </label>
                           <button type="button" @click="p.pinned = !p.pinned" :title="$t('data.pinnedHint')" :data-testid="`pin-param-${epIdx}-${pIdx}`"
-                            :class="['p-0.5 rounded', p.pinned ? 'text-blue-600 bg-blue-50 dark:bg-blue-950' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600']">
+                            :class="['p-0.5 rounded', p.pinned ? 'text-blue-600 bg-blue-50 dark:bg-blue-950' : 'text-ink-muted hover:text-gray-600']">
                             <UIcon name="heroicons-lock-closed" class="w-3.5 h-3.5" />
                           </button>
-                          <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-gray-400 dark:text-gray-500 hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
+                          <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-ink-muted hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
                             <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                           </button>
                         </div>
                         <!-- Pinned: fixed value replaces description; hidden from the AI. -->
                         <div v-if="p.pinned" class="flex items-center gap-1.5">
-                          <input v-model="p.value" type="text" :placeholder="$t('data.pinnedValuePh')" class="flex-1 border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/30 dark:text-gray-100 rounded-md px-2 py-1 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                          <span class="text-[10px] text-gray-400 dark:text-gray-500 whitespace-nowrap">{{ $t('data.pinnedHint') }}</span>
+                          <input v-model="p.value" type="text" :placeholder="$t('data.pinnedValuePh')" class="flex-1 border border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/30 dark:text-gray-100 rounded-md px-2 py-1 text-2xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                          <span class="text-2xs text-ink-muted whitespace-nowrap">{{ $t('data.pinnedHint') }}</span>
                         </div>
-                        <input v-else v-model="p.description" type="text" :placeholder="$t('data.paramDescriptionPh')" class="w-full border border-gray-200 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-600 rounded-md px-2 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                        <input v-else v-model="p.description" type="text" :placeholder="$t('data.paramDescriptionPh')" class="w-full border border-gray-200 dark:border-gray-800 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-600 rounded-md px-2 py-1 text-2xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
                       </div>
                     </div>
-                    <button type="button" @click="ep.parameters.push(newParam())" class="mt-1 text-[11px] text-blue-600 hover:text-blue-800">
+                    <button type="button" @click="ep.parameters.push(newParam())" class="mt-1 text-2xs text-blue-600 hover:text-blue-800">
                       {{ $t('data.kvAdd') }}
                     </button>
                   </div>
 
                   <!-- Policy + Test row -->
                   <div class="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
-                    <label class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    <label class="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400">
                       {{ $t('data.policyLabel') }}
-                      <select v-model="ep.confirmMode" :data-testid="`policy-${epIdx}`" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-1.5 py-1 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500">
+                      <select v-model="ep.confirmMode" :data-testid="`policy-${epIdx}`" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 rounded-md px-1.5 py-1 text-2xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                         <option value="auto">{{ $t('data.policyAuto') }} ({{ autoPolicyLabel(ep) }})</option>
                         <option value="allow">{{ $t('data.policyAllow') }}</option>
                         <option value="ask">{{ $t('data.policyAsk') }}</option>
                       </select>
                     </label>
-                    <button type="button" @click="toggleTest(ep)" :data-testid="`test-tool-${epIdx}`" class="text-[11px] font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
+                    <button type="button" @click="toggleTest(ep)" :data-testid="`test-tool-${epIdx}`" class="text-2xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1">
                       <UIcon name="heroicons-play" class="w-3 h-3" /> {{ $t('data.testTool') }}
                     </button>
                   </div>
@@ -281,22 +281,22 @@
                   <!-- Inline test runner -->
                   <div v-if="ep._test?.open" class="space-y-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-md p-2">
                     <div v-if="hasModelParams(ep)">
-                      <label class="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.testToolArgsLabel') }}</label>
-                      <textarea v-model="ep._test.args" rows="3" spellcheck="false" class="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 rounded-md px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                      <label class="block text-2xs font-medium text-gray-500 dark:text-gray-400 mb-1">{{ $t('data.testToolArgsLabel') }}</label>
+                      <textarea v-model="ep._test.args" rows="3" spellcheck="false" class="w-full border border-gray-200 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 rounded-md px-2 py-1.5 text-2xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500" />
                     </div>
                     <div class="flex items-center gap-2">
-                      <button type="button" @click="runToolTest(ep)" :disabled="ep._test.testing" :data-testid="`run-test-${epIdx}`" class="text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded px-2.5 py-1 flex items-center gap-1">
+                      <button type="button" @click="runToolTest(ep)" :disabled="ep._test.testing" :data-testid="`run-test-${epIdx}`" class="text-2xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded px-2.5 py-1 flex items-center gap-1">
                         <Spinner v-if="ep._test.testing" class="w-3 h-3" />
                         {{ $t('data.testToolRun') }}
                       </button>
-                      <span v-if="ep._test.error" class="text-[11px] text-red-600">{{ ep._test.error }}</span>
+                      <span v-if="ep._test.error" class="text-2xs text-red-600">{{ ep._test.error }}</span>
                     </div>
                     <div v-if="ep._test.result" :class="['rounded-md px-2 py-1.5', ep._test.result.success ? 'bg-green-50 dark:bg-green-950/50' : 'bg-red-50 dark:bg-red-950/50']">
-                      <div :class="['text-[11px] font-medium mb-0.5', ep._test.result.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400']">
+                      <div :class="['text-2xs font-medium mb-0.5', ep._test.result.success ? 'text-green-700 dark:text-green-400' : 'text-red-700 dark:text-red-400']">
                         {{ ep._test.result.success ? $t('data.testToolSuccess') : (ep._test.result.error || $t('data.testFailed')) }}
-                        <span v-if="ep._test.result.success && ep._test.result.content_type" class="font-normal text-gray-400">· {{ ep._test.result.content_type }}</span>
+                        <span v-if="ep._test.result.success && ep._test.result.content_type" class="font-normal text-ink-muted">· {{ ep._test.result.content_type }}</span>
                       </div>
-                      <pre v-if="ep._test.result.data_preview" class="text-[10px] text-gray-600 dark:text-gray-300 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">{{ ep._test.result.data_preview }}{{ ep._test.result.truncated ? '…' : '' }}</pre>
+                      <pre v-if="ep._test.result.data_preview" class="text-2xs text-gray-600 dark:text-gray-300 font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">{{ ep._test.result.data_preview }}{{ ep._test.result.truncated ? '…' : '' }}</pre>
                     </div>
                   </div>
                 </div>

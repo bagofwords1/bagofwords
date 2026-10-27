@@ -6,7 +6,7 @@
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
                 <!-- Read-only Notice -->
-                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-600">
+                <div class="flex items-center gap-1.5 text-2xs text-ink-muted">
                     <Icon name="heroicons:eye" class="w-3 h-3" />
                     <span>View only</span>
                 </div>
@@ -16,16 +16,16 @@
                     <!-- Header with file path and git sync status -->
                     <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
                         <div class="flex items-center gap-2 min-w-0">
-                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
                             <span v-if="filePath" class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{{ filePath }}</span>
                             <span v-else class="text-xs font-medium text-gray-500 dark:text-gray-400">Content</span>
                         </div>
                         <div v-if="props.isGitSourced" class="flex items-center gap-2 shrink-0">
-                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-2xs text-green-600 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded">
                                 <GitBranchIcon class="w-3 h-3" />
                                 Synced
                             </span>
-                            <span v-else class="text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">Unlinked</span>
+                            <span v-else class="text-2xs text-ink-muted bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">Unlinked</span>
                         </div>
                     </div>
 
@@ -44,7 +44,7 @@
                 <div class="flex flex-wrap items-center gap-3 text-xs">
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Category:</span>
+                        <span class="text-ink-muted">Category:</span>
                         <div class="inline-flex items-center text-gray-700 dark:text-gray-300">
                             <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(sharedForm.category) }}
@@ -53,7 +53,7 @@
 
                     <!-- Load Mode -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Loading:</span>
+                        <span class="text-ink-muted">Loading:</span>
                         <div class="inline-flex items-center text-gray-700 dark:text-gray-300">
                             <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(sharedForm.load_mode) }}
@@ -63,12 +63,12 @@
 
                 <!-- Labels (read-only) -->
                 <div v-if="selectedLabelObjects.length > 0" class="flex items-center gap-2">
-                    <span class="text-[11px] text-gray-400">Labels:</span>
+                    <span class="text-2xs text-ink-muted">Labels:</span>
                     <div class="flex flex-wrap gap-1">
                         <span
                             v-for="label in selectedLabelObjects"
                             :key="label.id"
-                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs"
                             :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
                         >
                             <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
@@ -81,7 +81,7 @@
                 <div class="flex flex-wrap items-center gap-4 text-xs">
                     <!-- Data Sources -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Sources:</span>
+                        <span class="text-ink-muted">Sources:</span>
                         <span v-if="isAllDataSourcesSelected" class="text-gray-700 dark:text-gray-300">All sources</span>
                         <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex items-center gap-1">
                             <div class="flex -space-x-1">
@@ -95,13 +95,13 @@
                             </div>
                             <span class="text-gray-700 dark:text-gray-300">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </div>
-                        <span v-else class="text-gray-400">None</span>
+                        <span v-else class="text-ink-muted">None</span>
                     </div>
 
                     <!-- Tables -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Tables:</span>
-                        <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
+                        <span class="text-ink-muted">Tables:</span>
+                        <span v-if="selectedReferences.length === 0" class="text-ink-muted">None</span>
                         <span v-else class="text-gray-700 dark:text-gray-300">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
                     </div>
                 </div>
@@ -125,8 +125,8 @@
 
                 <!-- Git Source Info -->
                 <div v-if="props.isGitSourced" class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-                    <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                    <span class="truncate font-mono text-[11px]">
+                    <Icon name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
+                    <span class="truncate font-mono text-2xs">
                         {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
                     </span>
                     <span class="text-gray-300 dark:text-gray-600">·</span>
@@ -137,21 +137,21 @@
                     >
                         <button
                             type="button"
-                            class="text-[11px] text-gray-400 hover:text-orange-500 transition-colors"
+                            class="text-2xs text-ink-muted hover:text-orange-500 transition-colors"
                             @click="$emit('unlink-from-git')"
                         >
                             Unlink
                         </button>
                     </UTooltip>
                     <template v-else>
-                        <span class="text-[10px] text-gray-400">Unlinked</span>
+                        <span class="text-2xs text-ink-muted">Unlinked</span>
                         <UTooltip
                             text="Resume syncing from git"
                             :popper="{ placement: 'top' }"
                         >
                             <button
                                 type="button"
-                                class="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                                class="text-2xs text-blue-500 hover:text-blue-600 transition-colors"
                                 @click="$emit('relink-to-git')"
                             >
                                 Relink
@@ -165,7 +165,7 @@
                     <Icon name="heroicons:clock" class="w-4 h-4 text-blue-600 shrink-0" />
                     <div class="min-w-0">
                         <span class="text-xs font-medium text-blue-800">Pending Build Approval</span>
-                        <p class="text-[11px] text-blue-600 mt-0.5">This instruction will be added to a build for admin review.</p>
+                        <p class="text-2xs text-blue-600 mt-0.5">This instruction will be added to a build for admin review.</p>
                     </div>
                 </div>
 
@@ -174,14 +174,14 @@
                     <!-- Header with title and code view toggle -->
                     <div class="flex items-center justify-between px-3 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
                         <div class="flex items-center gap-2 min-w-0">
-                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
                             <span v-if="filePath" class="text-xs font-mono text-gray-600 dark:text-gray-400 truncate">{{ filePath }}</span>
                             <span v-else class="text-xs font-medium text-gray-500 dark:text-gray-400">Instruction</span>
                         </div>
                         <button
                             type="button"
                             @click="codeView = !codeView"
-                            class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                            class="text-ink-muted hover:text-gray-600 p-1 rounded transition-colors"
                             :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
                         >
                             <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
@@ -202,7 +202,7 @@ Examples:
                         class="w-full min-h-[210px] text-xs leading-relaxed p-4
                                border-0 resize-y
                                focus:ring-0 focus:outline-none
-                               placeholder:text-gray-400"
+                               placeholder:text-ink-subtle"
                         :required="true"
                     />
 
@@ -306,7 +306,7 @@ Examples:
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-[10px] text-gray-500 dark:text-gray-400 ms-4">{{ option.description }}</span>
+                                <span class="text-2xs text-gray-500 dark:text-gray-400 ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -330,13 +330,13 @@ Examples:
                                 <span
                                     v-for="label in selectedLabelObjects.slice(0, 2)"
                                     :key="label.id"
-                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs"
                                     :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
                                 >
                                     <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
                                     {{ label.name }}
                                 </span>
-                                <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500 dark:text-gray-400">
+                                <span v-if="selectedLabelObjects.length > 2" class="text-2xs text-gray-500 dark:text-gray-400">
                                     +{{ selectedLabelObjects.length - 2 }}
                                 </span>
                             </div>
@@ -345,7 +345,7 @@ Examples:
                             <div class="flex items-center w-full py-0.5 gap-1">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-[11px] font-medium text-gray-900 dark:text-white truncate">{{ option.name }}</p>
+                                    <p class="text-2xs font-medium text-gray-900 dark:text-white truncate">{{ option.name }}</p>
                                 </div>
                             </div>
                         </template>
@@ -354,7 +354,7 @@ Examples:
 
                 <!-- Scope Row -->
                 <div class="flex items-center gap-3">
-                    <span class="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">Scope:</span>
+                    <span class="text-2xs text-gray-500 dark:text-gray-400 shrink-0">Scope:</span>
 
                     <!-- Data Sources -->
                     <USelectMenu
@@ -369,7 +369,7 @@ Examples:
                     >
                         <template #label>
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700 dark:text-gray-300">All sources</span>
-                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
+                            <span v-else-if="selectedDataSources.length === 0" class="text-ink-muted text-xs">Sources</span>
                             <span v-else class="text-xs text-gray-700 dark:text-gray-300">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </template>
                         <template #option="{ option }">
@@ -400,7 +400,7 @@ Examples:
                         class="min-w-[200px]"
                     >
                         <template #label>
-                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">Tables</span>
+                            <span v-if="selectedReferences.length === 0" class="text-ink-muted text-xs">Tables</span>
                             <span v-else class="text-xs text-gray-700 dark:text-gray-300">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
                         </template>
                         <template #option="{ option }">
@@ -412,7 +412,7 @@ Examples:
                                 </div>
                                 <div class="flex items-center gap-1.5 ms-6">
                                     <DataSourceIcon :type="option.data_source_type" :icon-token="option.data_source_icon_token" :icon="option.data_source_icon" class="h-2.5 flex-shrink-0" />
-                                    <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ option.data_source_name }}</span>
+                                    <span class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ option.data_source_name }}</span>
                                 </div>
                             </div>
                         </template>

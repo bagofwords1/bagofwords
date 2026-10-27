@@ -2,23 +2,23 @@
   <div class="mt-1">
     <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.cancelWait.cancelling') }}
       </span>
       <span v-else-if="cancelled.length" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">{{ cancelled.length === 1 ? t('tools.cancelWait.cancelledSingular', { count: cancelled.length }) : t('tools.cancelWait.cancelledPlural', { count: cancelled.length }) }}</span>
       </span>
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">{{ message || t('tools.cancelWait.nothingPending') }}</span>
       </span>
     </div>
 
     <ul v-if="cancelled.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-0.5 leading-snug">
       <li v-for="c in cancelled" :key="c.job_id" class="flex items-center py-0.5 px-1 rounded">
-        <Icon name="heroicons-clock" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
-        <span class="truncate text-[11px]" :title="c.reason || c.job_id">{{ c.reason || c.job_id }}</span>
+        <Icon name="heroicons-clock" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
+        <span class="truncate text-2xs" :title="c.reason || c.job_id">{{ c.reason || c.job_id }}</span>
       </li>
     </ul>
   </div>

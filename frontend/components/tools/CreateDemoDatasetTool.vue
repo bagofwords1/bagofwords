@@ -4,7 +4,7 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'designing'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ $t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
@@ -12,7 +12,7 @@
           <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.createDemoDataset.waitingReview') : $t('tools.createDemoDataset.review') }}</span>
         </span>
         <span v-else-if="phase === 'working'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">{{ workingLabel }}</span>
         </span>
         <span v-else-if="phase === 'created'" class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -20,7 +20,7 @@
           <span>{{ $t('tools.createDemoDataset.created') }}</span>
         </span>
         <span v-else-if="phase === 'rejected'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ outputStatus === 'timed_out' ? $t('tools.createDemoDataset.timedOut') : $t('tools.createDemoDataset.rejected') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -53,20 +53,20 @@
             <span v-if="datasetEmoji" class="text-base leading-none flex-shrink-0">{{ datasetEmoji }}</span>
             <Icon v-else name="heroicons-circle-stack" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ connectionName || args.name }}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
               {{ $t('tools.createDemoDataset.badge') }}
             </span>
             <span class="flex-1"></span>
-            <span v-if="dateRange" class="hidden sm:inline text-[10px] text-gray-400 flex-shrink-0">{{ dateRange }}</span>
+            <span v-if="dateRange" class="hidden sm:inline text-2xs text-ink-muted flex-shrink-0">{{ dateRange }}</span>
           </div>
-          <div v-if="args.description || args.domain" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400 leading-snug" dir="auto">
+          <div v-if="args.description || args.domain" class="mt-1 text-2xs text-gray-500 dark:text-gray-400 leading-snug" dir="auto">
             {{ args.description || args.domain }}
           </div>
         </div>
 
         <!-- Tables -->
         <div v-if="expanded" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="flex items-center text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+          <div class="flex items-center text-2xs uppercase tracking-wide text-ink-muted mb-1">
             <span>{{ $t('tools.createDemoDataset.tables', { count: tables.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="phase === 'working' && progressTotal" class="normal-case tracking-normal">
@@ -78,7 +78,7 @@
             <div class="h-full bg-blue-500 transition-all duration-500" :style="{ width: `${Math.round(100 * progressDone / progressTotal)}%` }"></div>
           </div>
           <ul class="space-y-0.5">
-            <li v-for="t in tables" :key="t.name" class="text-[11px]">
+            <li v-for="t in tables" :key="t.name" class="text-2xs">
               <button
                 class="w-full flex items-center gap-2 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60 text-start"
                 @click="toggleTable(t.name)"
@@ -86,19 +86,19 @@
                 <span class="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0">
                   <Spinner v-if="['writing_code', 'running', 'retrying'].includes(tableState(t.name).state)" class="w-3 h-3 text-blue-500" />
                   <Icon v-else-if="tableState(t.name).state === 'done'" name="heroicons-check" class="w-3 h-3 text-emerald-500" />
-                  <Icon v-else name="heroicons-table-cells" class="w-3 h-3 text-gray-400" />
+                  <Icon v-else name="heroicons-table-cells" class="w-3 h-3 text-ink-muted" />
                 </span>
                 <span class="font-mono text-gray-700 dark:text-gray-300 truncate">{{ t.name }}</span>
-                <span class="text-gray-400 truncate hidden sm:inline" dir="auto">{{ t.description }}</span>
+                <span class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ t.description }}</span>
                 <span class="flex-1"></span>
-                <span v-if="tableState(t.name).state === 'retrying'" class="text-[10px] text-amber-600 dark:text-amber-400 flex-shrink-0">
+                <span v-if="tableState(t.name).state === 'retrying'" class="text-2xs text-amber-600 dark:text-amber-400 flex-shrink-0">
                   {{ $t('tools.createDemoDataset.retry', { n: tableState(t.name).attempt }) }}
                 </span>
                 <span
                   v-if="['writing_code', 'running'].includes(tableState(t.name).state)"
                   class="h-2 w-12 rounded bg-gray-100 dark:bg-gray-800 animate-pulse flex-shrink-0"
                 ></span>
-                <span v-else class="text-[10px] text-gray-400 tabular-nums flex-shrink-0">
+                <span v-else class="text-2xs text-ink-muted tabular-nums flex-shrink-0">
                   {{ formatRows(tableRows(t)) }}
                 </span>
                 <Icon :name="openTable === t.name ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
@@ -106,13 +106,13 @@
               <div v-if="openTable === t.name" class="ms-5 mb-1 mt-0.5 flex flex-wrap gap-1">
                 <span
                   v-for="c in t.columns" :key="c.name"
-                  class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                  class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
                   :title="c.description || ''"
                 >
                   <Icon v-if="c.primary_key" name="heroicons-key" class="w-2.5 h-2.5 text-amber-500" />
                   <Icon v-else-if="c.references" name="heroicons-link" class="w-2.5 h-2.5 text-blue-400" />
                   <span class="font-mono">{{ c.name }}</span>
-                  <span class="text-gray-400">{{ c.type }}</span>
+                  <span class="text-ink-muted">{{ c.type }}</span>
                 </span>
               </div>
             </li>
@@ -121,13 +121,13 @@
 
         <!-- Agents -->
         <div v-if="expanded && agents.length" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">
             {{ phase === 'created' ? $t('tools.createDemoDataset.agentsCreated') : $t('tools.createDemoDataset.agents') }}
           </div>
           <ul class="space-y-1">
             <li
               v-for="a in agents" :key="a.name"
-              class="flex items-start gap-2 text-[11px] rounded-md px-1.5 py-1 -mx-1.5"
+              class="flex items-start gap-2 text-2xs rounded-md px-1.5 py-1 -mx-1.5"
               :class="interactive ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : ''"
               :data-testid="`demo-agent-${a.name}`"
               @click="interactive && toggleAgent(a.name)"
@@ -148,7 +148,7 @@
               <span class="min-w-0 flex-1" :class="!interactive || isChecked(a.name) ? '' : 'opacity-50'">
                 <span class="flex items-center gap-1.5">
                   <span class="font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ a.name }}</span>
-                  <span v-if="a.skipped" class="text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
+                  <span v-if="a.skipped" class="text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
                     {{ $t('tools.createDemoDataset.skipped') }}
                   </span>
                 </span>
@@ -156,14 +156,14 @@
                 <span class="mt-0.5 flex flex-wrap gap-1">
                   <span
                     v-for="tn in a.tables" :key="tn"
-                    class="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
+                    class="text-2xs px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
                   >{{ tn }}</span>
                 </span>
               </span>
               <NuxtLink
                 v-if="a.id && !readonly"
                 :to="`/agents/${a.id}`"
-                class="text-[11px] text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
+                class="text-2xs text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
                 @click.stop
               >
                 <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
@@ -171,7 +171,7 @@
               </NuxtLink>
             </li>
           </ul>
-          <div v-if="interactive && !canCreateAgents" class="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+          <div v-if="interactive && !canCreateAgents" class="mt-1 text-2xs text-amber-600 dark:text-amber-400">
             {{ $t('tools.createDemoDataset.noAgentPermission') }}
           </div>
         </div>
@@ -188,7 +188,7 @@
             ></textarea>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[10px] text-gray-400 truncate">
+            <span class="text-2xs text-ink-muted truncate">
               {{ $t('tools.createDemoDataset.generatedBy', { model: confirmation?.model || '' }) }}
             </span>
             <span class="flex-1"></span>
@@ -226,11 +226,11 @@
               </button>
             </template>
           </div>
-          <div v-if="respondError" class="mt-1 text-[10px] text-red-500">{{ respondError }}</div>
+          <div v-if="respondError" class="mt-1 text-2xs text-red-500">{{ respondError }}</div>
         </div>
 
         <!-- Result footer -->
-        <div v-if="phase === 'created'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-2 text-[10px] text-gray-400">
+        <div v-if="phase === 'created'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-2 text-2xs text-ink-muted">
           <Icon name="heroicons-circle-stack" class="w-3 h-3" />
           <span>{{ formatRows(output.total_rows) }} {{ $t('tools.createDemoDataset.rows') }}</span>
           <span>·</span>

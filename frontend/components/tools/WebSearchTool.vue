@@ -10,10 +10,10 @@
       <Icon
         v-if="expandable"
         :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-        class="w-3 h-3 me-1 text-gray-400 shrink-0"
+        class="w-3 h-3 me-1 text-ink-muted shrink-0"
       />
       <span v-if="status === 'in_progress' || status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-gray-400" />
+        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-ink-muted" />
         Searching the web
         <span v-if="displayQuery" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">"{{ displayQuery }}"</span>
       </span>
@@ -27,7 +27,7 @@
         <span>Web search failed</span>
         <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span>
       </span>
-      <span v-if="sources.length" class="ms-1.5 text-[10px] text-gray-400 shrink-0">
+      <span v-if="sources.length" class="ms-1.5 text-2xs text-ink-muted shrink-0">
         · {{ sources.length }} {{ sources.length === 1 ? 'source' : 'sources' }}
       </span>
     </div>
@@ -36,7 +36,7 @@
     <div v-if="expanded" class="mt-1.5 ms-4 space-y-1">
       <!-- Additional queries the provider ran -->
       <div v-if="extraQueries.length" class="space-y-0.5">
-        <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-[11px] text-gray-400 truncate max-w-[380px]">"{{ q }}"</div>
+        <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-2xs text-ink-muted truncate max-w-[380px]">"{{ q }}"</div>
       </div>
 
       <!-- Sources with favicons -->
@@ -47,7 +47,7 @@
           :href="s.url"
           target="_blank"
           rel="noopener noreferrer"
-          class="flex items-center gap-1.5 text-[11px] text-blue-600 hover:underline"
+          class="flex items-center gap-1.5 text-2xs text-blue-600 hover:underline"
           @click.stop
         >
           <img :src="faviconFor(s.url)" class="w-3.5 h-3.5 rounded-sm shrink-0" loading="lazy" @error="onFaviconError" />
@@ -55,7 +55,7 @@
         </a>
       </div>
 
-      <div v-else-if="isSuccess" class="text-[11px] text-gray-400">No results found</div>
+      <div v-else-if="isSuccess" class="text-2xs text-ink-muted">No results found</div>
     </div>
   </div>
 </template>

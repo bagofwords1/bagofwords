@@ -7,14 +7,14 @@
           <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('notifications.title') }}</h2>
           <span
             v-if="unread"
-            class="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center"
+            class="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-2xs font-semibold leading-none flex items-center justify-center"
           >{{ unread > 99 ? '99+' : unread }}</span>
         </div>
         <div class="flex items-center gap-1">
           <button
             v-if="unread"
             @click="markAllRead()"
-            class="text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+            class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
           >{{ $t('notifications.markAllRead') }}</button>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
         </div>
@@ -27,7 +27,7 @@
           :key="f.value"
           @click="filter = f.value"
           :class="[
-            'text-[12px] px-2.5 py-1 rounded-full transition-colors',
+            'text-xs px-2.5 py-1 rounded-full transition-colors',
             filter === f.value
               ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-medium'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70'
@@ -40,7 +40,7 @@
       <!-- List -->
       <div class="flex-1 overflow-y-auto min-h-[220px]">
         <div v-if="loading" class="py-14 flex justify-center">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
         </div>
 
         <div v-else-if="error" class="py-16 flex flex-col items-center text-center gap-2 px-6">
@@ -48,10 +48,10 @@
             <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-400 dark:text-red-500" />
           </div>
           <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.loadErrorTitle') }}</p>
-          <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.loadErrorBody') }}</p>
+          <p class="text-xs text-ink-muted">{{ $t('notifications.loadErrorBody') }}</p>
           <button
             @click="fetchItems()"
-            class="mt-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md"
+            class="mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md"
           >{{ $t('notifications.tryAgain') }}</button>
         </div>
 
@@ -61,11 +61,11 @@
           </div>
           <template v-if="filter === 'unread' && items.length">
             <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.noUnreadTitle') }}</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.noUnreadBody') }}</p>
+            <p class="text-xs text-ink-muted">{{ $t('notifications.noUnreadBody') }}</p>
           </template>
           <template v-else>
             <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('notifications.emptyTitle') }}</p>
-            <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('notifications.emptyBody') }}</p>
+            <p class="text-xs text-ink-muted">{{ $t('notifications.emptyBody') }}</p>
           </template>
         </div>
 
@@ -94,7 +94,7 @@
 
             <div class="min-w-0 flex-1 pe-5" :data-testid="isCheckin(n) ? 'checkin-notification' : undefined">
               <!-- Agent follow-up: reads like a message from the assistant -->
-              <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">
+              <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400 mb-0.5">
                 <span class="font-medium text-gray-700 dark:text-gray-300" dir="auto">{{ assistantName }}</span>
                 <span class="text-gray-300 dark:text-gray-600">&middot;</span>
                 <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300">
@@ -105,18 +105,18 @@
               <div class="flex items-center gap-2">
                 <span
                   :class="[
-                    'text-[13px] truncate',
+                    'text-sm truncate',
                     !n.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'
                   ]"
                 >{{ displayTitle(n) }}</span>
                 <span v-if="!n.read" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
               </div>
-              <p v-if="displayBody(n)" :class="['text-[12px] text-gray-500 dark:text-gray-400 mt-0.5', isCheckin(n) ? 'line-clamp-3 whitespace-pre-line' : 'line-clamp-2']" dir="auto">{{ displayBody(n) }}</p>
-              <span v-if="isCheckin(n) && n.link" class="inline-flex items-center gap-0.5 mt-1 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+              <p v-if="displayBody(n)" :class="['text-xs text-gray-500 dark:text-gray-400 mt-0.5', isCheckin(n) ? 'line-clamp-3 whitespace-pre-line' : 'line-clamp-2']" dir="auto">{{ displayBody(n) }}</p>
+              <span v-if="isCheckin(n) && n.link" class="inline-flex items-center gap-0.5 mt-1 text-2xs font-medium text-blue-600 dark:text-blue-400">
                 {{ $t('notifications.checkin.openReport') }}
                 <UIcon name="i-heroicons-arrow-right-20-solid" class="w-3 h-3 rtl-flip" />
               </span>
-              <span class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 block">{{ relativeTime(n.created_at) }}</span>
+              <span class="text-2xs text-ink-muted mt-1 block">{{ relativeTime(n.created_at) }}</span>
             </div>
 
             <button

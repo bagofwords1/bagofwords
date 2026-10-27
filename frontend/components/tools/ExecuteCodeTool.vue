@@ -13,10 +13,10 @@
       <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
 
       <!-- Row count if available -->
-      <span v-if="rowCount" class="ms-2 text-gray-400 dark:text-gray-500">{{ rowCount }} rows</span>
+      <span v-if="rowCount" class="ms-2 text-ink-muted">{{ rowCount }} rows</span>
 
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
     <!-- Collapsible content -->

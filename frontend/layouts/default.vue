@@ -74,7 +74,7 @@
           </button>
     <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col" :class="isShortSidebar ? 'overflow-y-auto' : ''">
 
-      <ul class="font-normal text-[13px] !ps-0 shrink-0">
+      <ul class="font-normal text-sm !ps-0 shrink-0">
         <li class="flex items-center mb-3" :class="isCollapsed ? 'flex-col gap-1' : 'justify-between'">
             <!-- Workspace header. With a single org this is just a link home
                  (the only desktop path to '/'). With several, it doubles as the
@@ -82,30 +82,30 @@
                  isn't lost. Users with one org see no switcher affordance. -->
             <UDropdown v-if="hasMultipleOrgs" :items="organizationDropdownItems"
               :popper="{ placement: isCollapsed ? 'right-start' : 'bottom-start' }" class="min-w-0"
-              :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5' } }">
+              :ui="{ width: 'w-56', item: { size: 'text-sm', padding: 'px-2 py-1.5' } }">
               <template #item="{ item }">
                 <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="w-4 h-4 shrink-0 rounded object-contain" />
-                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span v-else class="w-4 h-4 shrink-0"></span>
                 <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
-                <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-gray-400 dark:text-gray-500" />
+                <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-ink-muted" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
                 <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
-                <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
-                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-if="showText && organization?.name" class="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
               </button>
             </UDropdown>
             <button v-else @click="router.push('/')" :class="workspaceButtonClass">
               <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" :class="isCollapsed ? 'w-8 object-contain' : 'max-h-6 max-w-[84px] object-contain shrink-0'" />
-              <span v-if="showText && organization?.name" class="text-[13px] font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
+              <span v-if="showText && organization?.name" class="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate">{{ organization.name }}</span>
             </button>
             <div class="flex items-center gap-0.5" :class="isCollapsed ? 'flex-col' : ''">
               <!-- Search (opens the ⌘K command palette) -->
               <UTooltip :text="$t('commandPalette.placeholder')" :popper="{ placement: tooltipPlacement }">
                 <button
                   @click="openCommandPalette"
-                  class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+                  class="flex items-center justify-center w-7 h-7 rounded-md text-ink-muted hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
                   aria-label="Search"
                 >
                   <UIcon name="i-heroicons-magnifying-glass" class="w-[18px] h-[18px]" />
@@ -115,7 +115,7 @@
               <UTooltip v-if="!isCollapsed && !mobileOpen" :text="$t('nav.collapseSidebar')" :popper="{ placement: tooltipPlacement }">
                 <button
                   @click="toggleSidebar"
-                  class="flex items-center justify-center w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+                  class="flex items-center justify-center w-7 h-7 rounded-md text-ink-muted hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
                   aria-label="Collapse sidebar"
                 >
                   <SidebarIcon class="w-[18px] h-[18px] rtl-flip" />
@@ -133,12 +133,12 @@
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
-                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                   <UIcon name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
-                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+                <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                   <UIcon name="heroicons-plus-circle" />
                 </span>
                 <span v-if="showText" class="font-medium">{{ $t('nav.newReport') }}</span>
@@ -148,7 +148,7 @@
 
         <template v-for="item in mainNavItems" :key="item.href">
         <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-2.5">
-          <span class="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{{ $t(item.section) }}</span>
+          <span class="text-2xs font-medium text-ink-muted uppercase tracking-wider">{{ $t(item.section) }}</span>
         </li>
         <li v-if="(!item.permission || useCan(item.permission)) && (!item.adminOnly || isAdmin) && (!item.canView || item.canView())" :class="[{ hidden: item.hidden }, item.gapBefore ? 'mt-2' : '']">
           <!-- Action item (e.g. Notifications → opens the bell modal) -->
@@ -157,17 +157,17 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span class="relative flex items-center justify-center w-5 h-5 text-[16px]">
+              <span class="relative flex items-center justify-center w-5 h-5 text-base">
                 <UIcon :name="item.icon || 'i-heroicons-bell'" />
-                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[8px] font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-2xs font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
               </span>
             </UTooltip>
             <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-[18px]">
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <UIcon :name="item.icon || 'i-heroicons-bell'" />
               </span>
               <span v-if="showText" class="flex-1 text-start">{{ $t(item.label) }}</span>
-              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-2xs font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
             </template>
           </button>
           <NuxtLink v-else :to="item.href" :class="[
@@ -176,13 +176,13 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <UIcon v-if="item.icon" :name="item.icon" />
                 <component v-else-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
               </span>
@@ -204,32 +204,32 @@
               @click="projectsOpen = !projectsOpen"
               :aria-expanded="projectsOpen"
               :aria-label="$t('projects.title')"
-              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
             >
               <UIcon :name="projectsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
             </button>
-            <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
+            <NuxtLink to="/projects" class="text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
           </div>
           <!-- While a report is in flight, the header explains where to drop it. -->
-          <span v-if="draggingReport" class="text-[11px] font-medium text-blue-500 dark:text-blue-400 truncate ps-2">{{ $t('projects.dropHint') }}</span>
+          <span v-if="draggingReport" class="text-2xs font-medium text-blue-500 dark:text-blue-400 truncate ps-2">{{ $t('projects.dropHint') }}</span>
           <div v-else class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
             <UTooltip :text="$t('projects.newProject')" :popper="{ placement: 'top' }">
               <button
                 type="button"
                 name="new-project"
                 @click="openCreateProject"
-                class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+                class="flex items-center justify-center w-5 h-5 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
                 :aria-label="$t('projects.newProject')"
               >
                 <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
               </button>
             </UTooltip>
-            <NuxtLink to="/projects" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+            <NuxtLink to="/projects" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
               {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
             </NuxtLink>
           </div>
         </div>
-        <ul v-show="projectsOpen" class="font-normal text-[13px] !ps-0 space-y-0.5 -me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
+        <ul v-show="projectsOpen" class="font-normal text-sm !ps-0 space-y-0.5 -me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <!-- Each row is a drop target for a report dragged from the list
                below: dropping files that report into the project without
                leaving the sidebar (the row menu's "Move to project" and its
@@ -249,7 +249,7 @@
               isRouteActive(`/projects/${project.id}`) ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
             ]">
               <!-- Drop cue: the folder opens while a report hovers this row. -->
-              <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+              <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
               <span class="flex-1 truncate">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
@@ -257,7 +257,7 @@
               v-if="currentProjectActionsAvailable(project)"
               type="button"
               @click.stop.prevent="openProjectMenu($event, project)"
-              class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+              class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
               :class="projectMenuOpen && menuProject?.id === project.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/project:opacity-100'"
               :aria-label="$t('projects.rowActions')"
             >
@@ -268,7 +268,7 @@
             <button
               type="button"
               @click="openCreateProject"
-              class="flex items-center gap-2 px-2.5 py-1.5 w-full rounded-md text-[12px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+              class="flex items-center gap-2 px-2.5 py-1.5 w-full rounded-md text-xs text-ink-muted hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70"
             >
               <UIcon name="i-heroicons-folder-plus" class="w-4 h-4 shrink-0" />
               <span>{{ $t('projects.empty') }}</span>
@@ -286,18 +286,18 @@
               @click="reportsOpen = !reportsOpen"
               :aria-expanded="reportsOpen"
               :aria-label="$t('nav.reports')"
-              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
             >
               <UIcon :name="reportsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
             </button>
-            <NuxtLink to="/reports" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
+            <NuxtLink to="/reports" class="text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
           </div>
-          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
+          <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
             {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
           </NuxtLink>
         </div>
         <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
-          <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
+          <ul class="font-normal text-sm !ps-0 space-y-0.5">
             <!-- The draft being composed at /reports/new. There is no report
                  yet, so this row is a placeholder that keeps the rail from
                  looking like the user is nowhere; it disappears the moment the
@@ -361,21 +361,21 @@
               <button
                 type="button"
                 @click.stop.prevent="openReportMenu($event, report)"
-                class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
+                class="absolute end-1 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/80 dark:hover:bg-gray-700 transition-opacity"
                 :class="reportMenuOpen && menuReport?.id === report.id ? 'opacity-100 bg-gray-200/80 dark:bg-gray-700' : 'opacity-0 group-hover/report:opacity-100'"
                 :aria-label="$t('reports.rowActions')"
               >
                 <UIcon name="i-heroicons-ellipsis-horizontal" class="w-4 h-4" />
               </button>
             </li>
-            <li v-if="!recentReports.length" class="px-2.5 py-1.5 text-[12px] text-gray-400 dark:text-gray-500">
+            <li v-if="!recentReports.length" class="px-2.5 py-1.5 text-xs text-ink-muted">
               {{ $t('reports.empty') }}
             </li>
           </ul>
         </div>
       </div>
 
-      <ul class="font-normal text-[13px] !ps-0 shrink-0 mt-auto pt-2">
+      <ul class="font-normal text-sm !ps-0 shrink-0 mt-auto pt-2">
         <li v-for="item in bottomNavItems" :key="item.href">
           <a v-if="item.external" :href="item.href" target="_blank" rel="noopener noreferrer" :class="[
             'flex items-center px-2.5 py-1.5 w-full rounded-md',
@@ -383,13 +383,13 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
@@ -402,13 +402,13 @@
             isCollapsed ? 'justify-center' : 'gap-2.5'
           ]">
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
             </UTooltip>
             <template v-else>
-              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
+              <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-base' : 'w-5 h-5 text-lg']">
                 <component v-if="item.component" :is="item.component" class="w-[18px] h-[18px]" />
                 <UIcon v-else-if="item.icon" :name="item.icon" />
               </span>
@@ -418,15 +418,15 @@
         </li>
         <li>
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
-            :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
+            :ui="{ width: 'w-56', item: { size: 'text-sm', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
               <template v-if="item.kind === 'quota' && myQuota">
                 <span class="flex flex-col gap-2 w-full py-0.5 text-start">
                   <span v-for="row in myQuota.rows" :key="row.key" class="flex flex-col gap-1">
                     <span class="flex items-baseline justify-between gap-2">
-                      <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                      <span class="text-2xs text-gray-500 dark:text-gray-400">{{ row.label }}</span>
                       <span
-                        class="text-[11px] tabular-nums"
+                        class="text-2xs tabular-nums"
                         :class="row.blocked ? 'font-semibold text-red-600 dark:text-red-400'
                           : row.near ? 'font-medium text-amber-700 dark:text-amber-400'
                           : 'text-gray-700 dark:text-gray-200'"
@@ -441,12 +441,12 @@
                       ></span>
                     </span>
                   </span>
-                  <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ myQuotaResetLabel }}</span>
+                  <span class="text-2xs text-ink-muted">{{ myQuotaResetLabel }}</span>
                 </span>
               </template>
               <template v-else>
-                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-ink-muted" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span v-else class="w-4 h-4 shrink-0"></span>
                 <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
               </template>
@@ -463,7 +463,7 @@
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-2xs font-bold rounded-full">
                   {{ userInitial }}
                 </div>
               </UTooltip>
@@ -484,7 +484,7 @@
               </span>
               <template v-else-if="!isCollapsed">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full shrink-0">
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-2xs font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
                 <!-- Name, and under it the member's own quota. Inside this
@@ -509,14 +509,14 @@
                       ></span>
                     </span>
                     <span
-                      class="text-[10px] shrink-0 whitespace-nowrap tabular-nums"
+                      class="text-2xs shrink-0 whitespace-nowrap tabular-nums"
                       :class="myQuota.blocked ? 'font-semibold text-red-600 dark:text-red-400'
                         : myQuota.near ? 'font-medium text-amber-700 dark:text-amber-400'
-                        : 'text-gray-400 dark:text-gray-500'"
+                        : 'text-ink-muted'"
                     >{{ myQuota.percentLabel }}</span>
                   </span>
                 </span>
-                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ms-auto w-4 h-4 text-gray-400 shrink-0" />
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ms-auto w-4 h-4 text-ink-muted shrink-0" />
               </template>
             </button>
           </UDropdown>
@@ -529,7 +529,7 @@
             name="app-version"
             @click="showChangelogModal = true"
             :class="[
-              'flex items-center w-full py-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors',
+              'flex items-center w-full py-1 text-2xs text-ink-muted hover:text-gray-900 dark:hover:text-white transition-colors',
               isCollapsed ? 'justify-center px-0' : 'px-3'
             ]"
             :aria-label="$t('nav.version')"
@@ -563,7 +563,7 @@
   <Teleport to="body">
     <div v-if="reportMenuOpen" class="fixed inset-0 z-[70]" @click="reportMenuOpen = false" @contextmenu.prevent="reportMenuOpen = false">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-[13px]"
+        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: reportMenuPos.y + 'px', left: reportMenuPos.x + 'px' }"
         @click.stop
       >
@@ -575,7 +575,7 @@
           :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'"
           @click="reportMenuOpen = false; action.click()"
         >
-          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'" />
+          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-ink-muted'" />
           <span class="truncate">{{ action.label }}</span>
         </button>
       </div>
@@ -586,7 +586,7 @@
   <Teleport to="body">
     <div v-if="projectMenuOpen" class="fixed inset-0 z-[70]" @click="projectMenuOpen = false" @contextmenu.prevent="projectMenuOpen = false">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-[13px]"
+        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: projectMenuPos.y + 'px', left: projectMenuPos.x + 'px' }"
         @click.stop
       >
@@ -598,7 +598,7 @@
           :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'"
           @click="projectMenuOpen = false; action.click()"
         >
-          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'" />
+          <UIcon :name="action.icon" class="w-4 h-4 shrink-0" :class="action.danger ? 'text-red-500 dark:text-red-400' : 'text-ink-muted'" />
           <span class="truncate">{{ action.label }}</span>
         </button>
       </div>
@@ -615,15 +615,15 @@
         v-model="projectDialogName"
         type="text"
         :placeholder="$t('projects.namePlaceholder')"
-        class="mt-3 w-full h-9 px-3 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
+        class="mt-3 w-full h-9 px-3 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
         @keyup.enter="submitProjectDialog"
       />
-      <p v-if="projectDialogMode === 'create'" class="mt-2 text-[12px] text-gray-400 dark:text-gray-500">
+      <p v-if="projectDialogMode === 'create'" class="mt-2 text-xs text-ink-muted">
         {{ $t('projects.createHint') }}
       </p>
       <div class="flex justify-end gap-2 mt-4">
-        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDialogOpen = false">{{ $t('common.cancel') }}</button>
-        <button class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!projectDialogName.trim() || projectDialogBusy" @click="submitProjectDialog">
+        <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDialogOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!projectDialogName.trim() || projectDialogBusy" @click="submitProjectDialog">
           {{ projectDialogMode === 'create' ? $t('projects.create') : $t('common.save') }}
         </button>
       </div>
@@ -636,15 +636,15 @@
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
       <!-- Honest impact: reports/dashboards are archived (not destroyed),
            automations are stopped, files are only unlinked from the project. -->
-      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
+      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
         reports: projectDialogTarget?.report_count ?? 0,
         dashboards: projectDialogTarget?.dashboard_count ?? 0,
         automations: projectDialogTarget?.automation_count ?? 0,
         files: projectDialogTarget?.files?.length ?? 0,
       }) }}</p>
       <div class="flex justify-end gap-2 mt-4">
-        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDeleteOpen = false">{{ $t('common.cancel') }}</button>
-        <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="projectDeleteBusy" @click="doDeleteProject">{{ $t('common.delete') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="projectDeleteOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="projectDeleteBusy" @click="doDeleteProject">{{ $t('common.delete') }}</button>
       </div>
     </div>
   </UModal>
@@ -658,37 +658,37 @@
           v-for="project in projects"
           :key="project.id"
           type="button"
-          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-[13px] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
           :disabled="moveBusy || moveTargetReport?.project_id === project.id"
           @click="doMoveReport(project.id)"
         >
-          <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400 dark:text-gray-500' : ''" />
+          <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
           <span class="flex-1 truncate text-start">{{ project.name }}</span>
-          <span v-if="isProjectShared(project)" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('projects.sharedBadge') }}</span>
+          <span v-if="isProjectShared(project)" class="text-2xs text-ink-muted">{{ $t('projects.sharedBadge') }}</span>
           <UIcon v-if="moveTargetReport?.project_id === project.id" name="i-heroicons-check" class="w-4 h-4 text-blue-500 shrink-0" />
         </button>
         <button
           v-if="moveTargetReport?.project_id"
           type="button"
-          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-[13px] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+          class="flex items-center gap-2 w-full px-2.5 py-2 rounded-md text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
           :disabled="moveBusy"
           @click="doMoveReport(null)"
         >
-          <UIcon name="i-heroicons-folder-minus" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+          <UIcon name="i-heroicons-folder-minus" class="w-4 h-4 shrink-0 text-ink-muted" />
           <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
         </button>
-        <div v-if="!projects.length" class="px-2.5 py-3 text-[12px] text-gray-400 dark:text-gray-500">
+        <div v-if="!projects.length" class="px-2.5 py-3 text-xs text-ink-muted">
           {{ $t('projects.moveNoProjects') }}
         </div>
       </div>
-      <p v-if="projects.some(isProjectShared)" class="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+      <p v-if="projects.some(isProjectShared)" class="mt-2 text-2xs text-ink-muted">
         {{ $t('projects.moveShareDisclosure') }}
       </p>
       <div class="flex justify-between items-center gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
-        <button class="inline-flex items-center gap-1 text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="moveOpen = false; openCreateProject()">
+        <button class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200" @click="moveOpen = false; openCreateProject()">
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('projects.newProject') }}
         </button>
-        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="moveOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="moveOpen = false">{{ $t('common.cancel') }}</button>
       </div>
     </div>
   </UModal>
@@ -702,12 +702,12 @@
         v-model="renameTitle"
         type="text"
         :placeholder="$t('reports.renamePlaceholder')"
-        class="mt-3 w-full h-9 px-3 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
+        class="mt-3 w-full h-9 px-3 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400"
         @keyup.enter="doRename"
       />
       <div class="flex justify-end gap-2 mt-4">
-        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="renameOpen = false">{{ $t('common.cancel') }}</button>
-        <button class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!renameTitle.trim() || renaming" @click="doRename">{{ $t('common.save') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="renameOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="!renameTitle.trim() || renaming" @click="doRename">{{ $t('common.save') }}</button>
       </div>
     </div>
   </UModal>
@@ -715,10 +715,10 @@
   <UModal v-model="deleteOpen">
     <div class="p-4">
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.deleteTitle') }}</h3>
-      <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('reports.deleteBody') }}</p>
+      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ $t('reports.deleteBody') }}</p>
       <div class="flex justify-end gap-2 mt-4">
-        <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="deleteOpen = false">{{ $t('common.cancel') }}</button>
-        <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="deleteOpen = false">{{ $t('common.cancel') }}</button>
+        <button class="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
       </div>
     </div>
   </UModal>
@@ -1031,7 +1031,7 @@
   const SIDEBAR_SECTION_HEADER_PX = 20.5
   const SIDEBAR_SECTION_SLACK_PX = 2
 
-  // A row is py-1.5 (12px) around text-[13px] at normal leading (~19.5px), rows
+  // A row is py-1.5 (12px) around text-sm at normal leading (~19.5px), rows
   // sit 2px apart (space-y-0.5), and the uppercase header is ~20.5px. The slack
   // keeps sub-pixel rounding from summoning a scrollbar on a list that fits.
   // An empty list still renders one row — its call to action — so the minimum

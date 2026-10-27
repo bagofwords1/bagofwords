@@ -9,7 +9,7 @@
             <div class="flex items-center gap-3">
                 <div class="flex-shrink-0 h-9 w-9 flex items-center justify-center">
                     <LLMProviderIcon v-if="selectedProvider" :provider="selectedProvider.provider_type" :model="modelId" :icon="true" class="h-7 w-7" />
-                    <UIcon v-else name="i-heroicons-cpu-chip" class="h-7 w-7 text-gray-400" />
+                    <UIcon v-else name="i-heroicons-cpu-chip" class="h-7 w-7 text-ink-muted" />
                 </div>
                 <div class="leading-tight min-w-0">
                     <div class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.addModelTitle') }}</div>
@@ -32,7 +32,7 @@
                                 <LLMProviderIcon v-if="selectedProvider" :provider="selectedProvider.provider_type" :icon="true" class="h-4 w-4" />
                                 <span class="truncate">{{ selectedProvider?.name || '—' }}</span>
                             </span>
-                            <UIcon name="i-heroicons-chevron-down" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                            <UIcon name="i-heroicons-chevron-down" class="w-4 h-4 text-ink-muted flex-shrink-0" />
                         </button>
                         <div
                             v-if="providerListOpen"
@@ -130,13 +130,13 @@
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colCost') }}</span>
                     </UTooltip>
                     <div class="flex items-center gap-2">
-                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costInput') }}
                             <input v-model.number="costIn" type="number" min="0" step="0.01"
                                 data-testid="add-model-cost-input"
                                 class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
                         </label>
-                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costOutput') }}
                             <input v-model.number="costOut" type="number" min="0" step="0.01"
                                 data-testid="add-model-cost-output"

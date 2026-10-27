@@ -3,7 +3,7 @@
     <div class="h-full flex flex-col" @click.stop>
       <div class="px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div class="text-sm font-medium text-gray-800 dark:text-gray-200">Edit query — {{ title }}</div>
-        <div v-if="currentStepId" class="ms-4 text-[11px] text-gray-500 dark:text-gray-400">Query ID: {{ queryId }}</div>
+        <div v-if="currentStepId" class="ms-4 text-2xs text-gray-500 dark:text-gray-400">Query ID: {{ queryId }}</div>
         <button class="px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click.stop="open = false">Close</button>
       </div>
       <div class="flex-1 flex flex-col overflow-hidden min-h-0">
@@ -26,7 +26,7 @@
                this button only shows/hides the sidebar. -->
           <button
             v-if="canRunCustomCode && activeTab === 'code'"
-            class="ms-auto my-1.5 px-2.5 py-1 text-[11px] rounded border transition-colors"
+            class="ms-auto my-1.5 px-2.5 py-1 text-2xs rounded border transition-colors"
             data-testid="params-tab"
             :class="paramsSidebarOpen ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'"
             @click="paramsSidebarOpen = !paramsSidebarOpen"
@@ -85,11 +85,11 @@
                     </tbody>
                   </table>
                 </div>
-                <div v-else class="text-xs" :class="errorMsg ? 'text-red-600' : 'text-gray-400'">{{ errorMsg || 'No preview yet.' }}</div>
+                <div v-else class="text-xs" :class="errorMsg ? 'text-red-600' : 'text-ink-muted'">{{ errorMsg || 'No preview yet.' }}</div>
               </div>
               <!-- A strict-equality param that resolved to NULL explains a
                    0-row result better than the empty table does. -->
-              <div v-if="zeroRowsHint" class="mt-2 text-[11px] text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 border border-amber-200 dark:border-amber-700 rounded px-2 py-1" data-testid="zero-rows-hint">{{ zeroRowsHint }}</div>
+              <div v-if="zeroRowsHint" class="mt-2 text-2xs text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 border border-amber-200 dark:border-amber-700 rounded px-2 py-1" data-testid="zero-rows-hint">{{ zeroRowsHint }}</div>
             </div>
            </div>
 
@@ -163,7 +163,7 @@
                             :data_model="getDataModelWithView(viz)"
                           />
                         </div>
-                        <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No preview available</div>
+                        <div v-else class="h-full flex items-center justify-center text-ink-muted text-sm">No preview available</div>
                       </div>
                       <div v-else class="h-full bg-gray-50 dark:bg-gray-900 p-2">
                         <div v-if="String(viz.view?.type || viz.step?.data_model?.type).toLowerCase() === 'table'" class="h-full">
@@ -172,7 +172,7 @@
                             :step="{ ...(viz.step || {}), data_model: getDataModelWithView(viz) } as any"
                           />
                         </div>
-                        <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No visual representation</div>
+                        <div v-else class="h-full flex items-center justify-center text-ink-muted text-sm">No visual representation</div>
                       </div>
                     </div>
 
@@ -194,11 +194,11 @@
               <div class="text-center py-8">
                 <div v-if="loadingVisualizations" class="flex flex-col items-center">
                   <Spinner class="w-4 h-4 mb-2" />
-                  <div class="text-gray-400 text-sm">Loading visualizations...</div>
+                  <div class="text-ink-muted text-sm">Loading visualizations...</div>
                 </div>
                 <div v-else>
-                  <div class="text-gray-400 text-sm">No visualizations found for this query</div>
-                  <div v-if="!queryId" class="text-xs text-gray-400 mt-1">Query ID not available</div>
+                  <div class="text-ink-muted text-sm">No visualizations found for this query</div>
+                  <div v-if="!queryId" class="text-xs text-ink-muted mt-1">Query ID not available</div>
                 </div>
               </div>
             </div>

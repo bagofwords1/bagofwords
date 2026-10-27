@@ -10,7 +10,7 @@
         </button>
     </div>
     <div v-else-if="shouldShowSpinner" class="flex items-center justify-center">
-        <Spinner class="h-4 w-4 text-gray-400" />
+        <Spinner class="h-4 w-4 text-ink-muted" />
     </div>
 </template>
 

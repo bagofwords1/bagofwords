@@ -224,12 +224,12 @@
             </ul>
           </div>
 
-          <p class="text-[11px] text-gray-400 mt-3">{{ $t('settings.integrations.channels.email.testBeforeSave') }}</p>
+          <p class="text-2xs text-ink-muted mt-3">{{ $t('settings.integrations.channels.email.testBeforeSave') }}</p>
         </div>
       </aside>
     </div>
 
-    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">✕</button>
+    <button class="absolute top-2 end-2 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">✕</button>
   </div>
 </template>
 

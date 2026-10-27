@@ -28,7 +28,7 @@
                         class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                         @mousedown.prevent="addMember(member)">
                         <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
-                        <span v-if="member.name" class="text-[11px] text-gray-400">{{ member.email }}</span>
+                        <span v-if="member.name" class="text-2xs text-ink-muted">{{ member.email }}</span>
                     </button>
                 </div>
             </div>
@@ -40,7 +40,7 @@
 
         <!-- Send button -->
         <div class="flex items-center justify-between mt-3">
-            <span v-if="sendStatus" class="text-[11px]" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
+            <span v-if="sendStatus" class="text-2xs" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
                 {{ sendStatus === 'sent' ? 'Sent!' : 'Failed to send' }}
             </span>
             <span v-else></span>

@@ -6,11 +6,11 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-ink-muted" />
           Cancelling task…
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-ink-muted" />
           <span>Scheduled task cancelled</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -18,7 +18,7 @@
           <span>Couldn't cancel task</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
           />
         </span>
       </div>
@@ -26,7 +26,7 @@
 
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running' && errorMessage" class="mt-2">
-        <div class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

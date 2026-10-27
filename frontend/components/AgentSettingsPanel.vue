@@ -11,7 +11,7 @@
             v-if="ready && accessNotice"
             class="px-6 py-2.5 border-b border-gray-100 dark:border-gray-800 flex items-start justify-between gap-3"
         >
-            <p class="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+            <p class="text-2xs leading-relaxed text-gray-500 dark:text-gray-400">
                 <span class="font-medium text-gray-700 dark:text-gray-300">{{ accessNotice.title }}</span>
                 {{ accessNotice.detail }}
             </p>
@@ -34,10 +34,10 @@
         <div v-else>
             <!-- General -->
             <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">General</div>
+                <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">General</div>
 
                 <!-- Icon -->
-                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Icon</label>
+                <label class="block text-2xs text-ink-muted mb-1">Icon</label>
                 <AgentIconPicker
                     :model-value="form.icon"
                     :icon-token="integration?.icon_token"
@@ -49,7 +49,7 @@
                     class="mb-4"
                 />
 
-                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Agent name</label>
+                <label class="block text-2xs text-ink-muted mb-1">Agent name</label>
                 <div class="flex items-center gap-2">
                     <input
                         v-model="form.name"
@@ -71,10 +71,10 @@
 
             <!-- Access -->
             <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Access</div>
+                <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">Access</div>
                 <div class="flex items-center gap-3">
                     <UToggle v-model="form.isPublic" @update:model-value="onTogglePublic" :disabled="!canManageDs" />
-                    <span class="text-[11px] text-gray-400 dark:text-gray-500">
+                    <span class="text-2xs text-ink-muted">
                         Public access allows all organization members to use this agent.
                     </span>
                 </div>
@@ -83,7 +83,7 @@
             <!-- Members & your access -->
             <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
                 <div class="flex items-center justify-between mb-2">
-                    <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Members</div>
+                    <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">Members</div>
                     <button
                         v-if="canManageDsMembers && !form.isPublic"
                         @click="openAdd"
@@ -92,7 +92,7 @@
                         Add member
                     </button>
                 </div>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
+                <p class="text-2xs text-ink-muted mb-3">Everyone listed here can query this agent. The role only grants extra management rights — use Remove to revoke access.</p>
 
                 <div class="space-y-1">
                     <template v-if="!form.isPublic">
@@ -103,35 +103,35 @@
                     >
                         <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0 flex items-start gap-1.5">
-                                <UIcon :name="principalIcon(m)" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0 mt-0.5" />
+                                <UIcon :name="principalIcon(m)" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0 mt-0.5" />
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5">
                                         <span class="text-xs font-medium text-gray-900 dark:text-white">{{ principalDisplayName(m) }}</span>
                                         <UBadge v-if="isSelf(m)" size="xs" color="blue" variant="subtle">You</UBadge>
                                         <UBadge v-if="isOwnerPrincipal(m)" size="xs" color="amber" variant="subtle" title="Created this agent">Owner</UBadge>
                                         <template v-if="m.principal_type === 'group'">
-                                            <span class="text-[11px] text-gray-400 dark:text-gray-500">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
+                                            <span class="text-2xs text-ink-muted">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                             <button
                                                 @click="toggleGroupExpand(m.principal_id)"
-                                                class="w-4 h-4 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 text-xs leading-none"
+                                                class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 text-xs leading-none"
                                             >
                                                 {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                             </button>
                                         </template>
                                     </div>
-                                    <div class="text-[11px] text-gray-400 dark:text-gray-500" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
+                                    <div class="text-2xs text-ink-muted" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
                                     <!-- Expanded group members -->
                                     <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 ps-1 space-y-1">
                                         <div
                                             v-for="gm in (groupMembers[m.principal_id] || [])"
                                             :key="gm.user_id"
-                                            class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500"
+                                            class="flex items-center gap-1.5 text-2xs text-ink-muted"
                                         >
                                             <UIcon name="i-heroicons-user" class="w-3 h-3 text-gray-300 dark:text-gray-600 flex-shrink-0" />
                                             <span>{{ gm.user_name || gm.user_email }}</span>
-                                            <span v-if="gm.user_name && gm.user_email" class="text-gray-400 dark:text-gray-500">{{ gm.user_email }}</span>
+                                            <span v-if="gm.user_name && gm.user_email" class="text-ink-muted">{{ gm.user_email }}</span>
                                         </div>
-                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-[11px] text-gray-300 dark:text-gray-600 italic">No members</div>
+                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-gray-300 dark:text-gray-600 italic">No members</div>
                                     </div>
                                     <!-- Permissions -->
                                     <div class="mt-1.5">
@@ -153,12 +153,12 @@
                                                 <span v-if="m.permissions?.length" class="flex items-center gap-1 flex-wrap">
                                                     <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
                                                 </span>
-                                                <span v-else class="text-gray-400 dark:text-gray-500" title="This member can query the agent but has no extra management rights">Query only</span>
+                                                <span v-else class="text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
                                             </UButton>
                                         </UDropdown>
                                         <div v-else class="flex gap-1 flex-wrap">
                                             <UBadge v-for="p in m.permissions" :key="p" size="xs" color="gray" variant="subtle">{{ formatPermission(p) }}</UBadge>
-                                            <span v-if="!m.permissions?.length" class="text-[11px] text-gray-400 dark:text-gray-500" title="This member can query the agent but has no extra management rights">Query only</span>
+                                            <span v-if="!m.permissions?.length" class="text-2xs text-ink-muted" title="This member can query the agent but has no extra management rights">Query only</span>
                                         </div>
                                     </div>
                                 </div>
@@ -172,11 +172,11 @@
                             </button>
                         </div>
                     </div>
-                    <div v-if="memberRows.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+                    <div v-if="memberRows.length === 0" class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-2xs text-ink-muted text-center">
                         No members yet.
                     </div>
                     </template>
-                    <div v-else class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-[11px] text-gray-400 dark:text-gray-500 text-center">
+                    <div v-else class="rounded-md border border-gray-100 dark:border-gray-800 px-3 py-3 text-2xs text-ink-muted text-center">
                         This agent is public — every organization member can query it.
                     </div>
                 </div>
@@ -184,8 +184,8 @@
 
             <!-- Channels (MCP / Slack / …) — moved to the bottom -->
             <div v-if="connectedChannels.length > 0" class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Channels</div>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
+                <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">Channels</div>
+                <p class="text-2xs text-ink-muted mb-3">Choose which connected channels can query this agent. Disabled channels won't see it.</p>
                 <div class="space-y-2">
                     <div v-for="ch in connectedChannels" :key="ch.key" class="flex items-center gap-3">
                         <UToggle
@@ -193,10 +193,10 @@
                             :disabled="!canManageDs || savingChannels"
                             @update:model-value="onToggleChannel(ch.key, $event)"
                         />
-                        <span class="inline-flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-gray-400">
+                        <span class="inline-flex items-center gap-1.5 text-2xs text-gray-600 dark:text-gray-400">
                             <img v-if="channelIcon(ch.key).img" :src="channelIcon(ch.key).img" :alt="ch.name" class="w-3.5 h-3.5" />
                             <McpIcon v-else-if="channelIcon(ch.key).mcp" class="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                            <UIcon v-else :name="channelIcon(ch.key).uicon" class="w-3.5 h-3.5 text-ink-muted" />
                             {{ ch.name }}
                         </span>
                     </div>
@@ -205,8 +205,8 @@
 
             <!-- Danger zone (last section, no border) -->
             <div v-if="canManageDs">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">Danger zone</div>
-                <p class="text-[11px] text-gray-400 dark:text-gray-500 mb-2">Removing this agent will disconnect it from the data source. You can reconnect later.</p>
+                <div class="text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">Danger zone</div>
+                <p class="text-2xs text-ink-muted mb-2">Removing this agent will disconnect it from the data source. You can reconnect later.</p>
                 <button
                     @click="showDelete = true"
                     class="h-8 px-3 rounded-lg border border-red-200 dark:border-red-500/30 text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10"
@@ -228,7 +228,7 @@
                   One search over users and groups. The principal type is a
                   property of the row, not a mode the user has to pick first.
                 -->
-                <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Who</label>
+                <label class="block text-2xs text-ink-muted mb-1">Who</label>
                 <USelectMenu
                     v-model="selectedPrincipals"
                     :options="principalOptions"
@@ -243,10 +243,10 @@
                     <template #option="{ option }">
                         <UIcon
                             :name="option.type === 'group' ? 'i-heroicons-user-group' : 'i-heroicons-user'"
-                            class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0"
+                            class="w-3.5 h-3.5 text-ink-muted shrink-0"
                         />
                         <span class="truncate">{{ option.label }}</span>
-                        <span v-if="option.sub" class="text-gray-400 dark:text-gray-500 truncate">{{ option.sub }}</span>
+                        <span v-if="option.sub" class="text-ink-muted truncate">{{ option.sub }}</span>
                     </template>
                 </USelectMenu>
 
@@ -258,7 +258,7 @@
                   invited meaningless combinations.
                 -->
                 <div class="mt-4">
-                    <label class="block text-[11px] text-gray-400 dark:text-gray-500 mb-1.5">Access</label>
+                    <label class="block text-2xs text-ink-muted mb-1.5">Access</label>
                     <div class="space-y-0.5">
                         <button
                             v-for="tier in ACCESS_TIERS"
@@ -277,7 +277,7 @@
                             </span>
                             <span class="min-w-0">
                                 <span class="block text-xs text-gray-900 dark:text-white">{{ tier.label }}</span>
-                                <span class="block text-[11px] text-gray-500 dark:text-gray-400">{{ tier.hint }}</span>
+                                <span class="block text-2xs text-gray-500 dark:text-gray-400">{{ tier.hint }}</span>
                             </span>
                         </button>
                     </div>
@@ -286,7 +286,7 @@
                     <button
                         type="button"
                         @click="showAdvancedPerms = !showAdvancedPerms"
-                        class="mt-2 inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                        class="mt-2 inline-flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                     >
                         Advanced permissions
                         <UIcon

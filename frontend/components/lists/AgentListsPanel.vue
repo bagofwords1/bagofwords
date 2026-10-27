@@ -32,13 +32,13 @@
       @changed="load"
     />
 
-    <div v-else-if="listId && loading" class="flex items-center gap-2 py-8 justify-center text-xs text-gray-400 dark:text-gray-500">
+    <div v-else-if="listId && loading" class="flex items-center gap-2 py-8 justify-center text-xs text-ink-muted">
       <Spinner class="w-3.5 h-3.5" /><span>{{ $t('lists.loading') }}</span>
     </div>
 
     <div v-else class="px-6 py-4 flex-1 min-h-0 overflow-y-auto">
       <div class="flex items-center gap-2 mb-3">
-        <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums ms-auto" data-testid="agent-lists-count">{{ lists.length }}</span>
+        <span class="text-xs text-ink-muted tabular-nums ms-auto" data-testid="agent-lists-count">{{ lists.length }}</span>
         <button
           v-if="canManage"
           type="button"
@@ -51,13 +51,13 @@
         </button>
       </div>
 
-      <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-gray-400 dark:text-gray-500">
+      <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-ink-muted">
         <Spinner class="w-3.5 h-3.5" /><span>{{ $t('lists.loading') }}</span>
       </div>
 
       <div v-else-if="lists.length === 0" class="flex flex-col items-center justify-center text-center py-14 px-4" data-testid="agent-lists-empty">
         <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white dark:bg-gray-900 ring-1 ring-gray-200/70 dark:ring-gray-700/70 shadow-sm">
-          <UIcon name="i-heroicons-list-bullet" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+          <UIcon name="i-heroicons-list-bullet" class="w-5 h-5 text-ink-muted" />
         </div>
         <h3 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">{{ $t('lists.empty') }}</h3>
         <p class="mt-1.5 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -84,13 +84,13 @@
           @click="$emit('open', l.id)"
         >
           <div class="flex items-center gap-2 min-w-0">
-            <UIcon name="i-heroicons-list-bullet" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-            <span dir="auto" class="min-w-0 truncate text-[13px] font-medium text-gray-900 dark:text-white">{{ l.name }}</span>
-            <span class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{{ $t('lists.rowsCount', { n: l.row_count }, l.row_count) }}</span>
+            <UIcon name="i-heroicons-list-bullet" class="w-4 h-4 shrink-0 text-ink-muted" />
+            <span dir="auto" class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">{{ l.name }}</span>
+            <span class="ms-auto shrink-0 text-2xs text-ink-muted tabular-nums">{{ $t('lists.rowsCount', { n: l.row_count }, l.row_count) }}</span>
           </div>
           <div class="mt-1 flex items-center gap-3 min-w-0 ps-6">
-            <span dir="auto" class="min-w-0 truncate text-[12px] text-gray-500 dark:text-gray-400">{{ l.description || fieldNames(l) }}</span>
-            <span class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{{ $t('lists.fieldsCount', { n: l.fields.length }, l.fields.length) }}</span>
+            <span dir="auto" class="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">{{ l.description || fieldNames(l) }}</span>
+            <span class="ms-auto shrink-0 text-2xs text-ink-muted">{{ $t('lists.fieldsCount', { n: l.fields.length }, l.fields.length) }}</span>
           </div>
         </button>
       </div>

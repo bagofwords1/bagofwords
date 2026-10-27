@@ -9,7 +9,7 @@
       <div v-if="step === 'select'">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-semibold">{{ $t('data.addConnection') }}</h3>
-          <button :aria-label="$t('common.close')" @click="isOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
+          <button :aria-label="$t('common.close')" @click="isOpen = false" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-400">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
@@ -45,7 +45,7 @@
 
         <!-- Loading state -->
         <div v-if="loadingDataSources" class="flex items-center justify-center py-12">
-          <Spinner class="h-4 w-4 text-gray-400" />
+          <Spinner class="h-4 w-4 text-ink-muted" />
         </div>
 
         <!-- Scrollable region: data sources grouped by category. MCP-backed
@@ -53,7 +53,7 @@
              "MCP" badge rather than a transport-named section. -->
         <div v-else class="max-h-[320px] overflow-y-auto -mx-1 px-1">
           <div v-for="group in groupedCategories" :key="group.key" class="mb-5">
-            <div v-if="activeCategory === 'all'" class="text-xs font-medium text-gray-400 mb-2">{{ $t(group.label) }}</div>
+            <div v-if="activeCategory === 'all'" class="text-xs font-medium text-ink-muted mb-2">{{ $t(group.label) }}</div>
             <div class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3">
               <button
                 v-for="tile in group.tiles"
@@ -72,17 +72,17 @@
                   <div class="p-1 relative">
                     <DataSourceIcon class="h-6" :type="tile.iconType" :connector-key="tile.connectorKey" />
                     <div v-if="tile.locked" class="absolute -top-1 -end-1">
-                      <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                      <svg class="h-3 w-3 text-ink-muted" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
                       </svg>
                     </div>
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ tile.title }}</div>
                   <div v-if="tile.isMcp || tile.locked" class="mt-1 flex items-center justify-center gap-1">
-                    <span v-if="tile.isMcp" class="text-[9px] font-medium uppercase tracking-wide text-blue-600 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.isMcp" class="text-2xs font-medium uppercase tracking-wide text-blue-600 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.mcpBadge') }}
                     </span>
-                    <span v-if="tile.locked" class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.locked" class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.enterprise') }}
                     </span>
                   </div>
@@ -106,7 +106,7 @@
         >
           <!-- Custom Connectors (left) -->
           <div v-if="customEntries.length > 0">
-            <div class="text-xs font-medium text-gray-400 mb-2">{{ $t('data.customSection') }}</div>
+            <div class="text-xs font-medium text-ink-muted mb-2">{{ $t('data.customSection') }}</div>
             <div class="flex flex-wrap gap-2">
               <button
                 v-for="entry in customEntries"
@@ -124,7 +124,7 @@
 
           <!-- Sample databases (right) -->
           <div v-if="uninstalledDemos.length > 0" class="ms-auto text-end">
-            <div class="text-xs font-medium text-gray-400 mb-2">{{ $t('data.sampleSection') }}</div>
+            <div class="text-xs font-medium text-ink-muted mb-2">{{ $t('data.sampleSection') }}</div>
             <div class="flex flex-wrap gap-2 justify-end">
               <button
                 v-for="demo in uninstalledDemos"
@@ -136,7 +136,7 @@
                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                 {{ demo.name }}
-                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
               </button>
             </div>
           </div>
@@ -157,7 +157,7 @@
           </button>
           <DataSourceIcon :type="selectedDataSource?.type" :connector-key="selectedDataSource?.connector_key" class="h-5" />
           <h3 class="text-lg font-semibold">{{ selectedDataSource?.title }}</h3>
-          <button :aria-label="$t('common.close')" @click="isOpen = false" class="ms-auto text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
+          <button :aria-label="$t('common.close')" @click="isOpen = false" class="ms-auto text-ink-muted hover:text-gray-600 dark:hover:text-gray-400">
             <UIcon name="heroicons-x-mark" class="w-5 h-5" />
           </button>
         </div>
@@ -214,11 +214,11 @@
               <p v-if="!createdConnection && !formState.busy && !formState.error" class="text-sm leading-6 text-gray-500 dark:text-gray-400 mb-7">{{ $t('data.setupReadyHint') }}</p>
               <ol class="space-y-5 my-6">
                 <li class="flex items-center gap-3 text-sm">
-                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-gray-600' : 'text-gray-400'" />
+                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-gray-600' : 'text-ink-muted'" />
                   <span>{{ createdConnection ? $t('data.setupSaved') : $t('data.setupConnection') }}</span>
                 </li>
-                <li class="flex items-center gap-3 text-sm" :class="!createdConnection ? 'text-gray-400' : ''">
-                  <UIcon :name="indexingState?.status === 'completed' ? 'i-heroicons-check-circle' : indexingState?.status === 'failed' ? 'i-heroicons-exclamation-circle' : 'i-heroicons-table-cells'" class="w-5 h-5 flex-none" :class="indexingState?.status === 'completed' ? 'text-green-600' : indexingState?.status === 'failed' ? 'text-red-600' : 'text-gray-400'" />
+                <li class="flex items-center gap-3 text-sm" :class="!createdConnection ? 'text-ink-muted' : ''">
+                  <UIcon :name="indexingState?.status === 'completed' ? 'i-heroicons-check-circle' : indexingState?.status === 'failed' ? 'i-heroicons-exclamation-circle' : 'i-heroicons-table-cells'" class="w-5 h-5 flex-none" :class="indexingState?.status === 'completed' ? 'text-green-600' : indexingState?.status === 'failed' ? 'text-red-600' : 'text-ink-muted'" />
                   <span>{{ $t('data.schemaDiscovery') }}</span>
                 </li>
               </ol>

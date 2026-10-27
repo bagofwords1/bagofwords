@@ -33,7 +33,7 @@
                     <div class="min-w-0">
                         <div class="font-medium text-gray-900 dark:text-white flex items-center">
                             {{ $t(`settings.aiSettingsPage.sections.${section.id}.title`) }}
-                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
                         </div>
                         <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
                             {{ $t(`settings.aiSettingsPage.sections.${section.id}.description`) }}
@@ -45,7 +45,7 @@
                         </span>
                         <Icon
                             name="heroicons:chevron-down"
-                            :class="['w-5 h-5 text-gray-400 transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
+                            :class="['w-5 h-5 text-ink-muted transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
                         />
                     </div>
                 </button>
@@ -59,7 +59,7 @@
                                     <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
                                     {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
                                     <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
                                     </UTooltip>
                                 </div>
                                 <UToggle
@@ -126,7 +126,7 @@
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactAccuracy') }}</span>
                             </li>
                             <li class="flex items-start gap-2">
-                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 dark:text-gray-400 mt-0.5 flex-shrink-0" />
+                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-ink-muted mt-0.5 flex-shrink-0" />
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactColumns') }}</span>
                             </li>
                             <li class="mt-2 text-xs">

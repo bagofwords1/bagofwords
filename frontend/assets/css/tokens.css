@@ -1,0 +1,260 @@
+/*
+ * Design tokens for the app shell.
+ *
+ * Why CSS variables and not plain Tailwind shades: the app's most-used text
+ * color was `text-gray-400`, which is 2.54:1 on white (fails WCAG AA, and
+ * fails even the 3:1 large-text floor) but ~7.0:1 on gray-900 — i.e. the
+ * *same* shade is wrong in light mode and right in dark mode. 666 call sites
+ * made that worse by pairing it as `text-gray-400 dark:text-gray-500`, which
+ * is low-contrast in both modes. No single Tailwind shade can fix that, so
+ * contrast-bearing colors resolve through a variable that flips with the
+ * theme, and the markup names intent (`text-muted`) instead of a shade.
+ *
+ * Token names deliberately match two things:
+ *   - `frontend/public/libs/artifact-globals.js` (`--bow-bg`, `--bow-ink`,
+ *     `--bow-radius-*`), so generated artifacts and the chrome around them
+ *     share one vocabulary;
+ *   - Nuxt UI v3/v4 semantics (`muted`, `elevated`, `inverted`), so the
+ *     eventual major upgrade is a rename and not a re-think.
+ *
+ * Colors are stored as space-separated RGB triplets, not hex, so Tailwind's
+ * opacity modifiers work through them (`text-ink-muted/70`). See the
+ * `colors` block in tailwind.config.ts. Contrast ratios in the comments are
+ * machine-verified by `scripts/check-contrast.mjs` — keep that passing.
+ */
+
+:root {
+  /* --- surfaces -------------------------------------------------------- */
+  --bow-bg-rgb: 255 255 255;
+  --bow-bg-subtle-rgb: 249 250 251; /* gray-50  — page wells, table stripes */
+  --bow-bg-muted-rgb: 243 244 246; /* gray-100 — hover fills, inert chips   */
+  --bow-bg-elevated-rgb: 255 255 255; /* cards/popovers above the page      */
+  --bow-bg-inverted-rgb: 17 24 39; /* gray-900 — tooltips, toasts           */
+
+  /* --- text ------------------------------------------------------------ */
+  --bow-ink-rgb: 17 24 39; /* #111827 gray-900 — headings   17.74:1 */
+  --bow-ink-2-rgb: 55 65 81; /* #374151 gray-700 — body       10.31:1 */
+  --bow-ink-muted-rgb: 102 112 133; /* #667085 labels, meta, help     4.97:1 */
+  --bow-ink-subtle-rgb: 138 147 163; /* #8a93a3 placeholders           3.10:1 */
+  --bow-ink-inverted-rgb: 249 250 251; /* on --bow-bg-inverted               */
+
+  /* --bow-ink-subtle is intentionally below 4.5:1. It is only for text that
+     carries no information on its own — placeholders that duplicate a
+     visible label, disabled controls. Never use it for content. */
+
+  /* --- lines ----------------------------------------------------------- */
+  --bow-line-rgb: 229 231 235; /* gray-200 — default divider/border */
+  --bow-line-strong-rgb: 209 213 219; /* gray-300 — input borders          */
+  --bow-line-subtle-rgb: 243 244 246; /* gray-100 — barely-there rules     */
+
+  /* --- accent ---------------------------------------------------------- */
+  /* Matches app.config.ts `ui.primary: 'blue'`. blue-600 clears AA on white
+     (5.17:1); blue-500 does not (3.68:1), so blue-500 is never used for
+     text or as a solid fill under small type. */
+  --bow-accent-rgb: 37 99 235; /* blue-600  5.17:1 on white */
+  --bow-accent-hover-rgb: 29 78 216; /* blue-700  6.70:1          */
+  --bow-accent-subtle-rgb: 239 246 255; /* blue-50 fills             */
+  --bow-accent-line-rgb: 191 219 254; /* blue-200 borders          */
+
+  /* Hex mirrors, for plain CSS below that wants a color without rgb(). */
+  --bow-accent: rgb(var(--bow-accent-rgb));
+  --bow-bg-muted: rgb(var(--bow-bg-muted-rgb));
+  --bow-bg-subtle: rgb(var(--bow-bg-subtle-rgb));
+
+  /* --- radii ----------------------------------------------------------- */
+  /* Two radii, not three. See tailwind.config.ts — `rounded` and
+     `rounded-md` both resolve to --bow-radius-md so the 1,593 call sites
+     split across them stop disagreeing. */
+  --bow-radius-sm: 4px;
+  --bow-radius-md: 6px;
+  --bow-radius-lg: 8px;
+  --bow-radius-xl: 12px;
+
+  /* --- elevation ------------------------------------------------------- */
+  /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against
+     white at small sizes; these keep an edge without a halo. */
+  --bow-shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 1px -1px rgb(16 24 40 / 0.06);
+  --bow-shadow-md: 0 2px 4px -1px rgb(16 24 40 / 0.06), 0 4px 10px -2px rgb(16 24 40 / 0.08);
+  --bow-shadow-lg: 0 4px 8px -2px rgb(16 24 40 / 0.08), 0 12px 24px -4px rgb(16 24 40 / 0.1);
+  --bow-shadow-xl: 0 8px 16px -4px rgb(16 24 40 / 0.1), 0 24px 48px -8px rgb(16 24 40 / 0.14);
+
+  /* --- motion ---------------------------------------------------------- */
+  /* Three durations and one curve. Before this, 601 `transition-*` classes
+     shared 43 `duration-*` declarations and three different cubic-beziers;
+     tailwind.config.ts points the *bare* `transition` utility at
+     --bow-ease / 180ms so the untimed majority inherits the system. */
+  --bow-duration-fast: 120ms; /* hover, color, focus ring     */
+  --bow-duration-base: 180ms; /* the default                  */
+  --bow-duration-slow: 280ms; /* panels, disclosure, overlays */
+  --bow-ease: cubic-bezier(0.4, 0, 0.2, 1); /* standard        */
+  --bow-ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* decelerate */
+}
+
+/*
+ * Dark mode. `colorMode.preference: 'system'` + Nuxt UI v2 put `.dark` on
+ * <html>, which is the same hook the app's 9,358 `dark:` variants already
+ * use, so these override cleanly.
+ */
+.dark {
+  --bow-bg-rgb: 17 24 39; /* gray-900 */
+  --bow-bg-subtle-rgb: 11 18 32; /* below the page — wells read recessed */
+  --bow-bg-muted-rgb: 31 41 55; /* gray-800 */
+  --bow-bg-elevated-rgb: 31 41 55; /* cards lift *toward* the light here   */
+  --bow-bg-inverted-rgb: 249 250 251;
+
+  --bow-ink-rgb: 249 250 251; /* gray-50  on gray-900          16.98:1 */
+  --bow-ink-2-rgb: 229 231 235; /* gray-200                      14.33:1 */
+  --bow-ink-muted-rgb: 156 163 175; /* gray-400 — correct *here*      6.99:1 */
+  --bow-ink-subtle-rgb: 107 114 128; /* gray-500                       3.67:1 */
+  --bow-ink-inverted-rgb: 17 24 39;
+
+  --bow-line-rgb: 55 65 81; /* gray-700 */
+  --bow-line-strong-rgb: 75 85 99; /* gray-600 */
+  --bow-line-subtle-rgb: 31 41 55; /* gray-800 */
+
+  /* The accent has to flip: blue-600 is only 3.43:1 on gray-900. */
+  --bow-accent-rgb: 96 165 250; /* blue-400  6.98:1 on gray-900 */
+  --bow-accent-hover-rgb: 147 197 253; /* blue-300  9.84:1             */
+  --bow-accent-subtle-rgb: 30 58 138; /* blue-900 fills               */
+  --bow-accent-line-rgb: 30 64 175; /* blue-800 borders             */
+
+  /* Shadow is near-useless on dark surfaces — elevation reads through
+     --bow-bg-elevated instead. Keep a trace so overlays still detach. */
+  --bow-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --bow-shadow-md: 0 2px 6px -1px rgb(0 0 0 / 0.4);
+  --bow-shadow-lg: 0 8px 24px -4px rgb(0 0 0 / 0.5);
+  --bow-shadow-xl: 0 16px 48px -8px rgb(0 0 0 / 0.6);
+}
+
+/* ---------------------------------------------------------------------- */
+/* Global baseline                                                        */
+/* ---------------------------------------------------------------------- */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Press feedback. The app had 2,660 `hover:` variants against 3 `active:`
+ * ones, so clicking anything produced no immediate response — the gap
+ * between click and async result is most of what reads as "clunky".
+ *
+ * This is deliberately a global element rule rather than a utility: 1,089
+ * of the app's buttons are hand-written `<button>`s that no component
+ * default can reach. `filter` and a sub-pixel nudge are used because
+ * neither affects layout, so this cannot reflow anything.
+ */
+button:not(:disabled):not([aria-disabled='true']):active,
+[role='button']:not([aria-disabled='true']):active {
+  transform: translateY(0.5px);
+  filter: brightness(0.97);
+}
+
+/* Opt out where the nudge is wrong — drag handles, gridstack items,
+   resizers, canvas controls. */
+.no-press,
+.no-press:active {
+  transform: none !important;
+  filter: none !important;
+}
+
+/*
+ * Focus rings: visible for keyboard users, absent for mouse users. The app
+ * has 753 `focus:` variants against 44 `focus-visible:`, so rings were
+ * firing on click — which reads as sloppy rather than accessible. This is a
+ * floor for elements that style neither.
+ */
+:focus-visible {
+  outline: 2px solid var(--bow-accent);
+  outline-offset: 2px;
+}
+
+/* Numeric alignment. A data product's figures should not shift column
+   position between rows; `.nums` is the opt-in for table cells and KPIs. */
+.nums,
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Page + layout transitions                                              */
+/* ---------------------------------------------------------------------- */
+/*
+ * Registered in nuxt.config.ts (`app.pageTransition` / `app.layoutTransition`).
+ * Before this the SPA had none at all, so every navigation was a hard cut:
+ * content vanished, blank frame, new content popped in.
+ *
+ * `mode: 'out-in'` means these run in sequence, so the total is 90 + 160ms.
+ * The leave is deliberately shorter than the enter — a slow leave feels
+ * like lag, because nothing is on screen during it.
+ */
+.page-enter-active,
+.layout-enter-active {
+  transition:
+    opacity 160ms var(--bow-ease-out),
+    transform 160ms var(--bow-ease-out);
+}
+
+.page-leave-active,
+.layout-leave-active {
+  transition: opacity 90ms var(--bow-ease);
+}
+
+.page-enter-from,
+.layout-enter-from {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+.page-leave-to,
+.layout-leave-to {
+  opacity: 0;
+}
+
+/*
+ * One shimmer, one duration. The app defines `@keyframes shimmer` 66 times
+ * at three different speeds (1.6s x45, 2s x26, 1.8s x1), so two loading
+ * elements from different components pulse out of phase at different rates.
+ * `.bow-shimmer` is the single source; the per-component copies are retired
+ * against this in step 3.
+ */
+@keyframes bow-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.bow-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--bow-bg-muted) 0%,
+    var(--bow-bg-subtle) 40%,
+    var(--bow-bg-muted) 80%
+  );
+  background-size: 200% 100%;
+  animation: bow-shimmer 1.6s var(--bow-ease) infinite;
+}
+
+/* Respect the OS setting. Motion is decoration here — nothing in the app
+   depends on an animation to convey state. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  button:not(:disabled):active,
+  [role='button']:active {
+    transform: none;
+  }
+}

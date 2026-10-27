@@ -23,7 +23,7 @@
                     <span
                         role="button"
                         data-testid="provider-chip-gear"
-                        class="p-1 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                        class="p-1 rounded-full text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                         @click.stop="openManageProvider(provider.id)"
                     >
                         <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 block" />
@@ -71,7 +71,7 @@
                     <!-- Enterprise-only feature: keep the control visible but locked without a license. -->
                     <UTooltip v-if="!modelRoutingLicensed" :text="$t('settings.llms.autoRouterEnterpriseTooltip')">
                         <span
-                            class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
+                            class="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
                             data-testid="auto-router-enterprise-badge"
                         >
                             <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />
@@ -79,7 +79,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-gray-600 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
                                 <p class="font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.autoRouterHowTitle') }}</p>
@@ -100,7 +100,7 @@
                     <span class="text-sm text-gray-600 dark:text-gray-300">{{ $t('settings.llms.fallback') }}</span>
                     <UTooltip v-if="!llmFallbackLicensed" :text="$t('settings.llms.fallbackEnterpriseTooltip')">
                         <span
-                            class="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
+                            class="inline-flex items-center gap-1 text-2xs font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-1.5 py-0.5"
                             data-testid="llm-fallback-enterprise-badge"
                         >
                             <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />
@@ -108,7 +108,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-gray-600 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
                                 <p class="font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.fallbackHowTitle') }}</p>
@@ -135,22 +135,22 @@
             class="mb-2 flex items-center flex-wrap gap-1.5 text-xs text-gray-600 dark:text-gray-300"
             data-testid="llm-fallback-chain"
         >
-            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-gray-400" />
+            <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 text-ink-muted" />
             <span class="font-medium">{{ $t('settings.llms.fallback') }}:</span>
             <span class="inline-flex items-center gap-1">
                 <LLMProviderIcon v-if="defaultModel" :provider="defaultModel.provider.provider_type" :model="`${defaultModel.name} ${defaultModel.model_id}`" :icon="true" class="h-3.5 w-3.5" />
                 <span>{{ defaultModel?.name || '—' }}</span>
-                <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('settings.llms.fallbackPrimary') }}</span>
+                <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('settings.llms.fallbackPrimary') }}</span>
             </span>
             <template v-for="entry in fallbackOrder" :key="entry.id">
-                <UIcon name="i-heroicons-arrow-long-right" class="w-3.5 h-3.5 text-gray-400" />
+                <UIcon name="i-heroicons-arrow-long-right" class="w-3.5 h-3.5 text-ink-muted" />
                 <span class="inline-flex items-center gap-1">
                     <LLMProviderIcon :provider="entry.provider_type" :model="`${entry.name} ${entry.model_id}`" :icon="true" class="h-3.5 w-3.5" />
                     <span>{{ entry.name }}</span>
-                    <span v-if="!entry.is_active" class="text-[10px] uppercase tracking-wide text-amber-700 dark:text-amber-400">{{ $t('settings.llms.fallbackInactive') }}</span>
+                    <span v-if="!entry.is_active" class="text-2xs uppercase tracking-wide text-amber-700 dark:text-amber-400">{{ $t('settings.llms.fallbackInactive') }}</span>
                 </span>
             </template>
-            <span v-if="fallbackOrder.length === 0" class="text-gray-400 italic">{{ $t('settings.llms.fallbackEmpty') }}</span>
+            <span v-if="fallbackOrder.length === 0" class="text-ink-muted italic">{{ $t('settings.llms.fallbackEmpty') }}</span>
         </div>
         <div v-if="models.length > 0" class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
@@ -213,7 +213,7 @@
                         </td>
                         <td v-if="autoRouterOn" class="px-4 py-2 text-sm align-middle w-full" data-testid="llm-routing-cell" @click.stop>
                             <div class="min-w-[20rem] max-w-[32rem]">
-                                <span v-if="!model.is_enabled" class="text-xs text-gray-400 italic">{{ $t('settings.llms.routingNotAvailable') }}</span>
+                                <span v-if="!model.is_enabled" class="text-xs text-ink-muted italic">{{ $t('settings.llms.routingNotAvailable') }}</span>
                                 <!-- Routing guidance (only editable target when enabled) -->
                                 <div v-else>
                                     <div v-if="editingHintId === model.id" class="flex items-start gap-1">
@@ -227,7 +227,7 @@
                                         <button type="button" class="text-blue-500 hover:text-blue-700 mt-1" @click="saveHint(model)">
                                             <UIcon name="i-heroicons-check" class="w-4 h-4" />
                                         </button>
-                                        <button type="button" class="text-gray-400 hover:text-gray-600 mt-1" @click="editingHintId = null">
+                                        <button type="button" class="text-ink-muted hover:text-gray-600 mt-1" @click="editingHintId = null">
                                             <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                                         </button>
                                     </div>
@@ -236,7 +236,7 @@
                                             v-if="useCan('manage_llm_settings')"
                                             type="button"
                                             class="group inline-flex items-start gap-1 text-xs text-start"
-                                            :class="modelHint(model) ? 'text-gray-600 dark:text-gray-300 hover:text-blue-600' : 'text-gray-400 hover:text-blue-600 italic'"
+                                            :class="modelHint(model) ? 'text-gray-600 dark:text-gray-300 hover:text-blue-600' : 'text-ink-muted hover:text-blue-600 italic'"
                                             @click="startHintEdit(model)"
                                         >
                                             <span class="underline decoration-dotted underline-offset-2">{{ modelHint(model) || $t('settings.llms.routingHintPlaceholder') }}</span>
@@ -249,7 +249,7 @@
                         </td>
                         <td v-if="fallbackOn" class="px-4 py-2 whitespace-nowrap text-sm align-middle" data-testid="llm-fallback-cell" @click.stop>
                             <!-- The default model is what fails INTO the chain — fixed primary marker. -->
-                            <span v-if="model.is_default" class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('settings.llms.fallbackPrimary') }}</span>
+                            <span v-if="model.is_default" class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('settings.llms.fallbackPrimary') }}</span>
                             <span v-else-if="!model.is_enabled" class="text-xs text-gray-300 dark:text-gray-600">—</span>
                             <select
                                 v-else-if="useCan('manage_llm_settings')"
@@ -264,8 +264,8 @@
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300 tabular-nums" data-testid="llm-cost-cell">
                             <span class="flex items-center gap-3">
-                                <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costInput') }}</span><span>{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span></span>
-                                <span class="flex flex-col items-start leading-tight"><span class="text-[10px] text-gray-400 uppercase tracking-wide">{{ $t('settings.llms.costOutput') }}</span><span>{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span></span>
+                                <span class="flex flex-col items-start leading-tight"><span class="text-2xs text-ink-muted uppercase tracking-wide">{{ $t('settings.llms.costInput') }}</span><span>{{ formatCostPart(model.input_cost_per_million_tokens_usd) }}</span></span>
+                                <span class="flex flex-col items-start leading-tight"><span class="text-2xs text-ink-muted uppercase tracking-wide">{{ $t('settings.llms.costOutput') }}</span><span>{{ formatCostPart(model.output_cost_per_million_tokens_usd) }}</span></span>
                             </span>
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap text-sm" @click.stop>
@@ -302,7 +302,7 @@
                                 <UButton size="xs" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white font-medium transition-colors duration-150" color="white" label="" trailing-icon="i-heroicons-ellipsis-vertical" />
                                 <template #item="{ item }">
                                     <span class="truncate" :class="item.danger ? 'text-red-600 dark:text-red-400' : ''">{{ item.label }}</span>
-                                    <UIcon v-if="item.icon" :name="item.icon" class="flex-shrink-0 h-3.5 w-3.5 ms-auto" :class="item.danger ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'" />
+                                    <UIcon v-if="item.icon" :name="item.icon" class="flex-shrink-0 h-3.5 w-3.5 ms-auto" :class="item.danger ? 'text-red-500' : 'text-ink-muted'" />
                                 </template>
                             </UDropdown>
                         </td>
@@ -324,7 +324,7 @@
         <!-- Empty state -->
         <div v-else class="text-center py-12 bg-white dark:bg-gray-900 rounded-lg mt-20">
             <div class="w-48 mx-auto mb-4 flex items-center justify-center">
-                <UIcon name="heroicons-cube-transparent" class="w-12 h-12 text-gray-400" />
+                <UIcon name="heroicons-cube-transparent" class="w-12 h-12 text-ink-muted" />
             </div>
             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">{{ $t('settings.llms.emptyTitle') }}</h3>
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">{{ $t('settings.llms.emptyHint') }}</p>

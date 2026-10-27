@@ -3,16 +3,16 @@
         <!-- Mirror technique: a transparent input over a token-coloured layer.
              The input owns caret, selection and IME; the layer is paint only. -->
         <div
-            class="relative flex items-center h-8 rounded-md bg-white dark:bg-gray-800 ring-1 ring-inset text-[13px] font-mono"
+            class="relative flex items-center h-8 rounded-md bg-white dark:bg-gray-800 ring-1 ring-inset text-sm font-mono"
             :class="shownError ? 'ring-red-300 dark:ring-red-800' : (focused ? 'ring-2 ring-blue-500' : 'ring-gray-300 dark:ring-gray-700')"
         >
-            <UIcon name="i-heroicons-magnifying-glass" class="w-4 h-4 ms-2.5 text-gray-400 flex-shrink-0" />
+            <UIcon name="i-heroicons-magnifying-glass" class="w-4 h-4 ms-2.5 text-ink-muted flex-shrink-0" />
             <div class="relative flex-grow h-full min-w-0">
                 <div
                     ref="mirror"
                     aria-hidden="true"
                     class="absolute inset-0 flex items-center px-2 whitespace-pre overflow-hidden pointer-events-none"
-                ><span v-if="!modelValue" class="text-gray-400 font-sans">{{ $t('monitoring.diagnosis.placeholder') }}</span><template v-else><span v-for="(seg, i) in segments" :key="i" :class="seg.cls">{{ seg.text }}</span></template></div>
+                ><span v-if="!modelValue" class="text-ink-muted font-sans">{{ $t('monitoring.diagnosis.placeholder') }}</span><template v-else><span v-for="(seg, i) in segments" :key="i" :class="seg.cls">{{ seg.text }}</span></template></div>
                 <input
                     ref="input"
                     :value="modelValue"
@@ -30,7 +30,7 @@
                     @scroll="syncScroll"
                 />
             </div>
-            <div class="flex items-center gap-2 pe-2.5 flex-shrink-0 text-[11px] text-gray-400 font-sans">
+            <div class="flex items-center gap-2 pe-2.5 flex-shrink-0 text-2xs text-ink-muted font-sans">
                 <span v-if="loading" class="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-blue-600"></span>
                 <template v-else-if="!focused && !modelValue">
                     <kbd class="px-1 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">/</kbd>
@@ -44,7 +44,7 @@
                 <button
                     v-if="modelValue"
                     type="button"
-                    class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700"
+                    class="flex items-center justify-center w-5 h-5 rounded text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700"
                     :title="$t('monitoring.diagnosis.clearQuery')"
                     :aria-label="$t('monitoring.diagnosis.clearQuery')"
                     data-testid="query-clear"
@@ -67,7 +67,7 @@
             v-if="open && suggestions.length"
             class="absolute start-0 top-full mt-1 z-20 w-full max-w-[520px] p-1.5 rounded-lg bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 shadow-lg"
         >
-            <div class="px-2.5 pt-1.5 pb-1 text-[11px] uppercase tracking-wider text-gray-400">
+            <div class="px-2.5 pt-1.5 pb-1 text-2xs uppercase tracking-wider text-ink-muted">
                 {{ ctx.kind === 'field' ? $t('monitoring.diagnosis.suggestFields') : $t('monitoring.diagnosis.suggestValues', { field: ctx.kind === 'value' ? ctx.field.name : '' }) }}
             </div>
             <button
@@ -80,12 +80,12 @@
                 @mousemove="active = i"
             >
                 <span class="font-mono text-xs" :class="ctx.kind === 'field' ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'">{{ s.label }}</span>
-                <span v-if="s.type" class="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ s.type }}</span>
+                <span v-if="s.type" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ s.type }}</span>
                 <span v-if="s.help" class="text-xs text-gray-500 truncate flex-grow">{{ s.help }}</span>
-                <span v-if="s.count != null" class="text-xs text-gray-400 tabular-nums ms-auto">{{ s.count.toLocaleString() }}</span>
-                <span v-if="i === active" class="text-[11px] text-gray-400 whitespace-nowrap">Tab · ↵</span>
+                <span v-if="s.count != null" class="text-xs text-ink-muted tabular-nums ms-auto">{{ s.count.toLocaleString() }}</span>
+                <span v-if="i === active" class="text-2xs text-ink-muted whitespace-nowrap">Tab · ↵</span>
             </button>
-            <div v-if="ctx.kind === 'field'" class="px-2.5 pt-1.5 pb-1 border-t border-gray-100 dark:border-gray-800 mt-1 text-[11px] text-gray-400">
+            <div v-if="ctx.kind === 'field'" class="px-2.5 pt-1.5 pb-1 border-t border-gray-100 dark:border-gray-800 mt-1 text-2xs text-ink-muted">
                 {{ $t('monitoring.diagnosis.suggestFooter') }}
             </div>
         </div>
@@ -127,11 +127,11 @@ const shownError = computed(() => {
 
 const TOKEN_CLASS: Record<string, string> = {
     field: 'text-blue-700 dark:text-blue-400',
-    colon: 'text-gray-400',
+    colon: 'text-ink-muted',
     op: 'text-gray-500',
     value: 'text-gray-900 dark:text-white',
     keyword: 'text-gray-500 font-semibold',
-    paren: 'text-gray-400',
+    paren: 'text-ink-muted',
     text: 'text-gray-900 dark:text-white',
     phrase: 'text-emerald-700 dark:text-emerald-400',
 }

@@ -2,9 +2,9 @@
   <div v-if="chips.length" class="flex items-center gap-1.5 flex-wrap">
     <span
       v-for="c in chips" :key="c.group + c.value"
-      class="inline-flex items-center gap-1 h-6 ps-2 pe-1 rounded-md bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-700 dark:text-gray-200"
+      class="inline-flex items-center gap-1 h-6 ps-2 pe-1 rounded-md bg-gray-100 dark:bg-gray-800 text-2xs text-gray-700 dark:text-gray-200"
     >
-      <span class="text-gray-400 dark:text-gray-500">{{ c.groupLabel }}</span>
+      <span class="text-ink-muted">{{ c.groupLabel }}</span>
       <span class="font-medium truncate max-w-[160px]">{{ c.label }}</span>
       <button
         type="button"
@@ -18,7 +18,7 @@
     <button
       v-if="chips.length > 1"
       type="button"
-      class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 ms-0.5"
+      class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 ms-0.5"
       @click="$emit('clear')"
     >{{ $t('allInstructions.clearAll') }}</button>
   </div>

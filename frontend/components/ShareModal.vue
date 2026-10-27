@@ -19,11 +19,11 @@
             <div class="flex items-center justify-between mb-1">
                 <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ title }}</h2>
                 <button @click="modalOpen = false"
-                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 outline-none">
+                    class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
             </div>
-            <p class="text-sm text-gray-400 mb-6">{{ shareDescription }}</p>
+            <p class="text-sm text-ink-muted mb-6">{{ shareDescription }}</p>
 
             <!-- Visibility dropdown -->
             <label class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block">{{ $t('share.access') }}</label>
@@ -45,10 +45,10 @@
                 </template>
                 <template #option="{ option }">
                     <div class="flex items-start gap-3 py-1 px-1">
-                        <Icon :name="option.icon" class="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
+                        <Icon :name="option.icon" class="w-4 h-4 text-ink-muted flex-shrink-0 mt-0.5" />
                         <div class="flex flex-col">
                             <span class="text-xs">{{ option.label }}</span>
-                            <span class="text-[11px] text-gray-400">{{ option.description }}</span>
+                            <span class="text-2xs text-ink-muted">{{ option.description }}</span>
                         </div>
                     </div>
                 </template>
@@ -57,7 +57,7 @@
             <!-- Public link on a per-user-data dashboard: the link is open to
                  anyone, but data resolves per signed-in viewer — say so. -->
             <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
-                class="text-[11px] text-gray-400 -mt-3 mb-5">
+                class="text-2xs text-ink-muted -mt-3 mb-5">
                 {{ $t('share.publicPerUserNote') }}
             </p>
 
@@ -78,7 +78,7 @@
             <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
+                    <span class="text-2xs text-ink-muted">{{ $t('share.includeDataTabDesc') }}</span>
                 </div>
                 <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
                     @update:model-value="onIncludeDataTabChange" />
@@ -92,19 +92,19 @@
                 <div class="flex items-start justify-between gap-3">
                     <div class="flex flex-col min-w-0">
                         <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.allowChat') }}</span>
-                        <span class="text-[11px] text-gray-400">{{ $t('share.allowChatDesc') }}</span>
+                        <span class="text-2xs text-ink-muted">{{ $t('share.allowChatDesc') }}</span>
                     </div>
                     <UToggle v-model="chatEnabled" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
                         data-testid="chat-enabled-toggle" @update:model-value="onChatEnabledChange" />
                 </div>
                 <div v-if="chatEnabled" class="mt-3 space-y-2">
-                    <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">{{ $t('share.chatScope') }}</label>
+                    <label class="text-2xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">{{ $t('share.chatScope') }}</label>
                     <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
                         <input type="radio" value="agents" v-model="chatScope" :disabled="isSaving || reportAgents.length === 0"
                             class="mt-0.5" @change="onChatScopeChange" />
                         <span class="flex flex-col">
                             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
-                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeAgentsDesc') }}</span>
+                            <span class="text-2xs text-ink-muted">{{ $t('share.chatScopeAgentsDesc') }}</span>
                         </span>
                     </label>
                     <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
@@ -119,15 +119,15 @@
                             class="mt-0.5" @change="onChatScopeChange" />
                         <span class="flex flex-col">
                             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeDataOnly') }}</span>
-                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeDataOnlyDesc') }}</span>
+                            <span class="text-2xs text-ink-muted">{{ $t('share.chatScopeDataOnlyDesc') }}</span>
                         </span>
                     </label>
-                    <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
+                    <p v-if="reportAgents.length === 0" class="text-2xs text-ink-muted">{{ $t('share.chatNoAgents') }}</p>
 
                     <!-- Default model for viewer chat: the report's own
                          model, the organization default, or a specific model. -->
                     <div class="pt-2" data-testid="chat-model">
-                        <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1">{{ $t('share.chatModel') }}</label>
+                        <label class="text-2xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1">{{ $t('share.chatModel') }}</label>
                         <USelectMenu
                             v-model="chatModelValue"
                             :options="chatModelOptions"
@@ -138,7 +138,7 @@
                             :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
                             @change="onChatModelChange"
                         />
-                        <span class="text-[11px] text-gray-400 block mt-1">{{ $t('share.chatModelDesc') }}</span>
+                        <span class="text-2xs text-ink-muted block mt-1">{{ $t('share.chatModelDesc') }}</span>
                     </div>
                 </div>
             </div>
@@ -151,7 +151,7 @@
             <div v-if="shareType === 'artifact' && isShared && showRunIdentity" class="flex items-start justify-between gap-3 mb-6">
                 <div class="flex flex-col min-w-0">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.runOnBehalf') }}</span>
-                    <span class="text-[11px] text-gray-400">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
+                    <span class="text-2xs text-ink-muted">{{ hasRls ? $t('share.runOnBehalfRlsDisabled') : $t('share.runOnBehalfDesc') }}</span>
                 </div>
                 <UToggle v-model="runAsCreator" size="sm" :disabled="isSaving || hasRls" class="flex-shrink-0 mt-0.5" @update:model-value="onRunIdentityChange" />
             </div>
@@ -190,8 +190,8 @@
                                     </div>
                                     <div class="flex flex-col min-w-0">
                                         <span class="text-gray-900 dark:text-white truncate">{{ option.name || option.email }}</span>
-                                        <span v-if="option.kind === 'group'" class="text-xs text-gray-400 truncate">{{ $t('share.groupMembers', option.memberCount || 0) }}</span>
-                                        <span v-else-if="option.name" class="text-xs text-gray-400 truncate">{{ option.email }}</span>
+                                        <span v-if="option.kind === 'group'" class="text-xs text-ink-muted truncate">{{ $t('share.groupMembers', option.memberCount || 0) }}</span>
+                                        <span v-else-if="option.name" class="text-xs text-ink-muted truncate">{{ option.email }}</span>
                                     </div>
                                 </button>
                             </div>
@@ -214,12 +214,12 @@
                             </div>
                             <div class="flex flex-col">
                                 <span class="text-sm text-gray-700 dark:text-gray-300">{{ entry.principal_type === 'group' ? entry.group_name : (entry.user_name || entry.user_email) }}</span>
-                                <span v-if="entry.principal_type === 'group'" class="text-xs text-gray-400">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
-                                <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-gray-400">{{ entry.user_email }}</span>
+                                <span v-if="entry.principal_type === 'group'" class="text-xs text-ink-muted">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
+                                <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-ink-muted">{{ entry.user_email }}</span>
                             </div>
                         </div>
                         <button @click="removeSharedEntry(entry)"
-                            class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-opacity p-1">
+                            class="opacity-0 group-hover:opacity-100 text-ink-muted hover:text-red-500 transition-opacity p-1">
                             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
                         </button>
                     </div>

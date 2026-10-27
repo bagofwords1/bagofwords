@@ -69,13 +69,13 @@
                   <span class="flex items-center gap-1 min-w-0 text-xs font-medium text-gray-900 dark:text-white truncate">
                     <Icon
                       :name="option.artifact.mode === 'doc' ? 'heroicons:document-text' : (option.artifact.mode === 'slides' ? 'heroicons:presentation-chart-bar' : 'heroicons:squares-2x2')"
-                      class="w-3 h-3 flex-shrink-0 text-gray-400"
+                      class="w-3 h-3 flex-shrink-0 text-ink-muted"
                     />
                     <span class="truncate">{{ option.artifact.title || 'Untitled' }}</span>
                   </span>
-                  <span class="text-[10px] text-gray-400 ms-2">v{{ option.artifact.version }}</span>
+                  <span class="text-2xs text-ink-muted ms-2">v{{ option.artifact.version }}</span>
                 </div>
-                <div class="flex items-center justify-between text-[10px] text-gray-400">
+                <div class="flex items-center justify-between text-2xs text-ink-muted">
                   <span>{{ formatRelativeTime(option.artifact.created_at) }}</span>
                   <button
                     @click.stop="copyArtifactId(option.artifact.id)"
@@ -89,7 +89,7 @@
               </div>
             </template>
           </USelectMenu>
-          <span v-else class="text-xs text-gray-400 italic">No artifacts yet</span>
+          <span v-else class="text-xs text-ink-muted italic">No artifacts yet</span>
 
           <!-- A run elsewhere created a new artifact: offer it, never hijack -->
           <button
@@ -116,7 +116,7 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
+        <span v-if="isLoading" class="text-xs text-ink-muted">{{ t('artifactFrame.loading') }}</span>
 
         <!-- Refresh Dashboard (rerun + refresh). Everyday action, so it stays
              a visible button.
@@ -168,7 +168,7 @@
           </UTooltip>
           <template #item="{ item }">
             <div class="flex items-center gap-2 text-start w-full">
-              <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
               <span class="text-xs font-medium text-gray-900 dark:text-white">{{ item.label }}</span>
             </div>
           </template>
@@ -198,7 +198,7 @@
           <template #option="{ option }">
             <div class="flex flex-col">
               <span class="text-xs">{{ option.label }}</span>
-              <span v-if="option.email" class="text-[10px] text-gray-400">{{ option.email }}</span>
+              <span v-if="option.email" class="text-2xs text-ink-muted">{{ option.email }}</span>
             </div>
           </template>
         </USelectMenu>
@@ -256,7 +256,7 @@
              (e.g. Power BI) still run as YOU — their rows may differ. -->
         <div
           v-if="credentialScoped"
-          class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+          class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-2xs"
         >
           <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
           <span>Identity parameters only — sources that authenticate per user still run with your credentials, so this user's actual rows may differ.</span>
@@ -266,7 +266,7 @@
            the ones they can read; say which are missing and why. -->
       <div
         v-if="partiallyWithheld && !isLoading"
-        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-2xs"
       >
         <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
         <div>
@@ -282,16 +282,16 @@
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
-          <Spinner class="w-6 h-6 text-gray-400" />
-          <span class="text-sm text-gray-400">{{ t('artifactFrame.loading') }}</span>
+          <Spinner class="w-6 h-6 text-ink-muted" />
+          <span class="text-sm text-ink-muted">{{ t('artifactFrame.loading') }}</span>
         </div>
       </div>
 
       <!-- Empty State: Has visualizations but no artifact - show Generate Dashboard button -->
       <div v-else-if="!hasArtifact && hasSuccessfulVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
-        <Icon name="heroicons:sparkles" class="w-8 h-8 text-gray-400 mb-3" />
+        <Icon name="heroicons:sparkles" class="w-8 h-8 text-ink-muted mb-3" />
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ready to create a dashboard</h3>
-        <p class="text-xs text-gray-400 mb-4 max-w-xs text-center">
+        <p class="text-xs text-ink-muted mb-4 max-w-xs text-center">
           You have {{ visualizationsData.length }} visualization{{ visualizationsData.length !== 1 ? 's' : '' }} ready
         </p>
         <UButton
@@ -306,15 +306,15 @@
 
       <!-- Empty State: No visualizations and no artifact -->
       <div v-else-if="!hasArtifact && !hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
-        <Icon name="heroicons:chart-bar" class="w-6 h-6 text-gray-400 mb-2" />
-        <span class="text-sm text-gray-400">No dashboard items yet</span>
+        <Icon name="heroicons:chart-bar" class="w-6 h-6 text-ink-muted mb-2" />
+        <span class="text-sm text-ink-muted">No dashboard items yet</span>
       </div>
 
       <!-- Pending Artifact State (generating) -->
       <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
-          <Spinner class="w-6 h-6 text-gray-400" />
-          <span class="text-sm text-gray-400">
+          <Spinner class="w-6 h-6 text-ink-muted" />
+          <span class="text-sm text-ink-muted">
             {{ selectedArtifact?.mode === 'slides' ? 'Generating slides...' : 'Generating dashboard...' }}
           </span>
         </div>
@@ -344,16 +344,16 @@
       <!-- Slides without previews: content.code is python-pptx source, which
            the browser cannot render — never inject it into the iframe. -->
       <div v-else-if="slidesPreviewsMissing" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
-        <Icon name="heroicons:presentation-chart-bar" class="w-8 h-8 text-gray-400 mb-3" />
+        <Icon name="heroicons:presentation-chart-bar" class="w-8 h-8 text-ink-muted mb-3" />
         <template v-if="selectedArtifact?.status === 'failed'">
           <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slides generation failed</h3>
-          <p class="text-xs text-gray-400 mb-4 max-w-sm text-center">
+          <p class="text-xs text-ink-muted mb-4 max-w-sm text-center">
             The presentation could not be built. Ask the agent to regenerate the slides.
           </p>
         </template>
         <template v-else>
           <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slide previews unavailable</h3>
-          <p class="text-xs text-gray-400 mb-4 max-w-sm text-center">
+          <p class="text-xs text-ink-muted mb-4 max-w-sm text-center">
             The deck was built, but preview images could not be generated on the server. You can still download the PowerPoint file.
           </p>
           <UButton @click="exportPptx" :disabled="isExporting" size="xs" color="purple" variant="soft">
@@ -395,7 +395,7 @@
         <p v-if="partiallyWithheld" class="text-xs text-gray-500 dark:text-gray-400 max-w-md text-center">
           {{ $t('artifactFrame.partialRenderFailed') }}
         </p>
-        <p v-else class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
+        <p v-else class="text-xs text-ink-muted mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
           {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
         </p>
         <UButton
@@ -452,11 +452,11 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-gray-400 hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-gray-600">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>
-        <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
+        <div class="text-2xs text-ink-muted mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
           &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
         </div>
         <!-- Grows with the instruction up to ~6 lines, then scrolls, so a long
@@ -491,7 +491,7 @@
           <div class="p-3 flex justify-between items-center border-b bg-white dark:bg-gray-900">
             <div class="flex items-center gap-3">
               <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ selectedArtifact?.title || reportData?.title || 'Artifact' }}</span>
-              <span v-if="selectedArtifact" class="text-xs text-gray-400">v{{ selectedArtifact.version }}</span>
+              <span v-if="selectedArtifact" class="text-xs text-ink-muted">v{{ selectedArtifact.version }}</span>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="closeFullscreen" />
           </div>
@@ -512,7 +512,7 @@
               class="absolute inset-0"
             />
             <!-- Slides without previews have no renderable content -->
-            <div v-else-if="isFullscreenOpen && slidesPreviewsMissing" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+            <div v-else-if="isFullscreenOpen && slidesPreviewsMissing" class="absolute inset-0 flex flex-col items-center justify-center text-ink-muted">
               <Icon name="heroicons:presentation-chart-bar" class="w-8 h-8 mb-2" />
               <span class="text-sm">Slide previews unavailable</span>
             </div>
@@ -2537,7 +2537,7 @@ function App() {
   if (!data) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-pulse text-gray-400">Loading...</div>
+        <div className="animate-pulse text-ink-muted">Loading...</div>
       </div>
     );
   }
@@ -2560,7 +2560,7 @@ function App() {
       {visualizations.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-8 h-8 text-ink-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
@@ -2615,7 +2615,7 @@ function VisualizationCard({ viz }) {
     <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow">
       <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800">
         <h3 className="font-semibold text-gray-900 dark:text-gray-100">{viz.title}</h3>
-        <span className="text-xs text-gray-400 uppercase tracking-wide">{viewType}</span>
+        <span className="text-xs text-ink-muted uppercase tracking-wide">{viewType}</span>
       </div>
       <div className="p-5">
         {viz.rows?.length > 0 ? (
@@ -2625,7 +2625,7 @@ function VisualizationCard({ viz }) {
             <div ref={chartRef} className="h-72 w-full" />
           )
         ) : (
-          <div className="h-72 flex items-center justify-center text-gray-400">
+          <div className="h-72 flex items-center justify-center text-ink-muted">
             No data available
           </div>
         )}
@@ -2668,7 +2668,7 @@ function TableView({ data }) {
         </tbody>
       </table>
       {rows.length > 10 && (
-        <div className="text-xs text-gray-400 p-2 text-center bg-gray-50 dark:bg-gray-800">
+        <div className="text-xs text-ink-muted p-2 text-center bg-gray-50 dark:bg-gray-800">
           Showing 10 of {rows.length} rows
         </div>
       )}

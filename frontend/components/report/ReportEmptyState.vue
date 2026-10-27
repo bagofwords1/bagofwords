@@ -58,7 +58,7 @@
 							type="text"
 							data-testid="empty-agent-search"
 							:placeholder="$t('projects.overview.searchAgents')"
-							class="w-full bg-transparent text-[13px] text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
+							class="w-full bg-transparent text-sm text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
 						/>
 					</div>
 					<div
@@ -74,7 +74,7 @@
 							data-testid="empty-agent-chip"
 							:aria-pressed="isAgentSelected(a)"
 							:class="[
-								'inline-flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[13px] transition-colors',
+								'inline-flex items-center gap-1.5 px-1.5 py-1 rounded-md text-sm transition-colors',
 								isAgentSelected(a)
 									? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
 									: 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60'
@@ -91,7 +91,7 @@
 							<Icon
 								v-if="isAgentSelected(a)"
 								name="heroicons:check"
-								class="w-3 h-3 flex-shrink-0 text-gray-400"
+								class="w-3 h-3 flex-shrink-0 text-ink-muted"
 							/>
 						</button>
 						<!-- Long agent lists would otherwise bury the questions
@@ -100,12 +100,12 @@
 							v-if="hiddenAgentChipCount > 0"
 							type="button"
 							data-testid="empty-agent-chip-more"
-							class="inline-flex items-center px-1.5 py-1 rounded-md text-[13px] text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
+							class="inline-flex items-center px-1.5 py-1 rounded-md text-sm text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
 							@click="showAllAgentChips = true"
 						>
 							+{{ hiddenAgentChipCount }}
 						</button>
-						<span v-if="visibleAgentChips.length === 0" class="px-1.5 py-1 text-[13px] text-gray-400">
+						<span v-if="visibleAgentChips.length === 0" class="px-1.5 py-1 text-sm text-ink-muted">
 							{{ $t('mentionInput.noResults') }}
 						</span>
 					</div>
@@ -115,7 +115,7 @@
 						v-if="showAllAgentChips"
 						type="button"
 						data-testid="empty-agent-chip-less"
-						class="mt-1 px-1.5 text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+						class="mt-1 px-1.5 text-xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
 						@click="showAllAgentChips = false"
 					>
 						{{ $t('tools.common.showLess') }}
@@ -133,7 +133,7 @@
 								type="button"
 								dir="auto"
 								data-testid="empty-starter"
-								class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-[13px] leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100"
+								class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-sm leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100"
 								@click="$emit('starter', `${s.title}\n\n${s.prompt}`)"
 							>
 								<span class="truncate">{{ s.title }}</span>

@@ -19,7 +19,7 @@
         placeholder="https://portal.vendor.com/**&#10;https://*.wikipedia.org/**"
         class="w-full text-xs font-mono rounded-md border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
       ></textarea>
-      <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{{ $t('data.browserForm.urlsHelp') }}</p>
+      <p class="mt-1 text-2xs text-gray-500 dark:text-gray-400">{{ $t('data.browserForm.urlsHelp') }}</p>
     </div>
 
     <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">

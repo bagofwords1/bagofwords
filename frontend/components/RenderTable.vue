@@ -24,7 +24,7 @@
     <div 
         v-else
         :style="{ color: tokens.textColor }"
-        class="text-xs text-gray-400"
+        class="text-xs text-ink-muted"
     >
         No data to display.
     </div>

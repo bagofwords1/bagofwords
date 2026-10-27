@@ -4,7 +4,7 @@
             <div class="w-full max-w-7xl px-4 ps-0 py-4">
 
                 <!-- Back link -->
-                <NuxtLink to="/old_agents" class="inline-flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
+                <NuxtLink to="/old_agents" class="inline-flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 transition-colors">
                     <UIcon name="heroicons-chevron-left" class="w-3.5 h-3.5" />
                     All agents
                 </NuxtLink>
@@ -50,7 +50,7 @@
                                     >{{ integration?.description || '' }}</p>
                                     <button
                                         v-if="useCan('update_data_source')"
-                                        class="text-[10px] text-blue-600 hover:underline opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                        class="text-2xs text-blue-600 hover:underline opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                                         @click="startEditDesc"
                                     >Edit</button>
                                 </template>
@@ -72,19 +72,19 @@
                                             </div>
                                         </UTooltip>
                                     </div>
-                                    <span v-if="(integration.connections || []).length > 4" class="text-xs text-gray-400 dark:text-gray-500">
+                                    <span v-if="(integration.connections || []).length > 4" class="text-xs text-ink-muted">
                                         +{{ integration.connections.length - 4 }}
                                     </span>
                                 </template>
-                                <span v-else class="text-xs text-gray-400 dark:text-gray-500 italic">No connections</span>
+                                <span v-else class="text-xs text-ink-muted italic">No connections</span>
 
                                 <template v-if="(catalog.shouldShow && catalog.count > 0) || connectionCount > 0">
                                     <template v-if="catalog.shouldShow">
                                         <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
-                                        <span class="text-xs text-gray-400 dark:text-gray-500">{{ catalog.label }}</span>
+                                        <span class="text-xs text-ink-muted">{{ catalog.label }}</span>
                                     </template>
                                     <span class="text-gray-300 dark:text-gray-600 select-none">·</span>
-                                    <span class="text-xs text-gray-400 dark:text-gray-500">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
+                                    <span class="text-xs text-ink-muted">{{ connectionCount }} {{ connectionCount === 1 ? 'connection' : 'connections' }}</span>
                                 </template>
                             </div>
                         </template>
