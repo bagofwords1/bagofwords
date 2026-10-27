@@ -205,6 +205,25 @@ _DISCOVERY_TIMEOUT_SECONDS = _env_seconds("BOW_INDEXING_TIMEOUT_S", 14400)
 _WARM_TIMEOUT_SECONDS = _env_seconds("BOW_INDEXING_WARM_TIMEOUT_S", 7200)
 
 
+def _rss_mb() -> Optional[int]:
+    """Resident memory of this process in MB, or None where /proc is missing.
+
+    Recorded on the run's event log so a worker killed for memory mid-run
+    leaves its last reading behind, visible without cluster access.
+    """
+    try:
+        with open("/proc/self/statm") as f:
+            pages = int(f.read().split()[1])
+        return pages * os.sysconf("SC_PAGE_SIZE") // (1024 * 1024)
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _rss_note() -> str:
+    rss = _rss_mb()
+    return f"rss {rss:,} MB" if rss is not None else "rss unknown"
+
+
 class IndexingStageTimeout(Exception):
     """A stage of an indexing run ran out of time — in total, or (``idle``)
     without reporting any progress."""
@@ -358,18 +377,19 @@ class ConnectionIndexingService:
             return False
         row.status = ConnectionIndexingStatus.FAILED.value
         row.finished_at = datetime.utcnow()
+        # `updated_at` is touched by every write the runner makes (heartbeat,
+        # progress, events), so this is silence from the whole runner, not
+        # missing progress.
         row.error = (
-            f"Indexing stopped responding (no progress for {round(silent_s / 60)} "
-            "minute(s)) — the server most likely restarted during the run. "
+            f"Indexing stopped reporting for {round(silent_s / 60)} minute(s) — "
+            "the server running it most likely restarted or ran out of memory. "
             "Reindex to start it again."
         )
         await db.commit()
-        # Should a slow-but-alive runner exist in this process after all, stop
-        # it at its next checkpoint rather than let it race a fresh run.
-        with _cancel_lock:
-            ev = _cancel_events.get(str(row.id))
-        if ev is not None:
-            ev.set()
+        # The runner's cancel event is deliberately left alone. A runner that
+        # is alive after all (its loop was blocked, not dead) would otherwise
+        # stop after committing the catalog but before syncing it to agents;
+        # instead it finishes, and finalize turns this row `completed`.
         logger.warning(
             "indexing.reaped_stale",
             extra={
@@ -506,6 +526,7 @@ class ConnectionIndexingService:
         from app.settings.database import create_async_database_engine_for_indexing
 
         engine = create_async_database_engine_for_indexing()
+        failing = False
         try:
             while True:
                 await asyncio.sleep(_HEARTBEAT_SECONDS)
@@ -525,8 +546,22 @@ class ConnectionIndexingService:
                         await hb_db.commit()
                     if result.rowcount == 0:
                         return
+                    if failing:
+                        failing = False
+                        logger.warning("indexing.heartbeat_recovered", extra={"indexing_id": indexing_id})
                 except Exception:
-                    logger.debug("indexing.heartbeat_failed", exc_info=True)
+                    # A run whose heartbeat cannot be written is reaped after
+                    # the stale window, so the first failure of a streak must
+                    # be visible at default log levels.
+                    if failing:
+                        logger.debug("indexing.heartbeat_failed", exc_info=True)
+                    else:
+                        failing = True
+                        logger.warning(
+                            "indexing.heartbeat_failed",
+                            extra={"indexing_id": indexing_id},
+                            exc_info=True,
+                        )
         finally:
             await engine.dispose()
 
@@ -605,7 +640,13 @@ class ConnectionIndexingService:
                 row.last_activity_at = row.started_at
                 await db.commit()
 
-                await _append_event("info", None, "Indexing started")
+                # pid + memory on the run's own log: if the worker dies, the
+                # next run's pid differs and the last reading shows how big it
+                # had grown — the evidence an admin can send without kubectl.
+                await _append_event(
+                    "info", None,
+                    f"Indexing started (worker pid {os.getpid()}, {_rss_note()})",
+                )
 
                 conn_result = await db.execute(
                     select(Connection).where(Connection.id == row.connection_id)
@@ -908,11 +949,25 @@ class ConnectionIndexingService:
                             current_user=index_user,
                         )
                     else:
+                        async def _diagnostics(stage: str, info: dict) -> None:
+                            if stage == "discovered":
+                                message = (
+                                    f"Discovered {info['tables']:,} {noun_plural} / "
+                                    f"{info['columns']:,} columns, {_rss_note()}"
+                                )
+                            else:
+                                message = f"Saving catalog of {info['tables']:,} {noun_plural}, {_rss_note()}"
+                            await _append_event("info", stage, message)
+
                         discovery = svc.refresh_schema(
                             db=db,
                             connection=connection,
                             current_user=None,
                             progress_callback=progress_cb,
+                            # The runner never reuses the fetched list; keeping
+                            # it alive until finalize only raises peak memory.
+                            keep_fresh_tables=False,
+                            diagnostics_hook=_diagnostics,
                         )
                     items = await _with_stage_timeout(
                         discovery, _DISCOVERY_TIMEOUT_SECONDS, "Schema discovery",
@@ -1030,8 +1085,19 @@ class ConnectionIndexingService:
                         session_factory=session_factory,
                     )
 
-                fresh = await db.get(ConnectionIndexing, indexing_id)
+                # Re-read: the identity map still holds the row as this runner
+                # last wrote it. Another process may have reaped it (`failed`)
+                # or a user cancelled it from another worker since; without the
+                # re-read a reaped run ended `completed` with the reaper's
+                # error kept (unchanged vs. the cached `None`, so never
+                # written), and a cancel was overwritten.
+                fresh = await db.get(ConnectionIndexing, indexing_id, populate_existing=True)
                 if fresh is None:
+                    return
+                if fresh.status == ConnectionIndexingStatus.CANCELLED.value:
+                    await self._finalize_cancelled(
+                        _new_session, indexing_id, _append_event, _state_snapshot
+                    )
                     return
                 fresh.status = ConnectionIndexingStatus.COMPLETED.value
                 fresh.finished_at = datetime.utcnow()

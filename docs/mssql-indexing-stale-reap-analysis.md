@@ -1,6 +1,7 @@
 # MSSQL indexing fails with "Indexing stopped responding"
 
-Status: diagnosis, not fixed. Reproduced locally (see [Reproduction](#reproduction)).
+Status: P0, P1.1, P1.4 and P2.1–P2.3 implemented (see
+[Proposed fixes](#proposed-fixes)); root cause still unconfirmed. Reproduced locally (see [Reproduction](#reproduction)).
 The evidence points to the worker process dying, most likely from memory, not
 to a blocked heartbeat. Not yet confirmed from the customer's data.
 
@@ -307,7 +308,10 @@ schemas they need.
 
 ## Proposed fixes
 
-Not implemented. In priority order. The root cause is not confirmed, so P0 is
+Implemented: P0, P1.1, P1.4, P2.1, P2.2, P2.3 (tests in
+`backend/tests/unit/test_connection_indexing_liveness.py`). Still open: P1.2,
+P1.3 and P1.6 (need checking against a real SQL Server), P1.5, and P3. In
+priority order. The root cause is not confirmed, so P0 is
 the change that would confirm it on the customer's next run.
 
 Suggested first step: P0 together with P1.1 and P1.4. They are small, low-risk
@@ -316,6 +320,14 @@ or prevent the failure. Then P1.2 and P1.3 (check against a real SQL Server),
 then the P2 finalize fix.
 
 ### P0: make the next failure explain itself (diagnostics only)
+
+Done. The run's event log now records the worker pid and RSS at start, the
+table/column count and RSS once discovery returns (phase `discovered`), and
+RSS once the catalog is normalized, just before any row is written (phase
+`saving`). The first heartbeat failure in a streak logs a warning. The
+`saving` event is taken after normalization rather than right before the
+commit: from then on SQLite holds its writer lock for Power BI, and an awaited
+event write would stall the run.
 
 We can't see the customer's cluster, but the customer can send us the run's
 event log (`GET /api/connections/{id}/indexing`). Put the evidence there:
@@ -341,7 +353,7 @@ confirms an OOM kill without kubectl.
 
 ### P1: cut peak memory (the likely root cause)
 
-1. **Don't keep the fetched catalog for the whole run.** `refresh_schema` saves
+1. **(Done.) Don't keep the fetched catalog for the whole run.** `refresh_schema` saves
    the full fetched list on the service object:
    `self.last_refresh_fresh_tables = list(fresh_tables or [])`
    (`connection_service.py:1775`). Only the request path in
@@ -402,7 +414,7 @@ confirms an OOM kill without kubectl.
 
    The raw rows then never all exist at once next to the `Table` objects.
 
-4. **Yield to the event loop during the save step.** Not a root-cause fix, but
+4. **(Done.) Yield to the event loop during the save step.** Not a root-cause fix, but
    it keeps the heartbeat and progress flushes running, and fixes defect 3
    (lost progress):
 
@@ -449,7 +461,7 @@ on changing it.
 
 ### P2: the defects found while reproducing
 
-1. **A completed run keeps the error, and a user cancel can be overwritten.**
+1. **(Done.) A completed run keeps the error, and a user cancel can be overwritten.**
    At finalize (`connection_indexing_service.py:1033`), re-read the row instead
    of using the cached copy:
 
@@ -465,15 +477,15 @@ on changing it.
 
    A reaped run that finished correctly becomes `completed` with no error; a
    run a user cancelled stays cancelled.
-2. **A reap in the same worker cancels a live run after it saves.**
+2. **(Done, smallest fix.) A reap in the same worker cancels a live run after it saves.**
    `_reap_if_stale` sets the local cancel event (`:372`), and the cancel check
    at `:1016` then skips the agent sync after the catalog is committed.
    Smallest fix: stop setting the event in the reaper and let finalize decide
    with the re-read above. Fuller fix: the runner re-reads its row status at
    checkpoints (P3.1), so a user cancel works from any worker.
-3. **Message wording.** "No progress" points at the wrong field. For example:
-   "The server stopped reporting on this run for 13 minutes (the worker
-   probably restarted or ran out of memory)."
+3. **(Done.) Message wording.** "No progress" points at the wrong field. Now:
+   "Indexing stopped reporting for 13 minute(s) — the server running it most
+   likely restarted or ran out of memory. Reindex to start it again."
 
 ### P3: multi-replica issues (independent of the MSSQL failure)
 
