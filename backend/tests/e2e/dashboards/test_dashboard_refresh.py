@@ -884,3 +884,27 @@ def test_a_migrated_schedules_email_keeps_its_conversations_name(corpus, corpus_
     _scheduled(aid)
     (email,) = sent["email"]
     assert email["report_title"] == "השיחה כפי שנקראה"
+
+
+@pytest.mark.e2e
+def test_a_copy_loading_a_personal_query_refreshes_as_whoever_runs_it(corpus, corpus_rows, test_client, spawned):
+    """Review #1455 finding 6: the stored rows were another editor's run
+    (`run_by`), and the loaded query takes the viewer's identity. The refresh
+    re-runs it as the current runner first: load_step reads those fresh rows,
+    not the previous runner's slice (withheld from this runner)."""
+    corpus_rows.update("queries", corpus.ids["load_step/q_base"], parameters=[{
+        "name": "email", "type": "string", "label": "email", "default": None, "required": False,
+        "source": "identity", "identity_binding": "viewer.email",
+        "options": None, "options_source": None, "strict_options": False}])
+    corpus_rows.update("steps", corpus.ids["load_step/q_derived/step"], code=(
+        "def generate_df(ds_clients, excel_files, load_step):\n"
+        "    return load_step('בסיס · ריצה')\n"))
+    aid, release = _published(corpus, corpus_rows, test_client, "load_step/dash")
+    by_title = {c["title"]: c for c in _copies(corpus_rows, release)}
+    corpus_rows.update("queries", by_title["נגזרת"]["id"], created_at=datetime(2020, 1, 1))
+    corpus_rows.update("artifact_releases", release, run_by=corpus.cast.id("member"))  # another editor's run
+
+    resp = test_client.post(f"/api/artifacts/{aid}/refresh", headers=as_(corpus, "owner"))
+    assert resp.json()["status"] == "success", resp.text
+    by_title = {c["title"]: c for c in _copies(corpus_rows, release)}
+    assert _months(by_title["נגזרת"]["data"]) == {"ינואר", "פברואר"}

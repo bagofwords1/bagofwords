@@ -52,7 +52,8 @@
                         class="w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-lg text-start hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
                         data-testid="dashboard-start-item" @click="open(d)">
                         <div class="w-12 h-8 shrink-0 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-hidden flex items-center justify-center">
-                            <img v-if="d.thumbnail_url" :src="d.thumbnail_url" alt="" class="w-full h-full object-cover" />
+                            <img v-if="d.thumbnail_url && !brokenThumbs[d.id]" :src="thumbSrc(d.thumbnail_url)" alt="" class="w-full h-full object-cover"
+                                @error="brokenThumbs[d.id] = true" />
                             <Icon v-else name="heroicons:squares-2x2" class="w-3.5 h-3.5 text-gray-400" />
                         </div>
                         <div class="min-w-0 flex-1">
@@ -84,6 +85,12 @@ const items = ref<any[]>([])
 const loading = ref(true)
 const search = ref('')
 const opening = ref<string | null>(null)
+
+// Thumbnails are served by the API (as on the Dashboards page); one that
+// fails to load shows the icon, not a broken image.
+const config = useRuntimeConfig()
+const thumbSrc = (url: string) => (/^https?:/.test(url) ? url : `${config.public.baseURL}${url}`)
+const brokenThumbs = reactive<Record<string, boolean>>({})
 
 const roleOf = (d: any): 'owner' | 'edit' | 'view' => d.role || (d.is_owner ? 'owner' : 'view')
 

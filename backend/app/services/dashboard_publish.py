@@ -589,6 +589,21 @@ async def _loaded_step_ids(db, release: ArtifactRelease, codes: list) -> set:
     return loaded
 
 
+async def _frozen_rows_producer(db, release: ArtifactRelease) -> str | None:
+    """Whose run a frozen copy's rows are: the owner of the conversation its
+    source version lives in, whose steps produced them -- not whoever
+    published it."""
+    from app.models.report import Report
+
+    if not release.source_version_id:
+        return None
+    version = await db.get(ArtifactVersion, str(release.source_version_id))
+    if version is None or not version.report_id:
+        return None
+    report = await db.get(Report, str(version.report_id))
+    return str(report.user_id) if report is not None and report.user_id else None
+
+
 async def _go_live(db, release_id: str) -> bool:
     """The switch: this release live, every other one of the dashboard gone,
     in one transaction under the dashboard's row lock -- so a publish that
@@ -617,11 +632,17 @@ async def _go_live(db, release_id: str) -> bool:
                                     "publish again.")
         return True
 
+    # Whose run the stored rows are (collab01): a page reran every copy as
+    # the publisher; a deck is frozen -- nothing ran, its rows stay the run
+    # of the conversation they were copied from (#1455 review).
+    run_by = ArtifactRelease.published_by
+    if artifact.mode == "slides":
+        run_by = await _frozen_rows_producer(db, release) or published_by
+
     async def switch() -> bool:
         switched = await db.execute(
             update(ArtifactRelease).where(ArtifactRelease.id == release_id, ArtifactRelease.status == "publishing")
-            .values(status="ready", error=None, published_at=datetime.utcnow(),
-                    run_by=ArtifactRelease.published_by)  # the publisher's run (collab01)
+            .values(status="ready", error=None, published_at=datetime.utcnow(), run_by=run_by)
         )
         if switched.rowcount != 1:
             return False

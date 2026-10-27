@@ -199,7 +199,7 @@
             @review="openChanges"
         />
 
-        <!-- Made with Bag of words badge -->
+        <!-- "Made with BOW" badge -->
         <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft')"
            href="https://bagofwords.com"
            target="_blank"
@@ -208,7 +208,7 @@
             <!-- The product name stays in English in every locale; <bdi>
                  keeps it LTR inside the Hebrew/Arabic sentence. -->
             <i18n-t keypath="sharedReport.madeWith" tag="span">
-                <template #brand><bdi class="font-bold text-white">Bag of words</bdi></template>
+                <template #brand><bdi class="font-bold text-white">BOW</bdi></template>
             </i18n-t>
         </a>
 
@@ -483,6 +483,9 @@ const dashboardOwner = ref(false);
 // (an editor who is not the owner, the organization's admin) runs it for
 // their own. On a dashboard the same as isOwner; on a draft its own flag.
 const draftDataOwner = ref(false);
+// A published dashboard's: whether its stored rows are the reader's own run
+// (the server's data_is_mine -- the release's publisher or last refresher).
+const publishedDataOwner = ref(false);
 const isOwner = computed(() => {
     if (props.source === 'draft' || props.source === 'dashboard') return dashboardOwner.value;
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
@@ -610,7 +613,11 @@ const autoRunTried = ref(false);
 
 const canRun = computed(() => {
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
-    const dataOwner = props.source === 'draft' ? draftDataOwner.value : isOwner.value;
+    // Whose rows are on screen, not who owns the dashboard: another editor
+    // may have published over a personal connection, and the owner then
+    // runs it for themselves like any reader. Ownership stays for managing.
+    const dataOwner = props.source === 'draft' ? draftDataOwner.value
+        : props.source === 'dashboard' ? publishedDataOwner.value : isOwner.value;
     return !!api.run && !!userId && !dataOwner && hasArtifacts.value && reportLoaded.value;
 });
 
@@ -1001,6 +1008,9 @@ async function loadReport() {
 function asReport(meta: any) {
     if (props.source === 'report') return meta;
     if (props.source === 'dashboard') dashboardOwner.value = !!meta.is_owner;
+    if (props.source === 'dashboard') {
+        publishedDataOwner.value = typeof meta.data_is_mine === 'boolean' ? meta.data_is_mine : !!meta.is_owner;
+    }
     if (props.source === 'draft') dashboardOwner.value = !!meta.can_edit;
     if (props.source === 'draft') {
         draftReportId.value = meta.report_id || null;

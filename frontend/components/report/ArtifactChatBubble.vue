@@ -2,7 +2,7 @@
     <!-- Floating chat for the shared artifact page /r/{id}. Small on purpose:
          a bubble that opens a single-thread panel. The thread is private to
          this viewer (backend keeps it on a hidden per-viewer chat report). -->
-    <!-- `raised` clears the "Made with Bag of words" badge pinned bottom-end;
+    <!-- `raised` clears the "Made with BOW" badge pinned bottom-end;
          `lift` (px) clears anything stacked under both, e.g. Intercom's launcher. -->
     <div class="fixed end-4 z-[1001] flex flex-col items-end" :style="{ bottom: `${bottomPx}px` }" data-testid="artifact-chat">
         <!-- Panel -->

@@ -1011,6 +1011,11 @@ async def transfer(db, artifact: Artifact, actor, organization, new_owner_id: st
         await db.execute(delete(ArtifactShare).where(ArtifactShare.artifact_id == str(artifact.id),
                                                      ArtifactShare.user_id == previous))
         db.add(ArtifactShare(artifact_id=str(artifact.id), user_id=previous, role="edit"))
+    # Readers' runs on the owner's credentials ran as the previous owner:
+    # whose credentials they run with changes here (#1455 review).
+    from app.services.dashboard_settings_service import _drop_viewer_results
+
+    await _drop_viewer_results(db, artifact, executed_as="creator")
     await db.commit()
     await _audit(db, artifact, actor, "dashboard.ownership_transferred", {"from": previous, "to": str(target.id)})
 

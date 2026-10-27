@@ -152,6 +152,13 @@ class ArtifactResources:
                     ).scalars()
                 )
         result = cls(db, artifact, report, user, groups, member)
+        if result.owner and artifact.owner_id and result.actor != str(artifact.owner_id):
+            # A dashboard with an owner (collab01): owning its conversation is
+            # no longer authority over the page once the dashboard's edit
+            # access was taken away, as dashboard_access.assert_may_write says.
+            from app.services.dashboard_access import can_edit
+
+            result.owner = await can_edit(db, artifact, user)
         if manage:
             if not result.owner:
                 fail("FORBIDDEN", "Only the report owner can configure resources", 403)
@@ -171,8 +178,14 @@ class ArtifactResources:
         from app.services.report_service import ReportService
 
         live = report is not None and report.status != "archived"
+        # A dashboard with an owner (collab01) whose conversation owner is no
+        # longer one of its editors: the conversation they keep lets them in
+        # no more -- only the dashboard's own sharing does.
+        revoked = (live and user is not None and artifact.owner_id
+                   and str(report.user_id) == str(user.id) != str(artifact.owner_id)
+                   and not await dashboard_access.can_edit(db, artifact, user))
         try:
-            if not live:
+            if not live or revoked:
                 fail("NOT_FOUND", "Artifact not found", 404)
             await ReportService()._check_visibility(db, report, "artifact_visibility", user)
             return
@@ -181,7 +194,7 @@ class ArtifactResources:
         try:
             await dashboard_access.admit_reader(db, artifact, user)
         except (HTTPException, AppError) as refused:
-            if live and await dashboard_access.published_release(db, artifact) is None:
+            if live and not revoked and await dashboard_access.published_release(db, artifact) is None:
                 refused = conversation_refusal
             # 401/403 here would confirm that a private artifact with this id
             # exists (and hint at its visibility mode); answer like an unknown id.

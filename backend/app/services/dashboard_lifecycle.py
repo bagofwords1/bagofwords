@@ -214,8 +214,11 @@ async def rows_to_conversation(db, artifact: Artifact, *, queries: list, data_so
         if not report.theme_name and theme_name:
             report.theme_name = theme_name
             report.theme_overrides = copy.deepcopy(theme_overrides)
-        if report.bow_source_access is None and bow_source_access and copy_source_refs:
-            report.bow_source_access = copy.deepcopy(bow_source_access)
+        if bow_source_access and copy_source_refs:
+            # Union of restrictions (org-wide dominates): the destination
+            # never ends up weaker than what it now holds (#1455 review, 4).
+            from app.services.bow_source_access import merge_access
+            report.bow_source_access = merge_access(report.bow_source_access, copy.deepcopy(bow_source_access))
         have_ds = {str(r) for (r,) in (await db.execute(_select(report_data_source_association.c.data_source_id).where(
             report_data_source_association.c.report_id == str(report.id)))).all()}
         have_files = {str(r) for (r,) in (await db.execute(_select(report_file_association.c.file_id).where(

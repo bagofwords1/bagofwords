@@ -306,7 +306,21 @@ class LoadablesResolver:
                 # identity's slice (identity params, declared or inherited,
                 # or credential-differentiated sources). The policy hands
                 # this reader their own result or withholds.
-                if self.release is not None:
+                fresh = (self.release is not None
+                         and str(step.id) in self.fresh_rows)
+                if fresh:
+                    # This refresh just ran the step as the current runner:
+                    # its rows are theirs, whoever ran the stored snapshot.
+                    # Only the release's monitoring gate still applies.
+                    from app.services.dashboard_data import StepDataResolution
+                    from app.services.bow_source_access import can_read
+                    access_ = self.release.bow_source_access
+                    denied = bool(access_) and not await can_read(
+                        self.db, access_, self.current_user)
+                    resolution = StepDataResolution(
+                        data={} if denied else self.fresh_rows[str(step.id)],
+                        withheld=denied)
+                elif self.release is not None:
                     from app.services.dashboard_data import resolve_release_step
                     resolution = await resolve_release_step(
                         self.db, step, await self._artifact(), self.release, self.current_user
@@ -324,8 +338,6 @@ class LoadablesResolver:
                     )
                     continue
                 data = resolution.data
-                if self.release is not None and str(step.id) in self.fresh_rows:
-                    data = self.fresh_rows[str(step.id)]
                 result["steps"][key] = grid_to_df(data)
                 if self.release is not None:
                     # A copy's monitoring access is its release's, which

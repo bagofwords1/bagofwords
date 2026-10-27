@@ -78,6 +78,7 @@ async def get_published_dashboard(
         include_data_tab=bool(artifact.include_data_tab), chat_enabled=bool(artifact.chat_enabled),
         general=await _general(db, artifact.organization_id),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
+        data_is_mine=await dashboard_access.holds_snapshot(db, artifact, release, user),
         fork_eligibility=await fork_eligibility(db, artifact, release, user),
         refresh_on_view=bool(artifact.refresh_on_view), data_sources=sources,
         exports_own_rows=await _withheld_from(db, artifact, release, user,
@@ -979,9 +980,15 @@ async def _draft(db, ref, user, *, version: int | None = None, draft: str | None
         ))).scalar_one_or_none()
         if shown is None:
             raise dashboard_data.not_found()
-        return artifact, shown, named
-    shown = await dashboard_data.draft_version(db, artifact, light=light,
-                                               draft_id=str(named.id) if named is not None else None)
+    else:
+        shown = await dashboard_data.draft_version(db, artifact, light=light,
+                                                   draft_id=str(named.id) if named is not None else None)
+    if shown is not None:
+        # open_draft checked one editing conversation; the version shown may
+        # live in another's, with its own monitoring lineage (#1455 review, 3).
+        from app.services.bow_source_access import assert_read, report_access
+
+        await assert_read(db, await report_access(db, shown.report_id), user)
     return artifact, shown, named
 
 
