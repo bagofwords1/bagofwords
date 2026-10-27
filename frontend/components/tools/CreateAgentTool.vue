@@ -39,7 +39,7 @@
     <Transition name="fade" appear>
       <div
         v-if="succeeded"
-        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-chat"
       >
         <!-- Card header: name, status, badges -->
         <div class="px-3 pt-2.5 pb-2">

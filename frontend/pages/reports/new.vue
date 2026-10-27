@@ -18,7 +18,7 @@
 		<!-- Where the conversation will go. Same scroll container and column as
 		     the report view, so the empty state lands in the same spot. -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto">
 				<!-- The prompt just sent, shown while the report is created and
 				     opened, so the send lands on screen at once instead of after
 				     the round-trips. Same bubble and dots the report view renders,
@@ -43,7 +43,7 @@
 
 		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:project="draftProject"

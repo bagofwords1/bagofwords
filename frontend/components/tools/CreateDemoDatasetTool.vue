@@ -30,7 +30,7 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-2xl">
+    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat">
       {{ message }}
       <ul v-if="errors.length" class="mt-1 list-disc ms-4 space-y-0.5">
         <li v-for="e in errors" :key="e">{{ e }}</li>
@@ -44,7 +44,7 @@
     <Transition name="fade" appear>
       <div
         v-if="tables.length"
-        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-chat"
         data-testid="demo-dataset-card"
       >
         <!-- Header -->

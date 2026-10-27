@@ -39,12 +39,12 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-2xl" dir="auto">{{ message }}</div>
+    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">{{ message }}</div>
 
     <Transition name="fade" appear>
       <div
         v-if="expanded && previewRows.length"
-        class="rounded-lg border bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border bg-white dark:bg-gray-900 max-w-chat"
         :class="phase === 'confirm' ? 'border-red-200 dark:border-red-900/60' : 'border-gray-200 dark:border-gray-800'"
         data-testid="delete-list-rows-card"
       >

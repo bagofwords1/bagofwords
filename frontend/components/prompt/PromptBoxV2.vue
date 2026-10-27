@@ -167,7 +167,8 @@
 
         <!-- Minimalist prompt container -->
         <div
-            class="border rounded-xl bg-white dark:bg-gray-900 transition-colors relative"
+            data-testid="composer-surface"
+            class="border rounded-composer shadow-sm bg-white dark:bg-gray-900 transition-colors relative"
             :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : mode === 'training' ? 'border-sky-300 focus-within:border-sky-400' : 'border-gray-200 dark:border-gray-800 focus-within:border-gray-300 dark:focus-within:border-gray-700', props.compact ? 'text-sm' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
@@ -178,7 +179,7 @@
             <!-- Drop overlay -->
             <div
                 v-if="isDraggingFiles"
-                class="absolute inset-0 bg-blue-50/80 rounded-xl flex items-center justify-center z-10 pointer-events-none"
+                class="absolute inset-0 bg-blue-50/80 rounded-composer flex items-center justify-center z-10 pointer-events-none"
             >
                 <div class="flex flex-col items-center text-blue-600">
                     <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
@@ -187,7 +188,7 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -219,7 +220,7 @@
             </div>
 
             <!-- Inline file chips -->
-            <div v-if="uploadedFiles.length > 0" class="px-3 pb-2 flex flex-wrap gap-2">
+            <div v-if="uploadedFiles.length > 0" :class="[props.compact ? 'px-3' : 'px-4', 'pb-2 flex flex-wrap gap-2']">
                 <!-- Image files - show thumbnail preview -->
                 <div
                     v-for="file in visibleInlineFiles.filter(f => isImageFile(f))"
@@ -296,7 +297,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-4 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->

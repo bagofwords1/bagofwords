@@ -89,6 +89,30 @@ export default <Partial<Config>>{
         '2xl': ['1.5rem', { lineHeight: '2rem' }], // 24px/32
         '3xl': ['1.875rem', { lineHeight: '2.25rem' }], // 30px/36
         '4xl': ['2.25rem', { lineHeight: '2.5rem' }], // 36px/40
+
+        /*
+         * `text-chat` is the `base` step made reader-adjustable: at the
+         * default scale it computes to exactly 16px/24px, and the reader's
+         * stored multiplier moves it in four steps (0.875x - 1.25x). It is a
+         * tenth entry in the table but not a tenth size — chat body copy is
+         * the one place where the person reading knows better than we do,
+         * and every surveyed product of this kind exposes the same control.
+         *
+         * Use it for conversation text and the composer only. Anywhere else,
+         * a fixed step from the scale above is still the right answer.
+         */
+        chat: ['var(--bow-chat-font-size)', { lineHeight: 'var(--bow-chat-line-height)' }],
+      },
+
+      /*
+       * The conversation measure. One token drives the transcript column,
+       * the composer and the landing-page composer, which is what keeps the
+       * box you type into the same width as the text you read back — they
+       * had drifted to 672px and ~53vw respectively, so the composer
+       * visibly resized the moment a report was created.
+       */
+      maxWidth: {
+        chat: 'var(--bow-measure-chat)',
       },
 
       /*
@@ -106,6 +130,13 @@ export default <Partial<Config>>{
         md: 'var(--bow-radius-md)', // 6px — controls: buttons, inputs, chips
         lg: 'var(--bow-radius-lg)', // 8px — cards, panels, popovers
         xl: 'var(--bow-radius-xl)', // 12px — modals, large surfaces
+        /*
+         * Named, not a `2xl` step: Tailwind's stock `rounded-2xl` (16px) is
+         * already on 21 call sites, and redefining it would move all of them
+         * as a side effect of a composer change. This is the one surface
+         * that wants it, so it says so.
+         */
+        composer: 'var(--bow-radius-composer)', // 20px — the composer surface
       },
 
       boxShadow: {

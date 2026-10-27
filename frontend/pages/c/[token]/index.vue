@@ -42,7 +42,7 @@
         <template v-else>
             <!-- Minimal header -->
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
-                <div class="max-w-2xl mx-auto flex items-start justify-between">
+                <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
                         <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
                         <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
@@ -82,8 +82,8 @@
                     </button>
                 </div>
 
-                <ul class="max-w-2xl mx-auto space-y-4">
-                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-sm">
+                <ul class="max-w-chat mx-auto space-y-4">
+                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-chat">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
@@ -124,7 +124,7 @@
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full md:ms-4 max-w-2xl">
+                                <div class="w-full md:ms-4 max-w-chat">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in timelineBlocks(m)" :key="block.id">
@@ -1011,7 +1011,11 @@ onUnmounted(() => {
 /* Block content - assistant messages */
 .block-content {
     margin-bottom: 4px;
-    font-size: 13px;
+    /* The chat reading size, same token as the report view — a shared link
+       that renders two sizes smaller than the conversation it came from is
+       the divergence the comment below warns about. */
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
 }
 
 /* Markdown styling — kept in step with the same block in the report view, since
@@ -1024,8 +1028,8 @@ onUnmounted(() => {
    scrollHeight to anchor scroll position when prepending older pages, and
    estimated offscreen sizes would make that jump.) */
 .markdown-wrapper :deep(.markdown-content) {
-    @apply leading-relaxed;
-    font-size: 13px;
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
 
     p {
         margin-bottom: 1em;
@@ -1064,7 +1068,7 @@ onUnmounted(() => {
         background: none;
         padding: 0;
         border-radius: 0;
-        font-size: 13px;
+        font-size: calc(var(--bow-chat-font-size) * 0.8125);
         line-height: 1.5;
         display: block;
         white-space: pre-wrap;

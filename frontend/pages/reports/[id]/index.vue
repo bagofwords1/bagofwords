@@ -96,7 +96,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
-			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -119,7 +119,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm" :class="{ 'turn-enter': m.id === pinnedId }">
+					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -148,7 +148,7 @@
 							</button>
 							<!-- User bubble shown inside the collapsible area -->
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
-								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
 										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1">
@@ -185,7 +185,7 @@
 						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
-							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+							<div class="w-full ms-0 md:ms-4 max-w-chat">
 								<div
 									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
 									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
@@ -251,7 +251,7 @@
 						>
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
-								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+								<div class="group/usermsg flex flex-col items-end max-w-[85%] w-full mb-3 ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
 									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-2xs" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
@@ -319,7 +319,7 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-chat">
 									<!-- System message -->
 									<div>
 										<!-- Sub-agent waves launched by this turn: one group line per wave -->
@@ -337,7 +337,7 @@
 											     moment they arrived: before the first block that started
 											     after them. -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-												<div class="flex flex-col items-end max-w-xl">
+												<div class="flex flex-col items-end max-w-[85%]">
 													<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
@@ -468,7 +468,7 @@
 
 										<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-											<div class="flex flex-col items-end max-w-xl">
+											<div class="flex flex-col items-end max-w-[85%]">
 												<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
@@ -662,13 +662,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<Spinner class="w-3 h-3 me-2 text-ink-muted" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
@@ -677,7 +677,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -685,7 +685,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -693,7 +693,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -701,7 +701,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
@@ -711,7 +711,7 @@
 		</div>
 		<!-- Read-only bar for project collaborators: view + fork, no composer -->
 		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
 					<div class="flex items-center gap-2 min-w-0 text-sm text-gray-500 dark:text-gray-400">
 						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
@@ -732,7 +732,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -6466,33 +6466,44 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Mobile — larger reading text (excludes Excel compact mode, which can also be narrow) */
-@media (max-width: 767px) {
-	.chat-messages:not(.compact-messages) .block-content {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content) {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
-		font-size: 13px;
-	}
-	/* User message bubbles (InstructionText renders at 13px by default) */
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
-		font-size: 15px;
-	}
-	/* Collapsible reasoning stays secondary, but readable */
-	.chat-messages:not(.compact-messages) .thinking-header {
-		font-size: 13px;
-	}
-	.chat-messages:not(.compact-messages) .thinking-content,
-	.chat-messages:not(.compact-messages) .thinking-content :deep(*),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
-		font-size: 13px !important;
-	}
+/*
+ * Chat reading size.
+ *
+ * One size at every viewport, scaled by the reader's own preference
+ * (`--bow-chat-font-size`, default 16px/24px — see assets/css/tokens.css).
+ * What this replaces was a `max-width: 767px` block that raised the
+ * transcript to 15px on phones only, leaving the desktop transcript on the
+ * 14px it inherited from the row's `text-sm` — so the product read *smaller*
+ * on the machine people actually work on, and smaller than every comparable
+ * chat surface measured.
+ *
+ * The secondary tiers stay proportional rather than fixed, so a reader who
+ * scales up gets larger code and reasoning text too: 0.8125x of chat size is
+ * 13px at the default, which is what they were pinned to.
+ */
+.chat-messages:not(.compact-messages) .block-content,
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
+/* User bubbles: InstructionText renders .instruction-prose at 13px by
+   default, which is the size it wants inside a settings panel, not inside a
+   conversation. */
+.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
+.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
+	font-size: var(--bow-chat-font-size);
+	line-height: var(--bow-chat-line-height);
+}
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+}
+/* Collapsible reasoning stays secondary, but readable */
+.chat-messages:not(.compact-messages) .thinking-header {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+}
+.chat-messages:not(.compact-messages) .thinking-content,
+.chat-messages:not(.compact-messages) .thinking-content :deep(*),
+.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
+.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125) !important;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

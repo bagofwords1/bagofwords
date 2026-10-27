@@ -1094,7 +1094,24 @@
     "steerFailed": "Impossibile orientare il completamento in corso",
     "instructionUnavailableTitle": "Istruzione non disponibile",
     "instructionUnavailableBody": "Potrebbe essere stata eliminata oppure non hai accesso ad essa.",
-    "loopRetryNotice": "Errore interno — nuovo tentativo dal contesto più recente (tentativo {attempt}/{max})"
+    "loopRetryNotice": "Errore interno — nuovo tentativo dal contesto più recente (tentativo {attempt}/{max})",
+    "display": {
+      "title": "Visualizzazione",
+      "textSize": "Dimensione del testo",
+      "pixels": "{n}px",
+      "scales": {
+        "small": "Piccolo",
+        "default": "Predefinito",
+        "large": "Grande",
+        "larger": "Più grande"
+      },
+      "width": "Larghezza",
+      "widths": {
+        "standard": "Standard",
+        "wide": "Ampio"
+      },
+      "scopeHint": "Si applica alle tue conversazioni in questo browser."
+    }
   },
   "tools": {
     "common": {

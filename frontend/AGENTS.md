@@ -86,7 +86,30 @@ dense metadata only (badges, table chrome, the sidebar ticker); `text-xs`
 
 **Radius.** Two, not three: `rounded`/`rounded-md` are both 6px (controls),
 `rounded-lg` is 8px (cards, panels), `rounded-xl` 12px (modals). `rounded-sm`
-(4px) is only for affordances 16px or smaller.
+(4px) is only for affordances 16px or smaller. `rounded-composer` (20px) is
+the composer surface and nothing else — it is named rather than added to the
+scale so that Tailwind's stock `rounded-2xl` keeps its 16px on the 21 call
+sites that already use it.
+
+**The conversation surface.** The transcript, the composer, the landing
+composer, the shared-link view and the tool cards inside a transcript all
+take `max-w-chat` (`--bow-measure-chat`, 48rem/768px). One token, because
+the box you type into must be the same width as the text you read back —
+they had drifted to 672px and ~53vw, so the composer resized the moment you
+pressed enter. Chat body copy uses `text-chat`, which is the `base` step
+(16px/24px) multiplied by the reader's own preference; the fixed steps are
+still right everywhere outside a conversation. Secondary tiers inside a
+transcript (code, reasoning) are `calc(var(--bow-chat-font-size) * 0.8125)`
+rather than a pinned 13px, so they scale with the reader's choice.
+
+Those two are *reader* preferences, stored per browser
+(`localStorage['bow.chat.width' | 'bow.chat.textScale']`, see
+`composables/useChatDisplay.ts`), applied to `<html>` by
+`plugins/chat-display.client.ts`, and set from `ChatDisplayMenu` in the
+report header. Reading size is not an organization setting: nobody should
+need `manage_settings` to make text bigger. If you add a surface that is part
+of a conversation, use the tokens — do not reintroduce a literal width or a
+fixed chat font size.
 
 **Motion.** A bare `transition` already inherits 180ms and the standard
 curve — do not add `duration-*`/`ease-*` unless you mean something other than

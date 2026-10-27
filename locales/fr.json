@@ -1094,7 +1094,24 @@
     "steerFailed": "Échec de l'orientation de l'exécution en cours",
     "instructionUnavailableTitle": "Instruction indisponible",
     "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès.",
-    "loopRetryNotice": "Erreur interne rencontrée — nouvelle tentative à partir du contexte le plus récent (tentative {attempt}/{max})"
+    "loopRetryNotice": "Erreur interne rencontrée — nouvelle tentative à partir du contexte le plus récent (tentative {attempt}/{max})",
+    "display": {
+      "title": "Affichage",
+      "textSize": "Taille du texte",
+      "pixels": "{n} px",
+      "scales": {
+        "small": "Petit",
+        "default": "Par défaut",
+        "large": "Grand",
+        "larger": "Très grand"
+      },
+      "width": "Largeur",
+      "widths": {
+        "standard": "Standard",
+        "wide": "Large"
+      },
+      "scopeHint": "S'applique à vos conversations dans ce navigateur."
+    }
   },
   "tools": {
     "common": {

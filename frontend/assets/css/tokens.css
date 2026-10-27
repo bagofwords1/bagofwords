@@ -69,6 +69,34 @@
   --bow-radius-md: 6px;
   --bow-radius-lg: 8px;
   --bow-radius-xl: 12px;
+  /* 20px, and deliberately only for the composer surface. The two-radius
+     rule above is about controls that sit next to each other; the composer
+     is a single full-width surface with nothing beside it to disagree with,
+     and at 768px wide a 12px corner reads as an input box rather than as the
+     place you talk to the product. Nothing else should reach for this, and
+     it is named rather than added as a `2xl` step so that Tailwind's stock
+     `rounded-2xl` (16px, 21 call sites) keeps its value. */
+  --bow-radius-composer: 20px;
+
+  /* --- chat measure and reading size ----------------------------------- */
+  /* The conversation column and the composer share one measure, so the box
+     you type into is exactly as wide as the text you read back.
+     48rem/768px holds roughly 95 characters at 16px, inside the band where
+     line length stops costing reading speed. It replaces a 42rem/672px
+     column of 14px text: measured against comparable products, that was
+     both the narrowest column and the smallest body type of the set. */
+  --bow-measure-chat: 48rem;
+
+  /* Chat body type: the `base` step (16px/24px), multiplied by the reader's
+     own preference. This is not a new size in the scale — at 1x it is
+     exactly `text-base` — it is that step made adjustable, because reading
+     size is the one typographic choice the reader is better placed to make
+     than we are. Stored per browser in `localStorage['bow.chat.textScale']`
+     and applied to <html> by `plugins/chat-display.client.ts`, the same way
+     the locale is. */
+  --bow-chat-text-scale: 1;
+  --bow-chat-font-size: calc(1rem * var(--bow-chat-text-scale));
+  --bow-chat-line-height: calc(1.5rem * var(--bow-chat-text-scale));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against
@@ -169,6 +197,19 @@ button:not(:disabled):not([aria-disabled='true']):active,
 :focus-visible {
   outline: 2px solid var(--bow-accent);
   outline-offset: 2px;
+}
+
+/*
+ * Wide mode: the reader opts out of the measure cap and the conversation
+ * fills whatever pane it is in. Set as a data attribute on <html> by
+ * `plugins/chat-display.client.ts` rather than as a class, so it cannot
+ * collide with the 9,358 `dark:` variants that key off `.dark`.
+ *
+ * `max-w-chat` resolves through the same variable either way, so no
+ * component needs to know which mode it is in.
+ */
+:root[data-chat-width='wide'] {
+  --bow-measure-chat: 100%;
 }
 
 /* Numeric alignment. A data product's figures should not shift column
