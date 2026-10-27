@@ -8,7 +8,7 @@
 - Added a Copy button on finished AI replies in chat, copying the answer as markdown (#1469)
 - Added an estimated token count under the instruction editor while editing (#1471)
 - Added a live progress bubble while the agent works in 1:1 Teams chats (#1465)
-- Added worker memory to indexing run events, and cut memory use while saving the catalog (#1479)
+- Added worker memory to indexing run events, and cut memory use while saving the catalog, so a run killed for memory can be diagnosed from its log (#1485)
 - Added line-range and grep reads to `read_instruction`, so a long instruction is reachable past the first page (#1481)
 - Fixed chat on a shared dashboard answering from the creator's rows instead of the viewer's (#1477)
 - Fixed an agent's library files never reaching Auto chats, or chats where the file was uploaded afterwards (#1481)
@@ -19,7 +19,8 @@
 - Fixed `/swagger` showing a blank page on air-gapped installs, and enabled it in the air-gap bundle (#1472)
 - Fixed the @mention menu finding no results when a mention is typed mid-sentence (#1475)
 - Fixed an @instruction mention in chat showing a table icon instead of an instruction (#1474)
-- Fixed indexing runs ending with the wrong status when the stale-run check fires on a live run (#1479)
+- Fixed indexing progress entries dropping out of a run's event log (#1485)
+- Fixed an agent linked to a connection during its first indexing run being left with no tables (#1485)
 
 ## Version 0.0.597 (October 26, 2026)
 - Added per-group default models, usable by the group even when restricted (#1466) — Settings → LLM → Group default models
