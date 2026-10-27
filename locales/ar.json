@@ -6333,7 +6333,27 @@
     "discardConfirm": "هل تريد تجاهل التغييرات غير المحفوظة؟",
     "renameInConversation": "غيّر الاسم من محادثة خاصة بك تعدّل لوحة المعلومات هذه.",
     "renameInConversationDoc": "غيّر اسمه من إحدى محادثاتك التي تعدّل هذا المستند.",
-    "renameInConversationSlides": "غيّر اسمه من إحدى محادثاتك التي تعدّل هذا العرض التقديمي."
+    "renameInConversationSlides": "غيّر اسمه من إحدى محادثاتك التي تعدّل هذا العرض التقديمي.",
+    "tabAccess": "الوصول",
+    "accessDesc": "من يمكنه تعديل لوحة المعلومات هذه ومن يمكنه عرضها.",
+    "accessDescDoc": "من يمكنه تعديل هذا المستند ومن يمكنه عرضه.",
+    "accessDescSlides": "من يمكنه تعديل هذا العرض التقديمي ومن يمكنه عرضه.",
+    "access": {
+      "loadFailed": "تعذر تحميل قائمة الوصول.",
+      "canEdit": "يمكنه التعديل",
+      "canView": "يمكنه العرض",
+      "notPublished": "لم يُنشر بعد: يمكن للمحررين فقط فتحه.",
+      "anyoneWithLink": "أي شخص لديه الرابط",
+      "everyoneInOrg": "الجميع في المؤسسة",
+      "onlyEditors": "فقط من يمكنهم التعديل.",
+      "editorsAlsoView": "كل من يمكنه التعديل يمكنه العرض أيضًا.",
+      "changeInShare": "لتغيير الوصول، استخدم المشاركة.",
+      "aGroup": "مجموعة",
+      "members": "{n} عضو | {n} أعضاء",
+      "viaProject": "عبر المشروع {name}",
+      "projectMembers": "أعضاء المشروع {name}",
+      "projectMembersUnnamed": "أعضاء مشروعها"
+    }
   },
   "dashboardStart": {
     "title": "لا توجد لوحة معلومات هنا بعد",

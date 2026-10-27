@@ -6333,7 +6333,27 @@
     "discardConfirm": "Släng osparade ändringar?",
     "renameInConversation": "Byt namn från en av dina konversationer som redigerar den här instrumentpanelen.",
     "renameInConversationDoc": "Byt namn från en av dina konversationer som redigerar det här dokumentet.",
-    "renameInConversationSlides": "Byt namn från en av dina konversationer som redigerar den här presentationen."
+    "renameInConversationSlides": "Byt namn från en av dina konversationer som redigerar den här presentationen.",
+    "tabAccess": "Åtkomst",
+    "accessDesc": "Vem som kan redigera instrumentpanelen och vem som kan se den.",
+    "accessDescDoc": "Vem som kan redigera dokumentet och vem som kan se det.",
+    "accessDescSlides": "Vem som kan redigera presentationen och vem som kan se den.",
+    "access": {
+      "loadFailed": "Det gick inte att läsa in åtkomsten.",
+      "canEdit": "Kan redigera",
+      "canView": "Kan visa",
+      "notPublished": "Inte publicerad än: bara redigerare kan öppna den.",
+      "anyoneWithLink": "Alla med länken",
+      "everyoneInOrg": "Alla i organisationen",
+      "onlyEditors": "Bara de som kan redigera.",
+      "editorsAlsoView": "Alla som kan redigera kan också visa.",
+      "changeInShare": "Använd Dela för att ändra åtkomsten.",
+      "aGroup": "En grupp",
+      "members": "{n} medlem | {n} medlemmar",
+      "viaProject": "Via projektet {name}",
+      "projectMembers": "Medlemmar i projektet {name}",
+      "projectMembersUnnamed": "Medlemmar i projektet"
+    }
   },
   "dashboardStart": {
     "title": "Ingen instrumentpanel här än",

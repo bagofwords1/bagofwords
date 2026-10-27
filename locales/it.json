@@ -6333,7 +6333,27 @@
     "discardConfirm": "Annullare le modifiche non salvate?",
     "renameInConversation": "Rinominalo da una tua conversazione che modifica questa dashboard.",
     "renameInConversationDoc": "Rinominalo da una tua conversazione che modifica questo documento.",
-    "renameInConversationSlides": "Rinominala da una tua conversazione che modifica questa presentazione."
+    "renameInConversationSlides": "Rinominala da una tua conversazione che modifica questa presentazione.",
+    "tabAccess": "Accesso",
+    "accessDesc": "Chi può modificare questa dashboard e chi può vederla.",
+    "accessDescDoc": "Chi può modificare questo documento e chi può vederlo.",
+    "accessDescSlides": "Chi può modificare questa presentazione e chi può vederla.",
+    "access": {
+      "loadFailed": "Impossibile caricare chi ha accesso.",
+      "canEdit": "Può modificare",
+      "canView": "Può vedere",
+      "notPublished": "Non ancora pubblicato: solo gli editor possono aprirlo.",
+      "anyoneWithLink": "Chiunque abbia il link",
+      "everyoneInOrg": "Tutta l'organizzazione",
+      "onlyEditors": "Solo chi può modificare.",
+      "editorsAlsoView": "Chi può modificare può anche vedere.",
+      "changeInShare": "Per cambiare l'accesso, usa Condividi.",
+      "aGroup": "Un gruppo",
+      "members": "{n} membro | {n} membri",
+      "viaProject": "Tramite il progetto {name}",
+      "projectMembers": "Membri del progetto {name}",
+      "projectMembersUnnamed": "Membri del suo progetto"
+    }
   },
   "dashboardStart": {
     "title": "Ancora nessuna dashboard qui",

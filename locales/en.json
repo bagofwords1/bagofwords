@@ -6709,7 +6709,27 @@
     "discardConfirm": "Discard unsaved changes?",
     "renameInConversation": "Rename it from a conversation of yours that edits this dashboard.",
     "renameInConversationDoc": "Rename it from a conversation of yours that edits this document.",
-    "renameInConversationSlides": "Rename it from a conversation of yours that edits this presentation."
+    "renameInConversationSlides": "Rename it from a conversation of yours that edits this presentation.",
+    "tabAccess": "Access",
+    "accessDesc": "Who can edit this dashboard and who can view it.",
+    "accessDescDoc": "Who can edit this document and who can view it.",
+    "accessDescSlides": "Who can edit this presentation and who can view it.",
+    "access": {
+      "loadFailed": "Couldn't load who has access.",
+      "canEdit": "Can edit",
+      "canView": "Can view",
+      "notPublished": "Not published yet: only editors can open it.",
+      "anyoneWithLink": "Anyone with the link",
+      "everyoneInOrg": "Everyone in the organization",
+      "onlyEditors": "Only the people who can edit.",
+      "editorsAlsoView": "Everyone who can edit can also view.",
+      "changeInShare": "To change who has access, use Share.",
+      "aGroup": "A group",
+      "members": "{n} member | {n} members",
+      "viaProject": "Through project {name}",
+      "projectMembers": "Members of project {name}",
+      "projectMembersUnnamed": "Members of its project"
+    }
   },
   "dashboardStart": {
     "title": "No dashboard here yet",

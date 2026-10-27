@@ -6700,7 +6700,27 @@
     "discardConfirm": "לבטל את השינויים שלא נשמרו?",
     "renameInConversation": "אפשר לשנות את השם משיחה שלך שעורכת את הגלריה הזו.",
     "renameInConversationDoc": "אפשר לשנות את השם משיחה שלך שעורכת את המסמך הזה.",
-    "renameInConversationSlides": "אפשר לשנות את השם משיחה שלך שעורכת את המצגת הזו."
+    "renameInConversationSlides": "אפשר לשנות את השם משיחה שלך שעורכת את המצגת הזו.",
+    "tabAccess": "גישה",
+    "accessDesc": "מי יכול לערוך את הגלריה ומי יכול לצפות בה.",
+    "accessDescDoc": "מי יכול לערוך את המסמך ומי יכול לצפות בו.",
+    "accessDescSlides": "מי יכול לערוך את המצגת ומי יכול לצפות בה.",
+    "access": {
+      "loadFailed": "לא ניתן לטעון את רשימת הגישה.",
+      "canEdit": "יכול/ה לערוך",
+      "canView": "יכול/ה לצפות",
+      "notPublished": "עדיין לא פורסם: רק עורכים יכולים לפתוח.",
+      "anyoneWithLink": "כל מי שיש לו את הקישור",
+      "everyoneInOrg": "כל הארגון",
+      "onlyEditors": "רק מי שיכול לערוך.",
+      "editorsAlsoView": "כל מי שיכול לערוך יכול גם לצפות.",
+      "changeInShare": "כדי לשנות את הגישה, השתמשו בשיתוף.",
+      "aGroup": "קבוצה",
+      "members": "חבר/ה אחד/ת | {n} חברים",
+      "viaProject": "דרך הפרויקט {name}",
+      "projectMembers": "חברי הפרויקט {name}",
+      "projectMembersUnnamed": "חברי הפרויקט"
+    }
   },
   "dashboardStart": {
     "title": "עדיין אין כאן גלריה",

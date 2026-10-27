@@ -6333,7 +6333,27 @@
     "discardConfirm": "Abandonner les modifications non enregistrées ?",
     "renameInConversation": "Renommez-le depuis une de vos conversations qui modifie ce tableau de bord.",
     "renameInConversationDoc": "Renommez-le depuis une de vos conversations qui modifie ce document.",
-    "renameInConversationSlides": "Renommez-la depuis une de vos conversations qui modifie cette présentation."
+    "renameInConversationSlides": "Renommez-la depuis une de vos conversations qui modifie cette présentation.",
+    "tabAccess": "Accès",
+    "accessDesc": "Qui peut modifier ce tableau de bord et qui peut le voir.",
+    "accessDescDoc": "Qui peut modifier ce document et qui peut le voir.",
+    "accessDescSlides": "Qui peut modifier cette présentation et qui peut la voir.",
+    "access": {
+      "loadFailed": "Impossible de charger la liste des accès.",
+      "canEdit": "Peut modifier",
+      "canView": "Peut voir",
+      "notPublished": "Pas encore publié : seuls les éditeurs peuvent l'ouvrir.",
+      "anyoneWithLink": "Toute personne disposant du lien",
+      "everyoneInOrg": "Toute l'organisation",
+      "onlyEditors": "Seulement les personnes qui peuvent modifier.",
+      "editorsAlsoView": "Toute personne qui peut modifier peut aussi voir.",
+      "changeInShare": "Pour changer les accès, utilisez Partager.",
+      "aGroup": "Un groupe",
+      "members": "{n} membre | {n} membres",
+      "viaProject": "Via le projet {name}",
+      "projectMembers": "Membres du projet {name}",
+      "projectMembersUnnamed": "Membres de son projet"
+    }
   },
   "dashboardStart": {
     "title": "Pas encore de tableau de bord ici",

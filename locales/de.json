@@ -6333,7 +6333,27 @@
     "discardConfirm": "Ungespeicherte Änderungen verwerfen?",
     "renameInConversation": "Benenne es in einer deiner Unterhaltungen um, die dieses Dashboard bearbeitet.",
     "renameInConversationDoc": "Benenne es in einer deiner Unterhaltungen um, die dieses Dokument bearbeitet.",
-    "renameInConversationSlides": "Benenne sie in einer deiner Unterhaltungen um, die diese Präsentation bearbeitet."
+    "renameInConversationSlides": "Benenne sie in einer deiner Unterhaltungen um, die diese Präsentation bearbeitet.",
+    "tabAccess": "Zugriff",
+    "accessDesc": "Wer dieses Dashboard bearbeiten und wer es ansehen kann.",
+    "accessDescDoc": "Wer dieses Dokument bearbeiten und wer es ansehen kann.",
+    "accessDescSlides": "Wer diese Präsentation bearbeiten und wer sie ansehen kann.",
+    "access": {
+      "loadFailed": "Zugriffe konnten nicht geladen werden.",
+      "canEdit": "Kann bearbeiten",
+      "canView": "Kann ansehen",
+      "notPublished": "Noch nicht veröffentlicht: nur Bearbeiter können es öffnen.",
+      "anyoneWithLink": "Alle mit dem Link",
+      "everyoneInOrg": "Alle in der Organisation",
+      "onlyEditors": "Nur die Personen, die bearbeiten können.",
+      "editorsAlsoView": "Wer bearbeiten kann, kann auch ansehen.",
+      "changeInShare": "Den Zugriff ändern Sie über Teilen.",
+      "aGroup": "Eine Gruppe",
+      "members": "{n} Mitglied | {n} Mitglieder",
+      "viaProject": "Über das Projekt {name}",
+      "projectMembers": "Mitglieder des Projekts {name}",
+      "projectMembersUnnamed": "Mitglieder seines Projekts"
+    }
   },
   "dashboardStart": {
     "title": "Hier gibt es noch kein Dashboard",

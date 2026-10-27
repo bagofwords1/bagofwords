@@ -6333,7 +6333,27 @@
     "discardConfirm": "Descartar as alterações não salvas?",
     "renameInConversation": "Renomeie-o a partir de uma conversa sua que edita este painel.",
     "renameInConversationDoc": "Renomeie-o em uma conversa sua que edite este documento.",
-    "renameInConversationSlides": "Renomeie-a em uma conversa sua que edite esta apresentação."
+    "renameInConversationSlides": "Renomeie-a em uma conversa sua que edite esta apresentação.",
+    "tabAccess": "Acesso",
+    "accessDesc": "Quem pode editar este painel e quem pode vê-lo.",
+    "accessDescDoc": "Quem pode editar este documento e quem pode vê-lo.",
+    "accessDescSlides": "Quem pode editar esta apresentação e quem pode vê-la.",
+    "access": {
+      "loadFailed": "Não foi possível carregar quem tem acesso.",
+      "canEdit": "Pode editar",
+      "canView": "Pode ver",
+      "notPublished": "Ainda não publicado: só editores podem abrir.",
+      "anyoneWithLink": "Qualquer pessoa com o link",
+      "everyoneInOrg": "Todos na organização",
+      "onlyEditors": "Apenas quem pode editar.",
+      "editorsAlsoView": "Quem pode editar também pode ver.",
+      "changeInShare": "Para mudar o acesso, use Compartilhar.",
+      "aGroup": "Um grupo",
+      "members": "{n} membro | {n} membros",
+      "viaProject": "Pelo projeto {name}",
+      "projectMembers": "Membros do projeto {name}",
+      "projectMembersUnnamed": "Membros do projeto"
+    }
   },
   "dashboardStart": {
     "title": "Ainda não há um painel aqui",

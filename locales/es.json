@@ -6680,7 +6680,27 @@
     "discardConfirm": "¿Descartar los cambios sin guardar?",
     "renameInConversation": "Cámbiale el nombre desde una conversación tuya que edite este tablero.",
     "renameInConversationDoc": "Cámbiale el nombre desde una conversación tuya que edite este documento.",
-    "renameInConversationSlides": "Cámbiale el nombre desde una conversación tuya que edite esta presentación."
+    "renameInConversationSlides": "Cámbiale el nombre desde una conversación tuya que edite esta presentación.",
+    "tabAccess": "Acceso",
+    "accessDesc": "Quién puede editar este panel y quién puede verlo.",
+    "accessDescDoc": "Quién puede editar este documento y quién puede verlo.",
+    "accessDescSlides": "Quién puede editar esta presentación y quién puede verla.",
+    "access": {
+      "loadFailed": "No se pudo cargar quién tiene acceso.",
+      "canEdit": "Puede editar",
+      "canView": "Puede ver",
+      "notPublished": "Aún no está publicado: solo los editores pueden abrirlo.",
+      "anyoneWithLink": "Cualquier persona con el enlace",
+      "everyoneInOrg": "Todos en la organización",
+      "onlyEditors": "Solo quienes pueden editar.",
+      "editorsAlsoView": "Quien puede editar también puede ver.",
+      "changeInShare": "Para cambiar quién tiene acceso, usa Compartir.",
+      "aGroup": "Un grupo",
+      "members": "{n} miembro | {n} miembros",
+      "viaProject": "A través del proyecto {name}",
+      "projectMembers": "Miembros del proyecto {name}",
+      "projectMembersUnnamed": "Miembros de su proyecto"
+    }
   },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",
