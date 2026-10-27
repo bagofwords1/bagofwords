@@ -13,6 +13,7 @@
 - Changed the dashboard API to /api/artifacts/…; rollback is now restore (#1459)
 - Changed dashboard wording to "document" or "presentation" for docs and slides (#1459)
 - Fixed a published dashboard disappearing when its conversation is deleted (#1455)
+- Fixed a dashboard brought into a conversation showing no data until a reload; it now shows its queries running as you, then fills in (#1455)
 - Fixed currency amounts like "$2,329 … $5.65" rendering as math in chat (#1461)
 - Fixed the shared dashboard page's top bar, banner and badge staying in English (#1463)
 
