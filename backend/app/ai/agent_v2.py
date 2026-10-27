@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.data_sources.clients.base import Capability
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,42 @@ def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict, native
                 continue
             n += 1
     return n
+
+
+# Capabilities a connector client may declare that gate a tool in the
+# catalog. Browser is excluded: browser tools have their own live eligibility
+# check (_refresh_browser_tool_catalog) and are never capability candidates.
+CONNECTOR_CAPABILITIES = frozenset(
+    c.value for c in Capability if c not in (Capability.QUERY, Capability.BROWSER)
+)
+
+
+def capabilities_for_agents(agents) -> set:
+    """Capability names the agents' connections declare (client class level).
+
+    A connection whose client cannot be resolved contributes nothing; it never
+    hides the capabilities of the others.
+    """
+    from app.schemas.data_source_registry import resolve_client_class
+
+    caps: set = set()
+    for ds in agents or []:
+        try:
+            connections = list(getattr(ds, "connections", None) or [])
+        except Exception:  # unloaded relationship outside a greenlet, detached row
+            logger.warning("capabilities: connections unavailable for agent %r",
+                           getattr(ds, "id", None), exc_info=True)
+            continue
+        for conn in connections:
+            try:
+                cls = resolve_client_class(conn.type)
+            except Exception:
+                logger.warning("capabilities: no client class for connection type %r",
+                               getattr(conn, "type", None), exc_info=True)
+                continue
+            for cap in getattr(cls, "capabilities", set()) or set():
+                caps.add(getattr(cap, "value", str(cap)))
+    return caps
 
 
 def capabilities_for_report_files(has_files: bool) -> set:
@@ -908,31 +945,14 @@ class AgentV2:
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
 
-        # Capabilities exposed by the report's attached connections — used to
-        # gate file-source tools (list_files / read_file / search_files) so
-        # they only appear in the catalog when at least one connection
+        # Capabilities exposed by the run's agents' connections — used to gate
+        # file-source tools (list_files / read_file / search_files, mail, notes)
+        # so they only appear in the catalog when at least one connection
         # actually exposes those capabilities. Avoids polluting a SQL-only
-        # agent with file tools that can never resolve.
-        available_capabilities: set[str] = set()
-        try:
-            from app.schemas.data_source_registry import resolve_client_class
-            report = getattr(self, "report", None)
-            for ds in (getattr(report, "data_sources", None) or []):
-                for conn in (getattr(ds, "connections", None) or []):
-                    try:
-                        cls = resolve_client_class(conn.type)
-                        for cap in getattr(cls, "capabilities", set()) or set():
-                            available_capabilities.add(getattr(cap, "value", str(cap)))
-                    except Exception:
-                        continue
-            # The report's OWN file space also backs read_file / grep_files
-            # (session-file resolution) — an agent with uploaded files but no
-            # file connector still needs the readers in its catalog.
-            available_capabilities |= capabilities_for_report_files(
-                bool(getattr(report, "files", None))
-            )
-        except Exception:
-            pass
+        # agent with file tools that can never resolve. The run's agents, not
+        # just report.data_sources: under Auto the report has no attachments
+        # and the run executes against the user's accessible agents.
+        available_capabilities: set[str] = self._run_capabilities()
 
         # Build browser candidates respecting registry mode/platform constraints.
         # Live eligibility is resolved before each planner step below.
@@ -940,13 +960,17 @@ class AgentV2:
             available_capabilities.add("artifact_preview")
 
         # Start with all available tools for the planner to see, filtered by mode and platform
+        # Every connector capability passes here so the tools no run agent
+        # backs yet go through the same filters below; they are split off into
+        # _capability_tool_candidates before the planner sees the catalog.
+        _catalog_capabilities = available_capabilities | CONNECTOR_CAPABILITIES
         all_catalog_dicts = self.registry.get_catalog_for_plan_type(
             "action", self.organization, mode=self.mode, platform=self.platform,
-            available_capabilities=available_capabilities,
+            available_capabilities=_catalog_capabilities,
         )
         all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type(
             "research", self.organization, mode=self.mode, platform=self.platform,
-            available_capabilities=available_capabilities,
+            available_capabilities=_catalog_capabilities,
         ))
 
         # Hide tools that read raw data when the org has disabled LLM data access.
@@ -1050,8 +1074,18 @@ class AgentV2:
 
         self._browser_catalog_candidates = [ToolDescriptor(**tool) for tool in unique_catalog
                                             if tool["name"].startswith("browser_")]
+        # Connector-capability tools no run agent backs yet: held back (already
+        # through every filter above) and added by _refresh_capability_tools
+        # when an agent that backs them joins the run mid-turn.
+        self._capability_tool_candidates = [
+            ToolDescriptor(**tool) for tool in unique_catalog
+            if not tool["name"].startswith("browser_")
+            and self._tool_capability(tool["name"]) not in (None, *available_capabilities)
+        ]
+        _held = {t.name for t in self._capability_tool_candidates}
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog
-                        if not tool["name"].startswith("browser_")]
+                        if not tool["name"].startswith("browser_") and tool["name"] not in _held]
+        self._capability_pool_key = self._run_pool_key()
         # BOW_PLANNER selects the planner implementation. Default v3 (native
         # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
         # envelope planner. Other values fall back to v3 with a warning.
@@ -2511,6 +2545,7 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
@@ -5362,6 +5397,13 @@ class AgentV2:
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
                         await _browser_catalog_task
+                        # An agent attached mid-run (create_agent,
+                        # set_report_agents) brings its file / mail / note
+                        # tools into this step's catalog.
+                        try:
+                            self._refresh_capability_tools()
+                        except Exception:
+                            logger.exception("capability tool refresh failed")
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -6681,6 +6723,7 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                                        "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
@@ -8647,6 +8690,76 @@ class AgentV2:
             rewritten["title"] = title
         logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
         return "execute_mcp", rewritten
+
+    def _run_capability_agents(self) -> list:
+        """The run's working set plus the report's attachments (a mid-run
+        set_report_agents / create_agent attaches there), de-duplicated."""
+        out, seen = [], set()
+        pool = list(getattr(self, "data_sources", None) or [])
+        try:
+            pool += list(getattr(self.report, "data_sources", None) or []) if self.report is not None else []
+        except Exception:
+            logger.warning("[agent] report agents unavailable for capability gating", exc_info=True)
+        for ds in pool:
+            key = str(getattr(ds, "id", "") or id(ds))
+            if key not in seen:
+                seen.add(key)
+                out.append(ds)
+        return out
+
+    def _run_capabilities(self) -> set:
+        """Capabilities that gate the catalog: the run's agents' connectors
+        plus the report's own file space (session files back read_file /
+        grep_files with no file connector attached)."""
+        caps = capabilities_for_agents(self._run_capability_agents())
+        try:
+            caps |= capabilities_for_report_files(bool(getattr(self.report, "files", None)))
+        except Exception:
+            logger.warning("[agent] report files unavailable for capability gating", exc_info=True)
+        return caps
+
+    def _run_pool_key(self) -> tuple:
+        return tuple(sorted(str(getattr(ds, "id", "")) for ds in self._run_capability_agents()))
+
+    def _tool_capability(self, tool_name: str):
+        metadata = self.registry.get_metadata(tool_name)
+        return getattr(metadata, "requires_capability", None) if metadata else None
+
+    def _refresh_capability_tools(self) -> None:
+        """Offer held-back capability tools once a run agent backs them.
+
+        The catalog is built once per turn; an agent attached mid-run (e.g. a
+        file source created with create_agent) would otherwise leave its
+        read_file / list_files out until the next turn. Only grows the
+        catalog, and only with tools that already passed every catalog filter
+        (and the sub-agent profile, when this run is a child).
+        """
+        candidates = getattr(self, "_capability_tool_candidates", None)
+        if not candidates:
+            return
+        key = self._run_pool_key()
+        if key == getattr(self, "_capability_pool_key", None):
+            return
+        self._capability_pool_key = key
+        caps = self._run_capabilities()
+        allowed = getattr(self, "_sub_agent_allowed_tools", None) if self._is_sub_agent else None
+        existing = {t.name for t in (self.planner.tool_catalog or [])}
+        added = [
+            t for t in candidates
+            if self._tool_capability(t.name) in caps
+            and t.name not in existing
+            and (allowed is None or t.name in allowed)
+        ]
+        if not added:
+            return
+        names = {t.name for t in added}
+        self._capability_tool_candidates = [t for t in candidates if t.name not in names]
+        self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+        cats = getattr(self.planner, "_tool_category", None)
+        if isinstance(cats, dict):
+            for t in added:
+                cats.setdefault(t.name, t.category)
+        logger.info("[agent] capability tools added mid-run: %s", ", ".join(sorted(names)))
 
     def _run_agent_ids(self) -> list:
         """Ids of the agents this run executes against (its working set).

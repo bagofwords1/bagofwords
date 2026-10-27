@@ -115,8 +115,12 @@ async def browser_policy(ctx, artifact_id=None):
             lazyload("*"), selectinload(Report.data_sources).options(
                 lazyload("*"), selectinload(DataSource.connections).lazyload("*")),
         ).where(Report.id == current.id))).scalar_one()
+        # Auto (no attachments) runs against the user's accessible agents —
+        # the same working set every other tool resolves against.
+        from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
+        agents = await resolve_run_agents(db, org, user, current)
         sources = []
-        for ds in current.data_sources:
+        for ds in agents:
             if ds.deleted_at or not ds.is_active or str(ds.organization_id) != str(org.id):
                 continue
             connections = [c for c in ds.connections if c.type == "browser" and c.is_active
