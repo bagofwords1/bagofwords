@@ -443,6 +443,35 @@ async def test_grep_returns_matching_lines_verbatim_with_context(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+async def test_grep_finds_matches_past_the_head_of_a_long_line(
+    create_user, login_user, whoami, test_client
+):
+    """A one-line JSON/TSV catalogue keeps entries far past column 500. Every
+    occurrence must come back as a verbatim window that contains it."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    names = [f"evt_{i:04d}" for i in range(400)]
+    long_line = ",".join(f'"{n}":"desc {n}"' for n in names)
+    text = "# catalogue\n" + long_line + "\nfooter"
+    instr = _create_instruction(test_client, token, org_id, text=text, title="One-liner")
+
+    targets = [names[5], names[200], names[399]]
+    tool_input = {"id": instr["id"][:8], "grep_pattern": "|".join(f'"{t}"' for t in targets), "max_matches": 50}
+    payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+    out = payload["output"]
+
+    assert out["success"] is True, out
+    shown = [m for m in out["matches"] if m["line_no"] == 2]
+    assert all(long_line.index(f'"{t}"') > 500 for t in targets[1:]), "fixture must put matches past the head"
+    for t in targets:
+        hit = [m for m in shown if f'"{t}"' in m["line"]]
+        assert hit, f"{t} not in any returned window"
+        m = hit[0]
+        assert long_line[m["col_start"]:m["col_end"]] == m["line"]
+    _assert_reaches_model_uncut(tool_input, payload["observation"])
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_grep_with_no_match_returns_outline(create_user, login_user, whoami, test_client):
     token, uid, org_id = _new_admin(create_user, login_user, whoami)
     instr = _create_instruction(test_client, token, org_id, text=_catalogue(300), title="Events")

@@ -434,3 +434,52 @@ class TestCatalogGating:
             "research", available_capabilities=set(),
         )}
         assert "read_file" not in names and "grep_files" not in names
+
+
+class TestProjectFilesOpenFileTools:
+    """A chat whose only files are its project's still gets read_file /
+    grep_files. Project files load async, after the catalog is built in
+    __init__, so the per-step refresh must pick them up."""
+
+    def _agent(self, report_files=()):
+        from types import SimpleNamespace
+        from app.ai.agent_v2 import AgentV2
+        from app.ai.registry import ToolRegistry
+        from app.schemas.ai.planner import ToolDescriptor
+
+        reg = ToolRegistry()
+        held = [
+            ToolDescriptor(**t)
+            for t in reg.get_catalog_for_plan_type(
+                "research", available_capabilities={"read_file", "grep_files"},
+            )
+            if t["name"] in ("read_file", "grep_files")
+        ]
+        agent = object.__new__(AgentV2)
+        agent.report = SimpleNamespace(files=list(report_files), data_sources=[])
+        agent.data_sources = []
+        agent.agent_files = []
+        agent.registry = reg
+        agent.planner = SimpleNamespace(tool_catalog=[])
+        agent._is_sub_agent = False
+        agent._capability_tool_candidates = held
+        agent._capability_pool_key = agent._run_pool_key()
+        return agent
+
+    def _names(self, agent):
+        return {t.name for t in agent.planner.tool_catalog}
+
+    def test_project_files_add_read_and_grep(self, tmp_path):
+        agent = self._agent()
+        agent._refresh_capability_tools()
+        assert not ({"read_file", "grep_files"} & self._names(agent))
+
+        agent._project_files_cache = [_mk_file(tmp_path, "catalogue.yaml", b"a: 1", "text/yaml")]
+        agent._refresh_capability_tools()
+        assert {"read_file", "grep_files"} <= self._names(agent)
+
+    def test_no_files_adds_nothing(self):
+        agent = self._agent()
+        agent._project_files_cache = []
+        agent._refresh_capability_tools()
+        assert not ({"read_file", "grep_files"} & self._names(agent))
