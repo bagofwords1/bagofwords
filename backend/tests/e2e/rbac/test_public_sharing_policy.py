@@ -320,3 +320,78 @@ def test_setting_stored_without_metadata_is_honored_and_repairable(test_client, 
 
     _set_public_sharing(test_client, admin, True)
     assert test_client.get(f"/api/r/{report['id']}").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Embedded files on the shared page (/r/{id}/files/{file_id}/embed_token)
+# ---------------------------------------------------------------------------
+
+def _public_dashboard_with_embedded_file(test_client, create_report, owner, org_id):
+    report = _new_report(create_report, owner["token"], org_id)
+    up = test_client.post(
+        "/api/files",
+        files={"file": (f"f_{uuid.uuid4().hex[:6]}.csv", b"k,v\nsecret,1\n", "text/csv")},
+        data={"report_id": report["id"]},
+        headers=_headers(owner["token"], org_id),
+    )
+    assert up.status_code == 200, up.text
+    file_id = up.json()["id"]
+    art = test_client.post("/api/artifacts", json={
+        "report_id": report["id"], "mode": "page", "title": "x",
+        "content": {"code": "", "files": [{"id": file_id, "content_type": "text/csv"}]},
+    }, headers=_headers(owner["token"], org_id))
+    assert art.status_code == 200, art.text
+    assert _put_visibility(test_client, report["id"], "artifact", owner["token"], org_id, visibility="public").status_code == 200
+    return report, file_id
+
+
+def _mint(test_client, report_id, file_id, token=None):
+    resp = test_client.get(
+        f"/api/r/{report_id}/files/{file_id}/embed_token",
+        headers=_headers(token) if token else None,
+    )
+    return resp
+
+
+@pytest.mark.e2e
+def test_file_token_minted_through_public_link_stops_working_when_disabled(test_client, create_report, cast):
+    """A token an outsider got from the public page before the admin turned
+    public links off must not keep serving the file for the rest of its TTL.
+    A token an org member minted keeps working (the page is still theirs)."""
+    admin, owner, colleague, outsider = cast["admin"], cast["owner"], cast["colleague"], cast["outsider"]
+    org_id = admin["org_id"]
+    report, file_id = _public_dashboard_with_embedded_file(test_client, create_report, owner, org_id)
+
+    anon = _mint(test_client, report["id"], file_id)
+    foreign = _mint(test_client, report["id"], file_id, outsider["token"])
+    member = _mint(test_client, report["id"], file_id, colleague["token"])
+    for resp in (anon, foreign, member):
+        assert resp.status_code == 200, resp.text
+        assert test_client.get(f"/api/files/{file_id}/embed", params={"token": resp.json()["token"]}).status_code == 200
+
+    _set_public_sharing(test_client, admin, False)
+
+    # New mints from outside the org are refused (the page gate)...
+    assert _mint(test_client, report["id"], file_id).status_code == 401
+    # ...and so are tokens minted through the public link before the switch.
+    for resp in (anon, foreign):
+        assert test_client.get(f"/api/files/{file_id}/embed", params={"token": resp.json()["token"]}).status_code == 403
+    assert test_client.get(f"/api/files/{file_id}/embed", params={"token": member.json()["token"]}).status_code == 200
+
+    # Turning it back on makes the same outsider tokens valid again.
+    _set_public_sharing(test_client, admin, True)
+    assert test_client.get(f"/api/files/{file_id}/embed", params={"token": anon.json()["token"]}).status_code == 200
+
+
+@pytest.mark.e2e
+def test_file_token_minted_through_public_link_stops_working_when_unshared(test_client, create_report, cast):
+    """Same capability, other revocation: the owner takes the dashboard off
+    the public link."""
+    admin, owner = cast["admin"], cast["owner"]
+    org_id = admin["org_id"]
+    report, file_id = _public_dashboard_with_embedded_file(test_client, create_report, owner, org_id)
+    anon = _mint(test_client, report["id"], file_id)
+    assert anon.status_code == 200, anon.text
+
+    assert _put_visibility(test_client, report["id"], "artifact", owner["token"], org_id, visibility="internal").status_code == 200
+    assert test_client.get(f"/api/files/{file_id}/embed", params={"token": anon.json()["token"]}).status_code == 403

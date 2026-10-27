@@ -327,6 +327,20 @@ async def get_file_embed(
         )).scalar_one_or_none()
         if bound_report is None:
             raise HTTPException(status_code=404, detail="File not found")
+        if claims.get("pub"):
+            # Minted through the public link: it is only as good as that link
+            # is now. Re-run the anonymous gate, so turning public sharing off
+            # or unsharing the dashboard revokes it before it expires.
+            from sqlalchemy.orm import lazyload
+            from app.errors import AppError
+            from app.services.report_service import ReportService
+            report_row = (await db.execute(
+                select(_Report).options(lazyload("*")).where(_Report.id == str(claims["rid"]))
+            )).scalar_one()
+            try:
+                await ReportService()._check_visibility(db, report_row, "artifact_visibility", None)
+            except (HTTPException, AppError):
+                raise HTTPException(status_code=403, detail="Invalid or expired file token")
 
     content = _read_file_bytes_or_404(file)
     media_type = file.content_type or "application/octet-stream"

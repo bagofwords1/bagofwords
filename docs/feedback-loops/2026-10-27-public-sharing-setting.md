@@ -132,6 +132,35 @@ The new regression test covers it. Live check: after restarting on the fix,
 the org loaded its settings (value `false`), both links returned 401, and
 flipping the toggle in the UI restored them.
 
+## Review finding: file tokens minted before revocation
+
+Reported in review (code tracing): `GET /files/{id}/embed?token=…` only
+checked the token's signature, the file's org and the bound report's existence.
+A token an anonymous viewer got from `/r/{id}/files/{file_id}/embed_token`
+before the admin turned public links off kept serving the file for the rest
+of its one-hour lifetime.
+
+- **Reproduced:** two new tests in `test_public_sharing_policy.py` failed with
+  `assert 200 == 403`. One turns the setting off, the other unshares the
+  dashboard.
+- **Fix:**
+  - `/r/{id}/files/{file_id}/embed_token` now marks a token `pub` when the
+    viewer isn't a member of the report's org (anonymous, or another org).
+    For such a viewer, the public link was the only way in.
+  - `/files/{id}/embed` re-runs the anonymous `_check_visibility` gate for
+    `pub` tokens on every request, and returns 403 if it no longer passes.
+  - Tokens minted by org members carry no mark and keep working, the same as
+    their page access.
+- **Mutation checks:** never setting the mark fails both tests; always setting
+  it fails the member-token assertion.
+- **Results:** 13/13 in this file. File-access, pentest-authz, upload-hardening
+  and sharing suites pass on SQLite (281) and Postgres (84). The SQLite run
+  also had 3 failures not caused by this fix:
+  - 2 OAuth-overlay tests fail the same way without the fix (the sandbox lacks
+    `libodbc`);
+  - `test_admin_sees_every_file` failed once under `-n 4`; its whole module
+    passed 3/3 times on its own with the fix.
+
 ## What this proves / regression notes
 
 - **Regression runs:** 798 passed across every e2e module that touches

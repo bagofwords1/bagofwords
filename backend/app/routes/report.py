@@ -676,9 +676,21 @@ async def get_public_file_embed_token(
     ):
         raise HTTPException(status_code=404, detail="File not found")
 
+    # Org members keep their access when public links are switched off;
+    # anyone else got here through the public link, and their token must
+    # lose access with it (see get_file_embed).
+    from app.models.membership import Membership as _Membership
+    is_member = user is not None and (await db.execute(
+        select(_Membership.id).where(
+            _Membership.user_id == str(user.id),
+            _Membership.organization_id == str(report_row.organization_id),
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+
     from app.core.file_tokens import mint_file_token, file_embed_url
     token = mint_file_token(
-        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id)
+        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id),
+        via_public_link=not is_member,
     )
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 

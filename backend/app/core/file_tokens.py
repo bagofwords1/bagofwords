@@ -39,6 +39,7 @@ def mint_file_token(
     *,
     organization_id: str,
     report_id: Optional[str] = None,
+    via_public_link: bool = False,
 ) -> str:
     """Mint a signed capability token for a single file id.
 
@@ -56,6 +57,11 @@ def mint_file_token(
     }
     if report_id:
         payload["rid"] = str(report_id)
+        if via_public_link:
+            # Minted for someone outside the report's org, so only the public
+            # link let them in. /embed re-checks that grant on every request,
+            # so turning public sharing off (or unsharing) revokes the token.
+            payload["pub"] = True
     return jwt.encode(payload, _secret(), algorithm=_ALGO)
 
 
