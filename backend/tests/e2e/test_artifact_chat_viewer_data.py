@@ -123,7 +123,9 @@ async def _record_viewer_run(report_id: str, viewer: User, rows: list[dict]) -> 
             organization_id=str(org_id), report_id=str(report_id),
             data={"rows": rows, "columns": [{"field": "region"}, {"field": "amount"}]},
             params_fingerprint="", executed_as="viewer",
-            last_run_at=datetime.now(UTC),
+            # Naive UTC: StepUserResult.last_run_at is a bare DateTime, and
+            # Postgres rejects an aware value for it (sqlite accepts either).
+            last_run_at=datetime.now(UTC).replace(tzinfo=None),
         ))
         await db.commit()
 
