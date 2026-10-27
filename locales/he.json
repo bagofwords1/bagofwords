@@ -6680,7 +6680,11 @@
       "backTo": "חזרה ל-v{n}",
       "viewLive": "הצג את v{n}",
       "nextEditViewing": "צפייה ב-v{n} (קריאה בלבד) · העריכה הבאה שלך תתבסס על v{here}",
-      "allVersions": "כל הגרסאות…"
+      "allVersions": "כל הגרסאות…",
+      "publishChanges": "פרסום שינויים",
+      "popoverLiveNow": "הצופים רואים כעת את v{n}",
+      "popoverReplaceWith": "v{n} תחליף אותה",
+      "popoverCancel": "ביטול"
     },
     "access": {
       "signInTitle": "נדרשת התחברות",

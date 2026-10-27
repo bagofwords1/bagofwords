@@ -6300,7 +6300,11 @@
       "backTo": "Zurück zu v{n}",
       "viewLive": "v{n} ansehen",
       "nextEditViewing": "Ansicht von v{n} (schreibgeschützt) · Ihre nächste Änderung baut auf v{here} auf",
-      "allVersions": "Alle Versionen…"
+      "allVersions": "Alle Versionen…",
+      "publishChanges": "Änderungen veröffentlichen",
+      "popoverLiveNow": "Betrachter sehen jetzt v{n}",
+      "popoverReplaceWith": "v{n} ersetzt sie",
+      "popoverCancel": "Abbrechen"
     },
     "access": {
       "signInTitle": "Anmeldung erforderlich",

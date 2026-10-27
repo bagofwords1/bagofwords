@@ -6300,7 +6300,11 @@
       "backTo": "Tillbaka till v{n}",
       "viewLive": "Visa v{n}",
       "nextEditViewing": "Visar v{n} (skrivskyddad) · din nästa ändring utgår från v{here}",
-      "allVersions": "Alla versioner…"
+      "allVersions": "Alla versioner…",
+      "publishChanges": "Publicera ändringar",
+      "popoverLiveNow": "Läsare ser nu v{n}",
+      "popoverReplaceWith": "v{n} ersätter den",
+      "popoverCancel": "Avbryt"
     },
     "access": {
       "signInTitle": "Inloggning krävs",

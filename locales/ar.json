@@ -6300,7 +6300,11 @@
       "backTo": "العودة إلى v{n}",
       "viewLive": "عرض v{n}",
       "nextEditViewing": "عرض v{n} (للقراءة فقط) · تعديلك التالي سيبنى على v{here}",
-      "allVersions": "كل الإصدارات…"
+      "allVersions": "كل الإصدارات…",
+      "publishChanges": "نشر التغييرات",
+      "popoverLiveNow": "يرى المشاهدون الآن الإصدار v{n}",
+      "popoverReplaceWith": "سيحل محله الإصدار v{n}",
+      "popoverCancel": "إلغاء"
     },
     "access": {
       "signInTitle": "تسجيل الدخول مطلوب",

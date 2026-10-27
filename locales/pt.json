@@ -6300,7 +6300,11 @@
       "backTo": "Voltar para v{n}",
       "viewLive": "Ver v{n}",
       "nextEditViewing": "Vendo v{n} (somente leitura) · sua próxima edição parte da v{here}",
-      "allVersions": "Todas as versões…"
+      "allVersions": "Todas as versões…",
+      "publishChanges": "Publicar alterações",
+      "popoverLiveNow": "Os leitores veem agora a v{n}",
+      "popoverReplaceWith": "A v{n} substitui-a",
+      "popoverCancel": "Cancelar"
     },
     "access": {
       "signInTitle": "Login necessário",

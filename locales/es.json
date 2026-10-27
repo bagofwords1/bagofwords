@@ -6660,7 +6660,11 @@
       "backTo": "Volver a v{n}",
       "viewLive": "Ver v{n}",
       "nextEditViewing": "Viendo v{n} (solo lectura) · tu próxima edición parte de v{here}",
-      "allVersions": "Todas las versiones…"
+      "allVersions": "Todas las versiones…",
+      "publishChanges": "Publicar cambios",
+      "popoverLiveNow": "Los lectores ven ahora la v{n}",
+      "popoverReplaceWith": "La v{n} la reemplaza",
+      "popoverCancel": "Cancelar"
     },
     "access": {
       "signInTitle": "Inicia sesión",

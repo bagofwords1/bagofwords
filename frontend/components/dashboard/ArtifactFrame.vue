@@ -223,15 +223,16 @@
           <PresenceAvatars :others="presenceOthers" />
         </div>
 
-        <!-- Publish (the version open here) beside Share. "Review changes"
-             (someone published since) opens the draft page's changes view. -->
-        <PublishButton v-if="report && selectedArtifact && !viewing" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges"
-          @status="publishStatus = $event" @open-version="openVersionById" />
-
         <!-- Share Dashboard -->
         <ShareModal v-if="report && selectedArtifact?.artifact_id" :report="report" share-type="artifact" :title="tm('share.shareDashboard', selectedArtifact?.mode)"
           :artifact-mode="selectedArtifact.mode"
           :item-name="selectedArtifact.title" :dashboard-id="selectedArtifact.artifact_id" />
+
+        <!-- Publish (the version open here), last: the toolbar's main action.
+             "Review changes" (someone published since) opens the draft page's
+             changes view. -->
+        <PublishButton v-if="report && selectedArtifact && !viewing" :key="publishKey" :artifact="selectedArtifact" @review="reviewChanges"
+          @status="publishStatus = $event" @open-version="openVersionById" />
       </div>
     </div>
 

@@ -1,9 +1,9 @@
 <template>
     <!-- Publish the version open in the editor (docs/design/dashboards-first-class.md,
          phase 5). Shown to whoever may publish this dashboard -- the status
-         call answers only them. Same look as the Share button beside it; the
-         dot says the open draft is not what readers see. -->
-    <UTooltip v-if="status" :text="tooltip">
+         call answers only them. -->
+    <!-- Live or publishing: a quiet status button, same look as Share. -->
+    <UTooltip v-if="status && !needsPublish" :text="tooltip">
         <button
             type="button"
             data-testid="publish-dashboard"
@@ -11,17 +11,60 @@
             @click="publish()"
             class="items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400 px-2 py-1 text-xs disabled:cursor-default" :class="publishing ? 'opacity-60' : ''"
         >
-            <div class="relative">
-                <Spinner v-if="publishing" class="w-3.5 h-3.5" />
-                <Icon v-else-if="openIsLive" name="heroicons:check-circle" class="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
-                <Icon v-else name="heroicons:rocket-launch" class="w-3.5 h-3.5" />
-                <span v-if="!publishing && !openIsLive && !label"
-                    data-testid="unpublished-dot"
-                    class="absolute -top-0.5 -end-0.5 w-1.5 h-1.5 bg-amber-500 rounded-full"></span>
-            </div>
+            <Spinner v-if="publishing" class="w-3.5 h-3.5" />
+            <Icon v-else-if="openIsLive" name="heroicons:check-circle" class="w-3.5 h-3.5 text-green-600 dark:text-green-400" />
+            <Icon v-else name="heroicons:rocket-launch" class="w-3.5 h-3.5" />
             <span class="text-xs whitespace-nowrap">{{ buttonText }}</span>
         </button>
     </UTooltip>
+
+    <!-- Something to publish: the toolbar's one filled button. It opens a
+         short confirm (what viewers see now, what replaces it) before the
+         queries run again, since a publish changes what every viewer sees. -->
+    <UPopover v-else-if="status" :popper="{ placement: 'bottom-end', offset: [0, 6] }">
+        <button
+            type="button"
+            data-testid="publish-dashboard"
+            class="items-center flex gap-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 text-xs font-medium shadow-sm"
+        >
+            <Icon name="heroicons:rocket-launch" class="w-3.5 h-3.5" />
+            <span class="whitespace-nowrap">{{ buttonText }}</span>
+            <span v-if="openNumber != null && !label" data-testid="publish-version-badge"
+                class="rounded bg-white/20 px-1 text-2xs font-semibold tabular-nums">v{{ openNumber }}</span>
+        </button>
+        <template #panel="{ close }">
+            <div class="w-72 p-3 space-y-3 text-xs" data-testid="publish-popover">
+                <div class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {{ openNumber != null ? $t('dashboardCollab.versions.publishTitle', { n: openNumber }) : $t('dashboardCollab.versions.publish') }}
+                </div>
+                <div v-if="status?.published" class="space-y-2">
+                    <div class="flex items-start gap-2">
+                        <Icon name="heroicons:check-circle" class="w-4 h-4 mt-px shrink-0 text-green-600 dark:text-green-400" />
+                        <div>
+                            <div class="text-gray-900 dark:text-gray-100">
+                                {{ liveNumber != null ? $t('dashboardCollab.versions.popoverLiveNow', { n: liveNumber }) : $t('dashboardCollab.versions.live') }}
+                            </div>
+                            <div v-if="liveWhen" class="text-gray-500 dark:text-gray-400">{{ $t('dashboardCollab.versions.publishedAt', { when: liveWhen }) }}</div>
+                        </div>
+                    </div>
+                    <div class="flex items-start gap-2">
+                        <Icon name="heroicons:arrow-up-circle" class="w-4 h-4 mt-px shrink-0 text-blue-600 dark:text-blue-400" />
+                        <div class="text-gray-900 dark:text-gray-100">
+                            {{ openNumber != null ? $t('dashboardCollab.versions.popoverReplaceWith', { n: openNumber }) : $t('artifactFrame.unpublishedChanges') }}
+                        </div>
+                    </div>
+                </div>
+                <p v-else class="text-gray-600 dark:text-gray-400">{{ $t('dashboardCollab.versions.tipNotPublished') }}</p>
+                <p class="text-gray-500 dark:text-gray-400">{{ $t('dashboardCollab.versions.publishBody') }}</p>
+                <div class="flex justify-end gap-2 pt-1">
+                    <UButton color="gray" variant="ghost" size="xs" data-testid="publish-popover-cancel" @click="close()">{{ $t('dashboardCollab.versions.popoverCancel') }}</UButton>
+                    <UButton color="primary" size="xs" icon="i-heroicons-rocket-launch" data-testid="publish-popover-confirm" @click="close(); publish()">
+                        {{ openNumber != null ? $t('dashboardCollab.versions.publishN', { n: openNumber }) : $t('dashboardCollab.versions.publish') }}
+                    </UButton>
+                </div>
+            </div>
+        </template>
+    </UPopover>
 
     <!-- What is live is not in this version's history (collab01): ask
          before replacing it. Names both versions, and "You" when the one who
@@ -102,7 +145,14 @@ const buttonText = computed(() => {
     if (publishing.value) return t('artifactFrame.publishing');
     if (props.label) return props.label;
     if (openIsLive.value) return t('dashboardCollab.versions.live');
-    return openNumber.value != null ? t('dashboardCollab.versions.publishN', { n: openNumber.value }) : t('artifactFrame.publish');
+    // The version number rides in a badge beside this text.
+    return status.value?.published ? t('dashboardCollab.versions.publishChanges') : t('artifactFrame.publish');
+});
+// Something here viewers don't see yet: the filled button + confirm popover.
+const needsPublish = computed(() => !publishing.value && !openIsLive.value);
+const liveWhen = computed(() => {
+    const at = status.value?.published?.published_at;
+    return at ? relativeTime(at) : '';
 });
 const tooltip = computed(() => {
     if (publishing.value) return t('artifactFrame.publishing');

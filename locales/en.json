@@ -6689,7 +6689,11 @@
       "backTo": "Back to v{n}",
       "viewLive": "View v{n}",
       "nextEditViewing": "Viewing v{n} (read-only) · your next edit builds on v{here}",
-      "allVersions": "All versions…"
+      "allVersions": "All versions…",
+      "publishChanges": "Publish changes",
+      "popoverLiveNow": "Viewers now see v{n}",
+      "popoverReplaceWith": "v{n} replaces it",
+      "popoverCancel": "Cancel"
     },
     "access": {
       "signInTitle": "Sign in required",
