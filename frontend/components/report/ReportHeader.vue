@@ -43,7 +43,8 @@
             </h1>
             <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" :title="$t('share.shareConversation')" />
-                <ChatDisplayMenu />
+                <!-- Text size / width menu hidden for now; set v-if back to true to restore. -->
+                <ChatDisplayMenu v-if="false" />
                 <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 items-center gap-1.5">
                         <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
