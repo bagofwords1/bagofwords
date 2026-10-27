@@ -315,3 +315,26 @@ export function promptMentionsToRefs(
   }
   return refs
 }
+
+// ---------------------------------------------------------------------------
+// The @-token being typed in the composer
+// ---------------------------------------------------------------------------
+
+/**
+ * The query text of the @-token the caret sits in: what stands between the `@`
+ * at `atIndex` and the caret.
+ *
+ * The caret bound is the whole point. Slicing to the end of the field instead
+ * pulls the rest of the sentence into the query, so an `@` typed mid-line —
+ * "load your suggestions for @mix| so I can review it" — searches for
+ * "mix so I can review it" and the menu can only say "No results found".
+ */
+export function activeMentionQuery(text: string, atIndex: number, caret: number): string {
+  if (atIndex < 0) return ''
+  const start = atIndex + 1
+  const src = text || ''
+  // A caret behind the `@` means the token is no longer being typed; a caret
+  // past the text (stale measurement) falls back to the rest of the field.
+  if (caret < start) return ''
+  return src.slice(start, Math.min(Math.max(caret, start), src.length))
+}
