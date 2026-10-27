@@ -49,6 +49,14 @@ curl -sL "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.
 # <Icon> sandbox global so generated dashboards get a real icon set offline.
 curl -sL "https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" \
   -o "$LIBS_DIR/lucide.min.js"
+# Swagger UI for the /swagger API docs page, so it renders without the CDN
+# (air-gapped deployments). Keep in sync with backend/app/core/swagger.py.
+SWAGGER_UI_VERSION="5.33.2"
+mkdir -p "$LIBS_DIR/swagger-ui"
+for f in swagger-ui-bundle.js swagger-ui.css; do
+  curl -fsSL "https://cdn.jsdelivr.net/npm/swagger-ui-dist@${SWAGGER_UI_VERSION}/$f" \
+    -o "$LIBS_DIR/swagger-ui/$f"
+done
 
 # ─── Fonts ───────────────────────────────────────────────────────────────────
 # Open-licensed (SIL OFL) typefaces vendored as latin woff2 so artifact themes
