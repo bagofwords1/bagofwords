@@ -251,6 +251,54 @@ class ReadQueryTool(Tool):
             applied_params=getattr(step, "applied_params", None) if step else None,
         )
 
+    @staticmethod
+    async def _as_viewer(db, r: ReadQueryResult, report_id, user, allow_llm_see_data: bool) -> ReadQueryResult:
+        """Replace the stored snapshot with what `user` may actually see.
+
+        `Step.data` is materialized under the report owner's identity and
+        credentials. Every surface that serves step rows resolves them through
+        viewer_data_policy.resolve_step_data instead (see the banner on that
+        module) — this tool reads saved steps for whoever is running the agent,
+        a shared dashboard's viewer in artifact chat included, so it goes
+        through the same authority: the owner's snapshot for the owner, the
+        reader's own run when they have one, and nothing (no rows, no code, no
+        creator identity in applied_params) when the policy withholds it.
+        """
+        if not r.step_id or r.error or user is None:
+            return r
+        from app.models.report import Report as _Report
+        from app.models.step import Step as _Step
+        from app.services.viewer_data_policy import redact_applied_params, resolve_step_data
+
+        step = await db.get(_Step, r.step_id)
+        if step is None:
+            return r
+        step_report = await db.get(_Report, str(report_id)) if report_id else None
+        if step_report is not None and str(step_report.user_id) == str(user.id):
+            return r
+
+        resolution = await resolve_step_data(db, step, step_report, user)
+        r.applied_params = redact_applied_params(
+            r.applied_params, r.parameters, withheld=resolution.withheld
+        )
+        if resolution.withheld:
+            # Same boundary as the read endpoints: no rows, and no code either
+            # (SQL leaks the schema, tables and filters behind them).
+            r.data = None
+            r.data_preview = None
+            r.code = None
+            r.error = (
+                "This query's saved rows are not available to you: it runs under each "
+                "viewer's own identity and you have no result of your own for it."
+            )
+            return r
+        r.data = resolution.data
+        if isinstance(resolution.data, dict):
+            r.data_preview = build_data_preview(
+                resolution.data, allow_llm_see_data=allow_llm_see_data
+            )
+        return r
+
     async def _with_page(self, db, runtime_ctx, report, organization, r: ReadQueryResult,
                          data: ReadQueryInput, allow_llm_see_data: bool) -> ReadQueryResult:
         """Attach the requested rows window to ``r``.
@@ -408,7 +456,8 @@ class ReadQueryTool(Tool):
                 continue
             if access:
                 await protect_report(db, getattr(report, "id", None), access)
-            checked.append(r)
+            checked.append(await self._as_viewer(
+                db, r, rid, runtime_ctx.get("user"), allow_llm_see_data))
         results = checked
 
         if data.offset is not None or data.limit is not None:

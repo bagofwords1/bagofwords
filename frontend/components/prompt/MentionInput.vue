@@ -12,6 +12,7 @@
       :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
       @input="handleInput"
       @keydown="handleKeydown"
+      @keyup="handleKeyup"
       @paste.prevent="handlePaste"
       @click="handleClick"
     ></div>
@@ -242,6 +243,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 import { usePromptFill } from '~/composables/usePromptFill'
 import { useDataSourceConnect } from '~/composables/useDataSourceConnect'
+import { activeMentionQuery } from '~/utils/mentions'
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
@@ -324,6 +326,10 @@ const textContent = ref('')
 const showDropdown = ref(false)
 const selectedIndex = ref(0)
 const currentMentionStartIndex = ref(-1)
+// Caret offset in the flattened text, as of the last input/selection change.
+// Bounds the @-query so a mention typed mid-line doesn't swallow the rest of
+// the sentence (see activeMentionQuery).
+const currentCaretPosition = ref(0)
 const expandedItem = ref<MentionItem | null>(null)
 const expandedCategory = ref<string>('')
 // The category the user has "entered" from the default category-list view
@@ -390,7 +396,7 @@ const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
 // types — drives the "category list vs items" default view.
 const mentionQuery = computed(() => {
   if (currentMentionStartIndex.value === -1) return ''
-  return textContent.value.slice(currentMentionStartIndex.value + 1)
+  return activeMentionQuery(textContent.value, currentMentionStartIndex.value, currentCaretPosition.value)
 })
 const hasQuery = computed(() => mentionQuery.value.trim().length > 0)
 
@@ -557,9 +563,13 @@ function getCaretPosition(element: HTMLElement): number {
   return 0
 }
 
-// Find the last @ character that is NOT inside a .mention span
+// Find the last @ character that is NOT inside a .mention span and starts
+// before `limit` (the caret). Bounding by the caret matters mid-line: with
+// "@sales and @reve|" the caret sits in the second token, but with
+// "@rev| and @sales" it sits in the first — an unbounded scan would hand back
+// the later '@' and the menu would never open for the token being typed.
 // Returns the position in the flattened text (innerText), or -1 if not found
-function findLastAtOutsideMentions(element: HTMLElement): number {
+function findLastAtOutsideMentions(element: HTMLElement, limit = Infinity): number {
   let lastAtIndex = -1
   let currentPos = 0
 
@@ -575,7 +585,7 @@ function findLastAtOutsideMentions(element: HTMLElement): number {
         for (let i = text.length - 1; i >= 0; i--) {
           if (text[i] === '@') {
             const absolutePos = currentPos + i
-            if (absolutePos > lastAtIndex) {
+            if (absolutePos < limit && absolutePos > lastAtIndex) {
               lastAtIndex = absolutePos
             }
           }
@@ -658,12 +668,23 @@ function handleInput(event: Event) {
 
   textContent.value = target.innerText
 
+  updateMentionContext(target)
+
+  emit('update:modelValue', textContent.value)
+  updateMentionsList()
+}
+
+// Decide whether the caret currently sits inside an @-token, and if so where
+// that token starts. Driven by typing *and* by caret moves (click, arrow keys):
+// the query is measured from the '@' to the caret, so the caret has to be part
+// of the state, not read once at insert time.
+function updateMentionContext(target: HTMLDivElement) {
   const cursorPosition = getCaretPosition(target)
+  currentCaretPosition.value = cursorPosition
 
-  // Find the last @ that is NOT inside a mention span
-  const lastAtIndex = findLastAtOutsideMentions(target)
+  // Find the last @ before the caret that is NOT inside a mention span
+  const lastAtIndex = findLastAtOutsideMentions(target, cursorPosition)
 
-  // Only consider @ characters that are before the cursor
   if (lastAtIndex !== -1 && lastAtIndex < cursorPosition) {
     const textAfterAt = textContent.value.slice(lastAtIndex + 1, cursorPosition)
 
@@ -699,9 +720,19 @@ function handleInput(event: Event) {
     currentMentionStartIndex.value = -1
     activeCategory.value = ''
   }
+}
 
-  emit('update:modelValue', textContent.value)
-  updateMentionsList()
+// Caret moves that are not edits (arrows, Home/End) change which token the
+// caret is in, so the menu has to follow them too. Only act when the caret
+// really moved: while the menu is open the arrow keys drive its selection and
+// are preventDefault()-ed in handleKeydown, and re-running the detection there
+// would reset that selection to the first row on every keystroke.
+const CARET_MOVE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+
+function handleKeyup(event: KeyboardEvent) {
+  if (!inputRef.value || !CARET_MOVE_KEYS.has(event.key)) return
+  if (getCaretPosition(inputRef.value) === currentCaretPosition.value) return
+  updateMentionContext(inputRef.value)
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -882,7 +913,11 @@ function handleClick(event: MouseEvent) {
     const selection = window.getSelection()
     selection?.removeAllRanges()
     selection?.addRange(range)
+    return
   }
+  // Clicking elsewhere parks the caret somewhere new — re-read which token it
+  // landed in, so the menu opens on (or closes with) that token.
+  if (inputRef.value) updateMentionContext(inputRef.value)
 }
 
 // Convert HTML to plain text with markdown-style formatting
@@ -993,6 +1028,17 @@ function closeItemCard() {
   expandedCategory.value = ''
 }
 
+// Where the @-token being replaced ends. Normally the live caret — but a click
+// on a menu row can move the selection out of the field, and getCaretPosition()
+// then reads 0, which would splice the text at the wrong place and leave the
+// typed query behind. Fall back to the caret tracked while typing.
+function activeTokenEnd(): number {
+  const start = currentMentionStartIndex.value
+  const measured = inputRef.value ? getCaretPosition(inputRef.value) : 0
+  if (measured > start) return measured
+  return Math.max(currentCaretPosition.value, start)
+}
+
 function selectItem(item: MentionItem, category: string) {
   // Prompts are not inserted as a chip — they are consumed into plain text.
   if (item.type === 'prompt') {
@@ -1054,7 +1100,7 @@ function selectItem(item: MentionItem, category: string) {
     }
 
     // Calculate how much text to delete (the @ and any search text)
-    const currentCursorPos = getCaretPosition(inputRef.value)
+    const currentCursorPos = activeTokenEnd()
     const lengthToDelete = currentCursorPos - currentMentionStartIndex.value
 
     // Split the text node at the @ position
@@ -1070,7 +1116,11 @@ function selectItem(item: MentionItem, category: string) {
     }
 
     fragment.appendChild(mentionNode)
-    fragment.appendChild(document.createTextNode(' '))
+    // A chip is always followed by a space — but mid-line the rest of the
+    // sentence usually starts with one already, and adding a second leaves a
+    // visible gap ("@Music Store  so I can review it").
+    const spacer = /^\s/.test(afterText) ? null : document.createTextNode(' ')
+    if (spacer) fragment.appendChild(spacer)
 
     if (afterText) {
       fragment.appendChild(document.createTextNode(afterText))
@@ -1079,15 +1129,12 @@ function selectItem(item: MentionItem, category: string) {
     // Replace the text node with our fragment
     textNode.parentNode?.replaceChild(fragment, textNode)
 
-    // Set cursor after the mention and space
+    // Set cursor after the mention and its space — before the rest of the line.
     const range = document.createRange()
-    const spaceNode = mentionNode.nextSibling
-    if (spaceNode) {
-      range.setStartAfter(spaceNode)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
+    range.setStartAfter(spacer || mentionNode)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
 
     // Update state
     textContent.value = inputRef.value.innerText
@@ -1128,7 +1175,7 @@ function insertPromptText(item: MentionItem, plainText: string) {
       }
 
       if (targetNode) {
-        const cursorPos = getCaretPosition(inputRef.value)
+        const cursorPos = activeTokenEnd()
         const lengthToDelete = cursorPos - currentMentionStartIndex.value
         const before = targetNode.textContent?.slice(0, offsetInNode) || ''
         const after = targetNode.textContent?.slice(offsetInNode + lengthToDelete) || ''

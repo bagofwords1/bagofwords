@@ -278,6 +278,7 @@ def test_opus_5_5_reads_at_its_published_rate_and_opus_5_does_not():
     ("gpt-6.1-sol", 0.05),   # $0.10 cached vs $2 input
     ("gpt-6-sol", 0.10),     # $0.20 cached vs $2 input
     ("openai/gpt-6.1-sol", 0.05),
+    ("gpt-6.1-terra", 0.05),  # $0.05 cached vs $1 input
     ("gpt-5.6-terra", 0.50),  # unpriced ids keep the family rate
 ])
 def test_openai_per_model_cached_read_rates(model, read):

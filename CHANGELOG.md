@@ -1,5 +1,27 @@
 # Release Notes
 
+## Version 0.0.598 (October 27, 2026)
+- Added GPT-6.1 Terra to the OpenAI catalog and made it the provider default in place of GPT-5.6 Terra (#1476)
+- Added saved queries to the BOW MCP server, so external clients run the organization's definitions instead of inventing their own (#1478)
+- Added a shared service-account option for Google Drive, so members read the shared files without connecting their own Google account (#1483) — Service Account (shared) on the Drive connection
+- Added Push to Git to the Agents page, pushing an instruction build as a branch and a pull request (#1473)
+- Added a Copy button on finished AI replies in chat, copying the answer as markdown (#1469)
+- Added an estimated token count under the instruction editor while editing (#1471)
+- Added a live progress bubble while the agent works in 1:1 Teams chats (#1465)
+- Added worker memory to indexing run events, and cut memory use while saving the catalog, so a run killed for memory can be diagnosed from its log (#1485)
+- Added line-range and grep reads to `read_instruction`, so a long instruction is reachable past the first page (#1481)
+- Fixed chat on a shared dashboard answering from the creator's rows instead of the viewer's (#1477)
+- Fixed an agent's library files never reaching Auto chats, or chats where the file was uploaded afterwards (#1481)
+- Fixed `grep_files` describing itself as connector-only, so the agent would not search a conversation's files (#1481)
+- Fixed file tools missing in Auto chats, so the agent could not read files without a pinned agent (#1480)
+- Fixed page images from `read_file` never reaching Bedrock and Gemini models (#1480)
+- Fixed the agent asking for dashboard code it had already read, on large dashboards (#1470)
+- Fixed `/swagger` showing a blank page on air-gapped installs, and enabled it in the air-gap bundle (#1472)
+- Fixed the @mention menu finding no results when a mention is typed mid-sentence (#1475)
+- Fixed an @instruction mention in chat showing a table icon instead of an instruction (#1474)
+- Fixed indexing progress entries dropping out of a run's event log (#1485)
+- Fixed an agent linked to a connection during its first indexing run being left with no tables (#1485)
+
 ## Version 0.0.597 (October 26, 2026)
 - Added per-group default models, usable by the group even when restricted (#1466) — Settings → LLM → Group default models
 - Changed the organization default model so it can be restricted; members without access get their group's default (#1466)

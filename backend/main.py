@@ -48,6 +48,7 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
+from app.core.swagger import mount_swagger_ui
 from app.core.request_hardening import (
     ControlCharGuardMiddleware,
     traceback_pages_enabled,
@@ -147,7 +148,9 @@ app = FastAPI(
     # debug off, unhandled errors go to the sanitized handler in app.errors.
     debug=traceback_pages_enabled(settings),
     dependencies=[Depends(validate_id_path_params)],
-    docs_url="/swagger" if swagger_enabled else None,
+    # /swagger is mounted below by mount_swagger_ui so it can use vendored
+    # assets instead of the CDN (air-gapped deployments).
+    docs_url=None,
     redoc_url=None,
     openapi_url="/openapi.json" if swagger_enabled else None,
     openapi_tags=[
@@ -165,6 +168,8 @@ app = FastAPI(
     ],
     swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
+if swagger_enabled:
+    mount_swagger_ui(app)
 
 # Instrument FastAPI with OpenTelemetry
 instrument_app(app, settings.bow_config.otel)

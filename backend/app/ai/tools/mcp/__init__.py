@@ -21,6 +21,7 @@ from .instructions import (
     EditInstructionMCPTool,
     DeleteInstructionMCPTool,
 )
+from .entities import DescribeEntityMCPTool, ListEntitiesMCPTool
 from .schema_tools import DescribeTablesMCPTool, EditSchemaMCPTool
 from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
 
@@ -42,6 +43,9 @@ MCP_TOOLS = {
     "create_instruction": CreateInstructionMCPTool,
     "edit_instruction": EditInstructionMCPTool,
     "delete_instruction": DeleteInstructionMCPTool,
+    # Saved queries (catalog entities)
+    "list_entities": ListEntitiesMCPTool,
+    "describe_entity": DescribeEntityMCPTool,
     # Agent schema tools (read: anyone who can see the agent; write: agent managers)
     "describe_tables": DescribeTablesMCPTool,
     "edit_schema": EditSchemaMCPTool,

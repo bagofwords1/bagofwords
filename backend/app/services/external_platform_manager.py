@@ -380,6 +380,18 @@ class ExternalPlatformManager:
             return default
         return value
 
+    @staticmethod
+    def _org_locale(organization) -> Optional[str]:
+        """The org's configured locale, or None. Reads the already-loaded
+        settings, so it adds nothing to the message's response time."""
+        from app.dependencies import _locale_from_org
+        try:
+            return _locale_from_org(organization)
+        except Exception:
+            # Only picks the progress bubble's language — never let it break
+            # message handling.
+            return None
+
     async def _find_recent_platform_report(
         self,
         db: AsyncSession,
@@ -786,21 +798,37 @@ class ExternalPlatformManager:
             )
         )
 
+        # Teams 1:1: show a progress bubble while the agent works (Teams only
+        # streams in personal chats). Opened after any "new report" notice so
+        # that notice stays above it, and in the background so the run starts
+        # without waiting on Teams.
+        teams_bubble = platform_type == "teams" and channel_type == "personal"
+        if teams_bubble:
+            from app.services.platform_adapters import teams_stream
+            teams_stream.start_run(
+                adapter, channel_id, message_text, self._org_locale(organization),
+            )
+
         # Create completion with thread context (background=True to avoid blocking the webhook)
-        await self.completion_service.create_completion(
-            db=db,
-            report_id=str(report.id),
-            completion_data=completion_data,
-            current_user=user,
-            organization=organization,
-            background=True,
-            external_user_id=user_mapping.external_user_id,
-            external_platform=user_mapping.platform_type,
-            external_thread_ts=thread_ts,
-            external_message_ts=message_ts,
-            external_channel_id=channel_id,
-            external_channel_type=channel_type
-        )
+        try:
+            await self.completion_service.create_completion(
+                db=db,
+                report_id=str(report.id),
+                completion_data=completion_data,
+                current_user=user,
+                organization=organization,
+                background=True,
+                external_user_id=user_mapping.external_user_id,
+                external_platform=user_mapping.platform_type,
+                external_thread_ts=thread_ts,
+                external_message_ts=message_ts,
+                external_channel_id=channel_id,
+                external_channel_type=channel_type
+            )
+        except Exception:
+            if teams_bubble:
+                teams_stream.abort_run(channel_id)
+            raise
 
 
         return {

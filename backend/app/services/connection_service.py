@@ -2,6 +2,7 @@
 Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
+import asyncio
 import importlib
 import logging
 import json
@@ -48,6 +49,19 @@ def _user_auth_needs_enterprise(conn_type: str) -> bool:
         return get_entry(conn_type).data_shape == "tables"
     except Exception:
         return True
+
+
+# `refresh_schema` yields to the event loop every this many tables while it
+# normalizes and upserts the catalog, so a large save does not stall the
+# indexing heartbeat.
+_SAVE_YIELD_EVERY = 500
+
+
+def _table_columns(table) -> list:
+    """Columns of a fetched table, whether a dict or a `Table` object."""
+    if isinstance(table, dict):
+        return table.get("columns") or []
+    return getattr(table, "columns", None) or []
 
 
 # Config keys that name the host a tool-provider connection talks to.
@@ -239,7 +253,8 @@ async def _acount_tables_for_validation(client) -> int | None:
 
 
 def _connected_message(
-    connection_type: str, table_count: int, approximate: bool = False
+    connection_type: str, table_count: int, approximate: bool = False,
+    config: Optional[dict] = None,
 ) -> str:
     """Build the success message after a connection test.
 
@@ -258,14 +273,16 @@ def _connected_message(
         return f"Connected successfully. Found {table_count} tables."
 
     singular, plural = catalog_nouns_for(connection_type)
+    from app.schemas.data_source_registry import catalog_ownership_for
+    ownership = catalog_ownership_for(connection_type, config)
 
-    if entry.catalog_ownership == "per_user":
+    if ownership == "per_user":
         return (
             f"Connected successfully. Each user sees their own {plural} after "
             "signing in — no admin-side catalog for this connector."
         )
 
-    if entry.catalog_ownership == "none":
+    if ownership == "none":
         return f"Connected successfully. Found {table_count} {plural if table_count != 1 else singular}."
 
     # shared
@@ -545,7 +562,7 @@ class ConnectionService:
         if type in self._TOOL_PROVIDER_TYPES:
             if auth_policy == "system_only":
                 await self.refresh_tools(db=db, connection=connection)
-        elif not self._is_per_user_catalog(type):
+        elif not self._is_per_user_catalog(type, config):
             # Kick off background indexing for any shared-catalog source. Don't
             # gate on `credentials` truthiness — credential-less but indexable
             # sources (SQLite, DuckDB, …) pass `credentials={}` and must still
@@ -877,7 +894,7 @@ class ConnectionService:
                 if connection.type in self._TOOL_PROVIDER_TYPES:
                     if connection.auth_policy == "system_only":
                         await self.refresh_tools(db=db, connection=connection)
-                elif not self._is_per_user_catalog(connection.type):
+                elif not self._is_per_user_catalog(connection.type, connection.config):
                     # See create_connection: index shared-catalog sources
                     # regardless of credential truthiness; skip per-user catalogs.
                     from app.services.connection_indexing_service import (
@@ -1245,6 +1262,7 @@ class ConnectionService:
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
+                config=config,
             )
             return {
                 "success": True,
@@ -1611,11 +1629,24 @@ class ConnectionService:
         current_user: User = None,
         progress_callback=None,
         introspection: str = "full",
+        keep_fresh_tables: bool = True,
+        diagnostics_hook=None,
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records.
 
         `progress_callback`, if supplied, is forwarded to the client's
         `aget_schemas` and invoked from inside its existing iteration loops.
+
+        `keep_fresh_tables=False` skips the reuse stash described below. The
+        background indexer never reads it, and holding the whole fetched
+        catalog through saving, warming and agent sync is a large part of the
+        run's memory peak on big catalogs.
+
+        `diagnostics_hook`, if supplied, is awaited as
+        `diagnostics_hook(stage, info)` once discovery returns ("discovered")
+        and once the catalog is normalized, before any row is written
+        ("saving"). The indexer records these on the run so a worker killed
+        mid-save (e.g. out of memory) leaves a trace in the event log.
 
         `introspection` controls how much a catalog-crawling client re-reads:
           - "full" (default): every dataset is introspected — required for
@@ -1648,8 +1679,9 @@ class ConnectionService:
             # sign-in via get_user_data_source_schema. Skip cleanly.
             from app.schemas.data_source_registry import get_entry, requires_no_credentials
             try:
-                entry = get_entry(connection.type)
-                if entry.catalog_ownership == "per_user":
+                from app.schemas.data_source_registry import connection_catalog_ownership
+                get_entry(connection.type)  # unknown type → ValueError, fall through
+                if connection_catalog_ownership(connection) == "per_user":
                     logger.info(
                         f"refresh_schema: connection {connection.id} has per-user catalog "
                         "ownership — admin-side indexing skipped; per-user catalogs are "
@@ -1770,10 +1802,24 @@ class ConnectionService:
                 **_extra,
             )
 
+            # Only needed to pass to the client; release them before saving.
+            # `_extra` holds the same `prior_tables` dict (Power BI /
+            # incremental), and it outlives this block, so clearing it is what
+            # actually frees that copy before the save.
+            _extra.clear()
+            del prior_catalog, prior_tables_arg
+
             # Stash for same-request reuse (see docstring). Recorded even when
             # empty — an empty result is still this identity's live catalog.
-            self.last_refresh_fresh_tables = list(fresh_tables or [])
+            if keep_fresh_tables:
+                self.last_refresh_fresh_tables = list(fresh_tables or [])
             self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
+
+            if diagnostics_hook is not None and fresh_tables:
+                await diagnostics_hook("discovered", {
+                    "tables": len(fresh_tables),
+                    "columns": sum(len(_table_columns(t)) for t in fresh_tables),
+                })
 
             # Did this crawl run as the ORG identity (connection service creds)
             # or as ONE user? `resolve_credentials` recorded it while building
@@ -1843,18 +1889,6 @@ class ConnectionService:
                 logger.warning(f"refresh_schema: No tables returned from get_schemas()")
                 return []
 
-            # Discovery may be slow. Serialize only the catalog write phase,
-            # then re-read: another identity may have indexed while we crawled.
-            from app.services.powerbi_catalog_service import prepare_powerbi_catalog
-            await prepare_powerbi_catalog(db, connection)
-            existing_q = await db.execute(
-                select(ConnectionTable).where(
-                    ConnectionTable.connection_id == connection_id_str,
-                    ConnectionTable.kind == KIND_TABLE,
-                ).execution_options(populate_existing=True)
-            )
-            existing_tables = {t.name: t for t in existing_q.scalars().all()}
-
             # Normalize incoming tables
             from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
@@ -1872,7 +1906,12 @@ class ConnectionService:
                 return result
 
             incoming = {}
-            for t in fresh_tables:
+            for i, t in enumerate(fresh_tables):
+                # This and the upsert below run on the indexing loop with no
+                # other await. Yield now and then so the heartbeat and progress
+                # flushes keep running on a large catalog.
+                if i % _SAVE_YIELD_EVERY == 0:
+                    await asyncio.sleep(0)
                 if isinstance(t, dict):
                     name = t.get("name")
                     if not name:
@@ -1893,12 +1932,32 @@ class ConnectionService:
                         "fks": normalize_fks(getattr(t, "fks", []) or []),
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
+            # Normalized into `incoming`: drop the fetched objects so they can
+            # be freed before the ORM objects are built (unless the reuse stash
+            # above still holds them).
+            fresh_tables = t = None
 
             if progress_callback is not None:
                 # Discovery is done; upsert + commit report nothing of their
                 # own, so mark the stage for the indexing log and UI.
                 # None counts: keep discovery's done/total on the run.
                 progress_callback("saving", None, None, None)
+            if diagnostics_hook is not None:
+                await diagnostics_hook("saving", {"tables": len(incoming)})
+
+            # Discovery may be slow. Serialize only the catalog write phase,
+            # then re-read: another identity may have indexed while we crawled.
+            # Normalizing (above) needs neither, and runs first so the events
+            # recorded so far are written before SQLite's writer lock is held.
+            from app.services.powerbi_catalog_service import prepare_powerbi_catalog
+            await prepare_powerbi_catalog(db, connection)
+            existing_q = await db.execute(
+                select(ConnectionTable).where(
+                    ConnectionTable.connection_id == connection_id_str,
+                    ConnectionTable.kind == KIND_TABLE,
+                ).execution_options(populate_existing=True)
+            )
+            existing_tables = {t.name: t for t in existing_q.scalars().all()}
 
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).
@@ -1922,7 +1981,9 @@ class ConnectionService:
             created_count = 0
             updated_count = 0
             skipped_count = 0
-            for name, payload in incoming.items():
+            for i, (name, payload) in enumerate(incoming.items()):
+                if i % _SAVE_YIELD_EVERY == 0:
+                    await asyncio.sleep(0)
                 if name in existing_tables:
                     if not authoritative:
                         # Per-user crawl: the shared row stays as the org
@@ -2264,9 +2325,16 @@ class ConnectionService:
             # gate's "connect" state), not a refusal or a broken connection.
             from app.services.access_errors import CredentialsRequiredError
 
+            # Only point at the service account when one can actually be used:
+            # a per-user OAuth connection (e.g. Google Drive on an OAuth client)
+            # stores no service identity, so the only way forward is Connect.
+            service_hint = (
+                "" if management_requires_user_auth(connection)
+                else " or switch to the service account"
+            )
             raise CredentialsRequiredError(
                 "Connect required: this connection runs queries with your own "
-                "credentials. Connect your account or switch to the service account."
+                f"credentials. Connect your account{service_hint}."
             )
 
         # --- Kerberos SSO (per-user constrained delegation) ---
@@ -2513,17 +2581,18 @@ class ConnectionService:
         return tool_provider_types()
 
     @staticmethod
-    def _is_per_user_catalog(connection_type: str) -> bool:
+    def _is_per_user_catalog(connection_type: str, config=None) -> bool:
         """True for sources whose catalog is owned per-user (OneDrive, personal
         Drive). These have no admin-side catalog to index — each user's catalog
         is fetched after they sign in — so create/update skip background
         indexing for them. Unknown types default to False (treat as shared).
         """
-        from app.schemas.data_source_registry import get_entry
+        from app.schemas.data_source_registry import get_entry, catalog_ownership_for
         try:
-            return get_entry(connection_type).catalog_ownership == "per_user"
+            get_entry(connection_type)
         except ValueError:
             return False
+        return catalog_ownership_for(connection_type, config) == "per_user"
 
     async def refresh_tools(
         self,

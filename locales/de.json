@@ -194,6 +194,7 @@
     "pendingMany": "{n} ausstehende Änderungen warten auf Prüfung",
     "review": "Prüfen",
     "untitledInstruction": "Anweisung ohne Titel",
+    "tokenCount": "~{count} Tokens",
     "addDescriptionOptional": "Beschreibung hinzufügen (optional)",
     "instructionPlaceholder": "Schreiben Sie die Anweisung in Markdown… (geben Sie {'@'} ein, um eine Tabelle oder Anweisung zu erwähnen)",
     "details": "Details",
