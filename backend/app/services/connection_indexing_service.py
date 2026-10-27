@@ -608,25 +608,21 @@ class ConnectionIndexingService:
         def _new_session():
             return session_factory()
 
-        # One writer at a time for `events_json`. This function and `_flush`
-        # both read-modify-write that column from their own sessions, and both
-        # await inside that window, so without a shared lock the later commit
-        # silently drops the other's entries. The save-step yields are what
-        # let the two interleave: before them the save blocked the loop, so a
-        # flush could not land mid-append. The entry lost that way can be the
-        # `saving` RSS reading an out-of-memory post-mortem depends on.
-        event_log_lock = asyncio.Lock()
+        # `events_json` is read, extended and written back by two writers on
+        # separate sessions: `_append_event` and the progress `_flush`. Run
+        # concurrently, the later commit drops the other's entries, so both
+        # hold this lock around their read-modify-write.
+        events_lock = asyncio.Lock()
 
         async def _append_event(level: str, phase: str | None, message: str,
                                 done: int = 0, total: int = 0) -> None:
             """Append a single entry to the indexing row's events_json.
 
             Best-effort: a failure to log must never affect the run. Events
-            are capped at `_EVENT_LOG_MAX` (oldest dropped). Serialized
-            against the progress flush on `event_log_lock`.
+            are capped at `_EVENT_LOG_MAX` (oldest dropped).
             """
             try:
-                async with event_log_lock, _new_session() as ev_db:
+                async with events_lock, _new_session() as ev_db:
                     fresh = await ev_db.get(ConnectionIndexing, indexing_id)
                     if fresh is None:
                         return
@@ -696,6 +692,7 @@ class ConnectionIndexingService:
                 state_lock = threading.Lock()
                 activity_events: list[tuple] = []
                 last_activity = {"phase": None, "bucket": -1, "time": 0.0}
+                flush_lock = asyncio.Lock()
                 flush_scheduled = False
                 last_scheduled_at = float("-inf")
 
@@ -713,9 +710,7 @@ class ConnectionIndexingService:
 
                 async def _flush(force: bool = False) -> None:
                     nonlocal last_flush_at
-                    # `event_log_lock`, not a flush-only lock: this writes
-                    # `events_json` too, so it must exclude `_append_event`.
-                    async with event_log_lock:
+                    async with flush_lock:
                         now = time.perf_counter()
                         if not force and (now - last_flush_at) < _PROGRESS_FLUSH_SECONDS:
                             return
@@ -726,7 +721,7 @@ class ConnectionIndexingService:
                             events = list(activity_events)
                             activity_events.clear()
                         try:
-                            async with _new_session() as flush_db:
+                            async with events_lock, _new_session() as flush_db:
                                 fresh = await flush_db.get(ConnectionIndexing, indexing_id)
                                 if fresh is None:
                                     return
@@ -979,6 +974,9 @@ class ConnectionIndexingService:
                                 )
                             else:
                                 message = f"Saving catalog of {info['tables']:,} {noun_plural}, {_rss_note()}"
+                            # Write the progress queued so far first, so the
+                            # log keeps the order things happened in.
+                            await _flush(force=True)
                             await _append_event("info", stage, message)
 
                         discovery = svc.refresh_schema(
@@ -1433,10 +1431,15 @@ class ConnectionIndexingService:
 
         # Snapshot the connection's linked DS IDs from the runner's session,
         # then close that scope — per-DS work happens in its own session.
+        # `populate_existing`: the runner's session has held this connection
+        # since the run started and never expires it, so without a re-read a
+        # data source linked during the run is missing from the list and
+        # never receives the catalog.
         result = await db.execute(
             select(Connection)
             .options(selectinload(Connection.data_sources))
             .where(Connection.id == str(connection_id))
+            .execution_options(populate_existing=True)
         )
         connection_snapshot = result.scalar_one_or_none()
         if connection_snapshot is None or not connection_snapshot.data_sources:
