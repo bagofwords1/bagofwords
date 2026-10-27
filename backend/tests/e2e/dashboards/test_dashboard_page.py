@@ -51,6 +51,26 @@ def test_the_page_knows_who_is_looking(corpus, corpus_rows, test_client):
 
 
 @pytest.mark.e2e
+def test_the_page_says_whose_rows_it_shows_not_who_owns_it(corpus, corpus_rows, test_client):
+    """Review #1455 finding 7: after another editor publishes (or refreshes)
+    over a personal connection, the stored rows are theirs. The owner still
+    owns the dashboard but runs it for themselves, like any reader."""
+    _private_conversation(corpus, corpus_rows)
+    aid = own(corpus_rows, corpus, DASH)
+    release = publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    mine = {p: _meta(test_client, corpus, aid, p)["data_is_mine"] for p in ("owner", "member")}
+    assert mine == {"owner": True, "member": False}
+
+    corpus_rows.update("artifact_releases", release, run_by=corpus.cast.id("member"))
+    meta = {p: _meta(test_client, corpus, aid, p) for p in ("owner", "member")}
+    assert (meta["owner"]["is_owner"], meta["owner"]["data_is_mine"]) == (True, False)
+    assert (meta["member"]["is_owner"], meta["member"]["data_is_mine"]) == (False, True)
+    assert test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "owner")).status_code == 200
+    assert test_client.post(f"/api/d/{aid}/run", headers=as_(corpus, "member")).status_code == 400
+
+
+@pytest.mark.e2e
 def test_the_page_says_whether_and_why_not_a_reader_may_fork(corpus, corpus_rows, test_client):
     aid = _published(corpus, corpus_rows, test_client, visibility="public")
     eligibility = {p: _meta(test_client, corpus, aid, p)["fork_eligibility"]

@@ -213,6 +213,8 @@ def test_a_viewer_gets_what_the_page_needs_and_none_of_the_settings(corpus, corp
                          "is_owner", "fork_eligibility", "refresh_on_view", "data_sources",
                          # whether this reader's exports hold their own rows (a yes/no)
                          "exports_own_rows",
+                         # whether the rows shown are this reader's own run (a yes/no; #1455 review, 7)
+                         "data_is_mine",
                          # what this reader may do (collab01): for a viewer, view
                          "capabilities"}
     assert body["capabilities"] == ["view"]

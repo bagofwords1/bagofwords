@@ -49,6 +49,11 @@ class PublishedDashboardSchema(BaseModel):
     # standing, Fork, refresh-on-view, and the kinds of connection it runs
     # on (the sign-in gate's icon) -- never their names or ids.
     is_owner: bool = False
+    # Whether the release's stored rows are this reader's own run (its
+    # publisher, else whoever the last refresh ran as). Owning the dashboard
+    # no longer says so: another editor may have published over a personal
+    # connection, and the owner then runs it for themselves like any reader.
+    data_is_mine: bool = False
     fork_eligibility: DashboardForkEligibility
     refresh_on_view: bool
     data_sources: list[DashboardSourceKind] = []

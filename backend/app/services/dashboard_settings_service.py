@@ -298,9 +298,12 @@ async def _data_source_ids(db, artifact) -> list[str]:
     return ids or await _org_fallback_ds_ids(db, artifact.organization_id, None)
 
 
-async def _drop_viewer_results(db, artifact) -> None:
-    """Viewers' own runs of this dashboard's published copies, every release:
-    they ran under the identity being switched away from."""
+async def _drop_viewer_results(db, artifact, *, executed_as: str | None = None) -> None:
+    """Viewers' own runs of this dashboard's published copies, every release
+    (kept ones too, so a roll back serves none of them): they ran under the
+    identity being switched away from. `executed_as`: only those run so
+    (an ownership transfer drops the runs on the previous owner's
+    credentials)."""
     from app.models.query import Query
     from app.models.step import Step
     from app.models.step_user_result import StepUserResult
@@ -308,7 +311,10 @@ async def _drop_viewer_results(db, artifact) -> None:
     copies = (select(Step.id).join(Query, Query.id == Step.query_id)
               .join(ArtifactRelease, ArtifactRelease.id == Query.artifact_release_id)
               .where(ArtifactRelease.artifact_id == str(artifact.id)))
-    await db.execute(delete(StepUserResult).where(StepUserResult.step_id.in_(copies)))
+    stale = delete(StepUserResult).where(StepUserResult.step_id.in_(copies))
+    if executed_as is not None:
+        stale = stale.where(StepUserResult.executed_as == executed_as)
+    await db.execute(stale)
 
 
 async def check_settings(db, artifact, changes: dict, *, current_user: User, organization) -> None:
