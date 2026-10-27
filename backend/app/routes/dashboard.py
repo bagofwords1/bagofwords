@@ -632,11 +632,14 @@ async def get_published_file_embed_token(
     from app.core.file_tokens import file_embed_url, mint_file_token
     from app.services import dashboard_data
 
-    _, release = await dashboard_access.open_published(db, ref, user)
+    artifact, release = await dashboard_access.open_published(db, ref, user)
     if str(file_id) not in dashboard_data.file_ids(release.content or {}):
         raise dashboard_data.not_found()
+    # Anyone outside the organization got here through the public link; their
+    # token loses access with it (see get_file_embed).
+    member = user is not None and await dashboard_access._is_member(db, user, artifact.organization_id)
     token = mint_file_token(str(file_id), organization_id=str(release.organization_id),
-                            release_id=str(release.id))
+                            release_id=str(release.id), via_public_link=not member)
     return {"file_id": str(file_id), "token": token, "url": file_embed_url(str(file_id), token)}
 
 

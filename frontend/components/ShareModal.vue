@@ -209,9 +209,16 @@
                             </p>
                             <!-- Public link on a per-user-data dashboard: anyone may
                                  open it, but data resolves per signed-in viewer. -->
-                            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && (hasRls || hasUserScoped)"
+                            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && publicSharingAllowed && (hasRls || hasUserScoped)"
                                 class="text-xs text-ink-muted mt-1.5">
                                 {{ tm('share.publicPerUserNote', artifactMode) }}
+                            </p>
+                            <!-- Shared publicly before the organization turned public
+                                 links off: the server treats it as organization-only. -->
+                            <p v-if="publicLinkSuspended" data-testid="public-sharing-disabled-note"
+                                class="text-xs text-amber-700 dark:text-amber-400 mt-1.5 flex items-start gap-1.5">
+                                <Icon name="heroicons:exclamation-triangle" class="w-4 h-4 flex-shrink-0" />
+                                <span>{{ $t('share.publicDisabledNote') }}</span>
                             </p>
                         </div>
                     </div>
@@ -352,13 +359,24 @@ const visibilityMeta = computed<Record<string, { label: string; icon: string }>>
 // with the link. Public is the owner's (collab01): listed but off for an
 // editor, unless the dashboard already is public (they may leave it so).
 const publicLocked = computed(() => dashboardMode.value && !canMakePublic.value && savedDashboardVisibility.value !== 'public')
+// Org setting allow_public_sharing (GET /reports/{id}). Off: no new public
+// link; one already public opens for the organization only, said by a note.
+const publicSharingFetched = ref<boolean | null>(null)
+const publicSharingAllowed = computed(() => publicSharingFetched.value ?? (props.report?.public_sharing_allowed !== false))
+const storedVisibility = computed(() => (dashboardMode.value
+    ? savedDashboardVisibility.value
+    : (props.report?.[visibilityField.value] || 'none')))
+const publicOffByOrg = computed(() => !publicSharingAllowed.value && storedVisibility.value !== 'public')
+const publicLinkSuspended = computed(() => !publicSharingAllowed.value && storedVisibility.value === 'public')
 const generalOptions = computed(() => [
     { value: 'restricted', label: t('dashboardCollab.share.restricted'), description: t('dashboardCollab.share.restrictedDesc'), icon: 'heroicons:lock-closed' },
     { value: 'internal', label: t('share.visibilityInternal'), description: t('dashboardCollab.share.organizationDesc'), icon: 'heroicons:building-office' },
     {
         value: 'public', label: t('share.visibilityPublic'), description: t('dashboardCollab.share.publicDesc'), icon: 'heroicons:globe-alt',
-        disabled: publicLocked.value,
-        disabledReason: publicLocked.value ? tm('dashboardCollab.share.publicOwnerOnly', props.artifactMode) : '',
+        disabled: publicOffByOrg.value || publicLocked.value,
+        disabledReason: publicOffByOrg.value
+            ? t('share.visibilityPublicDisabledDesc')
+            : publicLocked.value ? tm('dashboardCollab.share.publicOwnerOnly', props.artifactMode) : '',
     },
 ])
 const generalAccess = computed(() => (['internal', 'public'].includes(currentVisibility.value) ? currentVisibility.value : 'restricted'))
@@ -585,6 +603,10 @@ const fetchVisibility = async () => {
                 ? { ...(res.data.value as any), ...(await fetchDashboard()) }
                 : res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            if (typeof data.public_sharing_allowed === 'boolean') {
+                publicSharingFetched.value = data.public_sharing_allowed
+                if (props.report) props.report.public_sharing_allowed = data.public_sharing_allowed
+            }
             hasRls.value = !!data.has_rls
             hasUserScoped.value = !!data.has_user_scoped
             if (data.conversation_share_token !== undefined) {
@@ -764,6 +786,7 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
 // the viewer list server-side, so it lands on private.
 const onGeneralAccessChange = async (value: string) => {
     if (value === generalAccess.value) return
+    if (value === 'public' && publicOffByOrg.value) return
     const target = value === 'restricted' ? 'none' : value
     currentVisibility.value = target
     await saveVisibility(target)

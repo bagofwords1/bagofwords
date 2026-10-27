@@ -237,7 +237,13 @@ async def check_visibility(db, artifact: Artifact, user) -> None:
         return
     visibility = artifact.visibility or "none"
     if visibility == "public":
-        return
+        # Org turned public links off: a public dashboard opens for its
+        # organization only; the stored value stays, so the link comes back
+        # when the setting is turned on again (public_sharing_policy).
+        from app.services.public_sharing_policy import public_sharing_allowed
+        if await public_sharing_allowed(db, artifact.organization_id):
+            return
+        visibility = "internal"
     if visibility not in ("shared", "internal"):
         raise _not_found()
     if user is None:

@@ -169,6 +169,11 @@ async def share(db, dashboard, *, visibility: str, user_ids, group_ids, current_
     from app.core import fire_and_forget
     from app.services import dashboard_publish, dashboard_settings_service
 
+    if visibility == "public" and dashboard.visibility != "public":
+        # Checked before the publish below starts, so a refused public share
+        # does not publish either (set_sharing checks it again).
+        from app.services.public_sharing_policy import assert_public_sharing_allowed
+        await assert_public_sharing_allowed(db, dashboard.organization_id)
     unpublished = not dashboard.published_release_id and visibility != "none"
     release = None
     if unpublished:
