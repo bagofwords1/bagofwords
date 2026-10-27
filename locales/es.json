@@ -1116,7 +1116,24 @@
     "steerFailed": "No se pudo dirigir la respuesta en curso",
     "instructionUnavailableTitle": "Instrucción no disponible",
     "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella.",
-    "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})"
+    "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})",
+    "display": {
+      "title": "Visualización",
+      "textSize": "Tamaño del texto",
+      "pixels": "{n}px",
+      "scales": {
+        "default": "Predeterminado",
+        "large": "Grande",
+        "larger": "Más grande",
+        "largest": "Máximo"
+      },
+      "width": "Ancho",
+      "widths": {
+        "standard": "Estándar",
+        "wide": "Ampliado"
+      },
+      "scopeHint": "Se aplica a tus conversaciones en este navegador."
+    }
   },
   "tools": {
     "common": {

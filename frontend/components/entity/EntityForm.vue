@@ -12,7 +12,7 @@
         v-model="localForm.title"
         type="text"
         placeholder="Revenue by month"
-        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
       />
     </div>
 
@@ -24,7 +24,7 @@
         :rows="compact ? 1 : 4"
         placeholder="Description"
         :class="compact ? 'resize-none' : 'min-h-[100px]'"
-        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
       />
     </div>
 
@@ -44,7 +44,7 @@
           <div class="flex items-center flex-wrap gap-1">
             <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('entityForm.selectAgents') }}</span>
             <div v-else class="flex items-center flex-wrap gap-1">
-              <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 dark:bg-blue-900/50 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
+              <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 dark:bg-blue-900/50 text-blue-800 text-2xs px-1.5 py-0.5 rounded">
                 <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="h-3 me-1" />
                 {{ ds.name }}
               </span>
@@ -81,7 +81,7 @@
       >
         <template #label>
           <div class="inline-flex items-center text-xs">
-            <span :class="getStatusClass(localForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
+            <span :class="getStatusClass(localForm.status)" class="inline-flex px-2 py-0.5 text-2xs font-medium rounded-full">
               {{ getCurrentStatusDisplayText() }}
             </span>
           </div>

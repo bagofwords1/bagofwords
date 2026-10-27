@@ -6,7 +6,7 @@
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <span
-                class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border"
+                class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border"
                 :class="scopeChipClass"
               >
                 <UIcon :name="scopeIcon" class="w-3 h-3" />
@@ -24,7 +24,7 @@
       <div class="space-y-4">
         <!-- Full text -->
         <div>
-          <div class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">{{ $t('prompts.viewText') }}</div>
+          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">{{ $t('prompts.viewText') }}</div>
           <div class="text-sm leading-relaxed text-gray-700 dark:text-gray-200 whitespace-pre-wrap rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-3">
             <template v-for="(seg, i) in textSegments" :key="i">
               <span
@@ -38,7 +38,7 @@
 
         <!-- Parameters -->
         <div v-if="paramNames.length">
-          <div class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">{{ $t('prompts.viewParameters') }}</div>
+          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">{{ $t('prompts.viewParameters') }}</div>
           <div class="flex flex-wrap gap-1.5">
             <code
               v-for="n in paramNames"
@@ -50,12 +50,12 @@
 
         <!-- Agents / scope: always explicit DataSourceIcon + name -->
         <div v-if="prompt?.scope === 'agent' && agentChips.length">
-          <div class="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">{{ $t('prompts.viewAgents') }}</div>
+          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">{{ $t('prompts.viewAgents') }}</div>
           <div class="flex flex-wrap gap-1.5">
             <span
               v-for="a in agentChips"
               :key="a.id"
-              class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
+              class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
             >
               <DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="h-3 w-auto" />
               {{ a.name }}
@@ -64,7 +64,7 @@
         </div>
 
         <!-- Author / meta -->
-        <div class="flex items-center gap-3 text-[11px] text-gray-400 dark:text-gray-500">
+        <div class="flex items-center gap-3 text-2xs text-ink-muted">
           <span v-if="authorName">{{ $t('prompts.byAuthor', { name: authorName }) }}</span>
           <span v-if="prompt?.created_at">· {{ formattedDate }}</span>
         </div>

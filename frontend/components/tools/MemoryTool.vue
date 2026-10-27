@@ -7,9 +7,9 @@
          search_memory. Memory is private: we
          show only that it happened plus the agent's short title — never entry
          text, handles, tags or search results. Details live in the profile. -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400" data-testid="memory-tool">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400" data-testid="memory-tool">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-bookmark" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
+        <Icon name="heroicons-bookmark" class="w-3 h-3 me-1.5 text-ink-muted" />
         <span dir="auto" class="truncate max-w-[300px]">{{ label || runningFallback }}</span>
       </span>
       <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">

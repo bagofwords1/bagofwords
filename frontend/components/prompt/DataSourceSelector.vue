@@ -9,7 +9,7 @@
                     :data-auto="isAutoMode ? 'true' : 'false'"
                 >
                     <span v-if="isLoading" class="flex items-center">
-                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                        <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                     </span>
                     <!-- Auto with nothing to resolve to isn't Auto, it's an
                          empty workspace — fall through to the bare icon. -->
@@ -40,7 +40,7 @@
                             <span v-if="internalSelectedDataSources.length === 1 && internalSelectedDataSources[0].name" class="ms-1.5 text-xs max-w-[140px] truncate">
                                 {{ internalSelectedDataSources[0].name }}
                             </span>
-                            <span v-else-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
+                            <span v-else-if="internalSelectedDataSources.length > 3" class="ms-1 text-2xs text-ink-muted">
                                 +{{ internalSelectedDataSources.length - 3 }}
                             </span>
                         </template>
@@ -53,7 +53,7 @@
             <template #panel>
                 <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
-                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                        <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
                     </div>
                     <template v-else>
@@ -71,8 +71,8 @@
                                     <div class="flex items-center">
                                         <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
                                         <div class="flex flex-col text-start">
-                                            <span class="text-[13px]">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-[10px] text-gray-400 dark:text-gray-500">
+                                            <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
+                                            <span class="text-2xs text-ink-muted">
                                                 {{ $t('prompt.autoAgentsHint') }}
                                             </span>
                                         </div>
@@ -82,7 +82,7 @@
                                 <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <template v-for="group in sourceGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                     {{ group.label }}
                                 </div>
                                 <div
@@ -98,19 +98,19 @@
                                 >
                                     <div class="flex items-center min-w-0">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
                                         <!-- Non-production agents only reach here for managers; flag
                                              the lifecycle stage so it's clear they aren't live for
                                              consumers yet. Mirrors the agent page (Development /
                                              Training / Disabled), not the raw publish_status. -->
                                         <span
                                             v-if="stageOf(ds) !== 'production'"
-                                            :class="['ms-2 flex-shrink-0 text-[10px] rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
+                                            :class="['ms-2 flex-shrink-0 text-2xs rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
                                         >{{ $t('agentsPage.stage.' + stageOf(ds)) }}</span>
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
-                                            class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
+                                            class="ms-2 flex-shrink-0 text-2xs text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
                                         >{{ $t('data.serviceAccount') }}</span>
                                     </div>
                                     <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -131,12 +131,12 @@
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
                                     </div>
                                     <button
                                         type="button"
                                         :disabled="connectingId === ds.id"
-                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         @click.stop="openCredentialsModal(ds)"
                                     >
                                         <Spinner v-if="connectingId === ds.id" class="w-3 h-3" />

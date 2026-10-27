@@ -9,7 +9,7 @@
       <!-- Row 1: Search + Filter/Sort -->
       <div class="relative flex items-center gap-2">
         <div class="relative flex-1">
-          <UIcon name="heroicons:magnifying-glass" class="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-600" />
+          <UIcon name="heroicons:magnifying-glass" class="absolute start-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-muted" />
           <input v-model="resourceSearch" type="text" :placeholder="viewMode === 'files' ? 'Search files...' : 'Search resources...'" class="border border-gray-300 dark:border-gray-600 rounded-lg ps-9 pe-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
         </div>
         <button
@@ -87,14 +87,14 @@
         <!-- View mode toggle -->
         <UTooltip text="Toggle between individual chunks and grouped files">
           <div class="flex items-center gap-1.5 h-8 px-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900">
-            <span :class="['text-xs font-medium', viewMode === 'chunks' ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600']">Chunks</span>
+            <span :class="['text-xs font-medium', viewMode === 'chunks' ? 'text-gray-700 dark:text-gray-300' : 'text-ink-muted']">Chunks</span>
             <UToggle
               :model-value="viewMode === 'files'"
               @update:model-value="viewMode = $event ? 'files' : 'chunks'"
               color="blue"
               size="xs"
             />
-            <span :class="['text-xs font-medium', viewMode === 'files' ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-600']">Files</span>
+            <span :class="['text-xs font-medium', viewMode === 'files' ? 'text-gray-700 dark:text-gray-300' : 'text-ink-muted']">Files</span>
           </div>
         </UTooltip>
         <!-- Selection count + Bulk actions -->
@@ -145,19 +145,19 @@
                     class="me-2"
                   />
                   <div class="flex-1 cursor-pointer flex items-center" @click="toggleFileExpanded(file)">
-                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-400 dark:text-gray-600 rtl-flip" />
+                    <UIcon :name="expandedFiles[file.path] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-ink-muted rtl-flip" />
                     <UIcon name="heroicons:document-text" class="w-4 h-4 text-gray-500 dark:text-gray-400 me-2" />
                     <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ file.displayName }}</span>
-                    <span class="ms-2 text-xs text-gray-400 dark:text-gray-600">({{ file.resources.length }} {{ file.resources.length === 1 ? 'chunk' : 'chunks' }})</span>
+                    <span class="ms-2 text-xs text-ink-muted">({{ file.resources.length }} {{ file.resources.length === 1 ? 'chunk' : 'chunks' }})</span>
                   </div>
                 </div>
                 <!-- Expanded file shows its chunks -->
                 <div v-if="expandedFiles[file.path]" class="ms-6 mt-2 space-y-1">
                   <div v-for="res in file.resources" :key="res.id" class="flex items-center py-1 px-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800">
                     <UCheckbox v-if="canUpdate" v-model="res.is_active" color="blue" class="me-2" />
-                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
-                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
-                    <UIcon v-else name="heroicons:puzzle-piece" class="w-3 h-3 text-gray-400 dark:text-gray-600 me-1" />
+                    <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-3 h-3 text-ink-muted me-1" />
+                    <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-3 h-3 text-ink-muted me-1" />
+                    <UIcon v-else name="heroicons:puzzle-piece" class="w-3 h-3 text-ink-muted me-1" />
                     <span class="text-xs text-gray-600 dark:text-gray-400">{{ res.name }}</span>
                   </div>
                 </div>
@@ -194,7 +194,7 @@
     </div>
 
     <div v-if="showSave && canUpdate && totalResources > 0" class="mt-3 flex justify-end">
-      <button @click="onSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+      <button @click="onSave" :disabled="saving" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>
       </button>

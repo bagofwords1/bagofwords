@@ -14,8 +14,8 @@
                     <DataSourceIcon :type="conn.type" class="h-3.5" />
                     <span>{{ conn.name }}</span>
                 </div>
-                <span v-if="tableConnections.length > 3" class="text-xs text-gray-400">+{{ tableConnections.length - 3 }}</span>
-                <button class="text-xs text-gray-400 hover:text-gray-600" @click="showManageModal = true">
+                <span v-if="tableConnections.length > 3" class="text-xs text-ink-muted">+{{ tableConnections.length - 3 }}</span>
+                <button class="text-xs text-ink-muted hover:text-gray-600" @click="showManageModal = true">
                     {{ t('agentPage.tables.manageConnections') }}
                 </button>
             </div>
@@ -40,7 +40,7 @@
                 No database connections on this agent. File sources live in the <NuxtLink :to="`/old_agents/${id}/files`" class="text-blue-600 hover:underline">Files</NuxtLink> tab.
             </div>
 
-            <div v-else-if="!registryLoaded" class="py-10 text-center text-gray-400 text-sm">Loading…</div>
+            <div v-else-if="!registryLoaded" class="py-10 text-center text-ink-muted text-sm">Loading…</div>
 
             <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg p-6">
                 <TablesSelector :ds-id="id" :schema="schemaMode" :connection-filter="tableConnectionIds"

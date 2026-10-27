@@ -2,7 +2,7 @@
     <!-- Access error overlay -->
     <div v-if="accessError" class="h-dvh w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <div class="text-center max-w-md mx-auto px-6">
-            <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-gray-400" />
+            <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-ink-muted" />
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 {{ accessError === 'login' ? t('dashboardCollab.access.signInTitle') : t('dashboardCollab.access.deniedTitle') }}
             </h2>
@@ -24,7 +24,7 @@
     <div v-else-if="unavailable" class="h-dvh w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900"
         data-testid="dashboard-embed-unavailable">
         <div class="text-center max-w-md mx-auto px-6">
-            <Icon name="heroicons:eye-slash" class="w-10 h-10 mx-auto mb-3 text-gray-400" />
+            <Icon name="heroicons:eye-slash" class="w-10 h-10 mx-auto mb-3 text-ink-muted" />
             <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('dashboardCollab.versions.viewingUnavailable') }}</p>
         </div>
     </div>
@@ -35,7 +35,7 @@
             <!-- Left: Back to app (absolute; fits inside the start content gutter) -->
             <a
                 href="/"
-                class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5 rtl-flip" />
                 <span class="hidden sm:inline">{{ t('dashboardCollab.access.backToApp') }}</span>
@@ -75,14 +75,14 @@
 
                     <!-- Refreshed text (hidden on mobile where the bar is too
                          crowded; truncates instead of overlapping the actions) -->
-                    <span v-if="runError" class="hidden sm:inline min-w-0 text-[11px] text-red-400 truncate max-w-[300px]" :title="runError">
+                    <span v-if="runError" class="hidden sm:inline min-w-0 text-2xs text-red-400 truncate max-w-[300px]" :title="runError">
                         {{ runError }}
                     </span>
-                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 min-w-0 text-[11px] text-gray-400">
+                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 min-w-0 text-2xs text-ink-muted">
                         <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin flex-shrink-0" />
                         <span class="truncate">Refreshing...</span>
                     </span>
-                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline min-w-0 text-[11px] text-gray-400 truncate">
+                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline min-w-0 text-2xs text-ink-muted truncate">
                         {{ $t('sharedReport.refreshedAt', { time: formatTime(lastRefreshedAt) }) }}
                     </span>
                 </div>
@@ -102,7 +102,7 @@
                     v-if="canRun && source !== 'draft'"
                     @click="handleRun"
                     :disabled="isRunning"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
                     title="Re-run this dashboard's queries for you"
                 >
                     <Icon name="heroicons:arrow-path" :class="['w-3.5 h-3.5', isRunning ? 'animate-spin' : '']" />
@@ -126,14 +126,14 @@
                     v-if="forkEligibility?.can_fork"
                     @click="handleFork"
                     :disabled="isForking"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
                     <span class="hidden sm:inline">{{ isForking ? 'Forking...' : 'Fork' }}</span>
                 </button>
                 <span
                     v-else-if="forkEligibility && !forkEligibility.can_fork"
-                    class="text-[10px] text-gray-300 dark:text-gray-600 cursor-default"
+                    class="text-2xs text-gray-300 dark:text-gray-600 cursor-default"
                     :title="forkReasonLabel"
                 >
                     <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
@@ -145,7 +145,7 @@
                     type="button"
                     data-testid="analytics-button"
                     @click="analyticsOpen = true"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
                     :title="$t('artifactResources.analytics')"
                 >
                     <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
@@ -154,7 +154,7 @@
                 <NuxtLink
                     v-if="source === 'report' && isOwner && editPath"
                     :to="editPath"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
                 >
                     <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
                     <span class="hidden sm:inline">Edit Report</span>
@@ -168,7 +168,7 @@
                     data-testid="edit-in-my-conversation"
                     @click="handleEdit"
                     :disabled="isOpeningEditor"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
                     :title="$t('dashboardCollab.page.editInMyConversation')"
                 >
                     <Icon :name="isOpeningEditor ? 'heroicons:arrow-path' : 'heroicons:pencil-square'" :class="['w-3.5 h-3.5', isOpeningEditor ? 'animate-spin' : '']" />
@@ -176,7 +176,7 @@
                 </button>
                 <button
                     @click="showTopBar = false"
-                    class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+                    class="p-1 text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                 >
                     <Icon name="heroicons:x-mark" class="w-4 h-4" />
                 </button>
@@ -230,7 +230,7 @@
                      which are missing and why. Same strings as the in-app
                      viewer (ArtifactFrame). -->
                 <div v-else-if="partiallyWithheld"
-                     class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]">
+                     class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-2xs">
                     <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     <div>
                         <div v-if="withheldCharts.some(c => c.noAccess)">
@@ -252,7 +252,7 @@
 
                 <!-- Slides without previews: python-pptx source is not
                      browser-renderable — show a fallback, never the iframe -->
-                <div v-else-if="slidesPreviewsMissing && artifact" class="absolute inset-0 flex items-center justify-center text-gray-400">
+                <div v-else-if="slidesPreviewsMissing && artifact" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:presentation-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
                         <p>Slide previews are not available for this presentation</p>
@@ -278,7 +278,7 @@
                 />
 
                 <!-- Loading state -->
-                <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-gray-400">
+                <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
                         <p>Loading...</p>
@@ -290,7 +290,7 @@
                 </div>
 
                 <!-- Empty state (no artifacts) -->
-                <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
+                <div v-else class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
                         <p>No dashboard available</p>
@@ -307,7 +307,7 @@
                         :is-running="isRunning" :source-errors="dataSourceErrors"
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
                 </div>
-                <div v-else-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
+                <div v-else-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-ink-muted">
                     <p>No visualizations available</p>
                 </div>
                 <div v-else class="max-w-4xl mx-auto space-y-2">
@@ -326,7 +326,7 @@
             <div v-if="activeTab === 'report' && pendingQueries.length"
                  data-testid="chart-pending"
                  :title="pendingQueries.map(q => q.title).filter(Boolean).join(', ')"
-                 class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-900/50 border border-sky-200 dark:border-sky-700 text-sky-800 dark:text-sky-200 shadow text-[11px] whitespace-nowrap">
+                 class="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-50 dark:bg-sky-900/50 border border-sky-200 dark:border-sky-700 text-sky-800 dark:text-sky-200 shadow text-2xs whitespace-nowrap">
                 <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 animate-spin shrink-0" />
                 {{ $t('dashboardCollab.page.runningAsYou') }}
                 <span class="tabular-nums text-sky-600 dark:text-sky-300">({{ pendingQueries.length }})</span>

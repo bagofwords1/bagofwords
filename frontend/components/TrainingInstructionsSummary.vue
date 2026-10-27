@@ -8,7 +8,7 @@
     <button
       class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
     >
-      <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-600" />
+      <Icon name="heroicons-academic-cap" class="w-3.5 h-3.5 text-ink-muted" />
       {{ uniqueInstructions.length }} Instruction{{ uniqueInstructions.length === 1 ? '' : 's' }}
     </button>
 
@@ -21,7 +21,7 @@
         <!-- Loading -->
         <div v-if="isLoading" class="flex items-center justify-center px-3 py-2">
           <Spinner class="w-3 h-3 me-1.5" />
-          <span class="text-[11px] text-gray-500 dark:text-gray-400">Loading...</span>
+          <span class="text-2xs text-gray-500 dark:text-gray-400">Loading...</span>
         </div>
 
         <!-- Instructions list -->
@@ -41,8 +41,8 @@
               <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ inst.title }}</span>
             </div>
             <div class="flex items-center gap-2 mt-0.5 ms-[18px]">
-              <span v-if="inst.category" class="text-[10px] text-gray-400 dark:text-gray-600">{{ inst.category }}</span>
-              <span v-if="inst.lineCount > 0" class="text-[10px] text-green-600">+{{ inst.lineCount }}</span>
+              <span v-if="inst.category" class="text-2xs text-ink-muted">{{ inst.category }}</span>
+              <span v-if="inst.lineCount > 0" class="text-2xs text-green-600">+{{ inst.lineCount }}</span>
             </div>
           </div>
         </template>

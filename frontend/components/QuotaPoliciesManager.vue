@@ -11,7 +11,7 @@
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                     />
                 </div>
             </div>
@@ -55,7 +55,7 @@
                             <tr v-for="policy in filteredPolicies" :key="policy.id" class="hover:bg-gray-50/70 dark:hover:bg-gray-800 transition-colors">
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-2">
-                                        <Icon name="heroicons:chart-bar-square" class="h-5 w-5 text-gray-400" />
+                                        <Icon name="heroicons:chart-bar-square" class="h-5 w-5 text-ink-muted" />
                                         <div>
                                             <div class="text-sm font-medium text-gray-900 dark:text-white">{{ policy.name }}</div>
                                             <div class="text-sm text-gray-500 dark:text-gray-400">{{ policy.description || '-' }}</div>
@@ -89,7 +89,7 @@
                                         >
                                             {{ item.label }}
                                         </UBadge>
-                                        <span v-if="policy.assignments.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
+                                        <span v-if="policy.assignments.length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2">
@@ -111,7 +111,7 @@
                                         >
                                             +{{ policy.connection_overrides.length - 2 }}
                                         </UBadge>
-                                        <span v-if="policy.connection_overrides.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
+                                        <span v-if="policy.connection_overrides.length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
@@ -144,7 +144,7 @@
                             <tr v-if="filteredPolicies.length === 0">
                                 <td :colspan="useCan('manage_settings') ? 6 : 5" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400 text-sm">
                                     <div class="flex flex-col items-center">
-                                        <Icon name="heroicons:chart-bar-square" class="mx-auto h-12 w-12 text-gray-400" />
+                                        <Icon name="heroicons:chart-bar-square" class="mx-auto h-12 w-12 text-ink-muted" />
                                         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('quotaPolicies.noPoliciesFound') }}</h3>
                                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('quotaPolicies.noPoliciesHint') }}</p>
                                     </div>
@@ -278,7 +278,7 @@
                                     />
                                 </div>
                             </div>
-                            <span v-if="form.connectionOverrides.length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.none') }}</span>
+                            <span v-if="form.connectionOverrides.length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.none') }}</span>
                         </div>
                     </div>
                 </div>

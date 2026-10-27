@@ -8,35 +8,35 @@
       <Icon
         v-if="hasDetail"
         :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-gray-400 dark:text-gray-600 rtl-flip"
+        class="w-3 h-3 me-1 text-ink-muted rtl-flip"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500 dark:text-gray-400">
-        <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-600" />
+        <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-ink-muted" />
         Running Excel code…{{ description ? ' ' + description : '' }}
       </span>
       <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
         <span class="align-middle">{{ $t('tools.writeOfficeJs.ran') }}</span>
-        <span v-if="description" class="ms-1.5 text-[10px] text-gray-400 dark:text-gray-600 truncate max-w-[320px]">· {{ description }}</span>
+        <span v-if="description" class="ms-1.5 text-2xs text-ink-muted truncate max-w-[320px]">· {{ description }}</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
         <span class="align-middle">{{ $t('tools.writeOfficeJs.failed') }}</span>
-        <span v-if="isSyntaxError" class="ms-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span>
-        <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
+        <span v-if="isSyntaxError" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span>
+        <span v-if="errorMessage" class="ms-1.5 text-2xs text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
       <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 text-xs text-gray-600 dark:text-gray-400">
-        <pre v-if="code" class="code-block text-[11px] text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
+        <pre v-if="code" class="code-block text-2xs text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
         <div v-if="logs && logs.length" class="mt-2">
-          <div class="text-[10px] text-gray-400 dark:text-gray-600 mb-0.5">Logs ({{ logs.length }})</div>
-          <pre class="code-block text-[11px] text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ logs.join('\n') }}</code></pre>
+          <div class="text-2xs text-ink-muted mb-0.5">Logs ({{ logs.length }})</div>
+          <pre class="code-block text-2xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ logs.join('\n') }}</code></pre>
         </div>
         <div v-if="returnValueFormatted" class="mt-2">
-          <div class="text-[10px] text-gray-400 dark:text-gray-600 mb-0.5">Returned</div>
-          <pre class="code-block text-[11px] text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ returnValueFormatted }}</code></pre>
+          <div class="text-2xs text-ink-muted mb-0.5">Returned</div>
+          <pre class="code-block text-2xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ returnValueFormatted }}</code></pre>
         </div>
       </div>
     </Transition>

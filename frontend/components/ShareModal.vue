@@ -22,11 +22,11 @@
             <div class="flex items-start justify-between gap-3 px-6 pt-5 pb-1">
                 <h2 class="text-lg font-normal text-gray-900 dark:text-white min-w-0 truncate" data-testid="share-title">{{ heading }}</h2>
                 <button @click="modalOpen = false" :aria-label="$t('common.close')"
-                    class="p-1.5 -me-1.5 -mt-0.5 rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-300 outline-none">
+                    class="p-1.5 -me-1.5 -mt-0.5 rounded-full text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 dark:hover:text-gray-300 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
             </div>
-            <p class="px-6 text-xs text-gray-500 dark:text-gray-400 mb-3">{{ shareDescription }}</p>
+            <p class="px-6 text-xs text-ink-muted mb-3">{{ shareDescription }}</p>
 
             <!-- No inner scroll: the modal grows with its content (the page
                  scrolls when it is taller than the screen), so the menus in it
@@ -40,12 +40,12 @@
                         <div class="relative flex-1 min-w-0 flex flex-wrap items-center gap-1.5 border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 min-h-[44px] focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-transparent bg-white dark:bg-gray-900">
                             <span v-for="(principal, idx) in pendingPrincipals" :key="principal.kind + ':' + (principal.id || principal.email)"
                                 class="inline-flex items-center gap-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 text-xs ps-1 pe-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-medium text-white" :class="avatarColor(principal.id || principal.email || '')">
+                                <span class="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-medium text-white" :class="avatarColor(principal.id || principal.email || '')">
                                     <Icon v-if="principal.kind === 'group'" name="heroicons:user-group" class="w-3 h-3" />
                                     <template v-else>{{ initial(principal.name || principal.email) }}</template>
                                 </span>
                                 {{ principal.name || principal.email }}
-                                <button @click="removePendingPrincipal(idx)" class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 outline-none">
+                                <button @click="removePendingPrincipal(idx)" class="text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 outline-none">
                                     <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
                                 </button>
                             </span>
@@ -69,8 +69,8 @@
                                     </div>
                                     <div class="flex flex-col min-w-0">
                                         <span class="text-gray-900 dark:text-white truncate">{{ option.name || option.email }}</span>
-                                        <span v-if="option.kind === 'group'" class="text-xs text-gray-500 truncate">{{ $t('share.groupMembers', option.memberCount || 0) }}</span>
-                                        <span v-else-if="option.name" class="text-xs text-gray-500 truncate">{{ option.email }}</span>
+                                        <span v-if="option.kind === 'group'" class="text-xs text-ink-muted truncate">{{ $t('share.groupMembers', option.memberCount || 0) }}</span>
+                                        <span v-else-if="option.name" class="text-xs text-ink-muted truncate">{{ option.email }}</span>
                                     </div>
                                 </button>
                             </div>
@@ -81,7 +81,7 @@
                             :disabled="isSaving" boxed class="mt-1" data-testid="share-new-role" />
                     </div>
                     <!-- Why "Can view" is not offered right now (collab01). -->
-                    <p v-if="dashboardMode && viewDisabledReason" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5"
+                    <p v-if="dashboardMode && viewDisabledReason" class="text-xs text-ink-muted mt-1.5"
                         data-testid="share-viewers-hint">
                         {{ viewDisabledReason }}
                     </p>
@@ -91,7 +91,7 @@
                 <section v-if="showPeople && (dashboardMode || sharedEntries.length)" class="mt-5" data-testid="share-access-list">
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-1">{{ $t('dashboardCollab.share.peopleWithAccess') }}</h3>
                     <!-- Someone who may see but not change the list (collab01). -->
-                    <p v-if="dashboardMode && !canShare" class="text-xs text-gray-500 dark:text-gray-400 mb-1 flex items-start gap-1.5"
+                    <p v-if="dashboardMode && !canShare" class="text-xs text-ink-muted mb-1 flex items-start gap-1.5"
                         data-testid="share-read-only">
                         <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 flex-shrink-0 mt-px" />
                         <span>{{ $t('dashboardCollab.share.readOnly') }}</span>
@@ -107,10 +107,10 @@
                                 </div>
                                 <div class="flex flex-col min-w-0">
                                     <span class="text-sm text-gray-900 dark:text-gray-100 truncate">{{ ownerLabel }}</span>
-                                    <span v-if="ownerMember?.email" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ ownerMember.email }}</span>
+                                    <span v-if="ownerMember?.email" class="text-xs text-ink-muted truncate">{{ ownerMember.email }}</span>
                                 </div>
                             </div>
-                            <span class="text-sm text-gray-500 dark:text-gray-400 flex-shrink-0 pe-2">{{ $t('dashboardCollab.share.owner') }}</span>
+                            <span class="text-sm text-ink-muted flex-shrink-0 pe-2">{{ $t('dashboardCollab.share.owner') }}</span>
                         </div>
 
                         <!-- Everyone who can open the dashboard's project edits it. -->
@@ -136,8 +136,8 @@
                                 </div>
                                 <div class="flex flex-col min-w-0">
                                     <span class="text-sm text-gray-900 dark:text-gray-100 truncate">{{ entryName(entry) }}</span>
-                                    <span v-if="entry.principal_type === 'group'" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
-                                    <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-gray-500 dark:text-gray-400 truncate">{{ entry.user_email }}</span>
+                                    <span v-if="entry.principal_type === 'group'" class="text-xs text-ink-muted truncate">{{ $t('share.groupMembers', entry.member_count || 0) }}</span>
+                                    <span v-else-if="entry.user_name && entry.user_email" class="text-xs text-ink-muted truncate">{{ entry.user_email }}</span>
                                 </div>
                             </div>
                             <div class="flex items-center flex-shrink-0">
@@ -145,13 +145,13 @@
                                 <RoleSelect v-if="dashboardMode && canShare" :model-value="entry.role" :view-disabled-reason="viewDisabledReason"
                                     :disabled="isSaving" removable
                                     @update:model-value="(role) => setEntryRole(entry, role)" @remove="removeSharedEntry(entry)" />
-                                <span v-else-if="dashboardMode" class="text-sm text-gray-500 dark:text-gray-400 pe-2">
+                                <span v-else-if="dashboardMode" class="text-sm text-ink-muted pe-2">
                                     {{ entry.role === 'edit' ? $t('dashboardCollab.share.canEdit') : $t('dashboardCollab.share.canView') }}
                                 </span>
                                 <UTooltip v-else :text="$t('dashboardCollab.share.removeAccess')">
                                     <button @click="removeSharedEntry(entry)" :disabled="isSaving" :aria-label="$t('dashboardCollab.share.removeAccess')"
                                         data-testid="share-remove"
-                                        class="p-1.5 rounded-full text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40">
+                                        class="p-1.5 rounded-full text-ink-muted hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40">
                                         <Icon name="heroicons:x-mark" class="w-4 h-4" />
                                     </button>
                                 </UTooltip>
@@ -198,7 +198,7 @@
                                     </div>
                                 </template>
                             </USelectMenu>
-                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ generalOption.description }}</p>
+                            <p class="text-xs text-ink-muted mt-0.5">{{ generalOption.description }}</p>
                             <!-- A dashboard is shared with viewers once published
                                  (phase 8): until then general access is off and
                                  says why. Editors can be added before (collab01). -->
@@ -210,7 +210,7 @@
                             <!-- Public link on a per-user-data dashboard: anyone may
                                  open it, but data resolves per signed-in viewer. -->
                             <p v-if="shareType === 'artifact' && currentVisibility === 'public' && (hasRls || hasUserScoped)"
-                                class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                                class="text-xs text-ink-muted mt-1.5">
                                 {{ tm('share.publicPerUserNote', artifactMode) }}
                             </p>
                         </div>

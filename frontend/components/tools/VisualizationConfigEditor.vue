@@ -14,7 +14,7 @@
     <div v-if="showEncoding">
       <div class="flex items-center justify-between">
         <div class="font-medium text-gray-800 dark:text-gray-200">Encoding</div>
-        <button class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="detectEncoding">Detect from data</button>
+        <button class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="detectEncoding">Detect from data</button>
       </div>
 
       <!-- Bar/Line/Area -->
@@ -48,10 +48,10 @@
               <select v-model="s.aggregation" class="w-24 border rounded px-2 py-1 bg-white dark:bg-gray-900" title="Aggregation applied to duplicate category rows">
                 <option v-for="o in aggregationOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
-              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeSeries(idx)">Remove</button>
+              <button class="px-2 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeSeries(idx)">Remove</button>
             </div>
           </div>
-          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addSeries">Add series</button>
+          <button class="mt-2 px-2 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addSeries">Add series</button>
         </div>
 
       </div>
@@ -321,10 +321,10 @@
                   <option v-for="c in otherNumericColumns" :key="`rad-d-a-${c}`" :value="c">{{ c }}</option>
                 </optgroup>
               </select>
-              <button class="px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDimension(idx)">Remove</button>
+              <button class="px-2 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDimension(idx)">Remove</button>
             </div>
           </div>
-          <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDimension">Add dimension</button>
+          <button class="mt-2 px-2 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDimension">Add dimension</button>
         </div>
       </div>
 
@@ -424,20 +424,20 @@
           <div v-if="local.sparklineEnabled" class="space-y-2 ps-4">
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Type</div>
-                <select v-model="local.sparklineType" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
+                <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">Type</div>
+                <select v-model="local.sparklineType" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
                   <option value="area">Area</option>
                   <option value="line">Line</option>
                 </select>
               </div>
               <div>
-                <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Height (px)</div>
-                <input type="number" v-model.number="local.sparklineHeight" min="32" max="120" class="w-full border rounded px-2 py-1 text-[11px]" />
+                <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">Height (px)</div>
+                <input type="number" v-model.number="local.sparklineHeight" min="32" max="120" class="w-full border rounded px-2 py-1 text-2xs" />
               </div>
             </div>
             <div>
-              <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">X-axis column (time/category)</div>
-              <select v-model="local.sparklineXColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
+              <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">X-axis column (time/category)</div>
+              <select v-model="local.sparklineXColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
                 <option value="">-- Auto-detect --</option>
                 <optgroup label="Suggested">
                   <option v-for="c in stringColumns" :key="`mc-spk-x-s-${c}`" :value="c">{{ c }}</option>
@@ -448,8 +448,8 @@
               </select>
             </div>
             <div>
-              <div class="text-gray-600 dark:text-gray-400 mb-1 text-[11px]">Value column (optional, defaults to main value)</div>
-              <select v-model="local.sparklineColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
+              <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">Value column (optional, defaults to main value)</div>
+              <select v-model="local.sparklineColumn" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
                 <option value="">-- Use main value --</option>
                 <optgroup label="Suggested">
                   <option v-for="c in numericColumns" :key="`mc-spk-v-s-${c}`" :value="c">{{ c }}</option>
@@ -466,40 +466,40 @@
 
     <!-- Default Filters -->
     <div v-if="showEncoding">
-      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.defaultFilters = !expanded.defaultFilters">
+      <div class="flex items-center cursor-pointer text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.defaultFilters = !expanded.defaultFilters">
         <Icon :name="expanded.defaultFilters ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
         Default Filters
-        <span v-if="defaultFilters.length" class="ml-2 text-[10px] text-gray-400 normal-case">({{ defaultFilters.length }})</span>
+        <span v-if="defaultFilters.length" class="ml-2 text-2xs text-ink-muted normal-case">({{ defaultFilters.length }})</span>
       </div>
       <Transition name="fade">
         <div v-if="expanded.defaultFilters" class="space-y-2">
-          <div class="text-[10px] text-gray-500 dark:text-gray-400 mb-1">
+          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">
             Applied automatically when this visualization renders (e.g. to focus a granular dataset on the latest period).
           </div>
           <div v-for="(f, idx) in defaultFilters" :key="idx" class="flex items-center space-x-1.5">
-            <select v-model="f.column" class="flex-1 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
+            <select v-model="f.column" class="flex-1 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
               <option value="">-- Column --</option>
               <option v-for="c in allColumns" :key="`df-col-${idx}-${c}`" :value="c">{{ c }}</option>
             </select>
-            <select v-model="f.operator" class="w-28 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[11px]">
+            <select v-model="f.operator" class="w-28 border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
               <option v-for="op in filterOperators" :key="op.value" :value="op.value">{{ op.label }}</option>
             </select>
             <input
               v-if="!['is_empty','is_not_empty','is_true','is_false'].includes(f.operator)"
               v-model="f.value"
               placeholder="value"
-              class="w-24 border rounded px-2 py-1 text-[11px]"
+              class="w-24 border rounded px-2 py-1 text-2xs"
             />
-            <button class="px-1.5 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDefaultFilter(idx)">×</button>
+            <button class="px-1.5 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="removeDefaultFilter(idx)">×</button>
           </div>
-          <button class="mt-1 px-2 py-1 text-[11px] border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDefaultFilter">Add filter</button>
+          <button class="mt-1 px-2 py-1 text-2xs border rounded text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800" @click="addDefaultFilter">Add filter</button>
         </div>
       </Transition>
     </div>
 
     <!-- Styling -->
     <div>
-      <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.style = !expanded.style">
+      <div class="flex items-center cursor-pointer text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.style = !expanded.style">
         <Icon :name="expanded.style ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Style
       </div>
@@ -521,15 +521,15 @@
 
               <!-- X-Axis Labels section - auto-expanded when X-axis is visible -->
               <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
-                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
+                <div class="flex items-center cursor-pointer text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
                   <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   X-Axis Labels
                 </div>
                 <Transition name="fade">
                   <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 ps-4">
                     <div>
-                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-[10px]">Label rotation</div>
-                      <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[10px]">
+                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">Label rotation</div>
+                      <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
                         <option :value="null">Auto</option>
                         <option :value="0">0° (horizontal)</option>
                         <option :value="45">45° (diagonal)</option>
@@ -538,8 +538,8 @@
                       </select>
                     </div>
                     <div>
-                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-[10px]">Label interval</div>
-                      <select v-model.number="local.xAxisInterval" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-[10px]">
+                      <div class="text-gray-600 dark:text-gray-400 mb-1 text-2xs">Label interval</div>
+                      <select v-model.number="local.xAxisInterval" class="w-full border rounded px-2 py-1 bg-white dark:bg-gray-900 text-2xs">
                         <option :value="null">Auto</option>
                         <option :value="0">Show all (0)</option>
                         <option :value="1">Every 2nd (1)</option>
@@ -558,12 +558,12 @@
 
               <!-- Y-Axis section - placeholder for future controls -->
               <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ms-6 mt-2">
-                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
+                <div class="flex items-center cursor-pointer text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
                   <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
                   Y-Axis Labels
                 </div>
                 <Transition name="fade">
-                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 dark:text-gray-400 ps-4">
+                  <div v-if="expanded.yAxisLabels" class="text-2xs text-gray-500 dark:text-gray-400 ps-4">
                     Y-axis controls will be available here in future updates.
                   </div>
                 </Transition>
@@ -582,10 +582,10 @@
 
     <!-- Sticky Actions -->
     <div class="flex-shrink-0 pt-3 mt-3 border-t bg-white dark:bg-gray-900 flex items-center justify-end space-x-2">
-      <div v-if="error" class="text-red-600 text-[11px] me-auto">{{ error }}</div>
-      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="reset">Reset</button>
-      <button class="px-2 py-1 text-[11px] border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="apply">Apply</button>
-      <button class="px-3 py-1.5 text-[11px] rounded bg-gray-800 text-white hover:bg-gray-700 disabled:opacity-50" :disabled="saving" @click="save">
+      <div v-if="error" class="text-red-600 text-2xs me-auto">{{ error }}</div>
+      <button class="px-2 py-1 text-2xs border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="reset">Reset</button>
+      <button class="px-2 py-1 text-2xs border rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="apply">Apply</button>
+      <button class="px-3 py-1.5 text-2xs rounded bg-gray-800 text-white hover:bg-gray-700 disabled:opacity-50" :disabled="saving" @click="save">
         <span v-if="saving">Saving…</span>
         <span v-else>Save</span>
       </button>

@@ -6,7 +6,7 @@
           <button
             v-if="!stream && destination"
             type="button"
-            class="text-gray-400 hover:text-gray-600"
+            class="text-ink-muted hover:text-gray-600"
             :aria-label="$t('settings.audit.streams.form.back')"
             @click="destination = null"
           >
@@ -14,7 +14,7 @@
           </button>
           <h3 class="text-base font-semibold">{{ stream ? $t('settings.audit.streams.form.titleEdit') : $t('settings.audit.streams.form.titleNew') }}</h3>
         </div>
-        <button type="button" class="text-gray-400 hover:text-gray-600" :aria-label="$t('common.close')" @click="isOpen = false">
+        <button type="button" class="text-ink-muted hover:text-gray-600" :aria-label="$t('common.close')" @click="isOpen = false">
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
@@ -34,7 +34,7 @@
             <AuditStreamIcon :destination="d.type" size="md" />
             <span class="min-w-0">
               <span class="block text-sm text-gray-800 dark:text-gray-100">{{ $t(`settings.audit.streams.destinations.${d.type}`) }}</span>
-              <span class="block text-[11px] text-gray-400">{{ $t(`settings.audit.streams.destinationHints.${d.type}`) }}</span>
+              <span class="block text-2xs text-ink-muted">{{ $t(`settings.audit.streams.destinationHints.${d.type}`) }}</span>
             </span>
           </button>
         </div>
@@ -45,7 +45,7 @@
         <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
           <AuditStreamIcon :destination="destination" />
           {{ $t(`settings.audit.streams.destinations.${destination}`) }}
-          <span class="text-xs text-gray-400">· {{ $t(`settings.audit.streams.destinationHints.${destination}`) }}</span>
+          <span class="text-xs text-ink-muted">· {{ $t(`settings.audit.streams.destinationHints.${destination}`) }}</span>
         </div>
 
         <div>
@@ -79,7 +79,7 @@
         <div>
           <label class="form-label">{{ $t('settings.audit.streams.form.actionFilter') }}</label>
           <UInput v-model="actionFilter" size="sm" data-testid="stream-action-filter" placeholder="tool., member." />
-          <p class="text-[11px] text-gray-400 mt-1">{{ $t('settings.audit.streams.form.actionFilterHint') }}</p>
+          <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.audit.streams.form.actionFilterHint') }}</p>
         </div>
 
         <div v-if="advancedFields.length">

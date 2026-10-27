@@ -1116,7 +1116,24 @@
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
     "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה.",
-    "loopRetryNotice": "אירעה שגיאה פנימית — מנסה שוב מההקשר העדכני (ניסיון {attempt} מתוך {max})"
+    "loopRetryNotice": "אירעה שגיאה פנימית — מנסה שוב מההקשר העדכני (ניסיון {attempt} מתוך {max})",
+    "display": {
+      "title": "תצוגה",
+      "textSize": "גודל טקסט",
+      "pixels": "{n}px",
+      "scales": {
+        "default": "ברירת מחדל",
+        "large": "גדול",
+        "larger": "גדול יותר",
+        "largest": "הגדול ביותר"
+      },
+      "width": "רוחב",
+      "widths": {
+        "standard": "רגיל",
+        "wide": "רחב"
+      },
+      "scopeHint": "חל על השיחות שלך בדפדפן זה."
+    }
   },
   "tools": {
     "common": {

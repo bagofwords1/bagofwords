@@ -26,7 +26,7 @@
                             {{ connectionStatusLabel }}
                         </span>
                         <!-- Last checked time -->
-                        <span v-if="lastCheckedDisplay" class="text-[10px] text-gray-400 dark:text-gray-600">
+                        <span v-if="lastCheckedDisplay" class="text-2xs text-ink-muted">
                             {{ lastCheckedDisplay }}
                         </span>
                         <!-- Test/Refresh button -->

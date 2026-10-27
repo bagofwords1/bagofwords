@@ -3,12 +3,12 @@
     <!-- Status header (click to expand/collapse results) -->
     <Transition name="fade" appear>
       <div
-        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="hasContent && toggleCollapsed()"
         :aria-expanded="!isCollapsed"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Searching&nbsp;</span>
           <Transition name="fade-in" mode="out-in">
             <span :key="queryLabel || ''">{{ queryLabel }}</span>
@@ -19,9 +19,9 @@
           <Icon
             v-if="hasContent"
             :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip flex-shrink-0"
+            class="w-3 h-3 me-1 text-ink-muted rtl-flip flex-shrink-0"
           />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
           <span class="align-middle flex-shrink-0">Searched&nbsp;</span>
           <span v-if="headerTables.length" class="flex items-center min-w-0 overflow-hidden">
             <span
@@ -39,7 +39,7 @@
               <span class="font-medium">{{ item.full_name || item.name || 'table' }}</span>
               <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
             </span>
-            <span v-if="headerExtraCount > 0" class="ms-1 text-gray-400 dark:text-gray-500 flex-shrink-0">+{{ headerExtraCount }} more</span>
+            <span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span>
           </span>
           <Transition v-else name="fade-in" mode="out-in">
             <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
@@ -58,9 +58,9 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 dark:text-gray-500 me-1 rtl-flip" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
               <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" />
-              <span v-if="item.connection_name" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
+              <span v-if="item.connection_name" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">
                 {{ item.full_name || item.name || 'table' }}
               </div>
@@ -70,8 +70,8 @@
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <!-- Columns -->
                 <div v-if="(item.columns || []).length" class="text-gray-500 dark:text-gray-400 mb-1">
-                  <table class="min-w-0 text-[11px]">
-                    <thead class="text-gray-400 dark:text-gray-500">
+                  <table class="min-w-0 text-2xs">
+                    <thead class="text-ink-muted">
                       <tr>
                         <th class="text-start pe-4 font-normal">Column</th>
                         <th class="text-start font-normal">Type</th>
@@ -80,25 +80,25 @@
                     <tbody>
                       <tr v-for="(col, cidx) in columnsHead(item)" :key="cidx">
                         <td class="pe-4 text-gray-600 dark:text-gray-400">{{ col.name }}</td>
-                        <td class="text-gray-400 dark:text-gray-500">{{ col.dtype || 'any' }}</td>
+                        <td class="text-ink-muted">{{ col.dtype || 'any' }}</td>
                       </tr>
                       <tr v-if="columnsTruncated(item)">
-                        <td colspan="2" class="text-gray-400 dark:text-gray-500">…</td>
+                        <td colspan="2" class="text-ink-muted">…</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
                 <!-- Usage (always visible; shows placeholders when missing) -->
                 <div class="text-gray-500 dark:text-gray-400 flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span class="inline-flex items-center gap-1" :class="{'text-gray-400 dark:text-gray-500': !hasUses(item)}">
-                    <Icon name="heroicons-chart-bar" class="w-3 h-3" :class="hasUses(item) ? 'text-gray-400 dark:text-gray-500' : 'text-gray-300 dark:text-gray-600'" />
+                  <span class="inline-flex items-center gap-1" :class="{'text-ink-muted': !hasUses(item)}">
+                    <Icon name="heroicons-chart-bar" class="w-3 h-3" :class="hasUses(item) ? 'text-ink-muted' : 'text-gray-300 dark:text-gray-600'" />
                     {{ usageCountLabel(item) }}
                   </span>
-                  <span class="inline-flex items-center gap-1" :class="{'text-gray-400 dark:text-gray-500': !hasSuccess(item)}">
+                  <span class="inline-flex items-center gap-1" :class="{'text-ink-muted': !hasSuccess(item)}">
                     <Icon name="heroicons-check-circle" class="w-3 h-3" :class="hasSuccess(item) ? 'text-green-500' : 'text-gray-300 dark:text-gray-600'" />
                     {{ usageSuccessLabel(item) }}
                   </span>
-                  <span class="inline-flex items-center gap-1 text-gray-400 dark:text-gray-500">
+                  <span class="inline-flex items-center gap-1 text-ink-muted">
                     <Icon name="heroicons-clock" class="w-3 h-3" />
                     {{ lastUsedLabel(item) }}
                   </span>
@@ -112,7 +112,7 @@
               class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
               @click="showInstructions = !showInstructions"
             >
-              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 dark:text-gray-500 me-1 rtl-flip" />
+              <Icon :name="showInstructions ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
               <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400" />
               <span class="text-gray-600 dark:text-gray-400">{{ relatedInstructions.length }} instruction{{ relatedInstructions.length !== 1 ? 's' : '' }} loaded</span>
             </div>
@@ -123,7 +123,7 @@
                      @click="emit('openInstruction', ins.id)">
                   <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
                   <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
-                  <span v-if="ins.category" class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
+                  <span v-if="ins.category" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
                 </div>
               </div>
             </Transition>

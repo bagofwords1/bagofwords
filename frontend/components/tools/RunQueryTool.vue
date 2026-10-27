@@ -3,15 +3,15 @@
     <!-- Status header (always collapsible, collapsed by default) -->
     <Transition name="fade" appear>
       <div
-        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="detailsCollapsed = !detailsCollapsed"
       >
         <Icon
           :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-          class="w-3 h-3 me-1 text-gray-400 rtl-flip"
+          class="w-3 h-3 me-1 text-ink-muted rtl-flip"
         />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-play-circle" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted" />
           {{ runningLabel }}
         </span>
         <span
@@ -20,7 +20,7 @@
           :class="hasError ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'"
         >
           <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <Icon v-else name="heroicons-play-circle" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon v-else name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted" />
           <span class="align-middle">{{ statusLabel }}</span>
           <UTooltip v-if="isCached" :text="$t('tools.runQuery.cachedHint')">
             <Icon name="heroicons-bolt" class="w-2.5 h-2.5 ms-1 text-amber-500 flex-shrink-0" />

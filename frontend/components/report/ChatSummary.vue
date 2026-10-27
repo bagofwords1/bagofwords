@@ -11,14 +11,14 @@
     <div class="max-w-xl mx-auto px-4 py-4 space-y-6">
 
       <!-- Empty state -->
-      <div v-if="!hasAnything" class="flex flex-col items-center justify-center h-64 text-gray-400">
+      <div v-if="!hasAnything" class="flex flex-col items-center justify-center h-64 text-ink-muted">
         <Icon name="heroicons-document-text" class="w-8 h-8 mb-2" />
         <span class="text-sm">{{ $t('chatSummary.empty') }}</span>
       </div>
 
       <!-- Scheduled Tasks -->
       <section v-if="scheduledPrompts.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.scheduledTasks') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.scheduledTasks') }}</h3>
         <ul class="space-y-1.5">
           <li v-for="sp in scheduledPrompts" :key="sp.id">
             <ScheduledTaskCard :scheduled-prompt="sp" @click="emit('editScheduledPrompt', sp)" />
@@ -28,7 +28,7 @@
 
       <!-- Artifacts -->
       <section v-if="artifactList.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.artifacts') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.artifacts') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="group in visibleArtifactGroups"
@@ -44,10 +44,10 @@
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
                   <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
-                  <span v-if="group.latest.version" class="text-[10px] font-medium text-gray-400 flex-shrink-0">v{{ group.latest.version }}</span>
-                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
+                  <span v-if="group.latest.version" class="text-2xs font-medium text-ink-muted flex-shrink-0">v{{ group.latest.version }}</span>
+                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-2xs font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
                 </div>
-                <div v-if="group.latest.mode" class="text-[11px] text-gray-400 mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
+                <div v-if="group.latest.mode" class="text-2xs text-ink-muted mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
               </div>
             </div>
             <!-- Older versions of this same artifact, as number-only chips: the
@@ -57,7 +57,7 @@
               <button
                 v-for="old in group.older"
                 :key="old.id"
-                class="text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
+                class="text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
                 @click.stop="emit('openArtifact', { artifactId: old.id })"
               >
                 v{{ old.version }}
@@ -67,7 +67,7 @@
         </ul>
         <button
           v-if="artifactGroups.length > 3 && !showAllArtifacts"
-          class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
           @click="showAllArtifacts = true"
         >
           {{ $t('chatSummary.showMore', { count: artifactGroups.length - 3 }) }}
@@ -77,7 +77,7 @@
       <!-- Lists (Agent Lists this conversation wrote to; per-record detail
            stays on the chat card — the numbered chips scroll to each call) -->
       <section v-if="listItems.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.lists') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.lists') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="item in visibleListItems"
@@ -89,7 +89,7 @@
               <Icon name="heroicons-list-bullet" class="w-4 h-4 flex-shrink-0 text-emerald-500" />
               <div class="flex-1 min-w-0">
                 <div class="text-sm text-gray-700 dark:text-gray-300 truncate"><bdi>{{ item.list_name }}</bdi></div>
-                <div class="text-[11px] text-gray-400 mt-0.5 truncate">
+                <div class="text-2xs text-ink-muted mt-0.5 truncate">
                   <bdi v-if="item.agent_name">{{ item.agent_name }}</bdi>
                   <span v-for="c in listCounts(item)" :key="c"> · {{ c }}</span>
                 </div>
@@ -99,7 +99,7 @@
               <button
                 v-for="(sub, idx) in item.submissions"
                 :key="sub.tool_execution_id"
-                class="text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
+                class="text-2xs font-medium text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
                 @click="emit('scrollToMessage', sub.message_id)"
               >
                 #{{ idx + 1 }}
@@ -109,7 +109,7 @@
         </ul>
         <button
           v-if="listItems.length > 3 && !showAllLists"
-          class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
           @click="showAllLists = true"
         >
           {{ $t('chatSummary.showMore', { count: listItems.length - 3 }) }}
@@ -119,8 +119,8 @@
       <!-- Notes (agent scratchpad) -->
       <!-- Sub-agents (delegated background investigations) -->
       <section v-if="subAgentItems.length > 0" data-testid="summary-sub-agents">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.subAgents') }}</h3>
-        <p class="text-[11px] text-gray-400 mb-2" dir="ltr">{{ $t('subAgents.headerStrip', { total: subAgentItems.length, tokens: subAgentTokensLabel }) }}<span v-if="subAgentOutcomeSummary"> · {{ subAgentOutcomeSummary }}</span></p>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.subAgents') }}</h3>
+        <p class="text-2xs text-ink-muted mb-2" dir="ltr">{{ $t('subAgents.headerStrip', { total: subAgentItems.length, tokens: subAgentTokensLabel }) }}<span v-if="subAgentOutcomeSummary"> · {{ subAgentOutcomeSummary }}</span></p>
         <ul class="space-y-1">
           <li
             v-for="sr in subAgentItems"
@@ -131,11 +131,11 @@
           >
             <Icon :name="subAgentIcon(sr)" class="w-3.5 h-3.5 flex-shrink-0" :class="subAgentIconClass(sr)" />
             <span class="truncate flex-1 text-gray-700 dark:text-gray-200" :title="sr.summary || sr.title">{{ sr.title }}</span>
-            <span v-if="sr.outcome" class="px-1.5 py-0.5 rounded text-[10px] font-medium flex-shrink-0" :class="subAgentOutcomeClass(sr.outcome)">
+            <span v-if="sr.outcome" class="px-1.5 py-0.5 rounded text-2xs font-medium flex-shrink-0" :class="subAgentOutcomeClass(sr.outcome)">
               {{ $t(`tools.delegate.outcomes.${sr.outcome}`, sr.outcome) }}<template v-if="typeof sr.confidence === 'number'"> · {{ Math.round(sr.confidence * 100) }}%</template>
             </span>
-            <span v-else class="text-[10px] text-gray-400 flex-shrink-0">{{ $t(`tools.delegate.status.${sr.status}`, sr.status) }}</span>
-            <span class="text-[10px] text-gray-400 flex-shrink-0 tabular-nums" dir="ltr">
+            <span v-else class="text-2xs text-ink-muted flex-shrink-0">{{ $t(`tools.delegate.status.${sr.status}`, sr.status) }}</span>
+            <span class="text-2xs text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
               <template v-if="sr.steps_used !== null && sr.steps_used !== undefined">{{ sr.steps_used }} {{ $t('tools.delegate.steps') }}</template>
               <template v-if="tokensOf(sr)"> · {{ tokensOf(sr) }}</template>
             </span>
@@ -144,7 +144,7 @@
       </section>
 
       <section v-if="notes.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('notes.heading') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('notes.heading') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="note in notes"
@@ -155,7 +155,7 @@
             <Icon name="heroicons:pencil-square" class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
             <div class="flex-1 min-w-0">
               <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ note.title || $t('tools.createNote.untitled') }}</div>
-              <div dir="auto" class="text-[11px] text-gray-400 mt-0.5 line-clamp-2 whitespace-pre-line">{{ notePreview(note.content) }}</div>
+              <div dir="auto" class="text-2xs text-ink-muted mt-0.5 line-clamp-2 whitespace-pre-line">{{ notePreview(note.content) }}</div>
             </div>
           </li>
         </ul>
@@ -163,11 +163,11 @@
 
       <!-- Queries -->
       <section v-if="queryExecutions.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.queries') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.queries') }}</h3>
         <div class="space-y-2">
           <div v-for="te in queryExecutions" :key="te.id">
             <!-- A query created inside a sub-agent keeps its provenance visible -->
-            <p v-if="subAgentForExecution(te.agent_execution_id)" class="text-[10px] text-gray-400 mb-0.5 truncate" :data-testid="`via-sub-agent-${te.id}`">
+            <p v-if="subAgentForExecution(te.agent_execution_id)" class="text-2xs text-ink-muted mb-0.5 truncate" :data-testid="`via-sub-agent-${te.id}`">
               {{ $t('subAgents.viaSubAgent', { title: subAgentForExecution(te.agent_execution_id)?.title }) }}
             </p>
             <ToolWidgetPreview
@@ -183,7 +183,7 @@
 
       <!-- Instructions (historical: created or edited in this report, any review state) -->
       <section v-if="instructionsList.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.instructions') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.instructions') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="inst in instructionsList"
@@ -197,24 +197,24 @@
             <div class="flex-1 min-w-0">
               <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || $t('chatSummary.untitledInstruction') }}</div>
               <div class="flex items-center gap-2 mt-0.5">
-                <span v-if="inst.category" class="text-[11px] text-gray-400">{{ inst.category }}</span>
+                <span v-if="inst.category" class="text-2xs text-ink-muted">{{ inst.category }}</span>
                 <span
                   v-if="inst.state === 'pending'"
-                  class="inline-flex items-center gap-1 text-[11px] text-amber-600"
+                  class="inline-flex items-center gap-1 text-2xs text-amber-600"
                 >
                   <span class="w-1.5 h-1.5 rounded-full bg-amber-400" />
                   {{ $t('chatSummary.pending') }}
                 </span>
                 <span
                   v-else-if="inst.state === 'rejected'"
-                  class="inline-flex items-center gap-1 text-[11px] text-gray-400"
+                  class="inline-flex items-center gap-1 text-2xs text-ink-muted"
                 >
                   <Icon name="heroicons:x-circle" class="w-3 h-3" />
                   {{ $t('chatSummary.rejected') }}
                 </span>
                 <span
                   v-else
-                  class="inline-flex items-center gap-1 text-[11px] text-green-600"
+                  class="inline-flex items-center gap-1 text-2xs text-green-600"
                 >
                   <Icon name="heroicons:check-circle" class="w-3 h-3" />
                   {{ $t('chatSummary.accepted') }}
@@ -227,7 +227,7 @@
 
       <!-- Webhooks -->
       <section v-if="webhooks.length > 0">
-        <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.webhooks') }}</h3>
+        <h3 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('chatSummary.webhooks') }}</h3>
         <ul class="space-y-1.5">
           <li
             v-for="w in webhooks"
@@ -235,12 +235,12 @@
             class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
             @click="showWebhookModal = true"
           >
-            <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
+            <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-ink-muted" />
             <div class="flex-1 min-w-0">
               <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ w.name }}</div>
               <div class="flex items-center gap-2 mt-0.5">
-                <span class="text-[11px] text-gray-400">{{ w.source }} · {{ w.auth_mode }}</span>
-                <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-[11px] text-blue-500">
+                <span class="text-2xs text-ink-muted">{{ w.source }} · {{ w.auth_mode }}</span>
+                <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-2xs text-blue-500">
                   <Icon name="heroicons-sparkles" class="w-3 h-3" /> AI
                 </span>
               </div>
@@ -255,7 +255,7 @@
     <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
       <button
         @click="showWebhookModal = true"
-        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-400 hover:text-gray-600 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-ink-muted hover:text-gray-600 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
         {{ $t('chatSummary.configureWebhook') }}
@@ -495,10 +495,10 @@ function subAgentIcon(sr: any): string {
 }
 function subAgentIconClass(sr: any): string {
   switch (sr.status) {
-    case 'finished': return sr.outcome === 'refuted' ? 'text-gray-400' : 'text-green-500'
+    case 'finished': return sr.outcome === 'refuted' ? 'text-ink-muted' : 'text-green-500'
     case 'failed': return 'text-red-400'
     case 'timed_out': return 'text-amber-500'
-    default: return 'text-gray-400'
+    default: return 'text-ink-muted'
   }
 }
 function subAgentOutcomeClass(outcome: string): string {

@@ -4,13 +4,13 @@
     <div
       class="inline-flex items-center gap-2 ps-2.5 pe-1.5 py-1 rounded-full border text-xs transition-colors duration-150"
       :class="cancelled
-        ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-400'
+        ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-ink-muted'
         : 'border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300'"
     >
       <Icon
         :name="cancelled ? 'heroicons-x-mark' : (elapsed ? 'heroicons-arrow-path' : 'heroicons-clock')"
         class="w-3.5 h-3.5 flex-shrink-0"
-        :class="[cancelled ? 'text-gray-400' : 'text-sky-500', elapsed && !cancelled ? 'animate-spin' : '']"
+        :class="[cancelled ? 'text-ink-muted' : 'text-sky-500', elapsed && !cancelled ? 'animate-spin' : '']"
       />
 
       <!-- Cancelled -->
@@ -42,7 +42,7 @@
     </div>
 
     <!-- The instruction that will run on resume (subtle, one line) -->
-    <p v-if="reason && !cancelled" class="mt-1.5 ms-1 text-[11px] text-gray-400 dark:text-gray-500 truncate max-w-md" dir="auto">
+    <p v-if="reason && !cancelled" class="mt-1.5 ms-1 text-2xs text-ink-muted truncate max-w-md" dir="auto">
       {{ reason }}
     </p>
   </div>

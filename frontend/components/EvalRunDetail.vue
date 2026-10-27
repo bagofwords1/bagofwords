@@ -21,7 +21,7 @@
               <h1 class="text-base font-semibold text-gray-900 dark:text-white truncate">
                 {{ run?.title || $t('evals.runs.fallbackTitle') }}
               </h1>
-              <span class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full shrink-0" :class="runStatusClass(derivedRunStatus)">
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium rounded-full shrink-0" :class="runStatusClass(derivedRunStatus)">
                 <Spinner v-if="derivedRunStatus === 'in_progress'" class="w-3 h-3" />
                 {{ prettyStatus(derivedRunStatus) }}
               </span>
@@ -45,10 +45,10 @@
         </div>
 
         <!-- Run summary -->
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] font-semibold">
-          <span :class="passCount > 0 ? 'text-green-600 dark:text-green-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.pass', { n: passCount }) }}</span>
-          <span :class="failCount > 0 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.fail', { n: failCount }) }}</span>
-          <span :class="errorCount > 0 ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'">{{ $t('evals.run.error', { n: errorCount }) }}</span>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold">
+          <span :class="passCount > 0 ? 'text-green-600 dark:text-green-500' : 'text-ink-muted'">{{ $t('evals.run.pass', { n: passCount }) }}</span>
+          <span :class="failCount > 0 ? 'text-red-500' : 'text-ink-muted'">{{ $t('evals.run.fail', { n: failCount }) }}</span>
+          <span :class="errorCount > 0 ? 'text-red-500' : 'text-ink-muted'">{{ $t('evals.run.error', { n: errorCount }) }}</span>
         </div>
 
         <!-- Cases: one flat list, collapsed by default -->
@@ -57,14 +57,14 @@
             <!-- Collapsed row -->
             <button type="button" class="w-full flex items-center gap-2 px-3 py-2.5 text-start hover:bg-gray-50/70 dark:hover:bg-gray-800/40" @click="toggleRow(row.result.id)">
               <span class="shrink-0 w-4 flex justify-center">
-                <Spinner v-if="row.result.status === 'in_progress'" class="w-3.5 h-3.5 text-gray-400" />
+                <Spinner v-if="row.result.status === 'in_progress'" class="w-3.5 h-3.5 text-ink-muted" />
                 <Icon v-else-if="row.result.status === 'pass'" name="heroicons-check" class="w-4 h-4 text-green-600" />
                 <Icon v-else-if="row.result.status === 'fail'" name="heroicons-x-mark" class="w-4 h-4 text-red-500" />
                 <Icon v-else-if="row.result.status === 'error'" name="heroicons-exclamation-triangle" class="w-4 h-4 text-red-500" :title="(row.result as any).failure_reason || ''" />
                 <Icon v-else name="heroicons-clock" class="w-4 h-4 text-gray-300 dark:text-gray-600" />
               </span>
               <span class="text-sm text-gray-900 dark:text-white truncate">{{ row.case?.name || '—' }}</span>
-              <span class="ms-auto flex items-center gap-3 shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
+              <span class="ms-auto flex items-center gap-3 shrink-0 text-2xs text-ink-muted">
                 <span v-if="assertionCount(row)">{{ passedAssertions(row) }}/{{ assertionCount(row) }}</span>
                 <span>{{ caseDuration(row) }}</span>
                 <Icon name="heroicons-chevron-down" :class="['w-3.5 h-3.5 transition-transform', isRowExpanded(row.result.id) ? 'rotate-180' : '']" />
@@ -83,17 +83,17 @@
                     <div class="max-w-[85%] rounded-xl px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-xs text-gray-900 dark:text-white whitespace-pre-wrap break-words" dir="auto">{{ entry.text }}</div>
                   </div>
                   <!-- Thinking -->
-                  <div v-else-if="entry.kind === 'thinking'" class="text-[11px] text-gray-400 dark:text-gray-500 italic leading-relaxed" :class="expandedThinking[`${row.result.id}:${i}`] ? '' : 'line-clamp-2'" role="button" @click="expandedThinking[`${row.result.id}:${i}`] = !expandedThinking[`${row.result.id}:${i}`]" dir="auto">{{ entry.text }}</div>
+                  <div v-else-if="entry.kind === 'thinking'" class="text-2xs text-ink-muted italic leading-relaxed" :class="expandedThinking[`${row.result.id}:${i}`] ? '' : 'line-clamp-2'" role="button" @click="expandedThinking[`${row.result.id}:${i}`] = !expandedThinking[`${row.result.id}:${i}`]" dir="auto">{{ entry.text }}</div>
                   <!-- Tool call -->
-                  <div v-else-if="entry.kind === 'tool'" class="flex items-start gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
-                    <Icon :name="entry.status === 'error' ? 'heroicons-exclamation-circle' : 'heroicons-wrench-screwdriver'" :class="['w-3 h-3 mt-0.5 shrink-0', entry.status === 'error' ? 'text-red-400' : 'text-gray-400']" />
+                  <div v-else-if="entry.kind === 'tool'" class="flex items-start gap-1.5 text-2xs text-gray-500 dark:text-gray-400">
+                    <Icon :name="entry.status === 'error' ? 'heroicons-exclamation-circle' : 'heroicons-wrench-screwdriver'" :class="['w-3 h-3 mt-0.5 shrink-0', entry.status === 'error' ? 'text-red-400' : 'text-ink-muted']" />
                     <span class="min-w-0">
                       <span class="font-medium text-gray-600 dark:text-gray-300">{{ entry.name }}</span>
-                      <span v-if="entry.summary" class="text-gray-400 dark:text-gray-500"> — {{ entry.summary }}</span>
+                      <span v-if="entry.summary" class="text-ink-muted"> — {{ entry.summary }}</span>
                     </span>
                   </div>
                   <!-- Error -->
-                  <div v-else-if="entry.kind === 'error'" class="flex items-start gap-1.5 text-[11px] text-red-500">
+                  <div v-else-if="entry.kind === 'error'" class="flex items-start gap-1.5 text-2xs text-red-500">
                     <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
                     <span class="min-w-0 whitespace-pre-wrap break-words">{{ entry.text }}</span>
                   </div>
@@ -102,8 +102,8 @@
                     <MarkdownRender :content="entry.text" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                   </div>
                 </template>
-                <div v-if="timelineFor(row).length === 0" class="text-xs text-gray-400 dark:text-gray-500">—</div>
-                <div v-if="(row.result as any).failure_reason" class="text-[11px] text-red-500">{{ (row.result as any).failure_reason }}</div>
+                <div v-if="timelineFor(row).length === 0" class="text-xs text-ink-muted">—</div>
+                <div v-if="(row.result as any).failure_reason" class="text-2xs text-red-500">{{ (row.result as any).failure_reason }}</div>
               </div>
 
               <!-- Checks -->
@@ -111,16 +111,16 @@
                 <div v-if="displayRules(row).length" class="space-y-2">
                   <div v-for="it in displayRules(row)" :key="it.originalIdx" class="flex items-start gap-2 text-xs">
                     <span class="shrink-0 w-4 flex justify-center mt-0.5">
-                      <Spinner v-if="ruleStatus(row, it.originalIdx) === 'pending'" class="w-3 h-3 text-gray-400" />
+                      <Spinner v-if="ruleStatus(row, it.originalIdx) === 'pending'" class="w-3 h-3 text-ink-muted" />
                       <Icon v-else-if="ruleStatus(row, it.originalIdx) === 'pass'" name="heroicons-check" class="w-3.5 h-3.5 text-green-600" />
                       <Icon v-else-if="ruleStatus(row, it.originalIdx) === 'skipped'" name="heroicons-minus-circle" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600" />
                       <Icon v-else name="heroicons-x-mark" class="w-3.5 h-3.5 text-red-500" />
                     </span>
                     <div class="min-w-0 flex-1">
                       <div class="text-gray-800 dark:text-gray-200">
-                        <span class="text-gray-400 dark:text-gray-500">{{ categoryName(ruleCategoryKey(it.rule)) }} · </span>{{ ruleSummaryText(it.rule) }}
+                        <span class="text-ink-muted">{{ categoryName(ruleCategoryKey(it.rule)) }} · </span>{{ ruleSummaryText(it.rule) }}
                       </div>
-                      <div v-if="ruleSecondaryText(row, it)" class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">{{ ruleSecondaryText(row, it) }}</div>
+                      <div v-if="ruleSecondaryText(row, it)" class="mt-0.5 text-2xs text-ink-muted leading-relaxed">{{ ruleSecondaryText(row, it) }}</div>
                     </div>
                   </div>
                 </div>
@@ -128,7 +128,7 @@
 
               </div>
               <!-- Meta footer -->
-              <div class="px-4 py-2 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-400 dark:text-gray-500">
+              <div class="px-4 py-2 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-ink-muted">
                 <span class="inline-flex items-center gap-1.5">
                   <LLMProviderIcon :provider="modelProviderType(row.case?.prompt_json?.model_id, row.case)" :icon="true" class="w-3.5 h-3.5" />
                   {{ modelDisplayName(row.case?.prompt_json?.model_id, row.case) }}
@@ -144,7 +144,7 @@
               </div>
             </div>
           </div>
-          <div v-if="caseRows.length === 0" class="px-3 py-6 text-center text-xs text-gray-400 dark:text-gray-500">—</div>
+          <div v-if="caseRows.length === 0" class="px-3 py-6 text-center text-xs text-ink-muted">—</div>
         </div>
       </div>
     </div>

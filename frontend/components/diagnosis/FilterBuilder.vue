@@ -2,7 +2,7 @@
     <div class="relative flex-shrink-0">
         <button
             type="button"
-            class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 ring-1 ring-inset hover:bg-gray-50 dark:hover:bg-gray-700"
+            class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 ring-1 ring-inset hover:bg-gray-50 dark:hover:bg-gray-700"
             :class="open ? 'ring-2 ring-blue-500' : 'ring-gray-300 dark:ring-gray-700'"
             @click="toggle"
         >
@@ -17,8 +17,8 @@
         >
             <!-- Step 1: pick a field -->
             <template v-if="!field">
-                <div class="flex items-center gap-2 h-8 px-2.5 mb-1 rounded-md ring-1 ring-gray-200 dark:ring-gray-700 text-[13px]">
-                    <UIcon name="i-heroicons-magnifying-glass" class="w-3.5 h-3.5 text-gray-400" />
+                <div class="flex items-center gap-2 h-8 px-2.5 mb-1 rounded-md ring-1 ring-gray-200 dark:ring-gray-700 text-sm">
+                    <UIcon name="i-heroicons-magnifying-glass" class="w-3.5 h-3.5 text-ink-muted" />
                     <input
                         ref="fieldSearch"
                         v-model="fieldQuery"
@@ -30,7 +30,7 @@
                 </div>
                 <div class="max-h-80 overflow-y-auto">
                     <template v-for="group in groups" :key="group.entity">
-                        <div v-if="group.fields.length" class="px-2.5 pt-2 pb-1 text-[11px] uppercase tracking-wider text-gray-400">
+                        <div v-if="group.fields.length" class="px-2.5 pt-2 pb-1 text-2xs uppercase tracking-wider text-ink-muted">
                             {{ group.entity === 'run' ? $t('monitoring.diagnosis.groupRun') : $t('monitoring.diagnosis.groupTool') }}
                         </div>
                         <button
@@ -40,9 +40,9 @@
                             class="w-full flex items-center gap-2.5 h-8 px-2.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800 text-start"
                             @click="pickField(f)"
                         >
-                            <span class="text-[13px] text-gray-900 dark:text-white flex-grow">{{ f.name }}</span>
-                            <span class="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ f.type }}</span>
-                            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-400" />
+                            <span class="text-sm text-gray-900 dark:text-white flex-grow">{{ f.name }}</span>
+                            <span class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ f.type }}</span>
+                            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-ink-muted" />
                         </button>
                     </template>
                 </div>
@@ -61,13 +61,13 @@
 
                 <!-- Values with counts (enum / facetable) -->
                 <template v-if="field.facetable || field.type === 'enum'">
-                    <div v-if="field.facetable && !field.values.length" class="flex items-center gap-2 h-8 px-2.5 mb-1 rounded-md ring-1 ring-gray-200 dark:ring-gray-700 text-[13px]">
-                        <UIcon name="i-heroicons-magnifying-glass" class="w-3.5 h-3.5 text-gray-400" />
+                    <div v-if="field.facetable && !field.values.length" class="flex items-center gap-2 h-8 px-2.5 mb-1 rounded-md ring-1 ring-gray-200 dark:ring-gray-700 text-sm">
+                        <UIcon name="i-heroicons-magnifying-glass" class="w-3.5 h-3.5 text-ink-muted" />
                         <input v-model="valueQuery" type="text" class="flex-grow bg-transparent outline-none dark:text-white" :placeholder="$t('monitoring.diagnosis.searchValues')" @input="loadValues" />
                     </div>
                     <div class="max-h-64 overflow-y-auto">
-                        <div v-if="loadingValues" class="px-2.5 py-2 text-xs text-gray-400">{{ $t('monitoring.diagnosis.loadingValues') }}</div>
-                        <div v-else-if="!values.length" class="px-2.5 py-2 text-xs text-gray-400">{{ $t('monitoring.diagnosis.noValues') }}</div>
+                        <div v-if="loadingValues" class="px-2.5 py-2 text-xs text-ink-muted">{{ $t('monitoring.diagnosis.loadingValues') }}</div>
+                        <div v-else-if="!values.length" class="px-2.5 py-2 text-xs text-ink-muted">{{ $t('monitoring.diagnosis.noValues') }}</div>
                         <label
                             v-for="v in values"
                             :key="v.value"
@@ -75,7 +75,7 @@
                         >
                             <UCheckbox :model-value="picked.has(v.value)" @update:model-value="togglePick(v.value)" />
                             <span class="font-mono text-xs text-gray-900 dark:text-white flex-grow truncate">{{ v.label }}</span>
-                            <span v-if="v.count != null" class="text-xs text-gray-400 tabular-nums">{{ v.count.toLocaleString() }}</span>
+                            <span v-if="v.count != null" class="text-xs text-ink-muted tabular-nums">{{ v.count.toLocaleString() }}</span>
                         </label>
                     </div>
                 </template>
@@ -86,11 +86,11 @@
                         <USelectMenu v-if="opsFor(field).length > 1" v-model="op" :options="opsFor(field)" size="xs" class="w-20" />
                         <UInput v-model="typed" size="xs" class="flex-grow font-mono" :placeholder="placeholderFor(field)" @keydown.enter.prevent="add" />
                     </div>
-                    <div class="px-2.5 pb-1 text-[11px] text-gray-400">{{ hintFor(field) }}</div>
+                    <div class="px-2.5 pb-1 text-2xs text-ink-muted">{{ hintFor(field) }}</div>
                 </template>
 
                 <div class="flex items-center justify-between gap-2 px-2.5 pt-2 mt-1 border-t border-gray-100 dark:border-gray-800">
-                    <span class="font-mono text-[11px] text-gray-500 truncate">{{ preview || '…' }}</span>
+                    <span class="font-mono text-2xs text-gray-500 truncate">{{ preview || '…' }}</span>
                     <UButton size="xs" color="blue" :disabled="!preview" @click="add">{{ $t('monitoring.diagnosis.addFilter') }}</UButton>
                 </div>
             </template>
