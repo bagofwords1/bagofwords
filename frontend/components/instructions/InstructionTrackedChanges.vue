@@ -141,6 +141,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { isReviewConflict, sameSelection, type ReviewUnit } from '~/utils/reviewRetry'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -477,19 +478,45 @@ async function load(opts: { silent?: boolean } = {}) {
 }
 defineExpose({ reload: (opts?: { silent?: boolean }) => load(opts), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
+// Every unit on screen, as the resolve routes name them.
+function onScreenUnits(): ReviewUnit[] {
+  return [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, key: h.key }))
+}
+
+// POST a resolve naming the main build/version this pane last loaded. The
+// server refuses (409) once main has moved — and main moves whenever ANY
+// instruction is accepted, so in a session with several review cards the
+// second card's accept failed on nothing but the first card's. Clicking again
+// resent the same stale ids and failed again; only a reload helped.
+//
+// On a 409: reload silently, and if the reviewer is still looking at exactly
+// the units they acted on (same builds, same keys — see sameSelection), send
+// the same decision once more against the current main. If anything on
+// screen changed, keep the fresh state and let them decide again. One retry
+// only: a second 409 is reported like any other failure.
+async function postResolve(url: string, body: Record<string, any>, units: ReviewUnit[]): Promise<void> {
+  const send = () => useMyFetch(url, {
+    method: 'POST',
+    body: { ...body, against_main_build_id: mainBuildId.value, against_main_version_id: mainVersionId.value },
+  })
+  let { error } = await send()
+  if (error.value && isReviewConflict(error.value)) {
+    await load({ silent: true })
+    if (!loadError.value && sameSelection(units, onScreenUnits())) ({ error } = await send())
+  }
+  if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+}
+
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
   resolving.value = seg.key
   try {
-    const url = `/api/instructions/${props.instructionId}/hunks/${action}`
-    const body = {
-      build_id: seg.build_id,
-      hunk_key: seg.key,
-      against_main_build_id: mainBuildId.value,
-      against_main_version_id: mainVersionId.value,
-    }
-    const { error } = await useMyFetch(url, { method: 'POST', body })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    const unit = { build_id: seg.build_id, key: seg.key }
+    await postResolve(
+      `/api/instructions/${props.instructionId}/hunks/${action}`,
+      { build_id: seg.build_id, hunk_key: seg.key },
+      [unit],
+    )
     // Tell the host BEFORE reloading ourselves — see resolveAll.
     emit('changed')
     await load({ silent: true })
@@ -507,14 +534,12 @@ async function resolveAll(mode: 'accept' | 'reject') {
     // Submit the exact action units represented on screen. The server validates
     // every pair against this main version and never discovers extra pending
     // builds during the mutation.
-    const url = `/api/instructions/${props.instructionId}/hunks/${mode}-all`
-    const body = {
-      against_main_build_id: mainBuildId.value,
-      against_main_version_id: mainVersionId.value,
-      hunks: [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, hunk_key: h.key })),
-    }
-    const { error } = await useMyFetch(url, { method: 'POST', body })
-    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+    const units = onScreenUnits()
+    await postResolve(
+      `/api/instructions/${props.instructionId}/hunks/${mode}-all`,
+      { hunks: units.map(u => ({ build_id: u.build_id, hunk_key: u.key })) },
+      units,
+    )
     // Tell the host the resolve landed BEFORE reloading ourselves. Reloading
     // first emits `empty`/`error` on the way, and every host answers those by
     // dropping this pane — so by the time `changed` was reached it was being
