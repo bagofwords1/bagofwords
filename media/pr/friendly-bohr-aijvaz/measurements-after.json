@@ -1,0 +1,14 @@
+{
+  "viewport": "1440x900",
+  "branch": "ai/friendly-bohr-aijvaz (this PR)",
+  "stack": "production build, seeded org, no LLM provider configured",
+  "note": "The report page could not be reached: with no model configured the send control is disabled, so no conversation exists to measure. The transcript column and message type are covered by the passing specs in frontend/tests/reports/chat-display.spec.ts and by the compiled CSS, not by a screenshot.",
+  "landing": {
+    "composerWidth": 736,
+    "composerRadius": "20px",
+    "composerShadow": "yes",
+    "fieldFontSize": "16px",
+    "fieldLineHeight": "24px",
+    "measureToken": "48rem"
+  }
+}
