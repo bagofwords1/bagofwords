@@ -209,6 +209,7 @@
     "pendingMany": "{n} שינויים ממתינים לבדיקה",
     "review": "בדיקה",
     "untitledInstruction": "הנחיה ללא כותרת",
+    "tokenCount": "~{count} טוקנים",
     "addDescriptionOptional": "הוסף תיאור (אופציונלי)",
     "instructionPlaceholder": "כתוב את ההנחיה ב-Markdown… (הקלד {'@'} כדי להזכיר טבלה או הנחיה)",
     "details": "פרטים",
@@ -337,7 +338,10 @@
     "unchangedLineOne": "שורה אחת ללא שינוי",
     "unchangedLineMany": "{n} שורות ללא שינוי",
     "loadPendingFailed": "לא ניתן לטעון את השינויים הממתינים.",
-    "allPendingResolved": "אין שינויים ממתינים — הכול טופל."
+    "allPendingResolved": "אין שינויים ממתינים — הכול טופל.",
+    "pushToGit": "דחיפה ל-Git",
+    "pushToGitTip": "דחיפת גרסה למאגר המחובר כענף, עם בקשת משיכה כאשר מוגדר אסימון גישה",
+    "pushToGitDisabledTip": "יש להפעיל הרשאת כתיבה בהגדרות המאגר כדי לדחוף"
   },
   "smoke": {
     "hello": "שלום",
@@ -3973,6 +3977,8 @@
     "setupTitle": "הקמה",
     "integrationSetupHint": "רשמו אפליקציית OAuth אצל הספק והדביקו את פרטי הגישה למטה. כל משתמש נכנס בנפרד לגישה לנתונים שלו — ללא חשבון שירות משותף.",
     "integrationAfterSaveHint": "לאחר השמירה, כל משתמש מצרף את האינטגרציה לסוכן ונכנס בנפרד. הסוכן יוכל אז להפעיל כלי קבצים בשמו.",
+    "integrationSharedSetupHint": "הדביקו מפתח JSON של חשבון שירות. שתפו את תיקיות ה-Drive (או הוסיפו את חשבון השירות לאחסון שיתופי) באמצעות ה-client_email שלו.",
+    "integrationSharedAfterSaveHint": "גישה משותפת: כל מי שיש לו גישה לחיבור הזה רואה את הקבצים ששותפו עם חשבון השירות. המשתמשים לא נכנסים בעצמם, וההרשאות האישיות שלהם ב-Drive לא חלות.",
     "testCredentials": "בדיקת פרטי גישה",
     "saveIntegration": "שמירת אינטגרציה",
     "loadFieldsFailed": "טעינת השדות נכשלה",

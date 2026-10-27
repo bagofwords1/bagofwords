@@ -194,6 +194,7 @@
     "pendingMany": "{n} modifications en attente d’examen",
     "review": "Examiner",
     "untitledInstruction": "Instruction sans titre",
+    "tokenCount": "~{count} jetons",
     "addDescriptionOptional": "Ajouter une description (facultatif)",
     "instructionPlaceholder": "Rédigez l’instruction en markdown… (tapez {'@'} pour mentionner une table ou une instruction)",
     "details": "Détails",

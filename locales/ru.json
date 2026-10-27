@@ -194,6 +194,7 @@
     "pendingMany": "{n} изменений ожидают проверки",
     "review": "Проверить",
     "untitledInstruction": "Инструкция без названия",
+    "tokenCount": "~{count} токенов",
     "addDescriptionOptional": "Добавить описание (необязательно)",
     "instructionPlaceholder": "Напишите инструкцию в markdown… (введите {'@'}, чтобы упомянуть таблицу или инструкцию)",
     "details": "Подробности",

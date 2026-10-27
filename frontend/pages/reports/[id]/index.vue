@@ -300,13 +300,13 @@
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
 									<div class="flex items-center gap-2 me-[36px] mt-1 opacity-0 group-hover/usermsg:opacity-100 transition-opacity duration-150">
-										<UTooltip :text="copiedMessageId === m.id ? 'Copied!' : 'Copy'" :popper="{ placement: 'bottom' }">
+										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
 												class="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
-												{{ copiedMessageId === m.id ? 'Copied!' : 'Copy' }}
+												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
 											</button>
 										</UTooltip>
 										<span v-if="m.created_at" class="text-[10px] text-gray-400">{{ formatMessageDate(m.created_at) }}</span>
@@ -532,6 +532,16 @@
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
 										<div class="flex items-center gap-1">
+											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'top' }">
+												<UButton
+													:icon="copiedMessageId === m.id ? 'i-heroicons-check' : 'i-heroicons-clipboard'"
+													color="gray"
+													variant="ghost"
+													size="xs"
+													:aria-label="$t('common.copy')"
+													@click="copyToClipboard(responseText(m), m.id)"
+												/>
+											</UTooltip>
 											<CompletionItemFeedback
 												:completion="{ id: (m.system_completion_id || m.id) }"
 												:feedbackScore="m.feedback_score || 0"
@@ -2355,6 +2365,16 @@ function webhookDecision(m: any): any {
 function webhookActed(m: any): boolean {
 	const d = webhookDecision(m)
 	return !!(d && d.act)
+}
+
+// The answer prose the timeline shows (same text expression as the block template),
+// as raw markdown; reasoning and tool cards are left out.
+function responseText(m: ChatMessage): string {
+	return visibleBlocks(m)
+		.filter((b: any) => b.status !== 'error' && b.tool_execution?.tool_name !== 'clarify')
+		.map((b: any) => (b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || '').trim())
+		.filter(Boolean)
+		.join('\n\n')
 }
 
 function copyToClipboard(text?: string, messageId?: string) {

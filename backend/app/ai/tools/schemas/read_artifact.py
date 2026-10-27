@@ -23,6 +23,12 @@ class ReadArtifactInput(BaseModel):
         default=False,
         description="If true, include the artifact's last rendered preview screenshot in the observation images. Use this when debugging visual issues or when you need to see what the artifact currently looks like before deciding how to edit it."
     )
+    include_visualization_profiles: Optional[bool] = Field(
+        default=None,
+        description="Include data profiles when they fit the response budget. Defaults to false for range/grep, true for full/outline. IDs are always retained; use read_query for individual profiles."
+    )
+    character_offset: int = Field(default=0, ge=0, description="RANGE READ: zero-based character offset within the first line. Copy next_read exactly to continue an oversized line.")
+    match_offset: int = Field(default=0, ge=0, description="GREP READ: skip this many match windows; use next_read to page budget-limited results.")
     offset: Optional[int] = Field(
         default=None,
         ge=1,
@@ -38,7 +44,7 @@ class ReadArtifactInput(BaseModel):
         le=2000,
         description=(
             "RANGE READ: number of lines to return starting at `offset` (default 400 when offset is set). "
-            "Check `end_line` and `total_lines` in the result to page forward."
+            "Follow `next_read` when present; it handles both line and character continuation."
         ),
     )
     grep_pattern: Optional[str] = Field(
@@ -47,6 +53,8 @@ class ReadArtifactInput(BaseModel):
             "GREP READ: Python regex matched against each LINE of the artifact's code (or markdown for docs). "
             "Returns matching lines with 1-based line numbers plus `before`/`after` context lines — all VERBATIM, "
             "safe to quote in edit_artifact find ops or edit_doc find strings. "
+            "A line longer than 500 chars comes back as a 500-char window around each occurrence "
+            "(`col_start`/`col_end`/`line_length` set); range-read the line for all of it. "
             "Use this to locate the exact region to edit in a LONG artifact without loading the whole code. "
             "Mutually exclusive with offset/limit (grep wins if both are set)."
         ),
@@ -79,10 +87,14 @@ class ArtifactGrepMatch(BaseModel):
     """A single grep match inside the artifact's code."""
 
     line_no: int = Field(..., description="1-based line number of the matching line.")
-    line: str = Field(..., description="The matching line, verbatim (clipped at 500 chars).")
+    line: str = Field(..., description="The matching line, verbatim — or, for a line over 500 chars, the verbatim window line[col_start:col_end] around one occurrence.")
     before: List[str] = Field(default_factory=list, description="Context lines immediately before the match, verbatim.")
     after: List[str] = Field(default_factory=list, description="Context lines immediately after the match, verbatim.")
     context_start_line: int = Field(..., description="1-based line number of the first `before` context line (equals line_no when before is empty). Use for follow-up range reads.")
+    col_start: Optional[int] = Field(default=None, description="LONG LINE: 0-based offset in the full line where `line` starts. Unset when `line` is the whole line.")
+    col_end: Optional[int] = Field(default=None, description="LONG LINE: 0-based offset in the full line where `line` ends (exclusive).")
+    context_omitted: bool = Field(default=False, description="Before/after lines exceeded the budget; range-read line_no for additional context.")
+    line_length: Optional[int] = Field(default=None, description="LONG LINE: length of the full line.")
 
 
 class ReadArtifactOutput(BaseModel):
@@ -102,9 +114,11 @@ class ReadArtifactOutput(BaseModel):
     total_lines: int = Field(default=0, description="Total lines in the artifact's full code.")
     total_chars: int = Field(default=0, description="Total characters in the artifact's full code.")
     start_line: Optional[int] = Field(default=None, description="RANGE READ: 1-based first line of the returned slice.")
-    end_line: Optional[int] = Field(default=None, description="RANGE READ: 1-based last line of the returned slice.")
-    truncated: bool = Field(default=False, description="True when the returned view does not reach the end of the code (range read stopped before total_lines).")
+    end_line: Optional[int] = Field(default=None, description="RANGE READ: 1-based last line touched by the returned slice; it can be partial. Follow next_read.")
+    next_read: Optional[dict] = Field(default=None, description="Exact read_artifact arguments to continue a partial read.")
+    start_character: int = Field(default=0, description="Zero-based character offset within start_line.")
+    truncated: bool = Field(default=False, description="True when source remains unread, including a partial last line. Follow next_read.")
     matches: Optional[List[ArtifactGrepMatch]] = Field(default=None, description="GREP READ: matching lines with context.")
-    grep_total_matches: Optional[int] = Field(default=None, description="GREP READ: total matches found (may exceed len(matches)).")
+    grep_total_matches: Optional[int] = Field(default=None, description="GREP READ: total matches found (may exceed len(matches)); a long line counts once per window.")
     grep_truncated: Optional[bool] = Field(default=None, description="GREP READ: true when matches were dropped due to max_matches.")
     outline: Optional[str] = Field(default=None, description="OUTLINE: structural map of the code with line numbers (returned for long artifacts on a full read, or as a navigation aid when grep found no matches).")

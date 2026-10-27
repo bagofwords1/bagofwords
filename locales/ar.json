@@ -194,6 +194,7 @@
     "pendingMany": "{n} تغييرات معلّقة بانتظار المراجعة",
     "review": "مراجعة",
     "untitledInstruction": "تعليمة بدون عنوان",
+    "tokenCount": "~{count} رمز",
     "addDescriptionOptional": "أضف وصفًا (اختياري)",
     "instructionPlaceholder": "اكتب التعليمة بصيغة Markdown… (اكتب {'@'} للإشارة إلى جدول أو تعليمة)",
     "details": "التفاصيل",

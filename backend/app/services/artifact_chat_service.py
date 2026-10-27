@@ -231,13 +231,20 @@ class ArtifactChatService:
                 report_data_source_association.c.data_source_id.in_(list(current - target)),
             ))
 
-    async def build_platform_context(self, db, source: Report, agent_ids: list[str]) -> dict:
+    async def build_platform_context(self, db, source: Report, agent_ids: list[str], viewer=None) -> dict:
         """The artifact-chat platform_context injected into the planner prompt.
 
         Always carries the dashboard's identity; in data-only mode (no agents)
         it also carries the artifact's visualization data — resolved LIVE from
         the source report's latest artifact, never copied, so it is exactly as
         fresh as the dashboard itself.
+
+        The rows are resolved FOR THE VIEWER, through the same
+        viewer_data_policy.resolve_step_data every other reader surface goes
+        through (see the banner on that module). The creator's snapshot is one
+        identity's row slice: injecting it would answer customer A's questions
+        out of customer B's rows, and would do it behind the dashboard, which
+        withholds exactly those rows from the same reader.
         """
         from app.models.artifact import ArtifactVersion
         from app.services.artifact_payload import collect_visualizations
@@ -259,13 +266,14 @@ class ArtifactChatService:
         ctx["artifact_title"] = artifact.title
 
         if not agent_ids:
-            viz_payload = await collect_visualizations(db, artifact)
+            viz_payload = await collect_visualizations(db, artifact, viewer=viewer)
             ctx["visualizations"] = [
                 {
                     "title": v.get("title"),
-                    "columns": v.get("columns") or [],
-                    "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
-                    "total_rows": len(v.get("rows") or []),
+                    "columns": [] if v.get("withheld") else (v.get("columns") or []),
+                    "rows": [] if v.get("withheld") else (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
+                    "total_rows": 0 if v.get("withheld") else len(v.get("rows") or []),
+                    "withheld": bool(v.get("withheld")),
                 }
                 for v in viz_payload
             ]

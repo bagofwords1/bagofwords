@@ -314,6 +314,7 @@ class ReleaseRender(SimpleNamespace):
         async def rows_for(db, step: Step, query: Query) -> dict[str, Any]:
             resolution = await resolve_release_step(db, step, artifact, release, user)
             return {"data": resolution.data,
+                    "withheld": resolution.withheld,
                     "applied_params": redact_applied_params(getattr(step, "applied_params", None),
                                                             query.parameters, withheld=resolution.withheld)}
 
