@@ -48,13 +48,13 @@
             data-testid="field-change"
             :data-field="fc.field"
           >
-            <UIcon :name="fc.field === 'status' ? 'i-heroicons-power' : 'i-heroicons-bolt'" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="fc.field === 'status' && fc.to === 'draft' ? 'text-gray-500 dark:text-gray-400' : 'text-emerald-600 dark:text-emerald-400'" />
+            <UIcon :name="fc.field === 'status' ? 'i-heroicons-power' : fc.field === 'scope' ? 'i-heroicons-cpu-chip' : 'i-heroicons-bolt'" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="fc.field === 'status' && fc.to === 'draft' ? 'text-gray-500 dark:text-gray-400' : 'text-emerald-600 dark:text-emerald-400'" />
             <div class="min-w-0 flex-1">
               <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5" :class="compact ? 'text-[12px]' : 'text-[13px]'">
                 <span class="font-medium text-gray-700 dark:text-gray-200">{{ fieldLabel(fc.field) }}</span>
-                <del class="text-rose-500/80 line-through decoration-rose-300 decoration-1">{{ fieldValueLabel(fc.field, fc.from) }}</del>
+                <del class="text-rose-500/80 line-through decoration-rose-300 decoration-1" dir="auto">{{ fieldValueLabel(fc.field, fc.from, fc.from_names) }}</del>
                 <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-gray-400 dark:text-gray-500 rtl-flip" />
-                <ins class="no-underline font-medium text-emerald-700 dark:text-emerald-400">{{ fieldValueLabel(fc.field, fc.to) }}</ins>
+                <ins class="no-underline font-medium text-emerald-700 dark:text-emerald-400" dir="auto">{{ fieldValueLabel(fc.field, fc.to, fc.to_names) }}</ins>
               </div>
               <div v-if="fieldHint(fc)" class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">{{ fieldHint(fc) }}</div>
               <div class="mt-1 flex items-center gap-1.5 min-w-0">
@@ -319,9 +319,16 @@ const pendingDeactivation = computed(() =>
 function fieldLabel(field: string): string {
   if (field === 'status') return t('agentsPage.fieldStatus')
   if (field === 'load_mode') return t('agentsPage.fieldLoadMode')
+  if (field === 'scope') return t('agentsPage.fieldAgents')
   return field
 }
-function fieldValueLabel(field: string, value: string): string {
+// Scope values are agent-id lists; the server also sends their names. An
+// empty list means the instruction is global — every agent uses it.
+function fieldValueLabel(field: string, value: any, names?: string[]): string {
+  if (field === 'scope') {
+    const shown = names || value || []
+    return shown.length ? shown.join(', ') : t('agentsPage.allAgentsPlaceholder')
+  }
   if (field === 'status') {
     if (value === 'published') return t('agentsPage.optStatusActive')
     if (value === 'draft') return t('agentsPage.optStatusInactive')
@@ -334,6 +341,7 @@ function fieldValueLabel(field: string, value: string): string {
   return value
 }
 function fieldHint(fc: any): string {
+  if (fc.field === 'scope') return t('agentsPage.fieldScopeHint')
   if (fc.field !== 'status') return ''
   return fc.to === 'draft' ? t('agentsPage.fieldDeactivateHint') : t('agentsPage.fieldActivateHint')
 }

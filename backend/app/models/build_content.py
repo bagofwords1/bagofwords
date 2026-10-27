@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, String, ForeignKey, UniqueConstraint, Index, false
+from sqlalchemy import Boolean, Column, JSON, String, ForeignKey, UniqueConstraint, Index, false
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -58,6 +58,26 @@ class BuildContent(BaseSchema):
     # fallback, so a dangling value degrades to the old behavior rather than
     # breaking a read — and SQLite cannot add a real FK without a table rebuild.
     base_version_id = Column(String(36), nullable=True, index=True)
+
+    # The change of agents THIS BUILD proposes for the instruction, written
+    # only by the AI edit_instruction tool (add_agents):
+    #   {"add": [ds_id, ...], "refs": [{...table ref..., "data_source_id": ds_id}, ...]}
+    # — the agents to share with, and the same-named tables in each of them.
+    # Reviewed as one unit per agent in the per-hunk review and applied to the
+    # live attachment only when a reviewer accepts it
+    # (InstructionService.accept_all_hunks). Promotion never reads it.
+    #
+    # It lives on the build row, not on the version, on purpose: a version is
+    # immutable and travels — into main on publish, into rollbacks, into every
+    # build copied from main — while the verdicts on the proposal
+    # (InstructionBuild.rejected_hunks) stay with the build that made it. A
+    # proposal carried on the version outlived its own rejection: published
+    # after a reject, it rode main's version into the next session, resurfaced
+    # for review and blocked publishing. Here it lives and dies with its build:
+    # _copy_build_contents never copies it, so main, rollbacks and fresh
+    # drafts start clean. Nothing is ever inferred from a version's
+    # data_source_ids / references_json — those stay a snapshot.
+    scope_change = Column(JSON, nullable=True)
 
     # Relationships
     build = relationship("InstructionBuild", back_populates="contents", lazy="raise")

@@ -127,6 +127,152 @@ async def _load_pending_version(db, build_id: Optional[str], instruction_id: str
     return result.scalars().first()
 
 
+async def _resolve_add_agents(db, instruction, pending_version, pending_share, build, report,
+                              requested, is_live: bool = True) -> dict:
+    """The explicit scope change ``add_agents`` proposes, recorded on the
+    staged version for a reviewer to accept: ``{"add": [agent ids], "refs":
+    [the same-named tables in each new agent, tagged with their agent]}``.
+    Returns ``{"reject": (code, message)}`` when the request cannot be
+    honoured as asked — never a partial share.
+
+    Only agents attached to the conversation can be added, so a name never
+    reaches an agent nobody mentioned (unlike ``table_names``, which matches
+    tables org-wide). The instruction's current agents are the LIVE attachment,
+    plus whatever an earlier add_agents in this same session already proposed
+    (``pending_share``, the build row's scope_change), so two shares in one
+    session accumulate — refs included. An agent a reviewer already REJECTED in this
+    build is refused, not re-proposed: the rejection is the only channel that
+    carries "do not suggest this again".
+    """
+    from sqlalchemy import select, func
+    from app.models.data_source import DataSource
+    from app.models.datasource_table import DataSourceTable
+    from app.models.report_data_source_association import report_data_source_association as rdsa
+    from app.services.field_changes import scope_add_ids, scope_change_key
+
+    current_ds = {str(ds.id) for ds in (instruction.data_sources or [])}
+    # The tables to mirror in the new agent: the ones this session already
+    # staged (a table_names edit earlier in the build) when there are any,
+    # else the live ones — the same carry-over rule the snapshot follows.
+    if pending_version is not None and pending_version.references_json:
+        current_refs = [r for r in pending_version.references_json if isinstance(r, dict)]
+    else:
+        current_refs = [{"object_type": r.object_type, "object_id": str(r.object_id)}
+                        for r in (instruction.references or [])]
+    prior = pending_share or {}
+    already = set(scope_add_ids(prior))
+    prior_refs = [r for r in (prior.get("refs") or []) if isinstance(r, dict)]
+    rejected_keys = {
+        r.get("key") for r in (getattr(build, "rejected_hunks", None) or [])
+        if r.get("instruction_id") == str(instruction.id) and r.get("action") == "reject"
+    }
+    if not current_ds:
+        return {"reject": ("global_instruction",
+                           "This instruction is global — every agent already uses it.")}
+    if not is_live:
+        # A share is reviewed against the instruction's live agents; an
+        # instruction nobody accepted yet has none, so the share could never
+        # be shown — and a build carrying it could never be published.
+        return {"reject": ("not_live",
+                           "This instruction is not published yet. Share it with another "
+                           "agent after a reviewer accepts it.")}
+
+    convo = []
+    report_id = getattr(report, "id", None)
+    if report_id:
+        convo = (await db.execute(
+            select(DataSource.id, DataSource.name)
+            .join(rdsa, rdsa.c.data_source_id == DataSource.id)
+            .where(rdsa.c.report_id == str(report_id), DataSource.deleted_at.is_(None))
+        )).all()
+    by_id = {str(did): (str(did), name) for did, name in convo}
+    by_name: dict = {}
+    for did, name in convo:
+        by_name.setdefault((name or "").strip().lower(), []).append((str(did), name))
+    picked, unknown, ambiguous = {}, [], []
+    for raw in requested:
+        key = str(raw).strip()
+        if key in by_id:
+            hits = [by_id[key]]
+        else:
+            hits = by_name.get(key.lower(), [])
+        if not hits:
+            unknown.append(key)
+        elif len(hits) > 1:
+            ambiguous.append(key)
+        else:
+            picked[hits[0][0]] = hits[0][1]
+    if ambiguous:
+        return {"reject": ("ambiguous_agent",
+                           f"More than one agent in this conversation is named "
+                           f"{', '.join(ambiguous)}; name it by id instead.")}
+    if unknown:
+        here = ", ".join(sorted(n for _d, n in convo)) or "none"
+        return {"reject": ("agent_not_in_conversation",
+                           f"Not attached to this conversation: {', '.join(unknown)}. "
+                           f"Agents in this conversation: {here}.")}
+    refused = sorted(n for d, n in picked.items() if scope_change_key(d) in rejected_keys)
+    if refused:
+        return {"reject": ("share_rejected",
+                           f"A reviewer already rejected sharing this instruction with "
+                           f"{', '.join(refused)}. Do not propose it again.")}
+    new = {d: n for d, n in picked.items() if d not in current_ds and d not in already}
+    if not new:
+        return {"reject": ("no_change",
+                           f"The instruction is already shared with {', '.join(sorted(picked.values()))}.")}
+
+    table_ids = sorted({
+        str(r["object_id"]) for r in current_refs
+        if r.get("object_type") == "datasource_table" and r.get("object_id")
+    })
+    names = set()
+    if table_ids:
+        names = {n.lower() for (n,) in (await db.execute(
+            select(DataSourceTable.name).where(DataSourceTable.id.in_(table_ids))
+        )).all() if n}
+    brought, missing = [], []
+    if names:
+        found: dict = {}
+        for t in (await db.execute(
+            select(DataSourceTable).where(
+                DataSourceTable.datasource_id.in_(sorted(new)),
+                DataSourceTable.is_active.is_(True),
+                func.lower(DataSourceTable.name).in_(sorted(names)),
+            )
+        )).scalars().all():
+            found.setdefault(str(t.datasource_id), []).append(t)
+        for did, dname in sorted(new.items(), key=lambda kv: kv[1] or ""):
+            if not found.get(did):
+                missing.append(dname)
+                continue
+            brought += [{"object_type": "datasource_table", "object_id": str(t.id),
+                         "column_name": None, "relation_type": None, "display_text": t.name,
+                         "data_source_id": did}
+                        for t in found[did]]
+    if missing:
+        return {"reject": ("no_matching_tables",
+                           f"{', '.join(missing)} has none of this instruction's tables "
+                           f"({', '.join(sorted(names))}), so it was not shared.")}
+    return {"scope_change": {"add": sorted(already | set(new)), "refs": prior_refs + brought},
+            "added": sorted(new.values())}
+
+
+async def _load_pending_share(db, build_id: Optional[str], instruction_id: str) -> Optional[dict]:
+    """The share this build already proposes for ``instruction_id``
+    (BuildContent.scope_change), if any — so shares in one session accumulate
+    and a plain edit does not lose one staged earlier."""
+    if not build_id:
+        return None
+    from sqlalchemy import select
+    from app.models.build_content import BuildContent
+    return (await db.execute(
+        select(BuildContent.scope_change).where(
+            BuildContent.build_id == str(build_id),
+            BuildContent.instruction_id == str(instruction_id),
+        )
+    )).scalar_one_or_none()
+
+
 def _apply_anchor_edit(
     current: str, old_text: str, new_snippet: str
 ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
@@ -234,6 +380,9 @@ class EditInstructionTool(Tool):
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
                 "table inspected is wrong — it scopes the instruction and may prevent it from "
                 "loading in unrelated queries.\n\n"
+                "SHARING WITH ANOTHER AGENT — add_agents: to make an existing instruction apply to "
+                "another agent of this conversation too, pass that agent's name in add_agents "
+                "(not table_names, which matches tables across every agent in the organization).\n\n"
                 "EVIDENCE: always set `evidence` — ONE short sentence (under 150 characters) "
                 "naming the source and the fact. Reviewers see it next to the suggested change; "
                 "no preamble."
@@ -499,6 +648,9 @@ class EditInstructionTool(Tool):
                     Instruction.id == data.instruction_id,
                     Instruction.organization_id == str(organization.id)
                 )
+                # The agent's session is long-lived; reload the row and its
+                # agents/references instead of trusting an earlier copy.
+                .execution_options(populate_existing=True)
             )
             result = await db.execute(stmt)
             instruction = result.scalar_one_or_none()
@@ -826,7 +978,7 @@ class EditInstructionTool(Tool):
                 elif new_status == base_status and not any(
                     v is not None for v in (
                         data.text, data.title, data.category, data.confidence,
-                        data.load_mode, data.table_names,
+                        data.load_mode, data.table_names, data.add_agents or None,
                     )
                 ):
                     status_error = (
@@ -852,6 +1004,62 @@ class EditInstructionTool(Tool):
                         }
                     )
                     return
+
+            # === Sharing with more agents (add_agents) ===
+            shared = None
+            if data.add_agents:  # an empty list asks for nothing
+                if mode == "knowledge":
+                    # Like status and full rewrites: the harness edits on its own,
+                    # and sharing a rule reaches agents nobody asked about.
+                    shared = {"reject": ("share_not_allowed",
+                                         "Sharing an instruction with another agent is only "
+                                         "available in training mode. Suggest it to the user instead.")}
+                elif data.table_names is not None:
+                    shared = {"reject": ("conflicting_scope",
+                                         "Pass add_agents or table_names, not both.")}
+                else:
+                    # Live = served by the main build. An org that predates
+                    # main builds serves its rows directly (see _main_text_of),
+                    # so there a published row is live; a draft staged by the
+                    # create tool in an org with no main build yet is not.
+                    is_live = (await build_service._current_main_version_id(
+                        db, str(instruction.id), str(organization.id),
+                    )) is not None or (
+                        not await build_service.get_main_build(db, str(organization.id))
+                        and instruction.status == "published"
+                    )
+                    pending_share = await _load_pending_share(db, training_build_id, str(instruction.id))
+                    shared = await _resolve_add_agents(
+                        db, instruction, pending_version, pending_share, build, report,
+                        data.add_agents, is_live=is_live,
+                    )
+                if "reject" in shared:
+                    code, msg = shared["reject"]
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": EditInstructionOutput(
+                                success=False,
+                                instruction_id=str(instruction.id),
+                                title=getattr(instruction, "title", None),
+                                message=f"Edit rejected: {msg}",
+                                rejected_reason=code,
+                            ).model_dump(),
+                            "observation": {
+                                "summary": f"Edit rejected ({code}): {msg}",
+                                "artifacts": [],
+                            },
+                        }
+                    )
+                    return
+
+            # A share is the explicit `scope_change` on the BUILD ROW — agents
+            # AND their tables (see BuildContent.scope_change). The version's
+            # data_source_ids/references_json stay what they always were: a
+            # snapshot (the pending version's when this build already staged
+            # one, else the live row's), never a proposal. Nothing reads a
+            # proposal out of a snapshot, and no path that rebuilds the
+            # snapshot — or copies the version anywhere — can carry the share.
 
             matched_table_names = []
             if data.table_names is not None:
@@ -913,7 +1121,6 @@ class EditInstructionTool(Tool):
                     }
                     for ref in (instruction.references or [])
                 ] or None
-
             label_ids = [label.id for label in (instruction.labels or [])] or None
             category_ids = None
             if new_category:
@@ -962,6 +1169,13 @@ class EditInstructionTool(Tool):
                     await build_service.add_to_build(
                         db, build.id, str(instruction.id), version.id
                     )
+                    if shared is not None:
+                        # The share rides on this build's row for the
+                        # instruction; a later edit in the same build keeps
+                        # the row (add_to_build only repoints its version).
+                        await build_service.set_scope_change(
+                            db, build.id, str(instruction.id), shared["scope_change"],
+                        )
 
                 await db.commit()
                 logger.info(
@@ -987,6 +1201,8 @@ class EditInstructionTool(Tool):
                 changes.append(f"status={data.status}")
             if data.table_names is not None:
                 changes.append(f"tables={matched_table_names}")
+            if shared is not None:
+                changes.append(f"shared_with={shared['added']}")
 
             changes_str = ", ".join(changes) if changes else "no changes"
             version_str = f" (v{version_number})" if version_number else ""

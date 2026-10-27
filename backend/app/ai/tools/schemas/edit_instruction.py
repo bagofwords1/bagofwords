@@ -138,6 +138,18 @@ class EditInstructionInput(BaseModel):
         ),
     )
 
+    add_agents: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Share this instruction with more agents: names (or ids) of agents attached to this "
+            "conversation. They are ADDED to the agents it already has — none is ever removed — "
+            "and the instruction also points at the same-named tables in each new agent. "
+            "Rejected for a global instruction (every agent already uses it), for an agent not "
+            "in this conversation, and for an agent that has none of the instruction's tables. "
+            "Do not combine with table_names."
+        ),
+    )
+
 
 class EditInstructionOutput(BaseModel):
     """Output schema for edit_instruction tool response."""
