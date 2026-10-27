@@ -148,6 +148,7 @@ from app.schemas.data_sources.configs import (
     OutlookMailConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
+    GoogleDriveServiceAccountCredentials,
     GmailConfig,
     GmailCredentials,
     # Sybase SQL Anywhere
@@ -247,6 +248,11 @@ class AuthVariant(BaseModel):
     # keeps the secret on the connection, the user contributes only their
     # identity fields. Only meaningful on user-scoped variants.
     overlay: bool = False
+    # Override the entry's `catalog_ownership` when a connection uses this
+    # variant. Lets one connector offer both a per-user mode (each user signs
+    # in) and a shared mode (one service identity, one admin-side catalog) —
+    # e.g. Google Drive via user OAuth vs. a service account.
+    catalog_ownership: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -1820,6 +1826,15 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=OAuthDelegatedCredentials,
                     scopes=["user"],
                 ),
+                # Purely shared: one Google identity for everyone. Users see
+                # whatever was shared with the service account's email; no
+                # per-user sign-in and no per-user Drive permissions.
+                "service_account": AuthVariant(
+                    title="Service Account (shared)",
+                    schema=GoogleDriveServiceAccountCredentials,
+                    scopes=["system"],
+                    catalog_ownership="shared",
+                ),
             },
         ),
         client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
@@ -2296,6 +2311,34 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     if entry.dev_only and not _is_dev_environment():
         raise ValueError(f"Unknown data source type: {ds_type}")
     return entry
+
+
+def catalog_ownership_for(ds_type: str, config=None) -> str:
+    """The catalog ownership of a connection of `ds_type` with `config`.
+
+    Honors a per-auth-variant override (AuthVariant.catalog_ownership), so a
+    Google Drive connection on a service account is "shared" while one on
+    user OAuth stays "per_user". Unknown types read as "shared".
+    """
+    entry = REGISTRY.get(ds_type)
+    if not entry:
+        return "shared"
+    if isinstance(config, str):
+        try:
+            import json as _json
+            config = _json.loads(config)
+        except ValueError:
+            config = None
+    auth_type = (config or {}).get("auth_type") if isinstance(config, dict) else None
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_type or entry.credentials_auth.default)
+    if variant and variant.catalog_ownership:
+        return variant.catalog_ownership
+    return entry.catalog_ownership
+
+
+def connection_catalog_ownership(connection) -> str:
+    """`catalog_ownership_for` for a Connection row."""
+    return catalog_ownership_for(getattr(connection, "type", None), getattr(connection, "config", None))
 
 
 def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:

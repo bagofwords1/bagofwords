@@ -209,6 +209,7 @@
     "pendingMany": "{n} cambios pendientes están esperando revisión",
     "review": "Revisar",
     "untitledInstruction": "Instrucción sin título",
+    "tokenCount": "~{count} tokens",
     "addDescriptionOptional": "Añade una descripción (opcional)",
     "instructionPlaceholder": "Escribe la instrucción en markdown… (escribe {'@'} para mencionar una tabla o instrucción)",
     "details": "Detalles",
@@ -337,7 +338,10 @@
     "unchangedLineOne": "{n} línea sin cambios",
     "unchangedLineMany": "{n} líneas sin cambios",
     "loadPendingFailed": "No se pudieron cargar los cambios pendientes.",
-    "allPendingResolved": "No hay cambios pendientes: todo está resuelto."
+    "allPendingResolved": "No hay cambios pendientes: todo está resuelto.",
+    "pushToGit": "Enviar a Git",
+    "pushToGitTip": "Envía una compilación al repositorio conectado como una rama, con una solicitud de extracción si hay un token de acceso configurado",
+    "pushToGitDisabledTip": "Activa el acceso de escritura en la configuración del repositorio para enviar"
   },
   "smoke": {
     "hello": "Hola",
@@ -3971,6 +3975,8 @@
     "setupTitle": "Configuración",
     "integrationSetupHint": "Registra una aplicación OAuth en el proveedor y pega las credenciales abajo. Cada usuario inicia sesión individualmente para acceder a sus propios datos — sin cuenta de servicio compartida.",
     "integrationAfterSaveHint": "Después de guardar, cada usuario asocia esta integración a un agente e inicia sesión individualmente. El agente podrá entonces usar herramientas de archivos en su nombre.",
+    "integrationSharedSetupHint": "Pega la clave JSON de una cuenta de servicio. Comparte las carpetas de Drive (o agrega la cuenta de servicio a una unidad compartida) usando su client_email.",
+    "integrationSharedAfterSaveHint": "Acceso compartido: todos los que tienen acceso a esta conexión ven los archivos compartidos con la cuenta de servicio. Los usuarios no inician sesión y no se aplican sus propios permisos de Drive.",
     "testCredentials": "Probar credenciales",
     "saveIntegration": "Guardar integración",
     "loadFieldsFailed": "No se pudieron cargar los campos",

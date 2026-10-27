@@ -34,18 +34,27 @@ _SWEEP_TIME_BUDGET_SECONDS = 90.0
 
 
 async def _grep_session_files(data, runtime_ctx: Dict[str, Any]):
-    """Sweep the report's attached files (uploads / attach_file results) with
-    the shared grep engine. Returns None when the report has no files (caller
-    surfaces a routing hint). The candidate list IS the allow-list: only files
-    associated with this report, org-checked, are ever read."""
+    """Sweep the conversation's files (uploads / attach_file results, project
+    files, the run agents' library files) with the shared grep engine.
+    Returns None when there are no files (caller surfaces a routing hint).
+    The candidate list IS the allow-list: only files in this conversation's
+    file space, org-checked, are ever read."""
     import asyncio as _asyncio
     import fnmatch
 
+    from app.ai.context.agent_files import merge_files
     from app.data_sources.clients._grep_common import run_grep_sweep
 
     report = runtime_ctx.get("report")
     organization = runtime_ctx.get("organization")
-    files = list(getattr(report, "files", None) or []) if report else []
+    if not report:
+        return None
+    # Same file space read_file resolves: report uploads, project files and
+    # the run agents' library files.
+    files = merge_files(
+        merge_files(getattr(report, "files", None) or [], runtime_ctx.get("project_files")),
+        runtime_ctx.get("agent_files"),
+    )
     if not files:
         return None
 
@@ -114,8 +123,14 @@ class GrepFilesTool(Tool):
             name="grep_files",
             description=(
                 "Extract matching LINES (with line numbers and context) from "
-                "text files on a Files & Directories or S3 connection — "
-                "deterministic regex over raw file bytes, like grep -n. Scans "
+                "text files — the files in this conversation's <files> block "
+                "(uploads and the agent's own library files, e.g. catalogues, "
+                "glossaries, YAML/TSV references; leave connection_id empty) or "
+                "files on a Files & Directories / S3 connection (pass its "
+                "connection_id). Deterministic regex over raw file bytes, like "
+                "grep -n. THE way to look things up in a large text file: grep "
+                "it for the keywords you need (pass file_ids to target specific "
+                "files) instead of paging through it with read_file. Scans "
                 "many files per call with explicit budgets and a resumable "
                 "cursor, and reports the total match count — use it to reduce "
                 "logs/text at the source instead of reading whole files. Any "

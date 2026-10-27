@@ -210,6 +210,7 @@
     "pendingMany": "{n} pending changes are waiting for review",
     "review": "Review",
     "untitledInstruction": "Untitled instruction",
+    "tokenCount": "~{count} tokens",
     "addDescriptionOptional": "Add a description (optional)",
     "instructionPlaceholder": "Write the instruction in markdown… (type {'@'} to mention a table or instruction)",
     "details": "Details",
@@ -337,7 +338,10 @@
     "unchangedLineOne": "{n} unchanged line",
     "unchangedLineMany": "{n} unchanged lines",
     "loadPendingFailed": "Couldn’t load pending changes.",
-    "allPendingResolved": "No pending changes — all resolved."
+    "allPendingResolved": "No pending changes — all resolved.",
+    "pushToGit": "Push to Git",
+    "pushToGitTip": "Push a build to the connected repository as a branch, with a pull request when an access token is set",
+    "pushToGitDisabledTip": "Turn on write access in the repository settings to push"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -4043,6 +4047,8 @@
     "setupTitle": "Setup",
     "integrationSetupHint": "Register an OAuth app at the provider and paste the credentials below. Each user signs in individually to access their own data — no shared service account.",
     "integrationAfterSaveHint": "After saving, each user attaches this integration to an agent and signs in individually. The agent can then call file tools on their behalf.",
+    "integrationSharedSetupHint": "Paste a service account JSON key. Share the Drive folders (or add the service account to a Shared Drive) using its client_email.",
+    "integrationSharedAfterSaveHint": "Shared access: everyone with access to this connection sees the files shared with the service account. Users do not sign in, and their own Drive permissions are not applied.",
     "testCredentials": "Test credentials",
     "saveIntegration": "Save Integration",
     "loadFieldsFailed": "Failed to load fields",

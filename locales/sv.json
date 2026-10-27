@@ -194,6 +194,7 @@
     "pendingMany": "{n} väntande ändringar väntar på granskning",
     "review": "Granska",
     "untitledInstruction": "Namnlös instruktion",
+    "tokenCount": "~{count} tokens",
     "addDescriptionOptional": "Lägg till en beskrivning (valfritt)",
     "instructionPlaceholder": "Skriv instruktionen i markdown… (skriv {'@'} för att nämna en tabell eller instruktion)",
     "details": "Detaljer",

@@ -381,6 +381,16 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             for viz in ctx.get('visualizations') or []:
                 lines.append('  <visualization>')
                 lines.append(f'    title: {json.dumps(viz.get("title"))}')
+                if viz.get('withheld'):
+                    # This reader's own rows for the chart, not the creator's:
+                    # the dashboard withholds them until they run it themselves
+                    # (viewer_data_policy). Never guess at the numbers.
+                    lines.append('    rows: NOT AVAILABLE TO THIS VIEWER — this chart runs under each '
+                                 'viewer\'s own identity and they have no result of their own yet. '
+                                 'Say the data for this chart is not available to them and suggest '
+                                 'opening the dashboard; never estimate or infer its values.')
+                    lines.append('  </visualization>')
+                    continue
                 cols = viz.get('columns') or []
                 if cols:
                     lines.append(f'    columns: {json.dumps(cols)}')

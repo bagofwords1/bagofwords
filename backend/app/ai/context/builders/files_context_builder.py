@@ -80,11 +80,15 @@ def decide_file_tiers(
 
 
 class FilesContextBuilder:
-    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None):
+    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None, data_sources=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.head_completion = head_completion
+        # The run's agents: their library files are listed live (see
+        # app/ai/context/agent_files.py), not only the ones snapshotted onto
+        # the report when it was created.
+        self.data_sources = data_sources
 
     async def _agent_file_ids(self) -> Set[str]:
         """Ids of report files that came from a data source's file library.
@@ -159,10 +163,15 @@ class FilesContextBuilder:
             except Exception as e:
                 logger.warning(f"[files_context] project file lookup failed: {e}")
 
+        from app.ai.context.agent_files import agent_library_files, merge_files
+
+        library = agent_library_files(self.data_sources, getattr(self.organization, "id", None))
+        files = merge_files(files, library)
+
         if not files:
             return FilesSchemaContext(files=[])
 
-        agent_ids = await self._agent_file_ids()
+        agent_ids = await self._agent_file_ids() | {str(f.id) for f in library}
         forced_ids = await self._forced_rich_ids()
         tiers = decide_file_tiers(files, agent_ids, forced_ids)
 

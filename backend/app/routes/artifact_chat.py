@@ -146,7 +146,7 @@ async def create_chat_completion(
     completion.prompt.mode = 'chat'
     completion.prompt.platform = 'artifact_chat'
     completion.prompt.platform_context = await artifact_chat_service.build_platform_context(
-        db, report, agent_ids
+        db, report, agent_ids, viewer=user
     )
     try:
         completion.queue = False

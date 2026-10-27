@@ -1,9 +1,14 @@
 """Google Drive (+ Sheets) file-source client.
 
-Per-user OAuth (delegated). The admin configures an OAuth client (client_id /
-client_secret) at connection setup; each user grants access via the
-authorization-code flow, and the resulting access token is what this client
-uses to read files. No service-account / domain-wide delegation in v1.
+Two ways to authenticate:
+
+- Per-user OAuth (delegated). The admin configures an OAuth client
+  (client_id / client_secret); each user grants access via the
+  authorization-code flow, and their access token is what this client uses.
+- Service account (shared). The admin pastes a service-account JSON key.
+  Everyone on the connection sees the files shared with the service
+  account's email (and the Shared Drives it is a member of). No domain-wide
+  delegation: the service account never acts as a user.
 """
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, discovery_items
@@ -31,6 +36,7 @@ from app.data_sources.clients.base import Capability, DataSourceClient
 
 
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
+DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 SHEETS_BASE = "https://sheets.googleapis.com/v4"
 
 GOOGLE_FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -73,10 +79,17 @@ class GoogleDriveClient(DataSourceClient):
         # explicitly pass False to opt out.
         recursive: Optional[bool] = None,
         workspace_domain: Optional[str] = None,
+        # Shared mode: a service-account JSON key (content, not a path).
+        service_account_json: Optional[str] = None,
         **_ignored,
     ):
         super().__init__()
         self.access_token = access_token
+        self._sa_credentials = None
+        # A user token always wins: a per-user connection never carries a
+        # service-account key, and this keeps the two modes from mixing.
+        if service_account_json and not access_token:
+            self._sa_credentials = self._load_service_account(service_account_json)
         self.folder_id = (folder_id or "").strip() or None
         self.shared_drive_id = (shared_drive_id or "").strip() or None
         self.allowed_extensions = self._parse_exts(allowed_extensions)
@@ -103,13 +116,47 @@ class GoogleDriveClient(DataSourceClient):
             ext = ext or "gdoc"
         return ext in self.allowed_extensions
 
+    @staticmethod
+    def _load_service_account(raw: Any):
+        from google.oauth2 import service_account
+
+        from app.core.egress import check_google_token_uri
+
+        info = raw
+        if isinstance(raw, str):
+            try:
+                info = json.loads(raw)
+            except ValueError:
+                raise ValueError("Service account JSON is not valid JSON.")
+        if not isinstance(info, dict) or info.get("type") != "service_account":
+            raise ValueError("Service account JSON must be a Google service-account key (type: service_account).")
+        # token_uri is where google-auth POSTs the signed assertion.
+        check_google_token_uri(info)
+        return service_account.Credentials.from_service_account_info(info, scopes=[DRIVE_READONLY_SCOPE])
+
+    @property
+    def uses_service_account(self) -> bool:
+        return self._sa_credentials is not None
+
+    @property
+    def _has_auth(self) -> bool:
+        return bool(self.access_token) or self.uses_service_account
+
+    def _bearer(self) -> str:
+        if self.access_token:
+            return self.access_token
+        if self._sa_credentials is not None:
+            if not self._sa_credentials.valid:
+                from google.auth.transport.requests import Request
+                self._sa_credentials.refresh(Request())
+            return self._sa_credentials.token
+        raise ValueError(
+            "Google Drive client has no access token. Users must connect via OAuth "
+            "before the connection can be used."
+        )
+
     def _headers(self) -> Dict[str, str]:
-        if not self.access_token:
-            raise ValueError(
-                "Google Drive client has no access token. Users must connect via OAuth "
-                "before the connection can be used."
-            )
-        return {"Authorization": f"Bearer {self.access_token}", "Accept": "application/json"}
+        return {"Authorization": f"Bearer {self._bearer()}", "Accept": "application/json"}
 
     def _get(self, url: str, params: Optional[dict] = None, **kwargs) -> dict:
         resp = httpx.get(url, headers=self._headers(), params=params, timeout=30, **kwargs)
@@ -134,12 +181,18 @@ class GoogleDriveClient(DataSourceClient):
         if self.shared_drive_id:
             params["corpora"] = "drive"
             params["driveId"] = self.shared_drive_id
+        elif self.uses_service_account:
+            # A service account's files live in sharedWithMe and Shared
+            # Drives; the default "user" corpus misses the Shared Drives.
+            params["corpora"] = "allDrives"
         return params
 
     def _list_in_folder(self, folder_id: str) -> List[dict]:
+        return self._list_query(f"'{folder_id}' in parents and trashed=false")
+
+    def _list_query(self, q: str) -> List[dict]:
         out: List[dict] = []
         page_token: Optional[str] = None
-        q = f"'{folder_id}' in parents and trashed=false"
         while True:
             params = {
                 **self._drive_params(),
@@ -156,15 +209,50 @@ class GoogleDriveClient(DataSourceClient):
                 break
         return out
 
+    def _list_shared_drives(self) -> List[dict]:
+        out: List[dict] = []
+        page_token: Optional[str] = None
+        while True:
+            params = {"pageSize": "100", "fields": "nextPageToken,drives(id,name)"}
+            if page_token:
+                params["pageToken"] = page_token
+            data = self._get(f"{DRIVE_BASE}/drives", params=params)
+            out.extend(data.get("drives", []))
+            page_token = data.get("nextPageToken")
+            if not page_token:
+                break
+        return out
+
+    def _service_account_roots(self) -> List[dict]:
+        """Top-level entries a service account can see when no folder is
+        configured. Its own "My Drive" is almost always empty: what admins
+        give it is folders/files shared with its email (sharedWithMe) and
+        Shared Drives it was added to. Shared Drives come back as folders so
+        `_walk_entries` descends into them."""
+        entries = self._list_query("sharedWithMe = true and trashed = false")
+        entries += self._list_query("'root' in parents and trashed = false")
+        for drive in self._list_shared_drives():
+            entries.append({"id": drive["id"], "name": drive.get("name") or drive["id"], "mimeType": GOOGLE_FOLDER_MIME})
+        return entries
+
     def _walk(self, folder_id: str, prefix: str = "") -> List[dict]:
+        return self._walk_entries(self._list_in_folder(folder_id), prefix)
+
+    def _walk_entries(self, entries: List[dict], prefix: str = "", _seen: Optional[set] = None) -> List[dict]:
+        # A file shared directly AND inside a shared folder is listed twice;
+        # keep the first.
+        seen = _seen if _seen is not None else set()
         results: List[dict] = []
-        for entry in discovery_items(self._list_in_folder(folder_id), 'listing_files', label=lambda entry: entry.get('name')):
+        for entry in discovery_items(entries, 'listing_files', label=lambda entry: entry.get('name')):
+            if entry.get("id") in seen:
+                continue
+            seen.add(entry.get("id"))
             mime = entry.get("mimeType", "")
             name = entry.get("name", "")
             path = f"{prefix}/{name}" if prefix else name
             if mime == GOOGLE_FOLDER_MIME:
                 if self.recursive:
-                    results.extend(self._walk(entry["id"], path))
+                    results.extend(self._walk_entries(self._list_in_folder(entry["id"]), path, seen))
                 continue
             if not self._allowed(name, mime):
                 continue
@@ -193,13 +281,15 @@ class GoogleDriveClient(DataSourceClient):
         # No user token yet (e.g. admin-save indexing before any user has
         # signed in) → no Drive access is possible. Return an empty catalog
         # rather than raising; per-user enumeration happens after OAuth.
-        if not self.access_token:
+        if not self._has_auth:
             return []
         target = folder_id or self._root_folder_id()
         prev = self.recursive
         if recursive is not None:
             self.recursive = bool(recursive)
         try:
+            if target == "root" and self.uses_service_account:
+                return self._walk_entries(self._service_account_roots())
             return self._walk(target)
         finally:
             self.recursive = prev
@@ -374,12 +464,19 @@ class GoogleDriveClient(DataSourceClient):
     # ----------------------------------------- DataSourceClient compatibility
 
     def test_connection(self) -> dict:
-        """Verify what we can without a user token.
+        """Verify what we can.
 
-        Drive access is per-user; without a user OAuth token there's nothing
-        meaningful to call. When admin saves the connection (admin app creds
-        only), just acknowledge — the real test happens when a user signs in.
+        Per-user OAuth: without a user token there's nothing meaningful to
+        call, so the admin save just acknowledges the OAuth client. Service
+        account: get a token and call Drive as the service account.
         """
+        if self.uses_service_account:
+            try:
+                about = self._get(f"{DRIVE_BASE}/about", params={"fields": "user(emailAddress)"})
+                email = (about.get("user") or {}).get("emailAddress") or ""
+                return {"success": True, "message": f"Connected as {email}".strip()}
+            except Exception as e:
+                return {"success": False, "message": str(e)}
         if not self.access_token:
             return {
                 "success": True,

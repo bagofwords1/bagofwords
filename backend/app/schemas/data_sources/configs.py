@@ -2716,6 +2716,17 @@ class GoogleDriveCredentials(BaseModel):
     )
 
 
+class GoogleDriveServiceAccountCredentials(BaseModel):
+    """Shared access through one Google service account. Everyone on the
+    connection sees the files shared with the service account's email."""
+    service_account_json: str = Field(
+        ...,
+        title="Service Account JSON",
+        description="The service account's JSON key. Share Drive folders (or add it to a Shared Drive) using its client_email.",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+
+
 class GoogleDriveConfig(BaseModel):
     """Google Drive needs no admin-side configuration — each user's OAuth
     token determines what files are visible."""
