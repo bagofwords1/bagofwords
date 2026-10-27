@@ -292,7 +292,7 @@ def test_mcp_tools_list(
     # (required_ds_permission, send_email without outbound mail; see
     # routes/mcp.py), so the count here is one lower than the unfiltered REST
     # endpoint. The caller is the org admin, so every builder tool is listed.
-    assert len(tools) == 18
+    assert len(tools) == 20
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -479,7 +479,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 19
+    assert len(tools) == 21
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
