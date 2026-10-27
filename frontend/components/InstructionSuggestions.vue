@@ -4,7 +4,7 @@
     <!-- Title section -->
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-3">
       <!-- Status icon -->
-      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-600" />
+      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 me-1.5 text-green-500" />
 
       <!-- Title with shimmer for loading -->
@@ -36,13 +36,13 @@
             class="mt-0.5"
           />
           <div class="flex-1">
-            <div v-if="d.title" class="text-[10px] font-mono font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            <div v-if="d.title" class="text-2xs font-mono font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
               {{ d.title }}
             </div>
             <div
               @click="!isBuildPublished ? handleEdit(d, i) : null"
               :class="[
-                'text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed',
+                'text-xs text-gray-800 dark:text-gray-200 leading-relaxed',
                 isBuildPublished ? '' : 'cursor-pointer'
               ]"
             >
@@ -56,7 +56,7 @@
         <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
           <button
             @click="handleEdit(d, i)"
-            class="flex items-center text-[9px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
           >
             <Icon name="heroicons:pencil" class="w-2.5 h-2.5 me-0.5" />
             <span>Edit</span>

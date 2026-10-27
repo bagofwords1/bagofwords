@@ -3,7 +3,7 @@
         <div v-if="hasRows" class="text-2xl font-bold mt-2">
             {{ formattedValue }}
         </div>
-        <div v-else class="text-gray-400">Loading..</div>
+        <div v-else class="text-ink-muted">Loading..</div>
     </div>
 </template>
 

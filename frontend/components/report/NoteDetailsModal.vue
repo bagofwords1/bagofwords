@@ -7,11 +7,11 @@
           <h3 class="text-sm font-semibold text-gray-900 dark:text-white truncate">
             {{ note?.title || $t('tools.createNote.untitled') }}
           </h3>
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex-shrink-0">
+          <span class="text-2xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex-shrink-0">
             {{ note?.source === 'user' ? $t('notes.byYou') : $t('notes.byAgent') }}
           </span>
         </div>
-        <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600 flex-shrink-0">
+        <button @click="isOpen = false" class="text-ink-muted hover:text-gray-600 flex-shrink-0">
           <Icon name="heroicons:x-mark" class="w-4 h-4" />
         </button>
       </div>
@@ -20,7 +20,7 @@
         <MarkdownRender v-if="note?.content" :content="note.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
       </div>
 
-      <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 text-[11px] text-gray-400">
+      <div class="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 text-2xs text-ink-muted">
         {{ $t('notes.updated') }} {{ formatTime(note?.updated_at) }}
       </div>
     </div>

@@ -10,7 +10,7 @@
       </UButton>
     </div>
 
-    <p v-if="!canManage" class="text-[11px] text-gray-400 mb-2">{{ $t('settings.audit.streams.manageRequired') }}</p>
+    <p v-if="!canManage" class="text-2xs text-ink-muted mb-2">{{ $t('settings.audit.streams.manageRequired') }}</p>
 
     <div v-if="loading && !streams.length" class="py-8 text-center">
       <div class="inline-block w-4 h-4 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin"></div>
@@ -20,7 +20,7 @@
     <div v-else-if="!streams.length" class="rounded border border-dashed border-gray-200 dark:border-gray-700 py-10 px-6 text-center">
       <UIcon name="i-heroicons-arrow-up-tray" class="w-6 h-6 text-gray-300 mx-auto mb-2" />
       <p class="text-sm text-gray-700 dark:text-gray-200">{{ $t('settings.audit.streams.empty') }}</p>
-      <p class="text-xs text-gray-400 mt-1 max-w-md mx-auto">{{ $t('settings.audit.streams.emptyHint') }}</p>
+      <p class="text-xs text-ink-muted mt-1 max-w-md mx-auto">{{ $t('settings.audit.streams.emptyHint') }}</p>
     </div>
 
     <div v-else class="border border-gray-200 dark:border-gray-700 rounded divide-y divide-gray-100 dark:divide-gray-800">
@@ -29,7 +29,7 @@
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-sm text-gray-900 dark:text-white truncate">{{ s.name }}</span>
-            <span data-testid="stream-state" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0" :class="stateClass(s.state)">
+            <span data-testid="stream-state" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-medium shrink-0" :class="stateClass(s.state)">
               <span class="w-1.5 h-1.5 rounded-full" :class="dotClass(s.state)"></span>
               {{ $t(`settings.audit.streams.state.${s.state}`) }}
             </span>

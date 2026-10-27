@@ -14,14 +14,14 @@
             :aria-selected="tab === t.key"
             @click="selectTab(t.key)"
             :class="[
-              'whitespace-nowrap border-b-2 pb-2 text-[13px] flex items-center gap-1.5',
+              'whitespace-nowrap border-b-2 pb-2 text-sm flex items-center gap-1.5',
               tab === t.key
                 ? 'border-indigo-500 text-gray-900 dark:text-white font-medium'
                 : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             ]"
           >
             {{ t.label }}
-            <span v-if="t.badge" class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{{ t.badge }}</span>
+            <span v-if="t.badge" class="text-2xs text-ink-muted tabular-nums">{{ t.badge }}</span>
           </button>
         </nav>
       </template>
@@ -65,17 +65,17 @@
           v-if="notLiveCount > 0 && stateFilter === 'not_live'"
           class="mx-4 mb-2.5 px-3 py-2.5 rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/30 flex items-center gap-3 flex-wrap flex-shrink-0"
         >
-          <p class="text-[13px] text-gray-800 dark:text-gray-100 flex-1 min-w-[260px] m-0">
+          <p class="text-sm text-gray-800 dark:text-gray-100 flex-1 min-w-[260px] m-0">
             {{ $t('allInstructions.notLiveExplainer', { n: notLiveCount }) }}
           </p>
         </div>
 
         <div class="flex-1 min-h-0 overflow-auto border-t border-gray-200 dark:border-gray-800">
           <div v-if="listLoading" class="flex items-center justify-center py-14">
-            <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+            <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
           <div v-else-if="listError" class="py-12 text-center text-xs text-gray-500">{{ listError }}</div>
-          <div v-else-if="visibleRows.length === 0" class="py-12 text-center text-xs text-gray-400 italic">
+          <div v-else-if="visibleRows.length === 0" class="py-12 text-center text-xs text-ink-muted italic">
             {{ $t('allInstructions.noneMatch') }}
           </div>
           <table v-else class="w-full text-sm">
@@ -87,10 +87,10 @@
               >
                 <td class="px-4 py-2.5">
                   <div class="flex flex-col gap-0.5 min-w-0">
-                    <span class="text-[13px] text-gray-800 dark:text-gray-200 font-medium truncate">
+                    <span class="text-sm text-gray-800 dark:text-gray-200 font-medium truncate">
                       {{ rowLabel(row) }}
                     </span>
-                    <span class="flex gap-1.5 flex-wrap items-center text-[11px] text-gray-400 dark:text-gray-500">
+                    <span class="flex gap-1.5 flex-wrap items-center text-2xs text-ink-muted">
                       <span
                         v-for="ds in (row.data_sources || [])" :key="ds.id"
                         class="px-1.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300 font-medium"
@@ -105,7 +105,7 @@
                     <span class="w-[7px] h-[7px] rounded-full" :class="rowState(row).dot"></span>{{ rowState(row).label }}
                   </span>
                 </td>
-                <td class="px-4 py-2.5 text-end whitespace-nowrap text-[12px] font-mono tabular-nums text-gray-400 dark:text-gray-500">
+                <td class="px-4 py-2.5 text-end whitespace-nowrap text-xs font-mono tabular-nums text-ink-muted">
                   {{ getLoadModeLabel(row.load_mode) }}
                 </td>
               </tr>
@@ -139,15 +139,15 @@
 
         <div class="flex-1 min-h-0 overflow-auto border-t border-gray-200 dark:border-gray-800">
           <div v-if="logLoading" class="flex items-center justify-center py-14">
-            <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+            <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
           <div v-else-if="logError" class="py-12 text-center text-xs text-gray-500">{{ logError }}</div>
-          <div v-else-if="entries.length === 0" class="py-12 text-center text-xs text-gray-400 italic">
+          <div v-else-if="entries.length === 0" class="py-12 text-center text-xs text-ink-muted italic">
             {{ $t('allInstructions.noChanges') }}
           </div>
           <template v-else>
             <template v-for="group in groupedEntries" :key="group.day">
-              <div class="sticky top-0 z-10 px-4 py-1.5 bg-gray-50 dark:bg-gray-900/95 border-b border-gray-200 dark:border-gray-800 text-[10.5px] uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
+              <div class="sticky top-0 z-10 px-4 py-1.5 bg-gray-50 dark:bg-gray-900/95 border-b border-gray-200 dark:border-gray-800 text-2xs uppercase tracking-wider font-semibold text-gray-500 dark:text-gray-400">
                 {{ group.day }}
               </div>
               <template v-for="e in group.items" :key="e.build_id">
@@ -157,12 +157,12 @@
                   @click="toggleEntry(e)"
                 >
                   <span
-                    class="w-[26px] h-[26px] rounded-full grid place-items-center text-[10px] font-bold text-white"
+                    class="w-[26px] h-[26px] rounded-full grid place-items-center text-2xs font-bold text-white"
                     :class="actorChip(e).cls"
                   >{{ actorChip(e).text }}</span>
                   <span class="flex flex-col gap-1 min-w-0">
-                    <span class="text-[13px] text-gray-800 dark:text-gray-200 leading-snug">{{ entryLine(e) }}</span>
-                    <span class="text-[11.5px] text-gray-400 dark:text-gray-500 flex gap-2 flex-wrap items-center">
+                    <span class="text-sm text-gray-800 dark:text-gray-200 leading-snug">{{ entryLine(e) }}</span>
+                    <span class="text-2xs text-ink-muted flex gap-2 flex-wrap items-center">
                       <span>{{ $t('allInstructions.buildN', { n: e.build_number }) }}</span>
                       <span v-if="e.is_live" class="text-emerald-600 dark:text-emerald-400">{{ $t('allInstructions.liveNow') }}</span>
                       <span v-else-if="e.status === 'pending_approval'" class="text-amber-600 dark:text-amber-400">{{ $t('allInstructions.awaitingReview') }}</span>
@@ -174,27 +174,27 @@
                          RTL locale "+1" is reordered to "1+" and "−5" to "5−",
                          inverting the one signal this feed is read for. Same for
                          a clock time. -->
-                    <span dir="ltr" class="font-mono tabular-nums text-[12.5px] flex gap-1.5">
+                    <span dir="ltr" class="font-mono tabular-nums text-xs flex gap-1.5">
                       <span v-if="e.added" class="text-emerald-600 dark:text-emerald-400">+{{ e.added }}</span>
-                      <span v-if="e.modified" class="text-gray-400 dark:text-gray-500">~{{ e.modified }}</span>
+                      <span v-if="e.modified" class="text-ink-muted">~{{ e.modified }}</span>
                       <span v-if="e.removed" class="text-amber-700 dark:text-amber-400 font-semibold">−{{ e.removed }}</span>
                     </span>
-                    <span dir="ltr" class="font-mono tabular-nums text-[11.5px] text-gray-400 dark:text-gray-500">{{ timeOf(e) }}</span>
+                    <span dir="ltr" class="font-mono tabular-nums text-2xs text-ink-muted">{{ timeOf(e) }}</span>
                   </span>
                 </div>
 
                 <div v-if="expandedId === e.build_id" class="px-4 pb-3.5 ps-[56px] bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-gray-100 dark:border-gray-800/70">
-                  <div v-if="detailLoading" class="py-3"><Spinner class="w-4 h-4 text-gray-400 animate-spin" /></div>
+                  <div v-if="detailLoading" class="py-3"><Spinner class="w-4 h-4 text-ink-muted animate-spin" /></div>
                   <template v-else-if="detail">
                     <ul class="flex flex-col gap-1 py-2 m-0 list-none p-0">
                       <li
                         v-for="c in detailRows" :key="c.op + c.id"
-                        class="text-[12.5px] text-gray-600 dark:text-gray-300 flex gap-2 items-baseline"
+                        class="text-xs text-gray-600 dark:text-gray-300 flex gap-2 items-baseline"
                       >
-                        <span dir="ltr" class="font-mono font-bold w-3 flex-shrink-0" :class="c.op === '−' ? 'text-amber-700 dark:text-amber-400' : (c.op === '+' ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-400')">{{ c.op }}</span>
+                        <span dir="ltr" class="font-mono font-bold w-3 flex-shrink-0" :class="c.op === '−' ? 'text-amber-700 dark:text-amber-400' : (c.op === '+' ? 'text-emerald-600 dark:text-emerald-400' : 'text-ink-muted')">{{ c.op }}</span>
                         <span class="truncate">{{ c.label }}</span>
                       </li>
-                      <li v-if="detailRemainder > 0" class="text-[12.5px] text-gray-400 dark:text-gray-500 ps-5">
+                      <li v-if="detailRemainder > 0" class="text-xs text-ink-muted ps-5">
                         {{ $t('allInstructions.andMore', { n: detailRemainder }) }}
                       </li>
                     </ul>

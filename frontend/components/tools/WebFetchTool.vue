@@ -1,9 +1,9 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}</template>
             <template v-else>{{ $t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
@@ -13,7 +13,7 @@
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
           <span>{{ modelTitle || $t('tools.webFetch.fetched') }}</span>
           <span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
-          <span v-if="statusCode" class="ms-1.5 text-[10px] text-gray-400 shrink-0">{{ statusCode }}</span>
+          <span v-if="statusCode" class="ms-1.5 text-2xs text-ink-muted shrink-0">{{ statusCode }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-orange-500" />

@@ -8,7 +8,7 @@
         <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ pt('Title') }}</h2>
         <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ pt('Subtitle') }}</p>
       </div>
-      <svg class="w-4 h-4 text-gray-400 transition-transform flex-shrink-0" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+      <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="open ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
       </svg>
     </button>
@@ -18,7 +18,7 @@
       <div class="flex items-start justify-between gap-4 mb-4">
         <div class="flex-1">
           <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ pt('Enable') }}</div>
-          <p class="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">{{ pt('EnableHint') }}</p>
+          <p class="text-2xs text-ink-muted mt-0.5">{{ pt('EnableHint') }}</p>
         </div>
         <button
           type="button"
@@ -39,13 +39,13 @@
       <div v-show="enabled">
         <div class="flex items-center justify-between mb-2">
           <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ pt('FieldsLabel') }}</label>
-          <span v-if="previewLoading" class="text-[11px] text-gray-400">
+          <span v-if="previewLoading" class="text-2xs text-ink-muted">
             <span class="inline-block w-3 h-3 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin align-middle"></span>
           </span>
         </div>
 
         <!-- Preview connection hint -->
-        <p v-if="preview && !preview.connected" class="text-[11px] text-amber-600 dark:text-amber-500 mb-2">
+        <p v-if="preview && !preview.connected" class="text-2xs text-amber-600 dark:text-amber-500 mb-2">
           {{ previewHint }}
         </p>
 
@@ -67,7 +67,7 @@
             <label :for="`${i18nPrefix}-field-${field}`" class="w-40 flex-shrink-0 text-gray-700 dark:text-gray-300 cursor-pointer">
               {{ fieldLabel(field) }}
             </label>
-            <span class="flex-1 truncate font-mono text-[11px]" :class="sampleValue(field) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-300 dark:text-gray-600 italic'">
+            <span class="flex-1 truncate font-mono text-2xs" :class="sampleValue(field) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-300 dark:text-gray-600 italic'">
               {{ sampleValue(field) || pt('NotSet') }}
             </span>
             <button
@@ -78,7 +78,7 @@
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
             </button>
           </div>
-          <div v-if="!shownFields.length" class="px-3 py-4 text-center text-[11px] text-gray-400">
+          <div v-if="!shownFields.length" class="px-3 py-4 text-center text-2xs text-ink-muted">
             {{ pt('NoFields') }}
           </div>
         </div>
@@ -111,8 +111,8 @@
         >
           {{ saving ? pt('Saving') : $t('common.save') }}
         </button>
-        <span v-if="savedFlash" class="text-[11px] text-green-600">{{ pt('Saved') }}</span>
-        <span v-if="error" class="text-[11px] text-red-500">{{ error }}</span>
+        <span v-if="savedFlash" class="text-2xs text-green-600">{{ pt('Saved') }}</span>
+        <span v-if="error" class="text-2xs text-red-500">{{ error }}</span>
       </div>
     </div>
   </div>

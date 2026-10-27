@@ -3,11 +3,11 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-ink-muted" />
           {{ $t('tools.editInstruction.editing') }}
         </span>
         <!-- Same row shape as ReadInstructionTool: chevron first, cube icon,
@@ -16,22 +16,22 @@
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
           />
           <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
           <span dir="auto" class="text-gray-700 dark:text-gray-300 truncate max-w-[300px]">
             {{ $t('tools.editInstruction.editLabel') }}<template v-if="headerTitle"> · {{ headerTitle }}</template>
           </span>
-          <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] shrink-0">v{{ versionNumber }}</span>
+          <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-2xs shrink-0">v{{ versionNumber }}</span>
           <!-- Grouped card: this card stands for every edit call of one
                (instruction, build) run; the count streams up in real time as
                later calls land, like other actions' live counters. -->
-          <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
+          <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-2xs shrink-0">{{ $t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
           <!-- A status change is the edit's whole point more often than not
                (no text, so no +/- counts) — name it in the header. -->
           <span
             v-if="statusChange"
-            class="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] shrink-0"
+            class="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-2xs shrink-0"
             :class="statusChange === 'inactive'
               ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
               : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'"
@@ -40,22 +40,22 @@
             <Icon name="heroicons-power" class="w-2.5 h-2.5" />
             {{ statusChange === 'inactive' ? $t('tools.editInstruction.turnOff') : $t('tools.editInstruction.turnOn') }}
           </span>
-          <span v-if="linesAdded > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ linesAdded }}</span>
-          <span v-if="linesRemoved > 0" class="ms-0.5 text-[10px] text-red-500 shrink-0">-{{ linesRemoved }}</span>
+          <span v-if="linesAdded > 0" class="ms-1.5 text-2xs text-green-600 shrink-0">+{{ linesAdded }}</span>
+          <span v-if="linesRemoved > 0" class="ms-0.5 text-2xs text-red-500 shrink-0">-{{ linesRemoved }}</span>
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
           />
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500 flex-shrink-0" />
           <span>{{ $t('tools.editInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-amber-600 dark:text-amber-500 text-[10px]">({{ prettyRejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-amber-600 dark:text-amber-500 text-2xs">({{ prettyRejectedReason }})</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-gray-400 flex-shrink-0 rtl-flip"
+            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
           />
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-red-500 flex-shrink-0" />
           <span>{{ $t('tools.editInstruction.failed') }}</span>
@@ -75,7 +75,7 @@
              Only then does content appear, and it never changes again. -->
         <div v-if="turnActive || awaitingFinal" class="flex items-center justify-center py-4 border border-gray-150 dark:border-gray-800 rounded-md">
           <Spinner class="w-4 h-4 me-2" />
-          <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
+          <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.loadingDiff') }}</span>
         </div>
 
         <!-- Pending: per-hunk tracked-changes review (inline accept/reject,
@@ -99,12 +99,12 @@
         <!-- Resolved / read-only: show the version diff -->
         <div v-else-if="!turnActive && !awaitingFinal && hasTextDiff && previousText !== null" class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
-            <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
+            <span class="text-2xs text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.editInstruction.textChanges') }}</span>
             <!-- Only the resulting version is known. The parent is NOT
                  versionNumber - 1: that counter is bumped by every path, so
                  the version before this one by number is often not the one
                  this edit was based on. -->
-            <span v-if="versionNumber" class="text-[10px] text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
+            <span v-if="versionNumber" class="text-2xs text-gray-500 dark:text-gray-400">v{{ versionNumber }}</span>
           </div>
           <!-- Same clamp as the pending review panel above (its compact mode is
                `px-3 py-2 max-h-80`), on purpose: resolving a suggestion swaps
@@ -128,7 +128,7 @@
           <!-- Instruction text - click to edit -->
           <div
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2 max-h-80 overflow-y-auto"
+            class="instruction-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2 max-h-80 overflow-y-auto"
             :class="readonly ? '' : 'cursor-pointer'"
             @click="!readonly ? handleEdit() : null"
           >
@@ -137,15 +137,15 @@
         </div>
 
         <!-- Metadata changes summary -->
-        <div v-if="metadataChanges.length > 0" class="text-[10px] text-gray-500 dark:text-gray-400 px-1">
+        <div v-if="metadataChanges.length > 0" class="text-2xs text-gray-500 dark:text-gray-400 px-1">
           <span class="font-medium">{{ $t('tools.editInstruction.otherChanges') }}</span>
           {{ metadataChanges.join(', ') }}
         </div>
 
         <!-- Metadata row -->
-        <div class="flex flex-wrap items-center gap-2 text-[10px] px-1">
+        <div class="flex flex-wrap items-center gap-2 text-2xs px-1">
           <!-- Category -->
-          <span v-if="displayCategory" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[10px]">
+          <span v-if="displayCategory" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs">
             {{ displayCategory }}
           </span>
 
@@ -163,7 +163,7 @@
           <!-- Load mode -->
           <div v-if="displayLoadMode" class="flex items-center gap-1">
             <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editInstruction.load') }}</span>
-            <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
+            <span class="px-1.5 py-0.5 rounded text-2xs font-medium"
               :class="displayLoadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
             >
               {{ displayLoadMode }}
@@ -172,7 +172,7 @@
 
           <!-- Tables scoped -->
           <div v-if="displayTableCount > 0" class="flex items-center gap-1">
-            <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <Icon name="heroicons-table-cells" class="w-3 h-3 text-ink-muted" />
             <span class="text-gray-600 dark:text-gray-400">{{ displayTableCount === 1 ? $t('tools.editInstruction.tableSingular', { n: displayTableCount }) : $t('tools.editInstruction.tablePlural', { n: displayTableCount }) }}</span>
           </div>
         </div>
@@ -186,18 +186,18 @@
         <div v-if="!readonly && isSuccess && instructionId && !canResolve" class="flex items-center gap-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 px-1">
           <template v-if="resolution === 'accepted'">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
+            <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editInstruction.accepted', 'Accepted') }}</span>
           </template>
           <template v-else-if="resolution === 'rejected'">
-            <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
-            <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
+            <Icon name="heroicons:x-circle" class="w-3 h-3 text-ink-muted" />
+            <span class="text-2xs text-ink-muted">{{ $t('tools.editInstruction.rejectedLabel', 'Rejected') }}</span>
           </template>
           <template v-else-if="canResolve">
             <!-- Accept/reject is handled inline per-hunk by the embedded review. -->
           </template>
           <template v-else>
-            <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
-            <span class="text-[10px] font-medium text-gray-500 dark:text-gray-400">
+            <Icon name="heroicons:clock" class="w-3 h-3 text-ink-muted" />
+            <span class="text-2xs font-medium text-gray-500 dark:text-gray-400">
               {{ $t('tools.editInstruction.stagedInBuild', 'Staged in draft build') }}
             </span>
           </template>
@@ -213,7 +213,7 @@
              broke and nothing changed; red stays for an actual tool error. -->
         <div
           v-if="errorMessage"
-          class="text-[11px] rounded px-2 py-1.5 leading-relaxed"
+          class="text-2xs rounded px-2 py-1.5 leading-relaxed"
           :class="isRejected
             ? 'text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20'
             : 'text-red-600 dark:text-red-300 bg-red-50/50 dark:bg-red-500/10 border border-red-100 dark:border-red-500/20'"

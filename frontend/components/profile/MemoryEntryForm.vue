@@ -10,17 +10,17 @@
     />
     <div class="flex items-center gap-2 flex-wrap">
       <UInput v-model="local.tags" size="xs" class="flex-1 min-w-[160px]" :placeholder="$t('profile.memory.form.tags')" data-testid="memory-form-tags" />
-      <label class="text-[11px] text-gray-500 flex items-center gap-1">
+      <label class="text-2xs text-gray-500 flex items-center gap-1">
         <UIcon name="i-heroicons-calendar" class="w-3.5 h-3.5" />
         <UInput v-model="local.date" type="date" size="xs" data-testid="memory-form-date" />
       </label>
-      <label v-if="local.date" class="text-[11px] text-gray-500 flex items-center gap-1">
+      <label v-if="local.date" class="text-2xs text-gray-500 flex items-center gap-1">
         <span>–</span>
         <UInput v-model="local.end_date" type="date" size="xs" :min="local.date || undefined" data-testid="memory-form-end" />
       </label>
     </div>
     <div class="flex items-center justify-between">
-      <span class="text-[10px] text-gray-400">{{ local.text.length }}/{{ MAX }} · {{ $t('profile.memory.form.dateHint') }}</span>
+      <span class="text-2xs text-ink-muted">{{ local.text.length }}/{{ MAX }} · {{ $t('profile.memory.form.dateHint') }}</span>
       <div class="flex gap-2">
         <UButton size="2xs" color="gray" variant="ghost" @click="emit('cancel')">{{ $t('common.cancel') }}</UButton>
         <UButton size="2xs" color="blue" type="submit" :loading="saving" :disabled="!local.text.trim()" data-testid="memory-form-save">

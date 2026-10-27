@@ -13,7 +13,7 @@
                 <div class="leading-tight min-w-0">
                     <div class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                         <span class="truncate">{{ model.name }}</span>
-                        <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                        <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                         <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                     </div>
                     <div class="text-xs text-gray-500 dark:text-gray-400 truncate">
@@ -97,7 +97,7 @@
                      another model, so these are buttons rather than draft toggles. -->
                 <div class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.badgeDefault') }}</span>
-                    <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                    <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                     <UButton
                         v-else
                         size="2xs" color="gray" variant="soft"
@@ -130,7 +130,7 @@
                     </UTooltip>
                     <div class="flex items-center gap-1.5">
                         <UTooltip v-if="model.context_window_tokens_override != null" :text="$t('settings.llms.contextResetTooltip')">
-                            <button type="button" class="text-gray-400 hover:text-gray-600" @click="resetContextWindow">
+                            <button type="button" class="text-ink-muted hover:text-gray-600" @click="resetContextWindow">
                                 <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
                             </button>
                         </UTooltip>
@@ -153,7 +153,7 @@
                     </UTooltip>
                     <div class="flex items-center gap-1.5">
                         <UTooltip v-if="model.config?.temperature != null" :text="$t('settings.llms.temperatureResetTooltip')">
-                            <button type="button" class="text-gray-400 hover:text-gray-600" data-testid="card-temperature-reset" @click="resetTemperature">
+                            <button type="button" class="text-ink-muted hover:text-gray-600" data-testid="card-temperature-reset" @click="resetTemperature">
                                 <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
                             </button>
                         </UTooltip>
@@ -174,13 +174,13 @@
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colCost') }}</span>
                     </UTooltip>
                     <div class="flex items-center gap-2">
-                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costInput') }}
                             <input v-model.number="costInDraft" type="number" min="0" step="0.01"
                                 data-testid="card-cost-input"
                                 class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
                         </label>
-                        <label class="flex items-center gap-1 text-[10px] text-gray-400 uppercase tracking-wide">
+                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costOutput') }}
                             <input v-model.number="costOutDraft" type="number" min="0" step="0.01"
                                 data-testid="card-cost-output"
@@ -205,7 +205,7 @@
                     </UTooltip>
                     <div class="ms-auto space-x-2">
                         <UButton color="gray" variant="soft" size="sm" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
-                        <UButton size="sm" class="!bg-blue-500 !text-white" :disabled="!isDirty || saving" :loading="saving" data-testid="card-save-button" @click="save">
+                        <UButton size="sm" class="!bg-blue-600 !text-white" :disabled="!isDirty || saving" :loading="saving" data-testid="card-save-button" @click="save">
                             {{ $t('settings.llms.save') }}
                         </UButton>
                     </div>

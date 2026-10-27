@@ -27,7 +27,7 @@
                                  truncate, so the fixed columns to its right always fit. -->
                             <td class="px-3 py-3 align-top w-full max-w-0">
                                 <div class="flex items-start gap-2 min-w-0">
-                                    <button type="button" class="mt-0.5 text-gray-400 hover:text-gray-700 flex-shrink-0" :aria-label="$t('monitoring.diagnosis.expandRow')" data-testid="expand-row" @click.stop="toggle(item)">
+                                    <button type="button" class="mt-0.5 text-ink-muted hover:text-gray-700 flex-shrink-0" :aria-label="$t('monitoring.diagnosis.expandRow')" data-testid="expand-row" @click.stop="toggle(item)">
                                         <UIcon :name="expanded.has(item.id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
                                     </button>
                                     <div class="min-w-0">
@@ -38,9 +38,9 @@
                                             </UTooltip>
                                             <span class="truncate" :title="item.prompt">{{ item.prompt || '—' }}</span>
                                         </div>
-                                        <div class="flex items-center gap-1.5 mt-0.5 text-[11px] text-gray-400 truncate">
+                                        <div class="flex items-center gap-1.5 mt-0.5 text-2xs text-ink-muted truncate">
                                             <button v-if="item.report.id" type="button" class="text-gray-500 hover:text-blue-600 hover:underline truncate" :title="$t('monitoring.diagnosis.pivotReport')" @click.stop="$emit('pivot', `report_id:${item.report.id}`)">{{ item.report.title || item.report.id }}</button>
-                                            <NuxtLink v-if="item.report.id && isFullAdmin" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-gray-400 hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
+                                            <NuxtLink v-if="item.report.id && isFullAdmin" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-ink-muted hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
                                                 <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                                             </NuxtLink>
                                             <template v-if="item.report.turn">
@@ -74,7 +74,7 @@
                                         <span class="truncate">{{ a.name }}</span>
                                     </button>
                                 </div>
-                                <span v-else class="text-gray-400">—</span>
+                                <span v-else class="text-ink-muted">—</span>
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top">
                                 <UTooltip v-if="!item.indexed" :text="$t('monitoring.diagnosis.notIndexed')"><span class="text-gray-300 dark:text-gray-600">…</span></UTooltip>
@@ -85,7 +85,7 @@
                                     <span class="text-gray-500">{{ item.tools.total }}</span>
                                     <span v-if="item.tools.failed" class="text-red-700 dark:text-red-400">· {{ $t('monitoring.diagnosis.nFailed', { n: item.tools.failed }) }}</span>
                                 </div>
-                                <span v-else class="text-gray-400">—</span>
+                                <span v-else class="text-ink-muted">—</span>
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white">{{ fmtDuration(item.duration_ms) }}</td>
                             <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white" :title="item.model ? `${item.model} · ${fmtTokens(item.tokens)} tokens` : (item.indexed ? '' : $t('monitoring.diagnosis.notIndexed'))">
@@ -97,15 +97,15 @@
                                     <span v-if="item.feedback !== 'none'" class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="item.feedback === 'positive' ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300'">
                                         {{ item.feedback === 'positive' ? $t('monitoring.diagnosis.feedbackPositive') : $t('monitoring.diagnosis.feedbackNegative') }}
                                     </span>
-                                    <span v-else class="text-gray-400">—</span>
+                                    <span v-else class="text-ink-muted">—</span>
                                 </UTooltip>
                             </td>
                         </tr>
                         <!-- Child rows: the run's tool calls -->
                         <tr v-if="expanded.has(item.id)" :key="item.id + ':calls'" data-testid="tool-calls">
                             <td colspan="9" class="p-0">
-                                <div v-if="!calls[item.id]" class="px-12 py-2 text-[11px] text-gray-400 bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.loadingCalls') }}</div>
-                                <div v-else-if="!calls[item.id].length" class="px-12 py-2 text-[11px] text-gray-400 bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.noCalls') }}</div>
+                                <div v-if="!calls[item.id]" class="px-12 py-2 text-2xs text-ink-muted bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.loadingCalls') }}</div>
+                                <div v-else-if="!calls[item.id].length" class="px-12 py-2 text-2xs text-ink-muted bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.noCalls') }}</div>
                                 <div
                                     v-for="c in calls[item.id]"
                                     :key="c.id"
@@ -117,23 +117,23 @@
                                 >
                                     <span class="w-[64px] flex-shrink-0 text-gray-500 tabular-nums whitespace-nowrap">{{ fmtTime(c.started_at, locale) }}</span>
                                     <span class="w-[70px] flex-shrink-0"><span class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(c.status)">{{ c.status === 'success' ? 'ok' : c.status }}</span></span>
-                                    <span class="w-[200px] flex-shrink-0 font-mono text-gray-900 dark:text-white truncate">{{ c.tool }}<span v-if="c.action" class="text-gray-400"> · </span><span v-if="c.action" class="text-gray-500">{{ c.action }}</span></span>
+                                    <span class="w-[200px] flex-shrink-0 font-mono text-gray-900 dark:text-white truncate">{{ c.tool }}<span v-if="c.action" class="text-ink-muted"> · </span><span v-if="c.action" class="text-gray-500">{{ c.action }}</span></span>
                                     <span class="w-11 flex-shrink-0 text-end text-gray-500 tabular-nums">{{ c.attempt }}<span v-if="c.max_retries"> / {{ c.max_retries + 1 }}</span></span>
                                     <span class="w-14 flex-shrink-0 text-end tabular-nums text-gray-900 dark:text-white">{{ fmtDuration(c.duration_ms) }}</span>
                                     <!-- What the tool was asked, the tables it touched, and what it said -->
                                     <span class="flex items-center gap-2 min-w-0 flex-grow">
-                                        <span v-if="c.args_preview" class="font-mono text-[11px] text-gray-600 dark:text-gray-300 truncate max-w-[45%]" :title="c.args_preview" data-testid="call-args">{{ c.args_preview }}</span>
+                                        <span v-if="c.args_preview" class="font-mono text-2xs text-gray-600 dark:text-gray-300 truncate max-w-[45%]" :title="c.args_preview" data-testid="call-args">{{ c.args_preview }}</span>
                                         <button
                                             v-for="tbl in c.tables"
                                             :key="tbl"
                                             type="button"
-                                            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-mono whitespace-nowrap hover:bg-blue-100 flex-shrink-0"
+                                            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs font-mono whitespace-nowrap hover:bg-blue-100 flex-shrink-0"
                                             :title="$t('monitoring.diagnosis.tableTitle', { table: tbl })"
                                             data-testid="call-table"
                                             @click.stop="$emit('pivot', `table:${quote(tbl)}`)"
                                         ><UIcon name="i-heroicons-table-cells" class="w-3 h-3" />{{ tbl }}</button>
-                                        <span v-if="c.error" class="font-mono text-[11px] text-red-700 dark:text-red-400 truncate" :title="c.error">{{ c.error }}</span>
-                                        <span v-else-if="c.output_preview" class="text-[11px] text-gray-500 truncate" :title="c.result_summary || c.output_preview" data-testid="call-output">→ {{ c.output_preview }}</span>
+                                        <span v-if="c.error" class="font-mono text-2xs text-red-700 dark:text-red-400 truncate" :title="c.error">{{ c.error }}</span>
+                                        <span v-else-if="c.output_preview" class="text-2xs text-gray-500 truncate" :title="c.result_summary || c.output_preview" data-testid="call-output">→ {{ c.output_preview }}</span>
                                     </span>
                                     <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 flex-shrink-0" />
                                 </div>

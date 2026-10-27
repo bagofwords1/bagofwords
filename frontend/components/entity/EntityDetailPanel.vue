@@ -16,14 +16,14 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2 mb-1">
               <span
-                class="text-[10px] px-1.5 py-0.5 rounded border"
+                class="text-2xs px-1.5 py-0.5 rounded border"
                 :class="detail?.type === 'metric'
                   ? 'text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/15'
                   : 'text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/15'"
               >{{ (detail?.type || '').toUpperCase() }}</span>
               <span
                 v-if="paramSpecs.length"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 inline-flex items-center gap-1"
+                class="text-2xs px-1.5 py-0.5 rounded border text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 inline-flex items-center gap-1"
                 data-testid="entity-parameterized-badge"
               ><Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ $t('queries.detail.parameterizedBadge') }}</span>
 
@@ -38,19 +38,19 @@
               <!-- Entity workflow status badge -->
               <span
                 v-if="entityType === 'draft'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+                class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
               >{{ $t('queries.draftBadge') }}</span>
               <span
                 v-else-if="entityType === 'private'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+                class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
               >{{ $t('queries.draftBadge') }}</span>
               <span
                 v-else-if="entityType === 'suggested'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15"
+                class="text-2xs px-1.5 py-0.5 rounded border text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15"
               >{{ $t('queries.suggestedBadge') }}</span>
             </div>
             <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
-            <div class="text-[12px] text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
+            <div class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
             <!-- Data source icons under description -->
             <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
               <img
@@ -64,45 +64,45 @@
             </div>
           </div>
           <div class="flex-shrink-0 ms-auto flex items-center gap-2">
-            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
+            <button v-if="canDeleteEntities" class="text-2xs px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
               <span v-if="deleting">{{ $t('queries.detail.deletingInProgress') }}</span>
               <span v-else>{{ $t('queries.detail.deleteAction') }}</span>
             </button>
-            <button v-if="canUpdateEntities" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="openEdit = true">
+            <button v-if="canUpdateEntities" class="text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="openEdit = true">
               {{ $t('queries.detail.editAction') }}
             </button>
           </div>
         </div>
 
         <div class="mt-3 flex items-center gap-2 flex-wrap">
-          <div v-if="viewType" class="text-[11px] text-gray-500 dark:text-gray-400 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded">{{ viewType }}</div>
-          <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.rowsLabel', { n: formatCount(detail?.data?.info?.total_rows) }) }}</div>
-          <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.columnsLabel', { n: formatCount(detail?.data?.info?.total_columns) }) }}</div>
-          <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
+          <div v-if="viewType" class="text-2xs text-gray-500 dark:text-gray-400 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded">{{ viewType }}</div>
+          <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-2xs text-ink-muted">{{ $t('queries.detail.rowsLabel', { n: formatCount(detail?.data?.info?.total_rows) }) }}</div>
+          <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-2xs text-ink-muted">{{ $t('queries.detail.columnsLabel', { n: formatCount(detail?.data?.info?.total_columns) }) }}</div>
+          <div v-if="detail?.last_refreshed_at" class="text-2xs text-ink-muted">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
 
           <!-- Workflow actions -->
-          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
+          <button v-if="canSuggest" class="ms-auto text-2xs px-2 py-0.5 rounded border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
             <span v-if="suggesting">{{ $t('queries.detail.suggestingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.suggestAction') }}</span>
           </button>
 
-          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="withdrawSuggestion" :disabled="withdrawing">
+          <button v-if="canWithdraw" class="ms-auto text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="withdrawSuggestion" :disabled="withdrawing">
             <span v-if="withdrawing">{{ $t('queries.detail.withdrawingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.withdrawAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 dark:border-green-500/40 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
+          <button v-if="canApprove" class="ms-auto text-2xs px-2 py-0.5 rounded border border-green-300 dark:border-green-500/40 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
             <span v-if="approving">{{ $t('queries.detail.approvingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.approveAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
+          <button v-if="canApprove" class="text-2xs px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
             <span v-if="rejecting">{{ $t('queries.detail.rejectingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.rejectAction') }}</span>
           </button>
 
 
-          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
+          <button class="text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
             <span v-if="refreshing">{{ $t('queries.detail.refreshingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.refreshAction') }}</span>
           </button>
@@ -117,7 +117,7 @@
           data-testid="entity-param-bar"
         >
           <label v-for="spec in editableParamSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-            <span class="text-[11px]">{{ spec.label || spec.name }}</span>
+            <span class="text-2xs">{{ spec.label || spec.name }}</span>
             <select
               v-if="paramOptions[spec.name] && spec.type !== 'list'"
               v-model="paramValues[spec.name]"
@@ -139,7 +139,7 @@
           <span
             v-for="spec in identityParamSpecs"
             :key="spec.name"
-            class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 text-[10px]"
+            class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 text-2xs"
           >{{ spec.label || spec.name }}: {{ $t('queries.detail.paramScopedToYou') }}</span>
           <button
             v-if="editableParamSpecs.length"
@@ -150,10 +150,10 @@
           >
             <Icon name="heroicons-play" class="w-3 h-3" />{{ paramRunLoading ? $t('queries.detail.paramsRunning') : $t('queries.detail.paramsRun') }}
           </button>
-          <span v-if="detail?.applied_params" class="text-[10px] text-gray-400" data-testid="entity-applied">
+          <span v-if="detail?.applied_params" class="text-2xs text-ink-muted" data-testid="entity-applied">
             {{ $t('queries.detail.paramsRanWith', { values: formatAppliedParams(detail.applied_params) }) }}
           </span>
-          <span v-if="paramRunError" class="text-[10px] text-red-500" data-testid="entity-param-error">{{ paramRunError }}</span>
+          <span v-if="paramRunError" class="text-2xs text-red-500" data-testid="entity-param-error">{{ paramRunError }}</span>
         </div>
 
         <div class="mt-4">
@@ -182,7 +182,7 @@
                 ]"
               >
                 <span>{{ $t('queries.detail.tabData') }}</span>
-                <span v-if="rowCount" class="ms-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
+                <span v-if="rowCount" class="ms-1.5 text-2xs text-ink-muted">({{ rowCount }})</span>
               </button>
               <button
                 @click="activeTab = 'code'"
@@ -228,10 +228,10 @@
               <Transition name="fade" mode="out-in">
                 <div v-if="activeTab === 'code'" class="bg-gray-50 dark:bg-gray-900 rounded p-3 overflow-auto" style="max-height: 400px;">
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-[11px] text-gray-500 dark:text-gray-400">&nbsp;</span>
-                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-800" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
+                    <span class="text-2xs text-gray-500 dark:text-gray-400">&nbsp;</span>
+                    <button class="text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-800" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
                   </div>
-                  <pre class="text-[11px] text-gray-800 dark:text-gray-200"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
+                  <pre class="text-2xs text-gray-800 dark:text-gray-200"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
                 </div>
               </Transition>
             </div>

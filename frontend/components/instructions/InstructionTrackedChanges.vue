@@ -14,18 +14,18 @@
     <div v-if="!hideHeader" class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
       <div class="flex items-center gap-2 min-w-0">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-[11px]' : 'text-xs'">{{ $t('agentsPage.pendingReview') }}</span>
-        <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ totalHunks === 1 ? $t('agentsPage.changeCountOne', { n: totalHunks }) : $t('agentsPage.changeCountMany', { n: totalHunks }) }}</span>
-        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? $t('agentsPage.collapse') : $t('agentsPage.expandAll') }}</button>
+        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-2xs' : 'text-xs'">{{ $t('agentsPage.pendingReview') }}</span>
+        <span class="text-2xs text-ink-muted tabular-nums shrink-0">· {{ totalHunks === 1 ? $t('agentsPage.changeCountOne', { n: totalHunks }) : $t('agentsPage.changeCountMany', { n: totalHunks }) }}</span>
+        <button v-if="collapseContext && totalHunks" class="text-2xs text-ink-muted hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? $t('agentsPage.collapse') : $t('agentsPage.expandAll') }}</button>
       </div>
       <div v-if="canApprove && totalHunks" class="flex items-center gap-1.5 shrink-0">
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.rejectAll') }}</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
       </div>
     </div>
     <div class="relative min-h-0" :class="compact ? '' : 'flex-1'">
       <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'h-full px-8 py-6 max-w-3xl'" @scroll.passive="onReviewScroll">
-        <div v-if="loading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">{{ $t('common.loading') }}</div>
+        <div v-if="loading" class="text-center text-xs text-ink-muted py-10">{{ $t('common.loading') }}</div>
       <!-- A failed fetch is NOT "all resolved". Reporting zero hunks because the
            request errored tells a reviewer their pending changes were dealt
            with when this component has no idea either way — so the error gets
@@ -33,9 +33,9 @@
            really returned no hunks. -->
         <div v-else-if="loadError" class="text-center text-xs py-6">
           <div class="text-gray-500 dark:text-gray-400">{{ $t('agentsPage.loadPendingFailed') }}</div>
-          <button class="mt-1 text-gray-400 dark:text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">{{ $t('common.retry') }}</button>
+          <button class="mt-1 text-ink-muted underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">{{ $t('common.retry') }}</button>
         </div>
-        <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">{{ $t('agentsPage.allPendingResolved') }}</div>
+        <div v-else-if="!totalHunks" class="text-center text-xs text-ink-muted py-6">{{ $t('agentsPage.allPendingResolved') }}</div>
         <!-- Field changes (status, load mode) have no text to mark up, so they
              get their own rows above the text — each its own decision, with
              its own Accept/Reject, independent of the text hunks below. -->
@@ -50,22 +50,22 @@
           >
             <UIcon :name="fc.field === 'status' ? 'i-heroicons-power' : 'i-heroicons-bolt'" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="fc.field === 'status' && fc.to === 'draft' ? 'text-gray-500 dark:text-gray-400' : 'text-emerald-600 dark:text-emerald-400'" />
             <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5" :class="compact ? 'text-[12px]' : 'text-[13px]'">
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5" :class="compact ? 'text-xs' : 'text-sm'">
                 <span class="font-medium text-gray-700 dark:text-gray-200">{{ fieldLabel(fc.field) }}</span>
                 <del class="text-rose-500/80 line-through decoration-rose-300 decoration-1">{{ fieldValueLabel(fc.field, fc.from) }}</del>
-                <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-gray-400 dark:text-gray-500 rtl-flip" />
+                <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-ink-muted rtl-flip" />
                 <ins class="no-underline font-medium text-emerald-700 dark:text-emerald-400">{{ fieldValueLabel(fc.field, fc.to) }}</ins>
               </div>
-              <div v-if="fieldHint(fc)" class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">{{ fieldHint(fc) }}</div>
+              <div v-if="fieldHint(fc)" class="mt-0.5 text-2xs leading-snug text-gray-500 dark:text-gray-400">{{ fieldHint(fc) }}</div>
               <div class="mt-1 flex items-center gap-1.5 min-w-0">
                 <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="fc.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-                <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ fc.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="fc.created_by"> · {{ fc.created_by.name }}</template><template v-if="fc.created_at"> · {{ fmtWhen(fc.created_at) }}</template></span>
+                <span class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ fc.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="fc.created_by"> · {{ fc.created_by.name }}</template><template v-if="fc.created_at"> · {{ fmtWhen(fc.created_at) }}</template></span>
               </div>
-              <div v-if="fc.evidence" dir="auto" class="mt-0.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-2">{{ fc.evidence }}</div>
+              <div v-if="fc.evidence" dir="auto" class="mt-0.5 text-2xs leading-snug text-ink-muted italic line-clamp-2">{{ fc.evidence }}</div>
             </div>
             <div v-if="canApprove" class="flex items-center gap-1.5 shrink-0">
-              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-accept" @click.stop="_resolve(fc, 'accept')"><UIcon :name="resolving === fc.key ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === fc.key }]" />{{ $t('agentsPage.accept') }}</button>
-              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-reject" @click.stop="_resolve(fc, 'reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.reject') }}</button>
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-accept" @click.stop="_resolve(fc, 'accept')"><UIcon :name="resolving === fc.key ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === fc.key }]" />{{ $t('agentsPage.accept') }}</button>
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-reject" @click.stop="_resolve(fc, 'reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.reject') }}</button>
             </div>
           </div>
         </div>
@@ -73,9 +73,9 @@
              (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR.
              Muted while the only pending change switches the instruction off:
              the text is kept, but it is about to stop being used. -->
-        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="[compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]', pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']">
+        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="[compact ? 'text-xs leading-[1.55]' : 'text-sm leading-[1.6]', pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']">
           <template v-for="(seg, si) in displaySegments" :key="si">
-            <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines === 1 ? $t('agentsPage.unchangedLineOne', { n: seg.lines }) : $t('agentsPage.unchangedLineMany', { n: seg.lines }) }} ···</span>
+            <span v-if="seg.kind === 'gap'" class="block my-1 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines === 1 ? $t('agentsPage.unchangedLineOne', { n: seg.lines }) : $t('agentsPage.unchangedLineMany', { n: seg.lines }) }} ···</span>
             <template v-else-if="seg.kind === 'context'">
               <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
             </template>
@@ -124,13 +124,13 @@
         <div class="w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
           <div class="flex items-center gap-1.5 mb-1.5">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="hoverCard.seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template><template v-if="hoverCard.seg.created_at"> · {{ fmtWhen(hoverCard.seg.created_at) }}</template></span>
+            <span class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template><template v-if="hoverCard.seg.created_at"> · {{ fmtWhen(hoverCard.seg.created_at) }}</template></span>
           </div>
           <!-- Brief evidence stamped by the AI when it proposed this change -->
-          <div v-if="hoverCard.seg.evidence" class="mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ hoverCard.seg.evidence }}</div>
+          <div v-if="hoverCard.seg.evidence" class="mb-1.5 text-2xs leading-snug text-ink-muted italic line-clamp-3">{{ hoverCard.seg.evidence }}</div>
           <div class="flex items-center gap-1.5">
-            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('accept')"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ $t('agentsPage.accept') }}</button>
-            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.reject') }}</button>
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('accept')"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ $t('agentsPage.accept') }}</button>
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.reject') }}</button>
           </div>
         </div>
       </div>

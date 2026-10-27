@@ -55,11 +55,11 @@
                                 v-model="searchTerm"
                                 type="text"
                                 :placeholder="$t('reports.searchPlaceholder')"
-                                class="w-full ps-8 pe-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                                class="w-full ps-8 pe-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
-                                class="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"
+                                class="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted"
                             />
                         </div>
 
@@ -77,7 +77,7 @@
                                     <UIcon name="i-heroicons-funnel" class="h-4 w-4" />
                                     <span
                                         v-if="activeFilterCount > 0"
-                                        class="absolute -top-1 -end-1 inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 text-[10px] font-semibold rounded-full bg-blue-600 text-white"
+                                        class="absolute -top-1 -end-1 inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 text-2xs font-semibold rounded-full bg-blue-600 text-white"
                                     >
                                         {{ activeFilterCount }}
                                     </span>
@@ -268,7 +268,7 @@
 
                         <!-- Type avatar -->
                         <span class="flex items-center justify-center w-9 h-9 rounded-lg bg-gray-50 dark:bg-gray-800 shrink-0">
-                            <UIcon :name="reportTypeIcon(report)" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                            <UIcon :name="reportTypeIcon(report)" class="w-5 h-5 text-ink-muted" />
                         </span>
 
                         <!-- Title block -->
@@ -292,13 +292,13 @@
                                 <ReportStatusDot :report-id="report.id" />
                                 <!-- Visibility badges -->
                                 <UTooltip v-if="report.artifact_modes?.length > 0" :text="report.artifact_visibility !== 'none' ? $t('reports.dashboardWithVisibility', { visibility: visibilityLabel(report.artifact_visibility) }) : $t('reports.dashboardPrivate')">
-                                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-2xs text-ink-muted">
                                         {{ $t('reports.dashboardLabel') }}
                                         <UIcon v-if="report.artifact_visibility !== 'none'" :name="visibilityIcon(report.artifact_visibility)" class="w-3 h-3" />
                                     </span>
                                 </UTooltip>
                                 <UTooltip v-if="report.conversation_visibility !== 'none'" :text="visibilityLabel(report.conversation_visibility)">
-                                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+                                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-2xs text-ink-muted">
                                         {{ $t('reports.conversationLabel') }}
                                         <UIcon :name="visibilityIcon(report.conversation_visibility)" class="w-3 h-3" />
                                     </span>
@@ -313,7 +313,7 @@
                                     <img src="/data_sources_icons/excel.png" class="h-3 inline" />
                                 </UTooltip>
                                 <UTooltip v-if="report.cron_schedule && !report.has_scheduled_prompts" :text="$t('reports.tooltips.runningOnSchedule')">
-                                    <UIcon name="i-heroicons-clock" class="h-3.5 w-3.5 text-gray-400" />
+                                    <UIcon name="i-heroicons-clock" class="h-3.5 w-3.5 text-ink-muted" />
                                 </UTooltip>
                                 <!-- Trigger provenance: session spawned by a trigger delivery -->
                                 <UTooltip v-if="report.webhook_id" :text="$t('reports.tooltips.createdByTrigger')">
@@ -325,7 +325,7 @@
                                 </UTooltip>
                             </div>
                             <!-- Type sub-label + data sources + metrics -->
-                            <div class="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 flex-wrap">
+                            <div class="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted flex-wrap">
                                 <span
                                     class="inline-flex items-center gap-1"
                                     :class="isTrainingReport(report) ? 'text-sky-600 dark:text-sky-400' : ''"
@@ -367,7 +367,7 @@
                                             v-if="report.data_sources.length > 2"
                                             :text="report.data_sources.slice(2).map(d => d.name).join(', ')"
                                         >
-                                            <span class="text-[11px]">+{{ report.data_sources.length - 2 }}</span>
+                                            <span class="text-2xs">+{{ report.data_sources.length - 2 }}</span>
                                         </UTooltip>
                                     </span>
                                 </template>
@@ -400,7 +400,7 @@
                         </div>
 
                         <!-- Right metadata: date -->
-                        <div class="shrink-0 hidden sm:block text-xs text-gray-400 dark:text-gray-500">
+                        <div class="shrink-0 hidden sm:block text-xs text-ink-muted">
                             {{ formatDate(report.created_at) }}
                         </div>
 
@@ -429,7 +429,7 @@
                 <!-- These reports belong to other people, so the shared tab gets
                      no create button: a new report would not land in this list. -->
                 <p
-                    class="text-sm text-gray-400 dark:text-gray-500"
+                    class="text-sm text-ink-muted"
                     :class="activeFilter === 'shared' ? '' : 'mb-4'"
                 >
                     {{ activeFilter === 'shared' ? $t('reports.sharedEmptyHint') : $t('reports.emptyHint') }}
@@ -452,7 +452,7 @@
                  and hiding the row then would strip the only way back to 10. -->
             <div
                 v-if="!isLoading && visibleReports.length && pagination.total > rowsPerPageOptions[0]"
-                class="mt-3 flex items-center justify-between gap-3 text-xs text-gray-400 dark:text-gray-500"
+                class="mt-3 flex items-center justify-between gap-3 text-xs text-ink-muted"
             >
                 <div class="flex items-center gap-1.5">
                     <span class="whitespace-nowrap">{{ $t('reports.pagination.rowsPerPage') }}</span>
@@ -848,8 +848,20 @@ const toggleAllVisible = () => {
     selectedIds.value = s
 }
 
+// The confirmation names the never-published dashboards that go too, and the
+// published ones whose changes not yet published are lost (phase 7), and
+// the ones other conversations keep editing (collab01).
+async function withUnpublishedNote(message: string, reportIds: string[]) {
+    const notes = await dashboardsDeleteNotes(reportIds)
+    const lines = [message]
+    if (notes.deleted.length) lines.push(t('reports.deleteUnpublishedDashboards', { names: notes.deleted.join(', ') }))
+    if (notes.losesChanges.length) lines.push(t('reports.deleteLosesUnpublishedChanges', { names: notes.losesChanges.join(', ') }))
+    if (notes.othersEditing.length) lines.push(t('dashboardCollab.conversation.deleteOthersEditing', { names: notes.othersEditing.join(', ') }))
+    return lines.join('\n\n')
+}
+
 async function confirmDelete(reportId: string) {
-    if (confirm(t('reports.archiveConfirm'))) {
+    if (confirm(await withUnpublishedNote(t('reports.archiveConfirm'), [reportId]))) {
         await deleteReport(reportId)
         await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     }
@@ -882,7 +894,8 @@ async function toggleStar(report: any) {
 
 async function archiveSelected() {
     if (selectedIds.value.size === 0) return
-    const ok = window.confirm(t('reports.archiveConfirmBulk', { count: selectedIds.value.size }))
+    const ok = window.confirm(await withUnpublishedNote(
+        t('reports.archiveConfirmBulk', { count: selectedIds.value.size }), Array.from(selectedIds.value)))
     if (!ok) return
     try {
         const response: any = await useMyFetch('/reports/bulk/archive', {

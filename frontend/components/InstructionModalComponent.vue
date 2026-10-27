@@ -15,7 +15,7 @@
                 >
                     <!-- Header -->
                     <div class="flex items-center justify-between px-5 py-2.5 border-b shrink-0">
-                        <span class="text-xs font-medium text-gray-400 dark:text-gray-600 uppercase tracking-wide">{{ modalTitle }}</span>
+                        <span class="text-xs font-medium text-ink-muted uppercase tracking-wide">{{ modalTitle }}</span>
                         <button @click="closeModal" class="text-gray-300 hover:text-gray-500 dark:hover:text-gray-400 transition-colors">
                             <Icon name="heroicons:x-mark" class="w-4 h-4" />
                         </button>

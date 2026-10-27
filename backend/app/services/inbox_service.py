@@ -261,6 +261,31 @@ class InboxService:
             group_key=f"share:{share_type}:{report.id}",
         )
 
+    async def notify_dashboard_share(
+        self, db: AsyncSession, *, artifact, user_ids: List[str], actor_user,
+    ) -> List[Notification]:
+        """The same in-app 'shared with you' as notify_share, for one dashboard
+        shared on its own (dashboards project, phase 4): it links to the
+        dashboard's /d page and dedups per dashboard."""
+        if not user_ids:
+            return []
+        sender = getattr(actor_user, "name", None) or getattr(actor_user, "email", None) or "Someone"
+        title_text = getattr(artifact, "title", None) or "Untitled"
+        return await self.notify_users(
+            db,
+            organization_id=str(artifact.organization_id),
+            user_ids=user_ids,
+            source=SOURCE_SHARE,
+            type="share_artifact",
+            title=f"{sender} shared a dashboard with you",
+            body=f'{sender} shared the dashboard "{title_text}" with you.',
+            actor_user_id=str(actor_user.id),
+            link=f"/d/{artifact.id}",
+            subject={"kind": "dashboard", "artifact_id": str(artifact.id), "share_type": "artifact",
+                     "i18n": {"actor": sender, "report": title_text}},
+            group_key=f"share:dashboard:{artifact.id}",
+        )
+
     # ---- read --------------------------------------------------------------
     async def list_for_user(
         self, db: AsyncSession, user, *,

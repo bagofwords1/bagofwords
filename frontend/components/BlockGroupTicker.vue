@@ -2,12 +2,12 @@
 	<button
 		type="button"
 		:aria-expanded="expanded"
-		class="w-full text-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+		class="w-full text-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 flex items-center gap-1 py-1 text-chat-2 text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
 		data-testid="block-group-header"
 		@click="$emit('toggle')"
 	>
-		<Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-gray-400 rtl-flip" />
-		<Spinner v-if="group.active" class="w-2.5 h-2.5 me-0.5 text-gray-400 dark:text-gray-500" />
+		<Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 text-ink-muted rtl-flip" />
+		<Spinner v-if="group.active" class="w-2.5 h-2.5 me-0.5 text-ink-muted" />
 		<!-- Grid-stacked crossfade: old and new labels occupy the same cell, so
 		     the new fades in WHILE the old fades out — there is never a frame
 		     without text (out-in mode blanked the line between labels). -->
@@ -17,7 +17,7 @@
 			</Transition>
 		</span>
 		<span v-if="group.issueCount" class="text-amber-500">· {{ $t('tools.browser.checkIssues', { count: group.issueCount }) }}</span>
-		<span v-if="group.pendingCount" class="text-gray-400">· {{ $t('tools.browser.updateStates.pending') }}</span>
+		<span v-if="group.pendingCount" class="text-ink-muted">· {{ $t('tools.browser.updateStates.pending') }}</span>
 	</button>
 </template>
 

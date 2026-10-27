@@ -1,13 +1,13 @@
 <template>
     <!-- Planner said no: one muted line, expandable to the planner's reason. -->
     <div v-if="checkin.status === 'not_proposed'" class="ps-1" :data-testid="`checkin-card-${checkin.id}`" data-status="not_proposed">
-        <button type="button" class="flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" @click="open = !open">
+        <button type="button" class="flex items-center gap-1.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300" @click="open = !open">
             <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3.5 h-3.5" />
             <span>{{ $t('traceModal.checkin.noFollowUp') }}</span>
             <UIcon :name="open ? 'i-heroicons-chevron-up-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3" />
-            <span v-if="usageLabel(checkin.planner_llm_tokens, checkin.planner_llm_cost_usd)" class="text-[10px] font-mono">{{ usageLabel(checkin.planner_llm_tokens, checkin.planner_llm_cost_usd) }}</span>
+            <span v-if="usageLabel(checkin.planner_llm_tokens, checkin.planner_llm_cost_usd)" class="text-2xs font-mono">{{ usageLabel(checkin.planner_llm_tokens, checkin.planner_llm_cost_usd) }}</span>
         </button>
-        <p v-if="open" class="mt-1 ms-5 text-[11px] text-gray-500 dark:text-gray-400 whitespace-pre-line" dir="auto">{{ checkin.plan_reason || $t('traceModal.checkin.noReason') }}</p>
+        <p v-if="open" class="mt-1 ms-5 text-2xs text-gray-500 dark:text-gray-400 whitespace-pre-line" dir="auto">{{ checkin.plan_reason || $t('traceModal.checkin.noReason') }}</p>
     </div>
 
     <!-- Every other decision: the full lifecycle card. -->
@@ -15,39 +15,39 @@
         <div class="flex items-center gap-1.5 flex-wrap">
             <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3.5 h-3.5 text-indigo-500" />
             <span class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('traceModal.checkin.title') }}</span>
-            <span :class="['inline-flex items-center px-1.5 py-px rounded-full text-[10px] font-medium', statusClass]">
+            <span :class="['inline-flex items-center px-1.5 py-px rounded-full text-2xs font-medium', statusClass]">
                 {{ $t(`traceModal.checkin.status.${checkin.status}`) }}<template v-if="checkin.status_reason">&nbsp;· {{ reasonLabel(checkin.status_reason) }}</template>
             </span>
-            <span v-if="checkin.due_at" class="ms-auto text-[10px] text-gray-400 dark:text-gray-500">{{ $t('traceModal.checkin.due', { when: formatDate(checkin.due_at) }) }}</span>
+            <span v-if="checkin.due_at" class="ms-auto text-2xs text-ink-muted">{{ $t('traceModal.checkin.due', { when: formatDate(checkin.due_at) }) }}</span>
         </div>
 
         <div v-if="checkin.note">
-            <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.note') }}</div>
-            <p class="text-[11px] text-gray-700 dark:text-gray-300 whitespace-pre-line" dir="auto">{{ checkin.note }}</p>
+            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.note') }}</div>
+            <p class="text-2xs text-gray-700 dark:text-gray-300 whitespace-pre-line" dir="auto">{{ checkin.note }}</p>
         </div>
         <div v-if="checkin.plan_reason">
-            <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.planReason') }}</div>
-            <p class="text-[11px] text-gray-700 dark:text-gray-300" dir="auto">{{ checkin.plan_reason }}</p>
+            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.planReason') }}</div>
+            <p class="text-2xs text-gray-700 dark:text-gray-300" dir="auto">{{ checkin.plan_reason }}</p>
         </div>
 
         <div v-if="checkin.judge_decision" class="rounded-md bg-white/70 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-800 px-2 py-1.5">
             <div class="flex items-center gap-1.5">
-                <span class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.judge') }}</span>
-                <span :class="['px-1.5 py-px rounded-full text-[10px] font-semibold', checkin.judge_decision === 'run' ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300']">
+                <span class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('traceModal.checkin.judge') }}</span>
+                <span :class="['px-1.5 py-px rounded-full text-2xs font-semibold', checkin.judge_decision === 'run' ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300']">
                     {{ $t(`traceModal.checkin.decision.${checkin.judge_decision}`) }}
                 </span>
-                <span v-if="checkin.judged_at" class="ms-auto text-[10px] text-gray-400 dark:text-gray-500">{{ formatDate(checkin.judged_at) }}</span>
+                <span v-if="checkin.judged_at" class="ms-auto text-2xs text-ink-muted">{{ formatDate(checkin.judged_at) }}</span>
             </div>
-            <p class="mt-0.5 text-[11px] text-gray-700 dark:text-gray-300" dir="auto">{{ checkin.judge_reason }}</p>
-            <p v-if="checkin.judge_focus" class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400" dir="auto"><span class="font-medium">{{ $t('traceModal.checkin.focus') }}:</span> {{ checkin.judge_focus }}</p>
+            <p class="mt-0.5 text-2xs text-gray-700 dark:text-gray-300" dir="auto">{{ checkin.judge_reason }}</p>
+            <p v-if="checkin.judge_focus" class="mt-0.5 text-2xs text-gray-500 dark:text-gray-400" dir="auto"><span class="font-medium">{{ $t('traceModal.checkin.focus') }}:</span> {{ checkin.judge_focus }}</p>
         </div>
 
-        <div class="flex items-center gap-1.5 text-[11px]">
+        <div class="flex items-center gap-1.5 text-2xs">
             <UIcon :name="outcomeIcon" :class="['w-3.5 h-3.5', outcomeIconClass]" />
             <span class="text-gray-700 dark:text-gray-300" dir="auto">{{ outcomeText }}</span>
         </div>
 
-        <div v-if="plannerUsage || judgeUsage" class="flex items-center gap-3 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+        <div v-if="plannerUsage || judgeUsage" class="flex items-center gap-3 text-2xs text-ink-muted font-mono">
             <span v-if="plannerUsage">{{ $t('traceModal.checkin.plannerUsage') }} {{ plannerUsage }}</span>
             <span v-if="judgeUsage">{{ $t('traceModal.checkin.judgeUsage') }} {{ judgeUsage }}</span>
         </div>
@@ -139,7 +139,7 @@ const outcomeIcon = computed(() => {
 const outcomeIconClass = computed(() => {
     switch (props.checkin.status) {
         case 'sent': return 'text-blue-500'
-        case 'ran_quiet': return 'text-gray-400'
+        case 'ran_quiet': return 'text-ink-muted'
         case 'failed': return 'text-red-500'
         case 'planned':
         case 'running': return 'text-indigo-500'

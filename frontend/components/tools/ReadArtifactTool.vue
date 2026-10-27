@@ -1,11 +1,11 @@
 <template>
   <div class="mb-2">
     <!-- Main Header -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'success'" name="heroicons-photo" class="w-3 h-3 me-1.5 text-blue-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.readArtifact.reading') }}</span>
@@ -18,7 +18,7 @@
       <span
         v-if="artifactMode && status === 'success'"
         :class="[
-          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-2xs font-medium',
           artifactMode === 'slides'
             ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
             : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
@@ -28,7 +28,7 @@
       </span>
 
       <!-- Version Badge -->
-      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-[10px] text-gray-400">
+      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-2xs text-ink-muted">
         v{{ artifactVersion }}
       </span>
     </div>
@@ -59,13 +59,13 @@
           </div>
           <div class="flex-1 min-w-0">
             <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ artifactTitle || 'Untitled' }}</div>
-            <div class="text-[10px] text-gray-400">
+            <div class="text-2xs text-ink-muted">
               {{ codeStats }}
             </div>
             <button
               v-if="artifactId"
               @click.stop="copyArtifactId"
-              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono mt-0.5"
+              class="flex items-center gap-0.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono mt-0.5"
               title="Click to copy ID"
             >
               <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
@@ -77,19 +77,19 @@
         <!-- Code Toggle -->
         <div class="mt-2">
           <div
-            class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+            class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
             @click.stop="toggleCode"
           >
-            <Icon :name="isCodeExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
-            <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-gray-400" />
+            <Icon :name="isCodeExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
+            <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-ink-muted" />
             <span>{{ isCodeExpanded ? 'Hide code' : 'Show code' }}</span>
-            <span class="ms-1 text-gray-400">({{ codeLines }} lines)</span>
+            <span class="ms-1 text-ink-muted">({{ codeLines }} lines)</span>
           </div>
 
           <!-- Code Preview -->
           <Transition name="fade">
             <div v-if="isCodeExpanded" class="mt-2">
-              <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700 dark:text-gray-300">{{ artifactCode }}</code></pre>
+              <pre class="text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700 dark:text-gray-300">{{ artifactCode }}</code></pre>
             </div>
           </Transition>
         </div>

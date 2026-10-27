@@ -375,6 +375,17 @@ async def get_latest_artifact(
     return schema
 
 
+async def _assert_may_write_version(db, version_id: str, user) -> None:
+    """Owning a version (or its conversation) is not enough to change a
+    shared dashboard: its editor must still be one (collab01)."""
+    from app.models.artifact import ArtifactVersion
+    from app.services.dashboard_access import assert_may_write
+
+    version = await db.get(ArtifactVersion, str(version_id))
+    if version is not None:
+        await assert_may_write(db, version.artifact_id, str(user.id))
+
+
 @router.patch("/{artifact_id}", response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ArtifactModel, owner_only=True)
 async def update_artifact(
@@ -385,6 +396,7 @@ async def update_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Update an existing artifact."""
+    await _assert_may_write_version(db, artifact_id, current_user)
     if payload.content is not None:
         existing = await service.get(db, artifact_id)
         payload = payload.model_copy(update={
@@ -405,6 +417,7 @@ async def delete_artifact(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Delete an artifact (soft delete)."""
+    await _assert_may_write_version(db, artifact_id, current_user)
     success = await service.delete(db, artifact_id)
     if not success:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")

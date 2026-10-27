@@ -21,7 +21,7 @@
           <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('triggers.description') }}</div>
           <button
             @click="openNew"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
             data-testid="new-trigger"
           >
             <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
@@ -38,8 +38,8 @@
           <button
             v-for="f in statusFilters"
             :key="f.value"
-            class="px-2.5 py-1 text-[11px] rounded transition-colors"
-            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"
+            class="px-2.5 py-1 text-2xs rounded transition-colors"
+            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'"
             @click="statusFilter = f.value"
           >
             {{ f.label }}
@@ -70,10 +70,10 @@
               <div class="flex items-center gap-2 mb-1" :class="{ 'opacity-50': !trig.is_active }">
                 <UIcon name="heroicons-bolt-solid" class="w-3.5 h-3.5 text-amber-500" />
                 <span class="text-sm font-medium text-gray-900 dark:text-white">{{ trig.name || trig.task_template || $t('triggers.noTask') }}</span>
-                <span v-if="trig.classify_enabled" class="text-[10px] px-1.5 py-0.5 rounded border text-purple-700 border-purple-200 bg-purple-50">AI {{ $t('triggers.filter') }}</span>
+                <span v-if="trig.classify_enabled" class="text-2xs px-1.5 py-0.5 rounded border text-purple-700 border-purple-200 bg-purple-50">AI {{ $t('triggers.filter') }}</span>
               </div>
               <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mb-1.5">{{ trig.task_template || $t('triggers.noTask') }}</div>
-              <div class="flex items-center gap-3 text-[11px] text-gray-400 dark:text-gray-500 flex-wrap">
+              <div class="flex items-center gap-3 text-2xs text-ink-muted flex-wrap">
                 <span class="inline-flex items-center gap-1">
                   <UIcon name="heroicons-cube" class="w-3 h-3" />
                   {{ trig.data_sources.length ? trig.data_sources.map((d: any) => d.name).join(', ') : $t('triggers.noAgents') }}
@@ -105,8 +105,8 @@
               <!-- Run count only: the history itself lives in the trigger's
                    summary, so there is one place to read it rather than two. -->
               <span
-                class="inline-flex items-center gap-1 text-[11px]"
-                :class="trig.last_run_status === 'error' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'"
+                class="inline-flex items-center gap-1 text-2xs"
+                :class="trig.last_run_status === 'error' ? 'text-red-500' : 'text-ink-muted'"
                 :data-testid="`trigger-runs-${trig.name}`"
               >
                 <UIcon :name="trig.last_run_status === 'error' ? 'heroicons-exclamation-triangle' : 'heroicons-clock'" class="w-3 h-3" />
@@ -144,7 +144,7 @@
               <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
                 {{ viewMode ? $t('triggers.viewTitle') : $t('triggers.setupTitle') }}
               </h3>
-              <p class="text-xs text-gray-400 mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
+              <p class="text-xs text-ink-muted mt-0.5">{{ $t('triggers.modalSubtitle') }}</p>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showModal = false" />
           </div>
@@ -175,13 +175,13 @@
                   the whole point of a trigger) ─────────────────────────────── -->
         <section data-testid="trigger-endpoint-section">
           <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('triggers.endpointSection') }}</h4>
-          <p class="text-[11px] text-gray-400 mt-0.5 mb-2">{{ $t('triggers.endpointHint') }}</p>
+          <p class="text-2xs text-ink-muted mt-0.5 mb-2">{{ $t('triggers.endpointHint') }}</p>
 
           <div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-            <UIcon name="heroicons-link" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <UIcon name="heroicons-link" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
             <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="trigger-url">{{ current?.delivery_url || '—' }}</code>
             <button
-              class="shrink-0 inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800"
+              class="shrink-0 inline-flex items-center gap-1 text-2xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-white dark:hover:bg-gray-800"
               data-testid="trigger-copy-url"
               @click="copy(current?.delivery_url, 'url')"
             >
@@ -194,7 +194,7 @@
                the only meaningful revocation. -->
           <button
             v-if="form.auth_mode === 'url_token'"
-            class="mt-1.5 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center gap-1"
+            class="mt-1.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center gap-1"
             data-testid="trigger-rotate-url"
             @click="rotate(current)"
           >
@@ -210,33 +210,33 @@
               <option value="token">{{ $t('triggers.authToken') }}</option>
               <option value="hmac">{{ $t('triggers.authHmac') }}</option>
             </select>
-            <p class="text-[11px] text-gray-400 leading-snug pt-1.5">{{ authHint }}</p>
+            <p class="text-2xs text-ink-muted leading-snug pt-1.5">{{ authHint }}</p>
           </div>
 
           <!-- Signing secret: only meaningful for the header/HMAC modes, and only
                available in the session that minted it (create or rotate). -->
           <div v-if="form.auth_mode !== 'url_token'" class="mt-2">
             <div v-if="sessionSecret" class="flex items-center gap-2 rounded-lg border border-green-200 dark:border-green-900 bg-green-50/50 dark:bg-green-950/30 px-3 py-2">
-              <span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 shrink-0">{{ $t('triggers.secret') }}</span>
+              <span class="text-2xs font-medium uppercase tracking-wide text-ink-muted shrink-0">{{ $t('triggers.secret') }}</span>
               <code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate" data-testid="trigger-secret">{{ sessionSecret }}</code>
-              <button class="shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(sessionSecret, 'secret')">
+              <button class="shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-300" @click="copy(sessionSecret, 'secret')">
                 <UIcon :name="copied === 'secret' ? 'heroicons-check' : 'heroicons-clipboard-document'" class="w-4 h-4" />
               </button>
             </div>
-            <p v-if="sessionSecret" class="mt-1 text-[11px] text-gray-400">{{ $t('triggers.copyOnce') }}</p>
-            <button v-else class="text-[11px] text-blue-500 hover:text-blue-600 inline-flex items-center gap-1" data-testid="trigger-rotate" @click="rotate(current)">
+            <p v-if="sessionSecret" class="mt-1 text-2xs text-ink-muted">{{ $t('triggers.copyOnce') }}</p>
+            <button v-else class="text-2xs text-blue-500 hover:text-blue-600 inline-flex items-center gap-1" data-testid="trigger-rotate" @click="rotate(current)">
               <UIcon name="heroicons-arrow-path" class="w-3 h-3" /> {{ $t('triggers.rotate') }}
             </button>
           </div>
 
           <!-- Live delivery status: the feedback loop that was missing — paste the
                URL, hit the sender's test button, watch it land here. -->
-          <div class="mt-2.5 flex items-center gap-2 text-[11px]" data-testid="trigger-event-status">
+          <div class="mt-2.5 flex items-center gap-2 text-2xs" data-testid="trigger-event-status">
             <template v-if="lastEvent">
               <UIcon name="heroicons-check-circle-solid" class="w-3.5 h-3.5 text-green-500 shrink-0" />
               <span class="text-gray-600 dark:text-gray-300 truncate">
                 {{ $t('triggers.eventReceived', { time: formatRelativeTime(lastEvent.received_at) }) }}
-                <span v-if="lastEvent.summary" class="text-gray-400">— {{ lastEvent.summary }}</span>
+                <span v-if="lastEvent.summary" class="text-ink-muted">— {{ lastEvent.summary }}</span>
               </span>
               <button class="shrink-0 text-blue-500 hover:text-blue-600" data-testid="trigger-toggle-payload" @click="showPayload = !showPayload">
                 {{ showPayload ? $t('triggers.hidePayload') : $t('triggers.viewPayload') }}
@@ -244,20 +244,20 @@
             </template>
             <template v-else>
               <Spinner class="w-3 h-3 shrink-0" />
-              <span class="text-gray-400">{{ $t('triggers.waitingForEvent') }}</span>
+              <span class="text-ink-muted">{{ $t('triggers.waitingForEvent') }}</span>
             </template>
           </div>
 
           <div v-if="showPayload && lastEvent" class="mt-2 rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden" data-testid="trigger-payload">
             <div v-if="lastEvent.headers && Object.keys(lastEvent.headers).length" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-              <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
-              <div v-for="(v, k) in lastEvent.headers" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
-                <span class="text-gray-400">{{ k }}:</span> {{ v }}
+              <div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
+              <div v-for="(v, k) in lastEvent.headers" :key="k" class="text-2xs font-mono text-gray-500 dark:text-gray-400 truncate">
+                <span class="text-ink-muted">{{ k }}:</span> {{ v }}
               </div>
             </div>
             <div class="px-3 py-2">
-              <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
-              <pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{{ prettyPayload }}</pre>
+              <div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
+              <pre class="text-2xs font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-48 overflow-y-auto">{{ prettyPayload }}</pre>
             </div>
           </div>
         </section>
@@ -270,35 +270,35 @@
           </div>
           <dl class="mt-4 space-y-2.5">
             <div class="flex items-start gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
+              <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.agents') }}</dt>
               <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="trigger-view-agents">
                 <span v-if="(current?.data_sources || []).length">{{ current.data_sources.map((d) => d.name).join(', ') }}</span>
-                <span v-else class="text-gray-400">{{ $t('triggers.noAgents') }}</span>
+                <span v-else class="text-ink-muted">{{ $t('triggers.noAgents') }}</span>
               </dd>
             </div>
             <div class="flex items-start gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
+              <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.model') }}</dt>
               <dd class="text-xs text-gray-700 dark:text-gray-300">{{ modelName(current?.model_id, current?.reasoning_effort) }}</dd>
             </div>
             <div class="flex items-start gap-2">
             </div>
             <div class="flex items-start gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.project') }}</dt>
+              <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.project') }}</dt>
               <dd class="text-xs text-gray-700 dark:text-gray-300">
                 <NuxtLink v-if="current?.project_id" :to="`/projects/${current.project_id}`" class="text-blue-500 hover:text-blue-600" @click="showModal = false">
                   {{ current.project_name || $t('triggers.project') }}
                 </NuxtLink>
-                <span v-else class="text-gray-400">{{ $t('triggers.noProjectShort') }}</span>
+                <span v-else class="text-ink-muted">{{ $t('triggers.noProjectShort') }}</span>
               </dd>
             </div>
             <div class="flex items-start gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('triggers.filterSection2') }}</dt>
+              <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('triggers.filterSection2') }}</dt>
               <dd class="text-xs text-gray-700 dark:text-gray-300">
                 {{ current?.classify_enabled ? $t('triggers.filterOn') : $t('triggers.filterOff') }}
               </dd>
             </div>
             <div class="flex items-center gap-2">
-              <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('triggers.activeToggle') }}</dt>
+              <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('triggers.activeToggle') }}</dt>
               <dd>
                 <button
                   data-testid="trigger-view-active"
@@ -369,11 +369,11 @@
         <!-- ── Sessions this trigger spawned + provenance (view only) ─────── -->
         <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="trigger-runs-column">
           <div class="flex items-baseline justify-between">
-            <h4 class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ $t('scheduledPrompt.previousRuns') }}</h4>
-            <span v-if="current?.run_count" class="text-[11px] text-gray-300 dark:text-gray-600">{{ current.run_count }}</span>
+            <h4 class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('scheduledPrompt.previousRuns') }}</h4>
+            <span v-if="current?.run_count" class="text-2xs text-gray-300 dark:text-gray-600">{{ current.run_count }}</span>
           </div>
 
-          <div v-if="runsLoading" class="mt-2 text-[11px] text-gray-400 inline-flex items-center">
+          <div v-if="runsLoading" class="mt-2 text-2xs text-ink-muted inline-flex items-center">
             <Spinner class="me-1 w-3 h-3" /> {{ $t('triggers.loading') }}
           </div>
           <ul v-else-if="runs.length" class="mt-1.5 -mx-2">
@@ -384,34 +384,34 @@
                 @click="showModal = false"
               >
                 <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
-                <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
-                <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
+                <span class="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
+                <span class="shrink-0 text-2xs text-ink-muted">{{ formatRunDate(run.created_at) }}</span>
               </NuxtLink>
             </li>
           </ul>
-          <p v-else class="mt-2 text-[11px] text-gray-400">{{ $t('scheduledPrompt.noRuns') }}</p>
+          <p v-else class="mt-2 text-2xs text-ink-muted">{{ $t('scheduledPrompt.noRuns') }}</p>
 
           <dl class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
             <!-- No "last delivery" row when the runs above already date the
                  most recent one; it matters when deliveries arrived but never
                  produced a session (declined, paused, or not yet configured). -->
             <div v-if="!runs.length && current?.last_delivery_at" class="flex items-start gap-2">
-              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('triggers.lastDeliveryLabel') }}</dt>
-              <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(current.last_delivery_at) }}</dd>
+              <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('triggers.lastDeliveryLabel') }}</dt>
+              <dd class="text-2xs text-gray-600 dark:text-gray-300">{{ formatRunDate(current.last_delivery_at) }}</dd>
             </div>
             <div class="flex items-start gap-2">
-              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.created') }}</dt>
-              <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(current?.created_at) }}</dd>
+              <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.created') }}</dt>
+              <dd class="text-2xs text-gray-600 dark:text-gray-300">{{ formatRunDate(current?.created_at) }}</dd>
             </div>
             <div v-if="current?.user_name" class="flex items-start gap-2">
-              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.createdBy') }}</dt>
-              <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
+              <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.createdBy') }}</dt>
+              <dd class="text-2xs text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
             </div>
             <!-- Deliveries execute as the owner, with their agent access and
                  quota — worth stating next to who created it. -->
             <div v-if="current?.user_name" class="flex items-start gap-2">
-              <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('triggers.runsAs') }}</dt>
-              <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
+              <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('triggers.runsAs') }}</dt>
+              <dd class="text-2xs text-gray-600 dark:text-gray-300 truncate">{{ current.user_name }}</dd>
             </div>
           </dl>
         </aside>

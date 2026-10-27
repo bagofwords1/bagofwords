@@ -3,7 +3,7 @@
         <div class="p-5">
             <div class="flex items-center justify-between mb-4">
                 <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Set Labels</h3>
-                <button @click="isOpen = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <button @click="isOpen = false" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
@@ -35,16 +35,16 @@
                                 <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: getLabelColor(val) }"></span>
                                 {{ getOptionLabel(val) }}
                             </span>
-                            <span v-if="selectedValues.length > 2" class="text-xs text-gray-400">
+                            <span v-if="selectedValues.length > 2" class="text-xs text-ink-muted">
                                 +{{ selectedValues.length - 2 }}
                             </span>
                         </template>
                     </div>
-                    <span v-else class="text-gray-400">Select labels</span>
+                    <span v-else class="text-ink-muted">Select labels</span>
                 </template>
                 <template #option="{ option }">
                     <div class="flex items-center gap-2">
-                        <UIcon v-if="option.value === 'none'" name="i-heroicons-x-circle" class="w-4 h-4 text-gray-400" />
+                        <UIcon v-if="option.value === 'none'" name="i-heroicons-x-circle" class="w-4 h-4 text-ink-muted" />
                         <template v-else>
                             <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
                         </template>
