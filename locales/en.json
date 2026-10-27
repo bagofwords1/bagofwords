@@ -4047,6 +4047,8 @@
     "setupTitle": "Setup",
     "integrationSetupHint": "Register an OAuth app at the provider and paste the credentials below. Each user signs in individually to access their own data — no shared service account.",
     "integrationAfterSaveHint": "After saving, each user attaches this integration to an agent and signs in individually. The agent can then call file tools on their behalf.",
+    "integrationSharedSetupHint": "Paste a service account JSON key. Share the Drive folders (or add the service account to a Shared Drive) using its client_email.",
+    "integrationSharedAfterSaveHint": "Shared access: everyone with access to this connection sees the files shared with the service account. Users do not sign in, and their own Drive permissions are not applied.",
     "testCredentials": "Test credentials",
     "saveIntegration": "Save Integration",
     "loadFieldsFailed": "Failed to load fields",

@@ -253,7 +253,8 @@ async def _acount_tables_for_validation(client) -> int | None:
 
 
 def _connected_message(
-    connection_type: str, table_count: int, approximate: bool = False
+    connection_type: str, table_count: int, approximate: bool = False,
+    config: Optional[dict] = None,
 ) -> str:
     """Build the success message after a connection test.
 
@@ -272,14 +273,16 @@ def _connected_message(
         return f"Connected successfully. Found {table_count} tables."
 
     singular, plural = catalog_nouns_for(connection_type)
+    from app.schemas.data_source_registry import catalog_ownership_for
+    ownership = catalog_ownership_for(connection_type, config)
 
-    if entry.catalog_ownership == "per_user":
+    if ownership == "per_user":
         return (
             f"Connected successfully. Each user sees their own {plural} after "
             "signing in — no admin-side catalog for this connector."
         )
 
-    if entry.catalog_ownership == "none":
+    if ownership == "none":
         return f"Connected successfully. Found {table_count} {plural if table_count != 1 else singular}."
 
     # shared
@@ -559,7 +562,7 @@ class ConnectionService:
         if type in self._TOOL_PROVIDER_TYPES:
             if auth_policy == "system_only":
                 await self.refresh_tools(db=db, connection=connection)
-        elif not self._is_per_user_catalog(type):
+        elif not self._is_per_user_catalog(type, config):
             # Kick off background indexing for any shared-catalog source. Don't
             # gate on `credentials` truthiness — credential-less but indexable
             # sources (SQLite, DuckDB, …) pass `credentials={}` and must still
@@ -891,7 +894,7 @@ class ConnectionService:
                 if connection.type in self._TOOL_PROVIDER_TYPES:
                     if connection.auth_policy == "system_only":
                         await self.refresh_tools(db=db, connection=connection)
-                elif not self._is_per_user_catalog(connection.type):
+                elif not self._is_per_user_catalog(connection.type, connection.config):
                     # See create_connection: index shared-catalog sources
                     # regardless of credential truthiness; skip per-user catalogs.
                     from app.services.connection_indexing_service import (
@@ -1259,6 +1262,7 @@ class ConnectionService:
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
+                config=config,
             )
             return {
                 "success": True,
@@ -1675,8 +1679,9 @@ class ConnectionService:
             # sign-in via get_user_data_source_schema. Skip cleanly.
             from app.schemas.data_source_registry import get_entry, requires_no_credentials
             try:
-                entry = get_entry(connection.type)
-                if entry.catalog_ownership == "per_user":
+                from app.schemas.data_source_registry import connection_catalog_ownership
+                get_entry(connection.type)  # unknown type → ValueError, fall through
+                if connection_catalog_ownership(connection) == "per_user":
                     logger.info(
                         f"refresh_schema: connection {connection.id} has per-user catalog "
                         "ownership — admin-side indexing skipped; per-user catalogs are "
@@ -2310,11 +2315,18 @@ class ConnectionService:
             if row is None:
                 from app.services.obo_recovery_service import schedule_stored_login_recovery
                 schedule_stored_login_recovery(str(current_user.id), connection)
+            # Only point at the service account when one can actually be used:
+            # a per-user OAuth connection (e.g. Google Drive on an OAuth client)
+            # stores no service identity, so the only way forward is Connect.
+            service_hint = (
+                "" if management_requires_user_auth(connection)
+                else " or switch to the service account"
+            )
             raise HTTPException(
                 status_code=403,
                 detail=(
                     "Connect required: this connection runs queries with your own "
-                    "credentials. Connect your account or switch to the service account."
+                    f"credentials. Connect your account{service_hint}."
                 ),
             )
 
@@ -2562,17 +2574,18 @@ class ConnectionService:
         return tool_provider_types()
 
     @staticmethod
-    def _is_per_user_catalog(connection_type: str) -> bool:
+    def _is_per_user_catalog(connection_type: str, config=None) -> bool:
         """True for sources whose catalog is owned per-user (OneDrive, personal
         Drive). These have no admin-side catalog to index — each user's catalog
         is fetched after they sign in — so create/update skip background
         indexing for them. Unknown types default to False (treat as shared).
         """
-        from app.schemas.data_source_registry import get_entry
+        from app.schemas.data_source_registry import get_entry, catalog_ownership_for
         try:
-            return get_entry(connection_type).catalog_ownership == "per_user"
+            get_entry(connection_type)
         except ValueError:
             return False
+        return catalog_ownership_for(connection_type, config) == "per_user"
 
     async def refresh_tools(
         self,

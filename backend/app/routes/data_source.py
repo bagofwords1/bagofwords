@@ -574,7 +574,8 @@ async def get_domain_connections(
     def _catalog_shape(conn):
         try:
             entry = get_entry(conn.type)
-            return {"data_shape": entry.data_shape, "catalog_ownership": entry.catalog_ownership}
+            from app.schemas.data_source_registry import connection_catalog_ownership
+            return {"data_shape": entry.data_shape, "catalog_ownership": connection_catalog_ownership(conn)}
         except Exception:
             return {"data_shape": "tables", "catalog_ownership": "shared"}
 

@@ -2053,7 +2053,16 @@ class DataSourceService:
                 "setup_guide": meta.get("setup_guide"),
                 "auth": {
                     "default": entry.credentials_auth.default,
-                    "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},
+                    # scopes + catalog_ownership let a form tell a shared
+                    # (service) option from a per-user one without a type list.
+                    "by_auth": {
+                        k: {
+                            "title": v.title,
+                            "scopes": list(v.scopes or []),
+                            "catalog_ownership": v.catalog_ownership or entry.catalog_ownership,
+                        }
+                        for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)
+                    },
                     "policy": auth_policy or "system_only",
                 },
                 # False when no variant has the `user` scope: the form hides the
@@ -2599,6 +2608,7 @@ class DataSourceService:
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
+                config=config,
             )
             return {
                 "success": True,
@@ -4946,7 +4956,7 @@ class DataSourceService:
         e.g. Power BI / Fabric OBO) and per_user-owned (OneDrive, personal
         Drive). A system_only warehouse on the same agent has one shared
         catalog and is not synced per user."""
-        from app.schemas.data_source_registry import get_entry
+        from app.schemas.data_source_registry import connection_catalog_ownership
 
         out = []
         for conn in (getattr(data_source, "connections", None) or []):
@@ -4954,7 +4964,7 @@ class DataSourceService:
                 out.append(conn)
                 continue
             try:
-                if get_entry(conn.type).catalog_ownership == "per_user":
+                if connection_catalog_ownership(conn) == "per_user":
                     out.append(conn)
             except Exception:
                 continue
@@ -5423,7 +5433,9 @@ class DataSourceService:
             # only for legacy single-connection callers that pass none.
             conn = connection or (data_source.connections or [None])[0]
             if conn is not None:
-                is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
+                from app.schemas.data_source_registry import connection_catalog_ownership
+                get_entry(conn.type)  # unknown type → fall through to the except
+                is_per_user_catalog = connection_catalog_ownership(conn) == "per_user"
                 is_delegated = (conn.auth_policy or "system_only") == "user_required"
                 union_user_discovery = is_per_user_catalog or is_delegated
         except Exception:
@@ -6033,7 +6045,9 @@ class DataSourceService:
                     continue
                 ownership = "shared"
                 try:
-                    ownership = get_entry(conn.type).catalog_ownership
+                    from app.schemas.data_source_registry import connection_catalog_ownership
+                    get_entry(conn.type)  # unknown type → "shared" via the except
+                    ownership = connection_catalog_ownership(conn)
                 except Exception:
                     ownership = "shared"
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
