@@ -1,6 +1,6 @@
 <template>
   <div class="mt-1">
-    <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div class="mb-1 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-bell-slash" class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.cancelWait.cancelling') }}

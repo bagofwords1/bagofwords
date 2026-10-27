@@ -18,13 +18,17 @@ export type ChatWidth = 'standard' | 'wide'
 /*
  * Four steps, not a free slider: a slider invites 1.07x, which lands chat
  * text on a half-pixel and makes every line box in the transcript reflow
- * differently. These multiply the 16px base to 14 / 16 / 18 / 20px.
+ * differently. As fractions of the 16px root these are 14 / 16 / 18 / 20px.
+ *
+ * The default is the first step, 14px, which is where the comparable agent
+ * interfaces sit — see the note in assets/css/tokens.css. The steps above
+ * it are the escape hatch, not the intent.
  */
 export const CHAT_TEXT_SCALES = [0.875, 1, 1.125, 1.25] as const
 export type ChatTextScale = (typeof CHAT_TEXT_SCALES)[number]
 
 export const DEFAULT_CHAT_WIDTH: ChatWidth = 'standard'
-export const DEFAULT_CHAT_TEXT_SCALE: ChatTextScale = 1
+export const DEFAULT_CHAT_TEXT_SCALE: ChatTextScale = 0.875
 
 const WIDTH_KEY = 'bow.chat.width'
 const SCALE_KEY = 'bow.chat.textScale'

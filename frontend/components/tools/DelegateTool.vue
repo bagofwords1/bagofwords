@@ -2,7 +2,7 @@
   <div class="mt-1 mb-1" :data-testid="`delegate-card-${subAgentId || 'refused'}`" dir="auto">
     <!-- Header line -->
     <div
-      class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
+      class="flex items-center gap-1.5 text-chat-2 text-gray-500 dark:text-gray-400 min-w-0"
       :class="{ 'cursor-pointer select-none': canExpand }"
       @click="canExpand && (expanded = !expanded)"
     >

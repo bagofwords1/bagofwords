@@ -6522,7 +6522,14 @@ onMounted(async () => {
   .thinking-content :deep(.text-node-stream-delta) { animation: none !important; opacity: 1; }
 }
 
-/* Compact mode (Excel add-in) — smaller text throughout */
+/* Compact mode (Excel add-in) — smaller text throughout.
+   The ramp follows rather than being bypassed: re-pointing the chat font
+   one step down keeps the Excel pane at the 13px/12px it had, including
+   the tool-card headers that now take `text-chat-2`, without a second set
+   of rules that can drift from the first. */
+.compact-messages {
+	--bow-chat-font-size: 0.8125rem; /* 13px */
+}
 .compact-messages .block-content {
 	font-size: 13px;
 }
@@ -6559,9 +6566,9 @@ onMounted(async () => {
  * on the machine people actually work on, and smaller than every comparable
  * chat surface measured.
  *
- * The secondary tiers stay proportional rather than fixed, so a reader who
- * scales up gets larger code and reasoning text too: 0.8125x of chat size is
- * 13px at the default, which is what they were pinned to.
+ * The secondary tiers use --bow-chat-font-size-2 rather than a pinned px
+ * value, so a reader who scales up gets larger code and reasoning text too.
+ * At the default it is 13px, which is what they were pinned to.
  */
 .chat-messages:not(.compact-messages) .block-content,
 .chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
@@ -6575,17 +6582,17 @@ onMounted(async () => {
 }
 .chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
 .chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
-	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+	font-size: var(--bow-chat-font-size-2);
 }
 /* Collapsible reasoning stays secondary, but readable */
 .chat-messages:not(.compact-messages) .thinking-header {
-	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+	font-size: var(--bow-chat-font-size-2);
 }
 .chat-messages:not(.compact-messages) .thinking-content,
 .chat-messages:not(.compact-messages) .thinking-content :deep(*),
 .chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
 .chat-messages:not(.compact-messages) .thinking-content :deep(p) {
-	font-size: calc(var(--bow-chat-font-size) * 0.8125) !important;
+	font-size: var(--bow-chat-font-size-2) !important;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

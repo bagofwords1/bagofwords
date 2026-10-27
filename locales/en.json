@@ -1148,10 +1148,10 @@
       "textSize": "Text size",
       "pixels": "{n}px",
       "scales": {
-        "small": "Small",
         "default": "Default",
         "large": "Large",
-        "larger": "Larger"
+        "larger": "Larger",
+        "largest": "Largest"
       },
       "width": "Width",
       "widths": {

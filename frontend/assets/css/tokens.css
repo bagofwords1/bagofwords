@@ -79,24 +79,50 @@
   --bow-radius-composer: 20px;
 
   /* --- chat measure and reading size ----------------------------------- */
-  /* The conversation column and the composer share one measure, so the box
-     you type into is exactly as wide as the text you read back.
-     48rem/768px holds roughly 95 characters at 16px, inside the band where
-     line length stops costing reading speed. It replaces a 42rem/672px
-     column of 14px text: measured against comparable products, that was
-     both the narrowest column and the smallest body type of the set. */
-  --bow-measure-chat: 48rem;
-
-  /* Chat body type: the `base` step (16px/24px), multiplied by the reader's
-     own preference. This is not a new size in the scale — at 1x it is
-     exactly `text-base` — it is that step made adjustable, because reading
-     size is the one typographic choice the reader is better placed to make
-     than we are. Stored per browser in `localStorage['bow.chat.textScale']`
-     and applied to <html> by `plugins/chat-display.client.ts`, the same way
-     the locale is. */
-  --bow-chat-text-scale: 1;
+  /*
+   * Chat body type: the `sm` step (14px), multiplied by the reader's own
+   * preference. Not a new size — at 1x it is exactly `text-sm` — it is that
+   * step made adjustable, because reading size is the one typographic
+   * choice the reader is better placed to make than we are. Stored per
+   * browser in `localStorage['bow.chat.textScale']` and applied to <html>
+   * by `plugins/chat-display.client.ts`, the same way the locale is.
+   *
+   * 14px is measured, not chosen by taste. Two comparable agent interfaces
+   * — the kind that interleave tool activity with prose, as our transcript
+   * does — render body copy at ~14px and ~13.4px, calibrated from
+   * screenshots against a known on-screen reference. General-purpose chat
+   * products sit higher, at 15-17px, but they are the wrong comparison: a
+   * transcript here carries tables, query results and tool cards, and the
+   * density that buys is the product.
+   */
+  --bow-chat-text-scale: 0.875;
   --bow-chat-font-size: calc(1rem * var(--bow-chat-text-scale));
-  --bow-chat-line-height: calc(1.5rem * var(--bow-chat-text-scale));
+  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 1.5);
+
+  /*
+   * Two derived steps, so a message is one ramp instead of three systems.
+   * The ratios are 13/14 and 11/14: they hold the old pixel values at the
+   * default scale and keep their relationship at every other step, which a
+   * pinned `13px` could not do — it stayed put while body copy grew.
+   *   -2  code, collapsed reasoning, tool-card labels
+   *   -3  badges, ids, durations — true metadata only
+   */
+  --bow-chat-font-size-2: calc(var(--bow-chat-font-size) * 0.9286);
+  --bow-chat-font-size-3: calc(var(--bow-chat-font-size) * 0.7857);
+
+  /*
+   * The conversation measure, expressed as a multiple of the chat font
+   * rather than a fixed width: ~48 characters-per-em works out to ~96
+   * characters per line, and it stays ~96 at every reader step. A fixed
+   * column cannot do that — at the largest step the text grows while the
+   * column does not, and the line gets cramped instead of staying legible.
+   *
+   * At the default this computes to 672px, which is what the transcript
+   * already used; the defect was never that number on its own, it was that
+   * the composer and the landing page each had a different one, and that
+   * nothing moved when the reader asked for larger text.
+   */
+  --bow-measure-chat: calc(48 * var(--bow-chat-font-size));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against

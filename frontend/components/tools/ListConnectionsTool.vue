@@ -2,7 +2,7 @@
   <div class="mt-1">
     <!-- Status header -->
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-circle-stack" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ $t('tools.listConnections.listing') }}</span>

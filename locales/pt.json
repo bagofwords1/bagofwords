@@ -1103,10 +1103,10 @@
       "textSize": "Tamanho do texto",
       "pixels": "{n}px",
       "scales": {
-        "small": "Pequeno",
         "default": "Padrão",
         "large": "Grande",
-        "larger": "Maior"
+        "larger": "Maior",
+        "largest": "Máximo"
       },
       "width": "Largura",
       "widths": {

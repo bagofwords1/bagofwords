@@ -1103,10 +1103,10 @@
       "textSize": "Textstorlek",
       "pixels": "{n} px",
       "scales": {
-        "small": "Liten",
         "default": "Standard",
         "large": "Stor",
-        "larger": "Större"
+        "larger": "Större",
+        "largest": "Störst"
       },
       "width": "Bredd",
       "widths": {

@@ -1,7 +1,7 @@
 <template>
   <div class="mb-2">
     <!-- Main Header: Creating Data (always collapsible) -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCreateData">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCreateData">
       <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -54,7 +54,7 @@
              server nulls `errors` — a failed attempt's message routinely quotes
              the statement that failed, so it is withheld with the code. -->
         <div v-for="(attempt, idx) in failedAttempts" :key="'attempt-' + idx">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleAttemptCode(idx)">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleAttemptCode(idx)">
             <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
             <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.common.attempt', { n: idx + 1 }) }}</span>
             <Icon :name="attemptCodeExpanded[idx] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-2 rtl-flip" />
@@ -75,7 +75,7 @@
              `view_code`: the server sends no code, so leaving the header would
              render a row that expands to nothing. -->
         <div v-if="canViewCode">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
             <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-ink-muted" />
@@ -106,7 +106,7 @@
 
         <!-- Executing Code section -->
         <div v-if="showExecutingSection">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
             <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
@@ -125,14 +125,14 @@
         </div>
 
         <!-- Retry indicator (live only) -->
-        <div v-if="isRetrying" class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+        <div v-if="isRetrying" class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
           <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
           <span class="tool-shimmer">{{ $t('tools.createData.retrying', { n: currentAttempt }) }}</span>
         </div>
 
         <!-- Visualizing section -->
         <div v-if="showVisualizingSection">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
             <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
