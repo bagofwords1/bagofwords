@@ -257,6 +257,27 @@ Baseline memory of the process before the run: 0.49 GB.
    discovery progress and the `saving` phase are never written. In the "killed
    in saving" run, the row still showed `connecting`.
 
+### Found by CI on the fix PR (both fixed)
+
+4. **Two writers of the event log could drop each other's entries.**
+   `_append_event` and the progress `_flush` each read `events_json`, append
+   and write it back on their own session. When they overlap, the later commit
+   wins and the other's entries are lost. Mid-run events (the new memory
+   readings) made the overlap common. Both writers now share a lock.
+5. **A data source linked during a run never got the catalog.**
+   `_sync_linked_data_sources` lists linked data sources through the runner's
+   session, which has held the connection since the run started and never
+   expires it (`expire_on_commit=False`), so a link made during the run was
+   not seen. If the new data source also read the catalog before the run
+   committed it, the agent was left with zero tables. This was the cause of
+   the intermittent `test_member_on_own_token_sees_priority_titles` failure
+   on other branches; the extra event writes made it fail consistently here.
+   The lookup now uses `populate_existing=True`.
+
+   Still open, narrower: if the data source's create transaction reads the
+   catalog before the run commits it and commits its link only after the run
+   lists linked data sources, both sides still miss each other.
+
 ## Comparison with Oracle
 
 The indexing pipeline is the same for both: runner, heartbeat, thread-pool

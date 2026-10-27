@@ -371,3 +371,33 @@ async def test_run_log_records_discovery_and_save_before_writing_the_catalog(
     with_memory = [e["phase"] for e in done.events_json if "rss" in e["message"]]
     assert "discovered" in with_memory and "saving" in with_memory
     assert with_memory.index("discovered") < with_memory.index("saving")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rounds", [5, 40])
+async def test_event_log_keeps_every_entry_when_progress_and_run_events_interleave(
+    env, monkeypatch, rounds,
+):
+    """Progress reports and the runner's own events are written to the same
+    log by different writers. Neither may overwrite the other's entries."""
+    maker, connection = env
+
+    async def discovery(self, *, progress_callback=None, diagnostics_hook=None, **kwargs):
+        for i in range(rounds):
+            progress_callback(f"stage-{i}", f"dbo.t{i}", i + 1, rounds)
+            await diagnostics_hook("discovered", {"tables": i, "columns": i})
+        return []
+
+    monkeypatch.setattr(ConnectionService, "refresh_schema", discovery)
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct_client)
+    svc = ConnectionIndexingService()
+    async with maker() as db:
+        row = await svc.start(db=db, connection=connection, kick_off=False)
+    await asyncio.wait_for(svc._run(str(row.id)), timeout=30)
+
+    events = (await _row(maker, row.id)).events_json
+    phases = [e["phase"] for e in events]
+    assert all(f"stage-{i}" in phases for i in range(rounds)), phases
+    assert phases.count("discovered") == rounds, phases
+    stage_positions = [phases.index(f"stage-{i}") for i in range(rounds)]
+    assert stage_positions == sorted(stage_positions)
