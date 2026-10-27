@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.ai.tools.artifact_read_budget import budget_artifact_read
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -45,6 +46,8 @@ logger = logging.getLogger(__name__)
 FULL_READ_MAX_CHARS = 50_000
 DEFAULT_RANGE_LIMIT = 400
 GREP_LINE_CLIP = 500
+GREP_WINDOW_BEFORE = 200  # of a long-line window's GREP_LINE_CLIP chars, how many precede the match
+GREP_WINDOW_MIN_AFTER = 150  # trailing context a later match needs inside a window to share it
 OUTLINE_MAX_ENTRIES = 300
 
 
@@ -127,6 +130,9 @@ def grep_code(
 
     Returns (matches, total_matches, truncated). Each match carries the verbatim
     matching line plus verbatim before/after context and 1-based line numbers.
+    A line longer than GREP_LINE_CLIP yields one match per window around its
+    occurrences instead (see _line_windows); `col_start`/`col_end`/`line_length`
+    mark it, and the before/after context rides on the line's first window only.
     Raises re.error for an invalid pattern — callers surface that to the planner.
     """
     flags = re.IGNORECASE if ignore_case else 0
@@ -137,19 +143,64 @@ def grep_code(
     for i, line in enumerate(lines):
         if not rx.search(line):
             continue
-        total += 1
-        if len(matches) >= max_matches:
-            continue
         ctx_start = max(0, i - before)
-        clipped = line if len(line) <= GREP_LINE_CLIP else line[:GREP_LINE_CLIP]
-        matches.append({
-            "line_no": i + 1,
-            "line": clipped,
-            "before": lines[ctx_start:i],
-            "after": lines[i + 1:i + 1 + after],
-            "context_start_line": ctx_start + 1,
-        })
+        if len(line) <= GREP_LINE_CLIP:
+            entries = [{
+                "line_no": i + 1,
+                "line": line,
+                "before": lines[ctx_start:i],
+                "after": lines[i + 1:i + 1 + after],
+                "context_start_line": ctx_start + 1,
+            }]
+        else:
+            entries = []
+            for n, (start, end) in enumerate(_line_windows(rx, line)):
+                first = n == 0
+                entries.append({
+                    "line_no": i + 1,
+                    "line": line[start:end],
+                    "before": lines[ctx_start:i] if first else [],
+                    "after": lines[i + 1:i + 1 + after] if first else [],
+                    "context_start_line": ctx_start + 1 if first else i + 1,
+                    "col_start": start,
+                    "col_end": end,
+                    "line_length": len(line),
+                })
+        total += len(entries)
+        matches.extend(entries[:max(0, max_matches - len(matches))])
     return matches, total, total > len(matches)
+
+
+def _line_windows(rx: re.Pattern, line: str) -> List[Tuple[int, int]]:
+    """[start, end) windows of at most GREP_LINE_CLIP chars over a long line.
+
+    One window per occurrence, opening GREP_WINDOW_BEFORE chars ahead of it —
+    a head-of-line clip hid matches past the first GREP_LINE_CLIP chars while
+    still reporting the line as a hit, and generated JSX often keeps a whole
+    section on one line. Near the end of the line the window slides back to
+    stay full width, unless that would repeat more of the previous window than
+    its lead-in. An occurrence gets no window of its own when the
+    previous one already shows it along with GREP_WINDOW_MIN_AFTER chars of
+    what follows (or the rest of the line) — what follows a match is usually
+    what an edit needs, so a match in the last few chars of a window does not
+    count as shown.
+    """
+    windows: List[Tuple[int, int]] = []
+    for m in rx.finditer(line):
+        if windows:
+            prev_end = windows[-1][1]
+            if m.end() <= prev_end and (prev_end - m.end() >= GREP_WINDOW_MIN_AFTER or prev_end == len(line)):
+                continue
+        # A long occurrence gets less lead-in so the window opens on it.
+        start = m.start() - min(GREP_WINDOW_BEFORE, max(0, GREP_LINE_CLIP - (m.end() - m.start())))
+        start = max(0, min(start, len(line) - GREP_LINE_CLIP))
+        if windows:
+            # Overlap the previous window by at most the lead-in (dense
+            # occurrences, or the slide-back at the line end), so a frequent
+            # word doesn't repeat each char several times over.
+            start = max(start, min(m.start(), prev_end - GREP_WINDOW_BEFORE))
+        windows.append((start, min(len(line), start + GREP_LINE_CLIP)))
+    return windows
 
 
 class ReadArtifactTool(Tool):
@@ -170,6 +221,7 @@ class ReadArtifactTool(Tool):
                 "LONG ARTIFACTS: when the code is too large to return in full, a plain read returns a structural OUTLINE with line numbers instead of code. "
                 "Then use `offset`/`limit` to read a specific line range, or `grep_pattern` (with `before`/`after` context lines) to find the exact region to edit. "
                 "Both return VERBATIM code you can quote in edit_artifact SEARCH blocks or edit_doc find strings. "
+                "If next_read is present, use those exact arguments to continue; even a single long line can require character-offset paging. "
                 "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
                 "The screenshot is a STATIC capture at page load with nothing clicked: closed dropdowns/menus/modals and invisible hover states are EXPECTED there and prove nothing about whether a control works — diagnose interactive elements from the code, never from the image. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
@@ -325,7 +377,7 @@ class ReadArtifactTool(Tool):
                     ignore_case=data.ignore_case,
                     before=data.before,
                     after=data.after,
-                    max_matches=data.max_matches,
+                    max_matches=data.max_matches + data.match_offset,
                 )
             except re.error as e:
                 yield ToolEndEvent(
@@ -350,6 +402,7 @@ class ReadArtifactTool(Tool):
                     },
                 )
                 return
+            matches = matches[data.match_offset:]
             if grep_total == 0:
                 # No matches — return the outline as a navigation aid so the
                 # planner's next read is informed instead of another guess.
@@ -364,13 +417,25 @@ class ReadArtifactTool(Tool):
                 if grep_truncated:
                     window_note += f", showing first {shown} (max_matches={data.max_matches}) — narrow the pattern for the rest"
                 window_note += ". Matched lines and before/after context are verbatim — safe to quote in SEARCH blocks."
+                if any("col_start" in m for m in matches):
+                    window_note += (
+                        f" Lines over {GREP_LINE_CLIP} chars come back as a window around each occurrence"
+                        " (col_start/col_end within line_length); read a whole line with offset=<line_no>, limit=1."
+                    )
 
-        elif data.offset is not None or data.limit is not None:
+        elif data.offset is not None or data.limit is not None or data.character_offset:
             read_mode = "range"
             offset = data.offset or 1
             code_view, start_line, end_line, total_lines, range_truncated = slice_range(
                 code, offset, data.limit
             )
+            first_line = code_view.split("\n", 1)[0]
+            if data.character_offset > len(first_line):
+                yield ToolEndEvent(type="tool.end", payload={"output": {}, "observation": {
+                    "artifact_id": str(artifact.id), "success": False,
+                    "error": {"type": "invalid_character_offset", "message": "character_offset exceeds the first line length."}}})
+                return
+            code_view = code_view[data.character_offset:]
             if not code_view and start_line > total_lines:
                 window_note = (
                     f"offset {start_line} is beyond the end of the code ({total_lines} lines total). "
@@ -406,7 +471,10 @@ class ReadArtifactTool(Tool):
 
         # Fetch associated visualizations and build profiles
         viz_profiles: List[Dict[str, Any]] = []
-        if visualization_ids:
+        include_profiles = data.include_visualization_profiles
+        if include_profiles is None:
+            include_profiles = read_mode not in ("range", "grep")
+        if visualization_ids and include_profiles:
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
             try:
                 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
@@ -577,6 +645,19 @@ class ReadArtifactTool(Tool):
             # Include render errors if stored (useful even without screenshot)
             if artifact.render_errors:
                 observation["render_errors"] = artifact.render_errors
+
+        if not include_profiles:
+            observation.pop("visualization_profiles", None)
+        observation = budget_artifact_read(observation, data)
+        # The UI/audit output must describe the same source window the model saw.
+        for key in ("code", "read_mode", "start_line", "end_line", "start_character",
+                    "truncated", "next_read", "matches", "grep_truncated", "outline"):
+            if key in observation:
+                output[key] = observation[key]
+        output["code_preview"]["code"] = observation.get("code", observation.get("outline", ""))
+        if observation.get("matches"):
+            output["code_preview"]["code"] = "\n\n".join(m["line"] for m in observation["matches"])
+        output["artifact_preview"]["read_mode"] = observation.get("read_mode", read_mode)
 
         yield ToolEndEvent(
             type="tool.end",
