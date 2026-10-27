@@ -9,6 +9,7 @@
 - Added a Settings window for dashboards: name, link, refresh, viewers, access, data, notes and history (#1459)
 - Added live presence on dashboards, showing who else is editing and which chart another editor's agent is changing (#1459)
 - Added a warning before publishing over a newer live version, naming both versions and who published (#1459)
+- Added an organization setting to turn off public link sharing (#1491)
 - Changed the dashboard API to /api/artifacts/…; rollback is now restore (#1459)
 - Changed dashboard wording to "document" or "presentation" for docs and slides (#1459)
 - Fixed a published dashboard disappearing when its conversation is deleted (#1455)
