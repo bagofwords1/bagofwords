@@ -89,6 +89,37 @@ export default <Partial<Config>>{
         '2xl': ['1.5rem', { lineHeight: '2rem' }], // 24px/32
         '3xl': ['1.875rem', { lineHeight: '2.25rem' }], // 30px/36
         '4xl': ['2.25rem', { lineHeight: '2.5rem' }], // 36px/40
+
+        /*
+         * The conversation ramp: three steps that all derive from one
+         * variable, so a single message stops mixing unrelated systems.
+         * At the default scale they are 14 / 13 / 11px — the `sm` step and
+         * two derived tiers — and the reader's stored preference moves all
+         * three together (14 -> 16 -> 18 -> 20px body).
+         *
+         *   text-chat    body copy, the composer field
+         *   text-chat-2  code, collapsed reasoning, tool-card labels
+         *   text-chat-3  badges, ids, durations — true metadata only
+         *
+         * Use them inside a conversation only. Everywhere else a fixed step
+         * from the scale above is still the right answer.
+         */
+        chat: ['var(--bow-chat-font-size)', { lineHeight: 'var(--bow-chat-line-height)' }],
+        'chat-2': ['var(--bow-chat-font-size-2)', { lineHeight: '1.45' }],
+        'chat-3': ['var(--bow-chat-font-size-3)', { lineHeight: '1.45' }],
+      },
+
+      /*
+       * The conversation measure. One token drives the transcript column,
+       * the composer and the landing-page composer, which is what keeps the
+       * box you type into the same width as the text you read back — they
+       * had drifted to 672px and ~53vw respectively, so the composer
+       * visibly resized the moment a report was created. It is a multiple
+       * of the chat font (see tokens.css), so line length stays ~96
+       * characters at every reader step instead of only at the default.
+       */
+      maxWidth: {
+        chat: 'var(--bow-measure-chat)',
       },
 
       /*
@@ -106,6 +137,13 @@ export default <Partial<Config>>{
         md: 'var(--bow-radius-md)', // 6px — controls: buttons, inputs, chips
         lg: 'var(--bow-radius-lg)', // 8px — cards, panels, popovers
         xl: 'var(--bow-radius-xl)', // 12px — modals, large surfaces
+        /*
+         * Named, not a `2xl` step: Tailwind's stock `rounded-2xl` (16px) is
+         * already on 21 call sites, and redefining it would move all of them
+         * as a side effect of a composer change. This is the one surface
+         * that wants it, so it says so.
+         */
+        composer: 'var(--bow-radius-composer)', // 20px — the composer surface
       },
 
       boxShadow: {

@@ -13,7 +13,7 @@
 -->
 <template>
   <div class="mt-1" data-testid="submit-list-tool">
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" data-testid="submit-list-header" @click="isExpanded = !isExpanded">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" data-testid="submit-list-header" @click="isExpanded = !isExpanded">
       <span v-if="running" class="tool-shimmer flex items-center min-w-0">
         <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-ink-muted shrink-0" />
         <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2' : ''" data-testid="submit-list-name" @click="onNameClick">{{ listName ? $t('tools.submitList.savingTo', { name: listName }) : $t('tools.submitList.saving') }}</span>

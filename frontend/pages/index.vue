@@ -71,7 +71,12 @@
           {{ greeting }} {{ $t('home.whatCanIHelpWith') }}
         </h1>
       </div>
-      <div class="w-full md:w-4/5 mx-auto mt-5 rounded-lg relative z-20">
+      <!-- Same measure as the conversation the first prompt creates. This was
+           `md:w-4/5` of a `md:w-2/3` parent and therefore uncapped — ~53% of
+           the viewport, so the composer was ~1024px on a 1920px screen and
+           then snapped to the report column the moment the report existed.
+           The box you type into should not resize when you press enter. -->
+      <div class="w-full max-w-chat mx-auto mt-5 rounded-lg relative z-20">
           <PromptBoxV2
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
@@ -80,7 +85,8 @@
               @openInstructions="showInstructionsModal = true"
           />
       </div>
-      <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="resolvedDataSources">
+      <!-- Starter questions align to the composer's edges, not the page's. -->
+      <div class="w-full max-w-chat mx-auto mt-0 space-x-3 space-y-3" v-if="resolvedDataSources">
         <DataSourceQuestionsHome
             :data_sources="resolvedDataSources"
             @update-content="updateTextarea"

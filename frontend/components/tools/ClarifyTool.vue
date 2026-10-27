@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1 mb-6" dir="auto">
     <!-- Header: spinner while running, checkmark when done -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-3">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 mb-3">
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.clarify.clarifying') }}</span>

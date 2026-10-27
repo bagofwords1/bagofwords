@@ -13,7 +13,7 @@
 <template>
   <div class="mt-1" data-testid="list-schema-tool">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'proposing'" class="tool-shimmer flex items-center min-w-0">
           <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
           <span class="truncate" dir="auto">{{ isEdit ? $t('tools.listSchema.proposingEdit', { name: listName }) : $t('tools.listSchema.proposing', { name: listName }) }}</span>
@@ -41,7 +41,7 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-2xl" dir="auto">
+    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">
       {{ message }}
       <ul v-if="errors.length" class="mt-1 list-disc ms-4 space-y-0.5" data-testid="list-schema-errors">
         <li v-for="e in errors" :key="e" class="font-mono text-2xs">{{ e }}</li>
@@ -54,7 +54,7 @@
     <Transition name="fade" appear>
       <div
         v-if="fields.length && expanded"
-        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-chat"
         data-testid="list-schema-card"
       >
         <!-- Header -->

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="items.length > 0" class="mt-4 max-w-2xl" :dir="contentDir">
+  <div v-if="items.length > 0" class="mt-4 max-w-chat" :dir="contentDir">
     <!-- Header -->
     <div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
       {{ heading }}

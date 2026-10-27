@@ -39,7 +39,7 @@
 			<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
 			<!-- Agent picker + starter questions: one start-aligned column the
 			     width of the composer below, so the search rule and the question
-			     dividers land on its edges. Both live in a max-w-2xl column, but
+			     dividers land on its edges. Both live in a max-w-chat column, but
 			     the message column pads ps-4/pe-2 while the composer card sits a
 			     further 16px in on both sides — hence the extra start/end inset
 			     here. Below sm the two already line up (px-3 vs p-3). -->

@@ -7,7 +7,7 @@
       class="mention-input-field"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400 text-start',
-        props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
+        props.compact ? 'text-sm leading-[20px]' : 'text-chat min-h-[40px]'
       ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
       @input="handleInput"
@@ -382,9 +382,19 @@ const inputDir = computed(() => {
   return RTL_LOCALES.has(String(i18nLocale.value)) ? 'rtl' : 'ltr'
 })
 
-const lineHeightPx = computed(() => props.compact ? 18 : 24)
-const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
-const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
+/*
+ * The field grows in whole lines, so both bounds are multiples of one line
+ * box. The chat line height is a CSS variable (it follows the reader's text
+ * size), hence `calc()` rather than arithmetic here — a px number computed
+ * in JS would freeze the field at the default scale while the text inside it
+ * grew, which is how a two-row box ends up clipping its second row.
+ *
+ * Compact mode (the Excel add-in) keeps its fixed 18px line: that pane is
+ * ~320px wide and does not follow the reader's chat size.
+ */
+const lineHeight = computed(() => props.compact ? '18px' : 'var(--bow-chat-line-height)')
+const minHeight = computed(() => `calc(${lineHeight.value} * ${Math.max(1, props.rows)})`)
+const maxHeight = computed(() => `calc(${lineHeight.value} * 8)`)
 
 // The raw @-query text (after the '@', before the caret). Empty until the user
 // types — drives the "category list vs items" default view.
@@ -1615,13 +1625,16 @@ function scrollSelectedIntoView() {
 }
 
 /* Mobile Safari auto-zooms the page when a focused editable element has a
- * font-size below 16px. The prompt field is `text-sm` (14px), so tapping it
- * on iOS zooms the report in. Pin it to 16px on small screens to suppress the
- * focus-zoom; desktop keeps the 14px design. The `[contenteditable]` prefix
- * raises specificity above Tailwind's `.text-sm` so this wins. */
+ * font-size below 16px. The field now reads at the chat size (16px at the
+ * default scale), so the common case no longer zooms — but the 0.875x
+ * reading step computes to 14px and would bring it back. `max()` keeps the
+ * floor at 16px on small screens while letting the larger steps through,
+ * instead of pinning every step to 16px and overriding the reader. The
+ * `[contenteditable]` prefix raises specificity above Tailwind's own
+ * font-size utility so this wins. */
 @media (max-width: 640px) {
   [contenteditable].mention-input-field {
-    font-size: 16px;
+    font-size: max(16px, var(--bow-chat-font-size));
   }
 }
 

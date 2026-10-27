@@ -1,6 +1,6 @@
 <template>
   <div class="mb-2">
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 hidden">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 hidden">
 
       <!-- Status icon -->
       <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -24,7 +24,7 @@
       <div class="mt-3">
         <!-- Section 1: Creating Data Model -->
         <div class="mb-4">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDm">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDm">
             <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
@@ -58,7 +58,7 @@
 
         <!-- Section 2: Generating Code (only show after data model is completed) -->
         <div class="mb-2" v-if="dmDone">
-          <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCode">
+          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCode">
             <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />

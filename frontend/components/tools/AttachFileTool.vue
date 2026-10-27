@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Attaching {{ requestedCount }} file{{ requestedCount === 1 ? '' : 's' }}…</span>

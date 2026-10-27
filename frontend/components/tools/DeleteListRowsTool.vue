@@ -11,7 +11,7 @@
 <template>
   <div class="mt-1" data-testid="delete-list-rows-tool">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'finding'" class="tool-shimmer flex items-center min-w-0">
           <Icon name="heroicons-trash" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
           <span class="truncate" dir="auto">{{ $t('tools.deleteListRows.finding', { name: listName }) }}</span>
@@ -39,12 +39,12 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-2xl" dir="auto">{{ message }}</div>
+    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">{{ message }}</div>
 
     <Transition name="fade" appear>
       <div
         v-if="expanded && previewRows.length"
-        class="rounded-lg border bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border bg-white dark:bg-gray-900 max-w-chat"
         :class="phase === 'confirm' ? 'border-red-200 dark:border-red-900/60' : 'border-gray-200 dark:border-gray-800'"
         data-testid="delete-list-rows-card"
       >
