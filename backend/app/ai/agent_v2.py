@@ -567,6 +567,13 @@ class AgentV2:
         # Platform context: derive from explicit param or fall back to completion's external_platform
         self.platform = platform or getattr(head_completion, "external_platform", None)
         self.platform_context = platform_context
+        # Teams conversation of the question, for its progress bubble
+        # (services/platform_adapters/teams_stream.py). Read once here: the
+        # completion row can expire later and must not lazy-load mid-run.
+        self._teams_conversation_id = (
+            getattr(head_completion, "external_channel_id", None)
+            if self.platform == "teams" else None
+        )
         self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
@@ -6633,7 +6640,13 @@ class AgentV2:
                                             "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
                                         }
                                     ))
-                        
+                                    if self._teams_conversation_id:
+                                        from app.services.platform_adapters import teams_stream
+                                        teams_stream.notify_tool_started(
+                                            self._teams_conversation_id, str(self.system_completion_id), tool_name,
+                                            tool_input.get("title") if isinstance(tool_input, dict) else None,
+                                        )
+
                                     # Refresh warm context to include the latest planner decision blocks in messages,
                                     # for tools that read it. Tools that never touch the context view or hub
                                     # (MCP calls, file reads, web fetch) keep the loop's view: rebuilding it
