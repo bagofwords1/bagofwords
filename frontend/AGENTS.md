@@ -93,14 +93,23 @@ sites that already use it.
 
 **The conversation surface.** The transcript, the composer, the landing
 composer, the shared-link view and the tool cards inside a transcript all
-take `max-w-chat` (`--bow-measure-chat`, 48rem/768px). One token, because
-the box you type into must be the same width as the text you read back —
-they had drifted to 672px and ~53vw, so the composer resized the moment you
-pressed enter. Chat body copy uses `text-chat`, which is the `base` step
-(16px/24px) multiplied by the reader's own preference; the fixed steps are
-still right everywhere outside a conversation. Secondary tiers inside a
-transcript (code, reasoning) are `calc(var(--bow-chat-font-size) * 0.8125)`
-rather than a pinned 13px, so they scale with the reader's choice.
+take `max-w-chat` (`--bow-measure-chat`). One token, because the box you
+type into must be the same width as the text you read back — they had
+drifted to 672px and ~53vw, so the composer resized the moment you pressed
+enter. The measure is `48 x` the chat font rather than a fixed width, so
+line length stays ~96 characters at every reader step; at the default it
+computes to 672px.
+
+Chat copy uses a three-step ramp, all derived from one variable so that a
+single message stops mixing unrelated systems: `text-chat` for body
+(the `sm` step, 14px, times the reader's preference), `text-chat-2` for
+code, collapsed reasoning and tool-card labels (13px), `text-chat-3` for
+badges, ids and durations (11px). 14px is measured against comparable
+agent interfaces, which sit at 13-14px — general chat products run higher
+but are the wrong comparison for a transcript carrying tables and query
+results. Never pin a px font size inside a conversation: a pinned 13px
+stays put while body copy scales, which is the defect the ramp exists to
+prevent. Outside a conversation the fixed steps still apply.
 
 Those two are *reader* preferences, stored per browser
 (`localStorage['bow.chat.width' | 'bow.chat.textScale']`, see

@@ -1068,7 +1068,7 @@ onUnmounted(() => {
         background: none;
         padding: 0;
         border-radius: 0;
-        font-size: calc(var(--bow-chat-font-size) * 0.8125);
+        font-size: var(--bow-chat-font-size-2);
         line-height: 1.5;
         display: block;
         white-space: pre-wrap;

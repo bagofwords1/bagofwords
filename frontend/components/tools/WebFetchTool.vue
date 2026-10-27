@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">

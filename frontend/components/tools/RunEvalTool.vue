@@ -2,7 +2,7 @@
   <div class="mt-1">
     <!-- Header line -->
     <div
-      class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+      class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
       :class="{ 'cursor-pointer select-none': canExpand }"
       @click="canExpand && (expanded = !expanded)"
     >

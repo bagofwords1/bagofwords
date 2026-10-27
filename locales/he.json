@@ -1116,10 +1116,10 @@
       "textSize": "גודל טקסט",
       "pixels": "{n}px",
       "scales": {
-        "small": "קטן",
         "default": "ברירת מחדל",
         "large": "גדול",
-        "larger": "גדול יותר"
+        "larger": "גדול יותר",
+        "largest": "הגדול ביותר"
       },
       "width": "רוחב",
       "widths": {

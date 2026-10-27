@@ -91,17 +91,22 @@ export default <Partial<Config>>{
         '4xl': ['2.25rem', { lineHeight: '2.5rem' }], // 36px/40
 
         /*
-         * `text-chat` is the `base` step made reader-adjustable: at the
-         * default scale it computes to exactly 16px/24px, and the reader's
-         * stored multiplier moves it in four steps (0.875x - 1.25x). It is a
-         * tenth entry in the table but not a tenth size — chat body copy is
-         * the one place where the person reading knows better than we do,
-         * and every surveyed product of this kind exposes the same control.
+         * The conversation ramp: three steps that all derive from one
+         * variable, so a single message stops mixing unrelated systems.
+         * At the default scale they are 14 / 13 / 11px — the `sm` step and
+         * two derived tiers — and the reader's stored preference moves all
+         * three together (14 -> 16 -> 18 -> 20px body).
          *
-         * Use it for conversation text and the composer only. Anywhere else,
-         * a fixed step from the scale above is still the right answer.
+         *   text-chat    body copy, the composer field
+         *   text-chat-2  code, collapsed reasoning, tool-card labels
+         *   text-chat-3  badges, ids, durations — true metadata only
+         *
+         * Use them inside a conversation only. Everywhere else a fixed step
+         * from the scale above is still the right answer.
          */
         chat: ['var(--bow-chat-font-size)', { lineHeight: 'var(--bow-chat-line-height)' }],
+        'chat-2': ['var(--bow-chat-font-size-2)', { lineHeight: '1.45' }],
+        'chat-3': ['var(--bow-chat-font-size-3)', { lineHeight: '1.45' }],
       },
 
       /*
@@ -109,7 +114,9 @@ export default <Partial<Config>>{
        * the composer and the landing-page composer, which is what keeps the
        * box you type into the same width as the text you read back — they
        * had drifted to 672px and ~53vw respectively, so the composer
-       * visibly resized the moment a report was created.
+       * visibly resized the moment a report was created. It is a multiple
+       * of the chat font (see tokens.css), so line length stays ~96
+       * characters at every reader step instead of only at the default.
        */
       maxWidth: {
         chat: 'var(--bow-measure-chat)',

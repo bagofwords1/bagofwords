@@ -1100,10 +1100,10 @@
       "textSize": "حجم النص",
       "pixels": "{n}px",
       "scales": {
-        "small": "صغير",
         "default": "افتراضي",
         "large": "كبير",
-        "larger": "أكبر"
+        "larger": "أكبر",
+        "largest": "الأكبر"
       },
       "width": "العرض",
       "widths": {

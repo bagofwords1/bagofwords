@@ -1,6 +1,6 @@
 <template>
   <div class="mt-1" dir="auto">
-    <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400 min-w-0">
+    <div class="mb-1 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 min-w-0">
       <span v-if="status === 'in_progress'" class="tool-shimmer flex items-center">
         <Spinner class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.stopSubAgent.stopping') }}

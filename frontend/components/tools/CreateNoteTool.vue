@@ -2,7 +2,7 @@
   <div class="mt-1">
     <!-- Status header -->
     <div
-      class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+      class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
       @click="isExpanded = !isExpanded"
     >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">

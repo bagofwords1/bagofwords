@@ -17,7 +17,9 @@ import { test, expect } from '../fixtures/feature-test'
 const FIELD = '[contenteditable="true"].mention-input-field'
 const SURFACE = '[data-testid="composer-surface"]'
 
-const CHAT_MEASURE_PX = 768 // 48rem — --bow-measure-chat
+// 48 x the 14px chat font. The measure is a multiple of the reader's text
+// size, not a fixed width, so this is the default-scale value.
+const CHAT_MEASURE_PX = 672
 
 /* Both preferences are read once at plugin init, so they have to be in
    storage before the app boots. */
@@ -40,7 +42,7 @@ async function fieldType(page: import('@playwright/test').Page) {
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-test('composer renders at the chat measure and the base type step', async ({ page }) => {
+test('composer renders at the chat measure and the chat type step', async ({ page }) => {
   await page.goto('/', { waitUntil: 'commit' })
   await expect(page.locator(SURFACE).first()).toBeVisible({ timeout: 15000 })
 
@@ -51,7 +53,7 @@ test('composer renders at the chat measure and the base type step', async ({ pag
   expect(box!.width).toBeLessThanOrEqual(CHAT_MEASURE_PX)
   expect(box!.width).toBeGreaterThan(CHAT_MEASURE_PX - 80)
 
-  expect(await fieldType(page)).toEqual({ fontSize: '16px', lineHeight: '24px' })
+  expect(await fieldType(page)).toEqual({ fontSize: '14px', lineHeight: '21px' })
 })
 
 test('the reader text-size preference scales chat type and survives a reload', async ({ page }) => {
@@ -60,6 +62,12 @@ test('the reader text-size preference scales chat type and survives a reload', a
   await expect(page.locator(SURFACE).first()).toBeVisible({ timeout: 15000 })
 
   expect(await fieldType(page)).toEqual({ fontSize: '20px', lineHeight: '30px' })
+
+  /* The column follows the text, so characters-per-line stays put instead of
+     the line getting cramped at the largest step. */
+  const measure = await page.evaluate(() =>
+    getComputedStyle(document.documentElement).getPropertyValue('--bow-measure-chat').trim())
+  expect(measure).toBe('960px') // 48 x 20px
 
   await page.reload({ waitUntil: 'commit' })
   await expect(page.locator(SURFACE).first()).toBeVisible({ timeout: 15000 })

@@ -342,7 +342,7 @@
                 <!-- Attempts section -->
                 <div v-if="attempts.length > 0" class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3 flex-shrink-0">
                   <div
-                    class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+                    class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
                     @click="attemptsExpanded = !attemptsExpanded"
                   >
                     <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1.5 rtl-flip" />

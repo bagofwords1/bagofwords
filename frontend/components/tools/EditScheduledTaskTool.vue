@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1">
     <!-- Running -->
-    <div v-if="status === 'running'" class="flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="status === 'running'" class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
       <span class="tool-shimmer flex items-center">
         <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-ink-muted" />
         Updating scheduled task…
