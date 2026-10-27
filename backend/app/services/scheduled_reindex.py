@@ -20,12 +20,17 @@ Design (see docs/design discussion in the PR):
     `ConnectionIndexingService.start`, which is itself idempotent (returns the
     in-flight row if an index is already running).
 
-  * Failure backoff / heal-on-login. Before kicking, we stamp
-    `next_retry_at = now + interval`, so a connection that fails (or is skipped
-    because a user_required source has no system creds) is not re-kicked every
-    tick. user_required per-user catalogs heal on the next user login instead.
-    A successful index clears `next_retry_at` and advances `last_synced_at`
-    (both gate re-selection).
+  * Failure backoff. Before kicking, we stamp `next_retry_at = now + interval`,
+    so a connection that fails (or is skipped because a user_required source
+    has no system creds) is not re-kicked every tick. A successful index clears
+    `next_retry_at` and advances `last_synced_at` (both gate re-selection).
+
+  * Per-user overlays refresh on use, not here. This sweep only refreshes the
+    shared catalog; a user on a delegated connection reads their own overlay,
+    which only their own credentials can rebuild. Rather than crawl for every
+    user (most of them idle, many with expired tokens), the schema context
+    calls `kick_stale_user_overlays` when that user's overlay is actually read,
+    on the same per-connection schedule.
 
   * Enterprise-gated. No-ops entirely unless the `scheduled_reindex` license
     feature is active.
@@ -179,3 +184,89 @@ async def sweep_due_reindexes() -> None:
             "elapsed_s": round(time.perf_counter() - t0, 3),
         },
     )
+
+
+async def kick_stale_user_overlays(connections, user_id: str) -> int:
+    """Start a background per-user catalog sync for every one of `connections`
+    whose overlay for `user_id` is stale past the connection's schedule.
+
+    Called when a user's overlay is read for a prompt. Never blocks on the
+    sync itself: the current prompt keeps the overlay it has and the next one
+    sees the refreshed catalog. The last user-scoped `ConnectionIndexing` run
+    is the sync clock, and a failed run counts too, so a revoked token is
+    retried once per interval rather than on every prompt. Same gates as the
+    sweep: the `scheduled_reindex` license feature and the connection's own
+    `auto_reindex_enabled`. Returns how many syncs were started.
+    """
+    from app.ee.license import has_feature
+    if not has_feature("scheduled_reindex"):
+        return 0
+
+    from app.schemas.data_source_registry import tool_provider_types
+
+    # A user-scoped run on a tool provider re-discovers the SHARED tool list
+    # with this user's token; that is not an overlay refresh.
+    tool_types = tool_provider_types()
+    eligible = [
+        c for c in connections
+        if c is not None
+        and c.is_active
+        and c.deleted_at is None
+        and c.auto_reindex_enabled
+        and c.type not in tool_types
+    ]
+    if not eligible:
+        return 0
+
+    from sqlalchemy import func
+    from app.dependencies import async_session_maker
+    from app.models.connection_indexing import ConnectionIndexing
+    from app.services.connection_indexing_service import ConnectionIndexingService
+    from app.services.reindex_schedule import get_org_timezone, is_stale
+
+    now = datetime.utcnow()
+    kicked = 0
+    # Own session: `start` commits, and the caller is mid-way through building
+    # a prompt on its session.
+    async with async_session_maker() as db:
+        conn_ids = [str(c.id) for c in eligible]
+        last_by_conn = dict(
+            (
+                await db.execute(
+                    select(
+                        ConnectionIndexing.connection_id,
+                        func.max(func.coalesce(ConnectionIndexing.started_at, ConnectionIndexing.created_at)),
+                    )
+                    .where(
+                        ConnectionIndexing.connection_id.in_(conn_ids),
+                        ConnectionIndexing.user_id == str(user_id),
+                    )
+                    .group_by(ConnectionIndexing.connection_id)
+                )
+            ).all()
+        )
+
+        indexing_service = ConnectionIndexingService()
+        tz_cache: dict[str, object] = {}
+        for conn in eligible:
+            org_key = str(conn.organization_id)
+            if org_key not in tz_cache:
+                tz_cache[org_key] = await get_org_timezone(db, org_key)
+            if not is_stale(conn, last_by_conn.get(str(conn.id)), now, tz_cache[org_key]):
+                continue
+            try:
+                # Idempotent: an in-flight run for this user is returned as is.
+                await indexing_service.start(db=db, connection=conn, user_id=str(user_id))
+                kicked += 1
+            except Exception as exc:
+                logger.warning(
+                    "schema_reindex.user_overlay_kick_failed",
+                    extra={"connection_id": str(conn.id), "user_id": str(user_id), "error": str(exc)},
+                )
+
+    if kicked:
+        logger.info(
+            "schema_reindex.user_overlay_kicked",
+            extra={"user_id": str(user_id), "kicked": kicked},
+        )
+    return kicked
