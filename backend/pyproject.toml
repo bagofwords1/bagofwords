@@ -177,7 +177,13 @@ constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2", "urllib3>=2.8.0", "
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
 # (1.6.5) conservatively caps cryptography < 50, but fastapi-mail does not import
 # cryptography anywhere, so overriding that cap is safe.
-override-dependencies = ["cryptography>=50.0.0,<51"]
+# Security override: force filelock >= 4.2.1 to fix CVE-2026-112940 (High,
+# arbitrary file overwrite via insecure database file reopening; flagged by the
+# Trivy image gate). snowflake-connector-python 4.x caps filelock < 4 and the
+# only uncapped release (5.x) also forces snowflake-sqlalchemy 2 and protobuf 6.
+# The connector only uses FileLock(path, timeout=, thread_local=), BaseFileLock,
+# Timeout and the context manager, which filelock 4 keeps.
+override-dependencies = ["cryptography>=50.0.0,<51", "filelock>=4.2.1,<5"]
 
 [build-system]
 requires = ["hatchling"]

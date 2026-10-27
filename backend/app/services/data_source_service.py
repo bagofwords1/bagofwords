@@ -1042,6 +1042,15 @@ class DataSourceService:
             user_status=connections_list[0].user_status if connections_list else None,
         )
 
+    async def _default_model_for(self, db: AsyncSession, organization: Organization, current_user: User | None):
+        """The model generation runs on: the caller's group/org default, gated
+        by their model access. A restricted org default must not run for a
+        member whose group can't use it. No user (system jobs, or the blank
+        ``User()`` llm_sync passes) keeps the plain org default."""
+        from app.services.llm_service import LLMService
+        user = current_user if getattr(current_user, "id", None) else None
+        return await LLMService().get_default_model(db, organization, user)
+
     async def generate_data_source_items(self, db: AsyncSession, item: str, data_source_id: str, organization: Organization, current_user: User):
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
@@ -1049,7 +1058,7 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        model = await organization.get_default_llm_model(db)
+        model = await self._default_model_for(db, organization, current_user)
         if not model:
             raise HTTPException(status_code=400, detail="No default LLM model found")
 
@@ -1125,7 +1134,7 @@ class DataSourceService:
         """
         result: dict = {}
 
-        model = await organization.get_default_llm_model(db)
+        model = await self._default_model_for(db, organization, current_user)
 
         # Load the data source model instance for context and schema sync
         ds_q = await db.execute(
