@@ -94,6 +94,13 @@ the default. Use `duration-fast` (120ms) / `duration-slow` (280ms) when you
 do. Avoid `transition-all`; name the property. Loading shimmer is the single
 `.bow-shimmer` class, not a per-component `@keyframes`.
 
+There are **no route transitions**, and adding them is not a one-line change.
+Vue's `<Transition>` only animates a component with a single *element* root,
+and a leading HTML comment already makes a template a Fragment. 15 of the 68
+pages are Fragments today — `index.vue`, `reports/[id]/index.vue`,
+`r/[id]/index.vue` and all four `users/*` pages among them — and enabling
+`app.pageTransition` blanks them. See the note in `nuxt.config.ts`.
+
 **Layering.** Use the named scale (`z-dropdown`, `z-sticky`, `z-overlay`,
 `z-modal`, `z-popover`, `z-tooltip`, `z-toast`). Never invent a `z-[1050]`.
 

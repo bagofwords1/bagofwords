@@ -209,39 +209,15 @@ button:not(:disabled):not([aria-disabled='true']):active,
 }
 
 /* ---------------------------------------------------------------------- */
-/* Page + layout transitions                                              */
+/* Page + layout transitions — REMOVED                                    */
 /* ---------------------------------------------------------------------- */
 /*
- * Registered in nuxt.config.ts (`app.pageTransition` / `app.layoutTransition`).
- * Before this the SPA had none at all, so every navigation was a hard cut:
- * content vanished, blank frame, new content popped in.
- *
- * `mode: 'out-in'` means these run in sequence, so the total is 90 + 160ms.
- * The leave is deliberately shorter than the enter — a slow leave feels
- * like lag, because nothing is on screen during it.
+ * The `.page-*` / `.layout-*` classes that lived here are gone along with
+ * `app.pageTransition` in nuxt.config.ts. See the note there: Vue's
+ * <Transition> needs a single element root, and 15 of this app's 68 pages
+ * render a Fragment, which blanked the home route. The CSS is removed too so
+ * nothing looks wired up when it isn't.
  */
-.page-enter-active,
-.layout-enter-active {
-  transition:
-    opacity 160ms var(--bow-ease-out),
-    transform 160ms var(--bow-ease-out);
-}
-
-.page-leave-active,
-.layout-leave-active {
-  transition: opacity 90ms var(--bow-ease);
-}
-
-.page-enter-from,
-.layout-enter-from {
-  opacity: 0;
-  transform: translateY(3px);
-}
-
-.page-leave-to,
-.layout-leave-to {
-  opacity: 0;
-}
 
 /*
  * One shimmer, one duration. The app defines `@keyframes shimmer` 66 times
