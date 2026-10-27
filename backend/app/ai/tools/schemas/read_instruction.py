@@ -47,6 +47,8 @@ class ReadInstructionInput(BaseModel):
             "e.g. 'connect|pair|weight'. Returns matching lines with 1-based line numbers "
             "plus `before`/`after` context lines, all VERBATIM. Use it to pull the entries "
             "you need out of a long catalogue instead of reading all of it. "
+            "A line over 500 chars comes back as one window per occurrence "
+            "(`col_start`/`col_end` locate it in the line). "
             "Takes precedence over offset/limit."
         ),
     )

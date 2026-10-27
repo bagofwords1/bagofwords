@@ -5488,6 +5488,10 @@ class AgentV2:
                         # set_report_agents) brings its file / mail / note
                         # tools into this step's catalog.
                         try:
+                            # Project files load async, so the catalog built in
+                            # __init__ can't see them; load them before the
+                            # refresh so read_file / grep_files get offered.
+                            await self._get_project_files()
                             self._refresh_capability_tools()
                         except Exception:
                             logger.exception("capability tool refresh failed")
@@ -8804,20 +8808,34 @@ class AgentV2:
 
     def _run_capabilities(self) -> set:
         """Capabilities that gate the catalog: the run's agents' connectors
-        plus the report's own file space (session files back read_file /
-        grep_files with no file connector attached)."""
+        plus the conversation's file space (uploads, project files and agent
+        library files back read_file / grep_files with no file connector
+        attached)."""
         caps = capabilities_for_agents(self._run_capability_agents())
         try:
-            caps |= capabilities_for_report_files(
-                bool(getattr(self.report, "files", None))
-                or bool(getattr(self, "agent_files", None))
-            )
+            caps |= capabilities_for_report_files(self._has_session_files())
         except Exception:
             logger.warning("[agent] report files unavailable for capability gating", exc_info=True)
         return caps
 
+    def _has_session_files(self) -> bool:
+        # Project files count once loaded (_get_project_files caches them);
+        # before that only uploads and agent library files are known.
+        return (
+            bool(getattr(self.report, "files", None))
+            or bool(getattr(self, "agent_files", None))
+            or bool(getattr(self, "_project_files_cache", None))
+        )
+
     def _run_pool_key(self) -> tuple:
-        return tuple(sorted(str(getattr(ds, "id", "")) for ds in self._run_capability_agents()))
+        # The file-space flag is part of the key so project files loaded after
+        # __init__ re-open the held-back read_file / grep_files.
+        agents = tuple(sorted(str(getattr(ds, "id", "")) for ds in self._run_capability_agents()))
+        try:
+            has_files = self._has_session_files()
+        except Exception:
+            has_files = False
+        return agents + (("files",) if has_files else ())
 
     def _tool_capability(self, tool_name: str):
         metadata = self.registry.get_metadata(tool_name)
