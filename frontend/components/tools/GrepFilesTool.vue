@@ -3,7 +3,7 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}…</template>
             <template v-else>{{ t('tools.grepFiles.grepping', { pattern: patternLabel }) }}</template>
@@ -15,17 +15,17 @@
           @click="expanded = !expanded"
           :aria-expanded="expanded"
         >
-          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <span class="align-middle">{{ modelTitle || t('tools.grepFiles.grepped', { pattern: patternLabel }) }}</span>
-          <span v-if="rj.success" class="ms-2 text-gray-400">
+          <span v-if="rj.success" class="ms-2 text-ink-muted">
             ({{ matchSummary }})
           </span>
-          <span v-if="rj.truncated" class="ms-2 text-[10px] text-yellow-600">{{ t('tools.grepFiles.truncated') }}</span>
+          <span v-if="rj.truncated" class="ms-2 text-2xs text-yellow-600">{{ t('tools.grepFiles.truncated') }}</span>
           <span
             v-if="rj.stop_reason && rj.stop_reason !== 'complete'"
-            class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+            class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
           >{{ t('tools.grepFiles.stopped', { reason: rj.stop_reason }) }}</span>
         </span>
       </div>
@@ -40,20 +40,20 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
-              <span class="font-medium text-gray-700 dark:text-gray-300 truncate shrink-0">{{ m.path || m.file_id }}<span class="text-gray-400">:{{ m.line_no }}</span></span>
-              <span class="ms-2 truncate text-gray-500 dark:text-gray-400 font-mono text-[11px]">{{ m.line }}</span>
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
+              <span class="font-medium text-gray-700 dark:text-gray-300 truncate shrink-0">{{ m.path || m.file_id }}<span class="text-ink-muted">:{{ m.line_no }}</span></span>
+              <span class="ms-2 truncate text-gray-500 dark:text-gray-400 font-mono text-2xs">{{ m.line }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
-                <pre class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ contextBlock(m) }}</pre>
-                <div v-if="m.line_truncated" class="mt-0.5 text-[10px] text-yellow-600">{{ t('tools.grepFiles.lineClipped', { n: 500 }) }}</div>
+                <pre class="text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap">{{ contextBlock(m) }}</pre>
+                <div v-if="m.line_truncated" class="mt-0.5 text-2xs text-yellow-600">{{ t('tools.grepFiles.lineClipped', { n: 500 }) }}</div>
               </div>
             </Transition>
           </li>
-          <li v-if="matches.length > 10" class="ps-1 text-[11px] text-gray-400">{{ t('tools.grepFiles.moreShown', { count: matches.length - 10 }) }}</li>
+          <li v-if="matches.length > 10" class="ps-1 text-2xs text-ink-muted">{{ t('tools.grepFiles.moreShown', { count: matches.length - 10 }) }}</li>
         </ul>
-        <div v-if="skipped.length" class="mt-1 ms-1 text-[11px] text-gray-400 dark:text-gray-500">
+        <div v-if="skipped.length" class="mt-1 ms-1 text-2xs text-ink-muted">
           {{ skipSummary }}
         </div>
         <ToolCallParams :params="toolExecution?.arguments_json" />

@@ -6,7 +6,7 @@
                     <h3 class="text-base font-semibold text-gray-900 dark:text-white">Manage model access</h3>
                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ model?.name }}</p>
                 </div>
-                <button @click="close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <button @click="close" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-200">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
@@ -46,23 +46,23 @@
                         {{ g.group_name }}
                     </span>
                 </div>
-                <p class="text-[11px] text-gray-400 mt-1">{{ $t('settings.llms.access.defaultForGroupsHint') }}</p>
+                <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.llms.access.defaultForGroupsHint') }}</p>
             </div>
 
             <div v-if="access.is_restricted">
                 <!-- Members list -->
                 <div class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Who can use this model</div>
-                <div v-if="access.members.length === 0" class="text-sm text-gray-400 dark:text-gray-500 py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-md mb-3">
+                <div v-if="access.members.length === 0" class="text-sm text-ink-muted py-3 text-center border border-dashed border-gray-200 dark:border-gray-700 rounded-md mb-3">
                     No one has been granted access yet.
                 </div>
                 <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800 mb-3" data-testid="llm-access-member-list">
                     <li v-for="m in access.members" :key="m.grant_id" class="flex items-center justify-between py-2">
                         <div class="flex items-center gap-2">
-                            <UIcon :name="principalIcon(m.principal_type)" class="w-4 h-4 text-gray-400" />
+                            <UIcon :name="principalIcon(m.principal_type)" class="w-4 h-4 text-ink-muted" />
                             <span class="text-sm text-gray-800 dark:text-gray-200">{{ m.principal_name || m.principal_id }}</span>
-                            <span class="text-[10px] uppercase text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{{ m.principal_type }}</span>
+                            <span class="text-2xs uppercase text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5">{{ m.principal_type }}</span>
                         </div>
-                        <button @click="removeMember(m)" class="text-gray-400 hover:text-red-500" :title="'Remove'">
+                        <button @click="removeMember(m)" class="text-ink-muted hover:text-red-500" :title="'Remove'">
                             <UIcon name="i-heroicons-trash" class="w-4 h-4" />
                         </button>
                     </li>

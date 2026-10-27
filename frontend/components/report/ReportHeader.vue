@@ -9,7 +9,7 @@
                     <UIcon
                         :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
                         class="w-5 h-5 transition-colors"
-                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-gray-400 hover:text-gray-500'"
+                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-ink-muted hover:text-gray-500'"
                     />
                 </button>
             </UTooltip>
@@ -28,7 +28,7 @@
                     >{{ localTitle }}<span class="report-title-caret" aria-hidden="true"></span></span>
                     <input
                         type="text"
-                        class="inline bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 focus:bg-gray-100 dark:focus:bg-gray-800 p-1 pt-1 rounded outline-none active:bg-gray-100 dark:active:bg-gray-800 hover:cursor-pointer text-start w-full text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 transition-colors duration-150"
+                        class="inline bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 focus:bg-gray-100 dark:focus:bg-gray-800 p-1 pt-1 rounded outline-none active:bg-gray-100 dark:active:bg-gray-800 hover:cursor-pointer text-start w-full text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500 transition-colors duration-150"
                         v-else-if="report"
                         v-model="localTitle"
                         :class="{ 'report-title-settled': justTyped }"
@@ -43,6 +43,7 @@
             </h1>
             <div class="ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" :title="$t('share.shareConversation')" />
+                <ChatDisplayMenu />
                 <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 items-center gap-1.5">
                         <Icon name="heroicons:view-columns" class="w-5 h-5 text-gray-500 dark:text-gray-400" />
@@ -60,7 +61,7 @@
                 class="flex items-center gap-1.5 py-1.5 text-xs font-medium rounded-md transition-colors"
                 :class="mobileView === tab.value
                     ? 'px-3 text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-                    : 'px-2.5 text-gray-400 hover:text-gray-600'"
+                    : 'px-2.5 text-ink-muted hover:text-gray-600'"
                 :aria-label="tab.label"
                 :title="tab.label"
             >
@@ -70,7 +71,7 @@
             <button
                 v-if="mobileView !== 'chat'"
                 @click="$emit('update:mobileView', 'chat')"
-                class="ms-auto p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
+                class="ms-auto p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 transition-colors"
             >
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>
@@ -82,6 +83,7 @@
 import { ref, watch } from 'vue'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import ShareModal from '@/components/ShareModal.vue'
+import ChatDisplayMenu from '@/components/report/ChatDisplayMenu.vue'
 
 const props = defineProps<{
     report: any | null,

@@ -12,7 +12,7 @@
     </div>
     <!-- Fallback: show source, never a broken page -->
     <div v-else class="rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-4">
-      <div class="mb-1 text-[11px] uppercase tracking-wide text-gray-400">{{ $t('docViewer.diagramFailed') }}</div>
+      <div class="mb-1 text-2xs uppercase tracking-wide text-ink-muted">{{ $t('docViewer.diagramFailed') }}</div>
       <pre class="text-xs text-gray-500 dark:text-gray-400 overflow-x-auto">{{ code }}</pre>
     </div>
   </div>

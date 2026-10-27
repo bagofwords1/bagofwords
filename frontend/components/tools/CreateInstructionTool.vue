@@ -7,33 +7,33 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-ink-muted" />
           <span v-if="instructionText" dir="auto" class="truncate max-w-[300px]">{{ $t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
           <span v-else>{{ $t('tools.createInstruction.creating') }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[10px] shrink-0">{{ category }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs shrink-0">{{ category }}</span>
           <Icon
             v-if="instructionText"
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
           />
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-green-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ truncatedText }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-[10px] shrink-0">{{ category }}</span>
-          <span v-if="lineCount > 0" class="ms-1.5 text-[10px] text-green-600 shrink-0">+{{ lineCount }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs shrink-0">{{ category }}</span>
+          <span v-if="lineCount > 0" class="ms-1.5 text-2xs text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
           />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.createInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-2xs">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
           />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -41,7 +41,7 @@
           <span>{{ $t('tools.createInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
           />
         </span>
       </div>
@@ -56,7 +56,7 @@
           <div
             v-if="instructionText"
             dir="auto"
-            class="instruction-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
+            class="instruction-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
             :class="readonly ? '' : 'cursor-pointer'"
             @click="!readonly && currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
@@ -64,7 +64,7 @@
           </div>
 
           <!-- Metadata row -->
-          <div class="flex flex-wrap items-center gap-2 text-[10px] mb-2">
+          <div class="flex flex-wrap items-center gap-2 text-2xs mb-2">
             <!-- Confidence -->
             <div v-if="confidence" class="flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createInstruction.confidence') }}</span>
@@ -79,7 +79,7 @@
             <!-- Load mode -->
             <div v-if="loadMode" class="flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createInstruction.load') }}</span>
-              <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
+              <span class="px-1.5 py-0.5 rounded text-2xs font-medium"
                 :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
               >
                 {{ getLoadModeLabel(loadMode) }}
@@ -88,13 +88,13 @@
 
             <!-- Tables scoped -->
             <div v-if="tableCount > 0" class="flex items-center gap-1">
-              <Icon name="heroicons-table-cells" class="w-3 h-3 text-gray-400" />
+              <Icon name="heroicons-table-cells" class="w-3 h-3 text-ink-muted" />
               <span class="text-gray-600 dark:text-gray-400">{{ tableCount === 1 ? $t('tools.createInstruction.tableSingular', { n: tableCount }) : $t('tools.createInstruction.tablePlural', { n: tableCount }) }}</span>
             </div>
           </div>
 
           <!-- Evidence (if available) -->
-          <div v-if="evidence" dir="auto" class="text-[10px] text-gray-500 dark:text-gray-400 italic mb-2">
+          <div v-if="evidence" dir="auto" class="text-2xs text-gray-500 dark:text-gray-400 italic mb-2">
             <span class="font-medium">{{ $t('tools.createInstruction.evidence') }}</span> {{ evidence }}
           </div>
 
@@ -102,15 +102,15 @@
           <div v-if="!readonly && isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <template v-if="resolution === 'accepted'">
               <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-              <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createInstruction.accepted', 'Accepted') }}</span>
+              <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createInstruction.accepted', 'Accepted') }}</span>
             </template>
             <template v-else-if="resolution === 'rejected'">
-              <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-400" />
-              <span class="text-[10px] text-gray-400">{{ $t('tools.createInstruction.rejectedLabel', 'Rejected') }}</span>
+              <Icon name="heroicons:x-circle" class="w-3 h-3 text-ink-muted" />
+              <span class="text-2xs text-ink-muted">{{ $t('tools.createInstruction.rejectedLabel', 'Rejected') }}</span>
             </template>
             <template v-else-if="canResolve">
               <button
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                 :disabled="isAccepting || isRejecting"
                 @click.stop="handleAccept"
               >
@@ -119,18 +119,18 @@
                 {{ $t('tools.createInstruction.accept', 'Accept') }}
               </button>
               <button
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
                 :disabled="isAccepting || isRejecting"
                 @click.stop="handleReject"
               >
-                <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-gray-400" />
+                <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-ink-muted" />
                 <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
                 {{ $t('tools.createInstruction.reject', 'Reject') }}
               </button>
             </template>
             <template v-else>
-              <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
-              <span class="text-[10px] font-medium text-gray-500 dark:text-gray-400">
+              <Icon name="heroicons:clock" class="w-3 h-3 text-ink-muted" />
+              <span class="text-2xs font-medium text-gray-500 dark:text-gray-400">
                 {{ $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
               </span>
             </template>
@@ -139,7 +139,7 @@
           </div>
 
           <!-- Error message -->
-          <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>

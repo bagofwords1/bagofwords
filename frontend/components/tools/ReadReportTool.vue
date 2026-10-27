@@ -2,8 +2,8 @@
   <div class="mb-2">
     <!-- Main Header -->
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 me-1.5 text-blue-500" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
@@ -13,7 +13,7 @@
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">Failed to read report</span>
       <span v-else class="text-gray-700 dark:text-gray-300">Read report</span>
 
-      <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+      <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
         {{ reportMode }}
       </span>
     </div>
@@ -22,7 +22,7 @@
     <Transition name="fade">
       <div v-if="!isCollapsed && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-xs text-gray-600 dark:text-gray-400">
         <!-- Meta -->
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-gray-500 dark:text-gray-400">
           <span v-if="reportStatus" class="px-1 py-0.5 rounded" :class="reportStatus === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">{{ reportStatus }}</span>
           <span v-if="dataSources.length">Data: {{ dataSources.join(', ') }}</span>
           <span v-if="artifacts.length">{{ artifacts.length }} artifact{{ artifacts.length === 1 ? '' : 's' }}</span>
@@ -31,22 +31,22 @@
 
         <!-- Artifacts -->
         <div v-if="artifacts.length">
-          <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">Artifacts</div>
+          <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Artifacts</div>
           <ul class="space-y-0.5">
             <li v-for="a in artifacts" :key="a.id" class="flex items-center">
-              <Icon name="heroicons-chart-bar-square" class="w-3 h-3 me-1 text-gray-400" />
+              <Icon name="heroicons-chart-bar-square" class="w-3 h-3 me-1 text-ink-muted" />
               <span class="truncate text-gray-700 dark:text-gray-300">{{ a.title || 'Untitled' }}</span>
-              <span v-if="a.mode" class="ms-1 text-[9px] text-gray-400">{{ a.mode }}<template v-if="a.version"> v{{ a.version }}</template></span>
+              <span v-if="a.mode" class="ms-1 text-2xs text-ink-muted">{{ a.mode }}<template v-if="a.version"> v{{ a.version }}</template></span>
             </li>
           </ul>
         </div>
 
         <!-- Conversation -->
         <div v-if="conversation.length">
-          <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-0.5">Conversation</div>
+          <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Conversation</div>
           <ul class="space-y-1">
             <li v-for="(m, i) in conversation" :key="i" class="leading-snug">
-              <span class="text-[9px] uppercase tracking-wide me-1" :class="m.role === 'user' ? 'text-blue-500' : 'text-gray-400'">{{ m.role }}</span>
+              <span class="text-2xs uppercase tracking-wide me-1" :class="m.role === 'user' ? 'text-blue-500' : 'text-ink-muted'">{{ m.role }}</span>
               <span class="text-gray-700 dark:text-gray-300">{{ truncate(m.content) }}</span>
             </li>
           </ul>

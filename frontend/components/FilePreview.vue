@@ -32,7 +32,7 @@
         :class="{ 'flex-1 min-h-0': expanded }"
         :style="expanded ? undefined : { height: frameHeight }"
       >
-        <Spinner class="w-4 h-4 text-gray-400" />
+        <Spinner class="w-4 h-4 text-ink-muted" />
       </div>
       <iframe
         v-else-if="embedUrl"
@@ -62,7 +62,7 @@
           v-if="!visible && !src"
           class="flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 h-40"
         >
-          <Spinner class="w-4 h-4 text-gray-400" />
+          <Spinner class="w-4 h-4 text-ink-muted" />
         </div>
 
         <div v-if="images.length > 1" class="flex items-center gap-1 flex-wrap">
@@ -70,7 +70,7 @@
             v-for="(id, i) in images"
             :key="id"
             type="button"
-            class="px-1.5 py-0.5 rounded text-[10px] border transition-colors"
+            class="px-1.5 py-0.5 rounded text-2xs border transition-colors"
             :class="id === activeImageId
               ? 'border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-900/30'
               : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
@@ -78,7 +78,7 @@
           >
             {{ $t('filePreview.pageN', { n: i + 1 }) }}
           </button>
-          <span v-if="truncated && pagesTotal" class="text-[10px] text-gray-400 dark:text-gray-500 ms-1">
+          <span v-if="truncated && pagesTotal" class="text-2xs text-ink-muted ms-1">
             {{ $t('filePreview.ofTotalPages', { n: images.length, total: pagesTotal }) }}
           </span>
         </div>

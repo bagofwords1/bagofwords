@@ -4,7 +4,7 @@
       <Spinner class="w-5 h-5" />
     </div>
     <div v-else-if="!src"
-      class="flex items-center justify-center h-40 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-[13px] text-gray-400 dark:text-gray-500">
+      class="flex items-center justify-center h-40 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-sm text-ink-muted">
       {{ $t('docViewer.imageUnavailable') }}
     </div>
     <img v-else :src="src" :alt="alt || ''" class="max-w-full h-auto rounded-lg mx-auto" />

@@ -56,7 +56,7 @@
         <span class="truncate">{{ report.title || 'Untitled' }}</span>
         <ReportStatusDot :report-id="report.id" />
       </h3>
-      <p class="text-xs text-gray-400 mt-1 truncate">
+      <p class="text-xs text-ink-muted mt-1 truncate">
         {{ report.user?.name ? `by ${report.user.name}` : '' }}
       </p>
     </div>

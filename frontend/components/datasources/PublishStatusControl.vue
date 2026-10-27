@@ -11,7 +11,7 @@
             :disabled="saving"
             :class="[
                 'inline-flex items-center gap-1.5 transition-colors',
-                subtle ? 'rounded py-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge],
+                subtle ? 'rounded py-1 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge],
                 saving ? 'opacity-60 cursor-wait' : 'hover:brightness-95',
             ]"
         >
@@ -28,7 +28,7 @@
                         <span class="text-sm text-gray-900 dark:text-white">{{ item.label }}</span>
                         <UIcon v-if="item.value === stage" name="heroicons-check" class="w-3.5 h-3.5 text-blue-600" />
                     </div>
-                    <div class="text-[11px] text-gray-500 dark:text-gray-400 whitespace-normal leading-snug">{{ item.description }}</div>
+                    <div class="text-2xs text-gray-500 dark:text-gray-400 whitespace-normal leading-snug">{{ item.description }}</div>
                 </div>
             </div>
         </template>
@@ -37,7 +37,7 @@
     <!-- Non-manager: read-only badge (only meaningful when not plain Production) -->
     <span
         v-else-if="subtle || stage !== 'production'"
-        :class="['inline-flex items-center gap-1.5', subtle ? 'text-[11px] text-gray-500 dark:text-gray-400' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge]]"
+        :class="['inline-flex items-center gap-1.5', subtle ? 'text-2xs text-gray-500 dark:text-gray-400' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge]]"
     >
         <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', meta.dot]" />
         {{ $t(`agentsPage.stage.${stage}`) }}

@@ -136,10 +136,10 @@
               </span>
             </label>
           </div>
-          <button type="submit" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md">{{ $t('settings.integrations.channels.common.connect') }}</button>
+          <button type="submit" class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md">{{ $t('settings.integrations.channels.common.connect') }}</button>
         </form>
       </div>
-      <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-400" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">&#x2715;</button>
+      <button class="absolute top-2 end-2 text-ink-muted hover:text-gray-600 dark:hover:text-gray-400" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">&#x2715;</button>
     </div>
   </template>
 

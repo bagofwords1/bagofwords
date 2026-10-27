@@ -9,11 +9,11 @@
                 placeholder="Search instructions..."
                 class="w-full ps-9 pe-8 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600 focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-900"
             />
-            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2 h-4 w-4 text-gray-400 dark:text-gray-600" />
+            <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2 h-4 w-4 text-ink-muted" />
             <button
                 v-if="search"
                 @click="$emit('update:search', '')"
-                class="absolute end-3 top-2 text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
+                class="absolute end-3 top-2 text-ink-muted hover:text-gray-600 dark:hover:text-gray-400"
             >
                 <UIcon name="i-heroicons-x-mark" class="h-4 w-4" />
             </button>
@@ -76,7 +76,7 @@
                 <span class="truncate text-gray-700 dark:text-gray-300">
                     {{ labelIds.length ? `${labelIds.length} label${labelIds.length !== 1 ? 's' : ''}` : 'Labels' }}
                 </span>
-                <UIcon name="i-heroicons-chevron-down-20-solid" class="h-4 w-4 text-gray-400 dark:text-gray-600 flex-shrink-0" />
+                <UIcon name="i-heroicons-chevron-down-20-solid" class="h-4 w-4 text-ink-muted flex-shrink-0" />
             </button>
 
             <template #panel>
@@ -134,7 +134,7 @@
                 <span class="flex items-center gap-1">
                     <UIcon name="i-heroicons-funnel" class="w-3 h-3" />
                     More
-                    <span v-if="advancedFilterCount > 0" class="ms-0.5 px-1 py-0.5 text-[9px] bg-gray-200 dark:bg-gray-700 rounded-full">
+                    <span v-if="advancedFilterCount > 0" class="ms-0.5 px-1 py-0.5 text-2xs bg-gray-200 dark:bg-gray-700 rounded-full">
                         {{ advancedFilterCount }}
                     </span>
                 </span>

@@ -1,11 +1,11 @@
 // Screenshot / video capture helper for agent UI evidence.
 //
-// Run from frontend/ so @playwright/test resolves from its node_modules:
+// Runnable from anywhere in the repo (it resolves Playwright out of
+// frontend/node_modules itself):
 //
-//   cd frontend
-//   node ../tools/agent/capture.mjs http://localhost:3000/users/sign-in ../media/pr/sign-in.png
-//   node ../tools/agent/capture.mjs http://localhost:3000/reports out.png --full
-//   node ../tools/agent/capture.mjs http://localhost:3000/reports out.webm --video 8
+//   node tools/agent/capture.mjs http://localhost:3000/users/sign-in media/pr/sign-in.png
+//   node tools/agent/capture.mjs http://localhost:3000/reports out.png --full
+//   node tools/agent/capture.mjs http://localhost:3000/reports out.webm --video 8
 //
 // Auth'd pages: pass a bearer-token cookie/localStorage via a storage state
 // file recorded once with --save-state (login flow is app-specific; see the
@@ -13,7 +13,15 @@
 //
 // In cloud sandboxes browsers live at /opt/pw-browsers:
 //   export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
-import { chromium } from '@playwright/test';
+// Resolved out of frontend/node_modules explicitly. A bare `import` of
+// `@playwright/test` is resolved relative to *this* file, not the working
+// directory, so ESM walked up to the repo root — which has no node_modules —
+// and the documented `cd frontend && node ../tools/agent/capture.mjs` died
+// with ERR_MODULE_NOT_FOUND. That made the mandatory ui-evidence workflow
+// impossible to run as written.
+import { createRequire } from 'node:module';
+const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
+const { chromium } = requireFromFrontend('@playwright/test');
 import { mkdirSync, renameSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 

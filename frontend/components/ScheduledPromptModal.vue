@@ -10,7 +10,7 @@
                         <NuxtLink
                             v-if="isEditing && reportId"
                             :to="`/reports/${reportId}`"
-                            class="mt-0.5 inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-600"
+                            class="mt-0.5 inline-flex items-center gap-1 text-2xs text-blue-500 hover:text-blue-600"
                             @click="isOpen = false"
                         >
                             <Icon name="heroicons:chat-bubble-left-right" class="w-3 h-3" />
@@ -38,41 +38,41 @@
 
                 <dl class="mt-4 space-y-2.5">
                     <div class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.schedule') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.schedule') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">{{ getCronLabel(props.scheduledPrompt?.cron_schedule, props.scheduledPrompt?.run_once_at) }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.agents') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.agents') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-agents">
                             <span v-if="viewAgents.length">{{ viewAgents.map((a) => a.name).join(', ') }}</span>
-                            <span v-else class="text-gray-400">{{ $t('scheduledPrompt.noAgents') }}</span>
+                            <span v-else class="text-ink-muted">{{ $t('scheduledPrompt.noAgents') }}</span>
                         </dd>
                     </div>
                     <div v-if="viewFiles.length" class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.files') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.files') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">{{ viewFiles.map((f) => f.filename || f.name).join(', ') }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.model') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.model') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="view-model">{{ viewModelLabel }}</dd>
                     </div>
                     <div class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.outputLabel') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.outputLabel') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">
                             {{ spawnNewReport ? $t('scheduledPrompt.outputNewReport') : $t('scheduledPrompt.outputSameReport') }}
                         </dd>
                     </div>
                     <div v-if="smtpEnabled" class="flex items-start gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.emailLabel') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.emailLabel') }}</dt>
                         <dd class="text-xs text-gray-700 dark:text-gray-300">
                             <template v-if="subscribers.length">
                                 {{ subscribers.map((s) => s.type === 'user' ? getMemberName(s.id) : s.address).join(', ') }}
                             </template>
-                            <span v-else class="text-gray-400">{{ $t('scheduledPrompt.notifyNobody') }}</span>
+                            <span v-else class="text-ink-muted">{{ $t('scheduledPrompt.notifyNobody') }}</span>
                         </dd>
                     </div>
                     <div class="flex items-center gap-2">
-                        <dt class="w-24 shrink-0 text-xs text-gray-400">{{ $t('scheduledPrompt.active') }}</dt>
+                        <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.active') }}</dt>
                         <dd>
                             <button
                                 @click="toggleActiveInPlace"
@@ -132,8 +132,8 @@
                     <button
                         v-for="t in scheduleTypes"
                         :key="t.value"
-                        class="px-2 py-0.5 text-[11px] rounded transition-colors"
-                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        class="px-2 py-0.5 text-2xs rounded transition-colors"
+                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
                         @click="scheduleType = t.value; scheduleDirty = true"
                     >
                         {{ t.label }}
@@ -188,9 +188,9 @@
                                 @click="toggleRecurDay(d.value)"
                                 :title="d.label"
                                 :aria-pressed="recurDays.includes(d.value)"
-                                class="flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-medium border transition-colors"
+                                class="flex items-center justify-center w-6 h-6 rounded-full text-2xs font-medium border transition-colors"
                                 :class="recurDays.includes(d.value)
-                                    ? 'bg-blue-500 text-white border-blue-500'
+                                    ? 'bg-blue-600 text-white border-blue-500'
                                     : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'"
                             >
                                 {{ d.short }}
@@ -212,8 +212,8 @@
                 <div class="flex gap-0.5 p-0.5 bg-gray-100 dark:bg-gray-800 rounded w-fit" data-testid="output-routing">
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
-                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
+                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
                         data-testid="routing-same-report"
                         @click="spawnNewReport = false"
                     >
@@ -222,8 +222,8 @@
                     </button>
                     <button
                         type="button"
-                        class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded transition-colors"
-                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600'"
+                        class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
+                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
                         data-testid="routing-new-report"
                         @click="spawnNewReport = true"
                     >
@@ -231,7 +231,7 @@
                         {{ $t('scheduledPrompt.outputNewReport') }}
                     </button>
                 </div>
-                <p class="mt-1 text-[11px] text-gray-400">
+                <p class="mt-1 text-2xs text-ink-muted">
                     {{ spawnNewReport ? $t('scheduledPrompt.outputNewReportHint') : $t('scheduledPrompt.outputSameReportHint') }}
                 </p>
             </div>
@@ -259,12 +259,12 @@
                         {{ $t('scheduledPrompt.notifyAfterRun') }}
                     </span>
                 </label>
-                <p v-if="promptMentionsEmail" class="text-[11px] text-amber-600 mt-1 ms-6">
+                <p v-if="promptMentionsEmail" class="text-2xs text-amber-600 mt-1 ms-6">
                     {{ $t('scheduledPrompt.promptSendsEmailHint') }}
                 </p>
                 <div v-if="sendSummaryEmail" class="flex flex-wrap items-center gap-1 border border-gray-200 dark:border-gray-700 rounded px-2 py-1 min-h-[30px] mt-2 ms-6 focus-within:ring-1 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white dark:bg-gray-900">
                     <span v-for="(sub, idx) in subscribers" :key="idx"
-                        class="inline-flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[11px] px-1.5 py-0.5 rounded-full">
+                        class="inline-flex items-center gap-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-2xs px-1.5 py-0.5 rounded-full">
                         {{ sub.type === 'user' ? getMemberName(sub.id) : sub.address }}
                         <button @click="removeSubscriber(idx)" class="hover:text-red-500 outline-none">
                             <Icon name="heroicons:x-mark" class="w-2.5 h-2.5" />
@@ -286,7 +286,7 @@
                                 class="w-full text-start px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                                 @mousedown.prevent="addMember(member)">
                                 <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
-                                <span v-if="member.name" class="text-[10px] text-gray-400">{{ member.email }}</span>
+                                <span v-if="member.name" class="text-2xs text-ink-muted">{{ member.email }}</span>
                             </button>
                         </div>
                     </div>
@@ -299,17 +299,17 @@
             <!-- ── History + provenance (view mode only) ─────────────────── -->
             <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="runs-column">
                 <div class="flex items-baseline justify-between">
-                    <h4 class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ $t('scheduledPrompt.previousRuns') }}</h4>
-                    <span v-if="runsTotal" class="text-[11px] text-gray-300 dark:text-gray-600">{{ runsTotal }}</span>
+                    <h4 class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('scheduledPrompt.previousRuns') }}</h4>
+                    <span v-if="runsTotal" class="text-2xs text-gray-300 dark:text-gray-600">{{ runsTotal }}</span>
                 </div>
 
-                <div v-if="runsLoading" class="mt-2 text-[11px] text-gray-400 inline-flex items-center">
+                <div v-if="runsLoading" class="mt-2 text-2xs text-ink-muted inline-flex items-center">
                     <Spinner class="me-1 w-3 h-3" /> {{ $t('scheduled.loading') }}
                 </div>
                 <template v-else>
                     <!-- Host-report mode appends every run to one report, so
                          there is no per-run history to list. -->
-                    <p v-if="!runsSpawnReports" class="mt-2 text-[11px] text-gray-400 leading-relaxed">
+                    <p v-if="!runsSpawnReports" class="mt-2 text-2xs text-ink-muted leading-relaxed">
                         {{ $t('scheduledPrompt.runsInHostReport') }}
                     </p>
                     <ul v-else-if="runs.length" class="mt-1.5 -mx-2">
@@ -320,17 +320,17 @@
                                 @click="isOpen = false"
                             >
                                 <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
-                                <span class="flex-1 min-w-0 truncate text-[12px] text-gray-700 dark:text-gray-300">{{ run.title || $t('scheduled.untitledReport') }}</span>
-                                <span class="shrink-0 text-[10px] text-gray-400">{{ formatRunDate(run.created_at) }}</span>
+                                <span class="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">{{ run.title || $t('scheduled.untitledReport') }}</span>
+                                <span class="shrink-0 text-2xs text-ink-muted">{{ formatRunDate(run.created_at) }}</span>
                             </NuxtLink>
                         </li>
                     </ul>
-                    <p v-else class="mt-2 text-[11px] text-gray-400">{{ $t('scheduledPrompt.noRuns') }}</p>
+                    <p v-else class="mt-2 text-2xs text-ink-muted">{{ $t('scheduledPrompt.noRuns') }}</p>
 
                     <NuxtLink
                         v-if="runsSpawnReports && runsTotal > runs.length"
                         :to="`/reports/${reportId}`"
-                        class="mt-2 inline-block text-[11px] text-blue-500 hover:text-blue-600"
+                        class="mt-2 inline-block text-2xs text-blue-500 hover:text-blue-600"
                         @click="isOpen = false"
                     >{{ $t('scheduledPrompt.runsMore', { n: runsTotal - runs.length }) }}</NuxtLink>
                 </template>
@@ -338,25 +338,25 @@
                 <!-- Provenance -->
                 <dl class="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 space-y-2">
                     <div v-if="nextRunLabel" class="flex items-start gap-2">
-                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.nextRun') }}</dt>
-                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ nextRunLabel }}</dd>
+                        <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.nextRun') }}</dt>
+                        <dd class="text-2xs text-gray-600 dark:text-gray-300">{{ nextRunLabel }}</dd>
                     </div>
                     <!-- Only where the runs list cannot show it: in host-report
                          mode every run appends to one report, so there are no
                          dated rows above to read the last run from. -->
                     <div v-if="!runsSpawnReports" class="flex items-start gap-2">
-                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.lastRun') }}</dt>
-                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">
+                        <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.lastRun') }}</dt>
+                        <dd class="text-2xs text-gray-600 dark:text-gray-300">
                             {{ props.scheduledPrompt?.last_run_at ? formatRunDate(props.scheduledPrompt.last_run_at) : $t('scheduledPrompt.never') }}
                         </dd>
                     </div>
                     <div class="flex items-start gap-2">
-                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.created') }}</dt>
-                        <dd class="text-[11px] text-gray-600 dark:text-gray-300">{{ formatRunDate(props.scheduledPrompt?.created_at) }}</dd>
+                        <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.created') }}</dt>
+                        <dd class="text-2xs text-gray-600 dark:text-gray-300">{{ formatRunDate(props.scheduledPrompt?.created_at) }}</dd>
                     </div>
                     <div v-if="props.scheduledPrompt?.user_name" class="flex items-start gap-2">
-                        <dt class="w-20 shrink-0 text-[11px] text-gray-400">{{ $t('scheduledPrompt.createdBy') }}</dt>
-                        <dd class="text-[11px] text-gray-600 dark:text-gray-300 truncate">{{ props.scheduledPrompt.user_name }}</dd>
+                        <dt class="w-20 shrink-0 text-2xs text-ink-muted">{{ $t('scheduledPrompt.createdBy') }}</dt>
+                        <dd class="text-2xs text-gray-600 dark:text-gray-300 truncate">{{ props.scheduledPrompt.user_name }}</dd>
                     </div>
                 </dl>
             </aside>

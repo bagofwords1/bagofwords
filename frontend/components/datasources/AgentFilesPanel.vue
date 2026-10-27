@@ -13,10 +13,10 @@
           {{ uploading ? 'Uploading…' : '+ Upload files' }}
         </button>
       </div>
-      <div v-if="files.length === 0" class="text-xs text-gray-400 dark:text-gray-500 py-2">No uploaded files yet.</div>
+      <div v-if="files.length === 0" class="text-xs text-ink-muted py-2">No uploaded files yet.</div>
       <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800">
         <li v-for="f in files" :key="f.id" class="flex items-center justify-between py-1.5 text-sm group">
-          <span class="flex items-center gap-2 min-w-0"><UIcon name="i-heroicons-document" class="w-4 h-4 text-gray-400 shrink-0" /><span class="truncate text-gray-700 dark:text-gray-300">{{ f.filename }}</span></span>
+          <span class="flex items-center gap-2 min-w-0"><UIcon name="i-heroicons-document" class="w-4 h-4 text-ink-muted shrink-0" /><span class="truncate text-gray-700 dark:text-gray-300">{{ f.filename }}</span></span>
           <button v-if="canUpdate" @click="removeFile(f)" class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </li>
       </ul>
@@ -28,17 +28,17 @@
         <div class="flex items-center gap-2">
           <DataSourceIcon :type="conn.type" class="w-4 h-4" />
           <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ conn.name }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ conn.type }}</span>
+          <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ conn.type }}</span>
         </div>
         <div class="flex items-center gap-2">
-          <span :class="badgeClass(indexModeOf(conn))" class="text-[10px] px-2 py-0.5 rounded-full font-medium">{{ badgeLabel(indexModeOf(conn)) }}</span>
+          <span :class="badgeClass(indexModeOf(conn))" class="text-2xs px-2 py-0.5 rounded-full font-medium">{{ badgeLabel(indexModeOf(conn)) }}</span>
           <button class="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="editScope(conn)">Edit scope</button>
         </div>
       </div>
       <div class="mt-3 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
-        <span class="text-gray-400 dark:text-gray-500">Base</span>
+        <span class="text-ink-muted">Base</span>
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>
-        <span class="text-gray-400 dark:text-gray-500">Scope</span>
+        <span class="text-ink-muted">Scope</span>
         <div>
           <template v-if="globsOf(conn).length"><code v-for="g in globsOf(conn)" :key="g" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code></template>
           <span v-else class="text-gray-500 italic">whole path</span>

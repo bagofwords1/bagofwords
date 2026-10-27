@@ -1142,7 +1142,24 @@
     "steerFailed": "Failed to steer the running completion",
     "instructionUnavailableTitle": "Instruction unavailable",
     "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",
-    "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})"
+    "loopRetryNotice": "Hit an internal error — retrying from the latest context (attempt {attempt}/{max})",
+    "display": {
+      "title": "Display",
+      "textSize": "Text size",
+      "pixels": "{n}px",
+      "scales": {
+        "small": "Small",
+        "default": "Default",
+        "large": "Large",
+        "larger": "Larger"
+      },
+      "width": "Width",
+      "widths": {
+        "standard": "Standard",
+        "wide": "Wide"
+      },
+      "scopeHint": "Applies to your conversations in this browser."
+    }
   },
   "tools": {
     "common": {

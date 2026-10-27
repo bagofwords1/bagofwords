@@ -4,7 +4,7 @@
     <Transition name="fade" appear>
     <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
         <span>Searching&nbsp;</span>
         <Transition name="fade-in" mode="out-in">
           <span :key="queryLabel || ''">{{ queryLabel }}</span>
@@ -12,7 +12,7 @@
         <span>…</span>
       </span>
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">Searched&nbsp;</span>
         <Transition name="fade-in" mode="out-in">
           <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
@@ -31,7 +31,7 @@
             @click="toggleItem(idx)"
             :aria-expanded="isExpanded(idx)"
           >
-            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+            <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
             <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-3 me-2" />
             <div class="font-medium text-gray-700 dark:text-gray-300 truncate">
               {{ item.name || item.path || 'resource' }}
@@ -43,10 +43,10 @@
               <!-- DBT (verbose) -->
               <template v-if="isDbt(item)">
                 <div class="text-gray-600 dark:text-gray-400 mb-1 flex items-center flex-wrap">
-                  <span class="inline-block text-[10px] uppercase tracking-wide bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded me-2">
+                  <span class="inline-block text-2xs uppercase tracking-wide bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded me-2">
                     {{ simplifyDbtType(item.resource_type) }}
                   </span>
-                  <span v-if="item.database || item.schema" class="text-gray-400">
+                  <span v-if="item.database || item.schema" class="text-ink-muted">
                     {{ [item.database, item.schema].filter(Boolean).join('.') }}
                   </span>
                 </div>
@@ -56,30 +56,30 @@
                     {{ dbtMetricSummary(item) }}
                   </div>
                   <div class="text-gray-500 dark:text-gray-400" v-if="dbtMetricDimensions(item).length">
-                    <span class="text-gray-400 me-1">Dimensions:</span>
+                    <span class="text-ink-muted me-1">Dimensions:</span>
                     {{ dbtMetricDimensions(item).slice(0,4).join(', ') }}<span v-if="dbtMetricDimensions(item).length > 4">, …</span>
                   </div>
                   <div class="text-gray-500 dark:text-gray-400" v-if="dbtMetricGrains(item).length">
-                    <span class="text-gray-400 me-1">Time grains:</span>
+                    <span class="text-ink-muted me-1">Time grains:</span>
                     {{ dbtMetricGrains(item).join(', ') }}
                   </div>
                   <!-- Fallback when extractor details are not present in output -->
                   <div class="text-gray-500 dark:text-gray-400" v-if="!dbtMetricSummary(item) && !dbtMetricDimensions(item).length && !dbtMetricGrains(item).length">
                     <span v-if="item.description">{{ truncate(item.description, 240) }}</span>
-                    <span v-else-if="item.path" class="text-gray-400">{{ item.path }}</span>
+                    <span v-else-if="item.path" class="text-ink-muted">{{ item.path }}</span>
                   </div>
                 </div>
                 <!-- Generic DBT fallback -->
                 <div v-else class="text-gray-500 dark:text-gray-400">
                   <span v-if="item.description">{{ truncate(item.description, 240) }}</span>
-                  <span v-else-if="item.path" class="text-gray-400">{{ item.path }}</span>
+                  <span v-else-if="item.path" class="text-ink-muted">{{ item.path }}</span>
                 </div>
               </template>
               <!-- Non-DBT concise details -->
               <template v-else>
                 <div class="text-gray-500 dark:text-gray-400">
                   <span v-if="item.description">{{ truncate(item.description, 240) }}</span>
-                  <span v-else-if="item.path" class="text-gray-400">{{ item.path }}</span>
+                  <span v-else-if="item.path" class="text-ink-muted">{{ item.path }}</span>
                 </div>
               </template>
             </div>

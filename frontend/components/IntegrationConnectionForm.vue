@@ -14,7 +14,7 @@
         </div>
       </div>
 
-      <div v-if="loadingFields" class="text-xs text-gray-400">{{ $t('common.loading') }}</div>
+      <div v-if="loadingFields" class="text-xs text-ink-muted">{{ $t('common.loading') }}</div>
       <template v-else>
         <!-- Only when the registry offers more than one admin option (e.g.
              Google Drive: OAuth client vs. shared service account). Fixed in
@@ -49,7 +49,7 @@
           <UCheckbox v-else-if="field.type === 'boolean'" v-model="form.credentials[field.key]">{{ field.title }}</UCheckbox>
           <input v-else v-model="form.credentials[field.key]"
                  class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
-          <div v-if="field.description" class="text-[11px] text-gray-400 mt-0.5">{{ field.description }}</div>
+          <div v-if="field.description" class="text-2xs text-ink-muted mt-0.5">{{ field.description }}</div>
         </div>
       </template>
 

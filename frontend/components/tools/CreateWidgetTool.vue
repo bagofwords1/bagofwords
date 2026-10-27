@@ -13,10 +13,10 @@
       <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
 
       <!-- Stage badge -->
-      <span v-if="progressStage" class="ms-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500">{{ progressStageLabel }}</span>
+      <span v-if="progressStage" class="ms-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ progressStageLabel }}</span>
 
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
     <!-- Collapsible content -->
@@ -25,7 +25,7 @@
         <!-- Section 1: Creating Data Model -->
         <div class="mb-4">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDm">
-            <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
+            <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createWidget.creatingDataModel') }}</span>
@@ -42,8 +42,8 @@
                       </td>
                       <td class="text-gray-500 dark:text-gray-400 py-1 leading-tight">
                         {{ column.description }}
-                        <span v-if="column.source" class="text-gray-400 dark:text-gray-500 text-xs">
-                          <Icon name="heroicons-circle-stack" class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500" />
+                        <span v-if="column.source" class="text-ink-muted text-xs">
+                          <Icon name="heroicons-circle-stack" class="w-3 h-3 ms-1 text-ink-muted" />
                           {{ column.source }}
                         </span>
                       </td>
@@ -51,7 +51,7 @@
                   </tbody>
                 </table>
               </div>
-              <div v-else class="text-xs text-gray-400 dark:text-gray-500 mt-1 hidden">Preparing…</div>
+              <div v-else class="text-xs text-ink-muted mt-1 hidden">Preparing…</div>
             </div>
           </Transition>
         </div>
@@ -59,7 +59,7 @@
         <!-- Section 2: Generating Code (only show after data model is completed) -->
         <div class="mb-2" v-if="dmDone">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCode">
-            <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
+            <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingCode') }}</span>
@@ -91,7 +91,7 @@
                   <div class="flex-1"></div>
                   <!-- Right aligned attempts with hover popover listing errors -->
                   <div class="relative group">
-                    <span class="text-gray-400 dark:text-gray-500 cursor-default">attempts: {{ currentAttempt }}</span>
+                    <span class="text-ink-muted cursor-default">attempts: {{ currentAttempt }}</span>
                     <div class="hidden group-hover:block absolute end-0 z-10 mt-1 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-2 text-xs text-gray-600 dark:text-gray-400">
                       <div v-if="attempts && attempts.length">
                         <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">Errors</div>
@@ -99,7 +99,7 @@
                           <li v-for="(att, idx) in attempts" :key="idx">Attempt {{ idx + 1 }}: {{ att }}</li>
                         </ul>
                       </div>
-                      <div v-else class="text-gray-400 dark:text-gray-500"></div>
+                      <div v-else class="text-ink-muted"></div>
                     </div>
                   </div>
                 </div>
@@ -119,7 +119,7 @@
                 </div>
 
               </div>
-              <div v-else class="text-xs text-gray-400 dark:text-gray-500 mt-1 hidden">Preparing…</div>
+              <div v-else class="text-xs text-ink-muted mt-1 hidden">Preparing…</div>
             </div>
           </Transition>
         </div>

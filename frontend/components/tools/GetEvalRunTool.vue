@@ -6,14 +6,14 @@
       @click="canExpand && (expanded = !expanded)"
     >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.getEvalRun.reading') }}
       </span>
       <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-purple-400" />
         <span class="align-middle">{{ t('tools.getEvalRun.read') }}</span>
-        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-[10px] text-gray-500 dark:text-gray-400">
+        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-2xs font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
+        <span v-if="total > 0" class="ms-1.5 text-2xs text-gray-500 dark:text-gray-400">
           <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
           <span dir="ltr">{{ finished }} / {{ total }}</span>
           <span v-if="passed > 0" class="ms-1 text-green-700">· {{ t('tools.getEvalRun.pass', { count: passed }) }}</span>
@@ -21,7 +21,7 @@
         </span>
       </span>
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">{{ message || t('tools.getEvalRun.notFound') }}</span>
       </span>
 
@@ -29,14 +29,14 @@
       <Icon
         v-if="canExpand"
         name="heroicons-chevron-down"
-        class="w-3 h-3 ms-1 text-gray-400 transition-transform duration-200"
+        class="w-3 h-3 ms-1 text-ink-muted transition-transform duration-200"
         :class="{ '-rotate-90': !expanded }"
       />
     </div>
 
     <!-- Compare summary (compare_to_previous=true) -->
-    <div v-if="compareSummary && expanded" class="mb-1 ms-1 flex items-center gap-1.5 text-[10px]">
-      <Icon name="heroicons:arrows-right-left" class="w-3 h-3 text-gray-400" />
+    <div v-if="compareSummary && expanded" class="mb-1 ms-1 flex items-center gap-1.5 text-2xs">
+      <Icon name="heroicons:arrows-right-left" class="w-3 h-3 text-ink-muted" />
       <span class="text-gray-500 dark:text-gray-400">{{ t('tools.getEvalRun.vsPrevious') }}</span>
       <span class="inline-flex px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800">{{ t('tools.getEvalRun.fixed', { count: compareSummary.fixed || 0 }) }}</span>
       <span class="inline-flex px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-800">{{ t('tools.getEvalRun.regressed', { count: compareSummary.regressed || 0 }) }}</span>
@@ -50,13 +50,13 @@
         <Spinner v-if="c.status === 'in_progress' && !readonly" class="w-3 h-3 me-1 flex-shrink-0 text-blue-400" />
         <Icon v-else :name="caseIcon(c.status)" class="w-3 h-3 me-1 flex-shrink-0" :class="caseIconColor(c.status)" />
         <span class="truncate" :title="c.case_name || c.case_id">{{ c.case_name || c.case_id }}</span>
-        <span class="ms-2 text-[10px] flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
-        <span v-if="c.failure_reason" class="ms-2 text-[10px] text-gray-400 truncate" :title="c.failure_reason">— {{ c.failure_reason }}</span>
+        <span class="ms-2 text-2xs flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
+        <span v-if="c.failure_reason" class="ms-2 text-2xs text-ink-muted truncate" :title="c.failure_reason">— {{ c.failure_reason }}</span>
       </li>
     </ul>
 
     <!-- The run page is authenticated; a shared link's reader cannot open it. -->
-    <div v-if="!readonly && runId && expanded" class="mt-1 text-[10px] text-gray-400 ms-1">
+    <div v-if="!readonly && runId && expanded" class="mt-1 text-2xs text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.getEvalRun.openRun') }}
@@ -221,7 +221,7 @@ function caseIconColor(s: string): string {
   if (s === 'fail' || s === 'error') return 'text-red-500'
   if (s === 'stopped') return 'text-gray-500'
   if (s === 'in_progress') return 'text-blue-400'
-  return 'text-gray-400'
+  return 'text-ink-muted'
 }
 function caseStatusColor(s: string): string {
   if (s === 'pass') return 'text-green-700'

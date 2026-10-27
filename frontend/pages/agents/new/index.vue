@@ -10,7 +10,7 @@
 
       <!-- Loading connections -->
       <div v-if="loadingConnections" class="flex flex-col items-center justify-center py-16">
-        <Spinner class="h-4 w-4 text-gray-400" />
+        <Spinner class="h-4 w-4 text-ink-muted" />
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connections...</p>
       </div>
 
@@ -55,14 +55,14 @@
                   </div>
                 </template>
               </div>
-              <span v-else class="text-gray-400">Select connections</span>
+              <span v-else class="text-ink-muted">Select connections</span>
             </template>
             <template #option="{ option }">
               <div class="flex items-center gap-2 w-full">
                 <DataSourceIcon :type="option.type" :connector-key="option.connector_key" class="h-4 flex-shrink-0" />
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{{ option.name }}</div>
-                  <div class="text-[10px] text-gray-400">
+                  <div class="text-2xs text-ink-muted">
                     {{ connectionCountLabel(option) }} · {{ option.agent_count || 0 }} agents
                   </div>
                 </div>

@@ -22,7 +22,7 @@
                 class="text-xs border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 @change="onCustom('start', ($event.target as HTMLInputElement).value)"
             />
-            <span class="text-xs text-gray-400">–</span>
+            <span class="text-xs text-ink-muted">–</span>
             <input
                 type="date"
                 :value="isoDay(range.end)"

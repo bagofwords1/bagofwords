@@ -3,14 +3,14 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-paper-clip" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Attaching {{ requestedCount }} file{{ requestedCount === 1 ? '' : 's' }}…</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-paper-clip" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon v-else name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Attached {{ attachedCount }} file{{ attachedCount === 1 ? '' : 's' }} to the report</span>
-          <span v-if="failedCount" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
+          <span v-if="failedCount" class="ms-2 text-2xs px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
         </span>
       </div>
     </Transition>
@@ -21,7 +21,7 @@
           class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
           @click="expanded = !expanded"
         >
-          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
           <span class="text-gray-500 dark:text-gray-400">{{ files.length }} file{{ files.length === 1 ? '' : 's' }}</span>
         </div>
         <Transition name="fade">
@@ -36,8 +36,8 @@
                 :class="['w-3 h-3 me-1.5', f.session_file_id ? 'text-green-600 dark:text-green-500' : 'text-yellow-600']"
               />
               <span class="truncate text-gray-700 dark:text-gray-300">{{ f.name || f.file_id }}</span>
-              <span v-if="f.size != null" class="ms-2 text-gray-400 text-[10px]">{{ humanSize(f.size) }}</span>
-              <span v-if="f.error" class="ms-2 text-red-600 text-[10px]">{{ f.error }}</span>
+              <span v-if="f.size != null" class="ms-2 text-ink-muted text-2xs">{{ humanSize(f.size) }}</span>
+              <span v-if="f.error" class="ms-2 text-red-600 text-2xs">{{ f.error }}</span>
             </div>
           </div>
         </Transition>

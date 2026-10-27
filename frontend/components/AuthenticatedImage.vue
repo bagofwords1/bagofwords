@@ -1,7 +1,7 @@
 <template>
   <img v-if="blobUrl" :src="blobUrl" :alt="alt" :class="imgClass" @click="$emit('click')" />
   <div v-else :class="imgClass" class="bg-gray-100 dark:bg-gray-800 animate-pulse flex items-center justify-center" @click="$emit('click')">
-    <Icon name="heroicons-photo" class="w-4 h-4 text-gray-400" />
+    <Icon name="heroicons-photo" class="w-4 h-4 text-ink-muted" />
   </div>
 </template>
 

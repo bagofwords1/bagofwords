@@ -5,7 +5,7 @@
 				<div class="flex items-start justify-between">
 					<div>
 						<h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reportWebhooks.title') }}</h3>
-						<p class="text-sm text-gray-400 mt-0.5">{{ $t('reportWebhooks.subtitle') }}</p>
+						<p class="text-sm text-ink-muted mt-0.5">{{ $t('reportWebhooks.subtitle') }}</p>
 					</div>
 					<UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
 				</div>
@@ -13,17 +13,17 @@
 
 			<!-- Existing webhooks -->
 			<section v-if="webhooks.length" class="mb-6">
-				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('reportWebhooks.active') }}</h4>
+				<h4 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-2">{{ $t('reportWebhooks.active') }}</h4>
 				<div class="space-y-1.5">
 					<div
 						v-for="w in webhooks"
 						:key="w.id"
 						class="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700"
 					>
-						<Icon :name="sourceIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-gray-400" />
+						<Icon :name="sourceIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-ink-muted" />
 						<div class="flex-1 min-w-0">
 							<div class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ w.name }}</div>
-							<div class="text-[11px] text-gray-400">{{ w.source }} · {{ authLabel(w.auth_mode) }}<span v-if="w.classify_enabled"> · AI</span></div>
+							<div class="text-2xs text-ink-muted">{{ w.source }} · {{ authLabel(w.auth_mode) }}<span v-if="w.classify_enabled"> · AI</span></div>
 						</div>
 						<UTooltip :text="$t('reportWebhooks.rotate')">
 							<button class="text-gray-300 dark:text-gray-600 hover:text-gray-600 p-1" @click="rotate(w)"><Icon name="heroicons-arrow-path" class="w-4 h-4" /></button>
@@ -40,21 +40,21 @@
 				<h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">{{ $t('reportWebhooks.copyOnce') }}</h4>
 				<div class="space-y-2">
 					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">URL</span>
+						<span class="text-2xs font-medium uppercase tracking-wide text-ink-muted w-10">URL</span>
 						<code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">{{ reveal.delivery_url }}</code>
-						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.delivery_url)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+						<button class="text-ink-muted hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.delivery_url)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
 					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">{{ $t('reportWebhooks.secretKey') }}</span>
+						<span class="text-2xs font-medium uppercase tracking-wide text-ink-muted w-10">{{ $t('reportWebhooks.secretKey') }}</span>
 						<code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">{{ reveal.secret }}</code>
-						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.secret)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
+						<button class="text-ink-muted hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.secret)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
 				</div>
 			</section>
 
 			<!-- New webhook -->
 			<section>
-				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">{{ $t('reportWebhooks.newWebhook') }}</h4>
+				<h4 class="text-xs font-medium text-ink-muted uppercase tracking-wide mb-3">{{ $t('reportWebhooks.newWebhook') }}</h4>
 
 				<div class="space-y-4">
 					<div>

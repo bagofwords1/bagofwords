@@ -15,7 +15,7 @@
     <Transition name="fade" appear>
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'proposing'" class="tool-shimmer flex items-center min-w-0">
-          <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-gray-400 shrink-0" />
+          <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
           <span class="truncate" dir="auto">{{ isEdit ? $t('tools.listSchema.proposingEdit', { name: listName }) : $t('tools.listSchema.proposing', { name: listName }) }}</span>
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
@@ -23,7 +23,7 @@
           <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.listSchema.waitingReview') : (isEdit ? $t('tools.listSchema.reviewEdit') : $t('tools.listSchema.review')) }}</span>
         </span>
         <span v-else-if="phase === 'saving'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">{{ $t('tools.listSchema.saving') }}</span>
         </span>
         <span v-else-if="phase === 'done'" class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -31,7 +31,7 @@
           <span>{{ isEdit ? $t('tools.listSchema.updated') : $t('tools.listSchema.created') }}</span>
         </span>
         <span v-else-if="phase === 'declined'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ outputStatus === 'timed_out' ? $t('tools.listSchema.timedOut') : $t('tools.listSchema.declined') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -41,10 +41,10 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-2xl" dir="auto">
+    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">
       {{ message }}
       <ul v-if="errors.length" class="mt-1 list-disc ms-4 space-y-0.5" data-testid="list-schema-errors">
-        <li v-for="e in errors" :key="e" class="font-mono text-[11px]">{{ e }}</li>
+        <li v-for="e in errors" :key="e" class="font-mono text-2xs">{{ e }}</li>
       </ul>
     </div>
     <div v-if="phase === 'declined' && feedback" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 italic" dir="auto">
@@ -54,7 +54,7 @@
     <Transition name="fade" appear>
       <div
         v-if="fields.length && expanded"
-        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-2xl"
+        class="rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-chat"
         data-testid="list-schema-card"
       >
         <!-- Header -->
@@ -62,13 +62,13 @@
           <div class="flex items-center gap-2 min-w-0">
             <Icon name="heroicons-table-cells" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto" data-testid="list-schema-name">{{ listName }}</span>
-            <span v-if="previousName" class="text-[11px] text-gray-400 line-through truncate" dir="auto">{{ previousName }}</span>
-            <span class="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" :class="badgeClass" data-testid="list-schema-badge">{{ badgeLabel }}</span>
+            <span v-if="previousName" class="text-2xs text-ink-muted line-through truncate" dir="auto">{{ previousName }}</span>
+            <span class="text-2xs px-1.5 py-0.5 rounded-full flex-shrink-0" :class="badgeClass" data-testid="list-schema-badge">{{ badgeLabel }}</span>
             <span class="flex-1"></span>
-            <span v-if="agentName" class="hidden sm:inline text-[10px] text-gray-400 truncate" dir="auto">{{ agentName }}</span>
+            <span v-if="agentName" class="hidden sm:inline text-2xs text-ink-muted truncate" dir="auto">{{ agentName }}</span>
           </div>
-          <div v-if="description" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ description }}</div>
-          <div v-if="isEdit && change === 'breaking' && phase !== 'done'" class="mt-1.5 text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="list-schema-breaking">
+          <div v-if="description" class="mt-1 text-2xs text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ description }}</div>
+          <div v-if="isEdit && change === 'breaking' && phase !== 'done'" class="mt-1.5 text-2xs text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="list-schema-breaking">
             <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 flex-shrink-0" />
             <span>{{ $t('tools.listSchema.breakingHint', { n: rowCount, v: (version || 1) + 1 }, rowCount) }}</span>
           </div>
@@ -76,7 +76,7 @@
 
         <!-- Fields -->
         <div class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="flex items-center text-[10px] uppercase tracking-wide text-gray-400 mb-1">
+          <div class="flex items-center text-2xs uppercase tracking-wide text-ink-muted mb-1">
             <span>{{ $t('tools.listSchema.fields', { count: visibleFields.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="keyField" class="normal-case tracking-normal inline-flex items-center gap-1" data-testid="list-schema-key">
@@ -87,7 +87,7 @@
           <ul class="space-y-0.5" data-testid="list-schema-fields">
             <li
               v-for="f in fields" :key="f.name"
-              class="text-[11px] flex items-start gap-2 py-0.5 rounded px-1 -mx-1"
+              class="text-2xs flex items-start gap-2 py-0.5 rounded px-1 -mx-1"
               :class="rowClass(f)"
               :data-testid="`list-field-${f.name}`"
             >
@@ -95,15 +95,15 @@
                 <Icon v-if="f.key" name="heroicons-key" class="w-3 h-3 text-amber-500" />
                 <span v-else class="w-1 h-1 rounded-full" :class="f.required ? 'bg-gray-500 dark:bg-gray-400' : 'bg-gray-200 dark:bg-gray-700'" :title="f.required ? $t('tools.listSchema.required') : ''"></span>
               </span>
-              <span class="font-mono text-gray-700 dark:text-gray-300 truncate flex-shrink-0 max-w-[40%]" :class="f.status === 'removed' ? 'line-through text-gray-400' : ''">{{ f.name }}</span>
-              <span class="text-gray-400 flex-shrink-0">{{ typeLabel(f.type) }}<template v-if="f.unit"> · {{ f.unit }}</template></span>
-              <span v-if="f.enum && f.enum.length" class="text-gray-400 truncate hidden sm:inline" :title="f.enum.join(', ')">{{ f.enum.join(' / ') }}</span>
-              <span v-else-if="f.description" class="text-gray-400 truncate hidden sm:inline" dir="auto">{{ f.description }}</span>
+              <span class="font-mono text-gray-700 dark:text-gray-300 truncate flex-shrink-0 max-w-[40%]" :class="f.status === 'removed' ? 'line-through text-ink-muted' : ''">{{ f.name }}</span>
+              <span class="text-ink-muted flex-shrink-0">{{ typeLabel(f.type) }}<template v-if="f.unit"> · {{ f.unit }}</template></span>
+              <span v-if="f.enum && f.enum.length" class="text-ink-muted truncate hidden sm:inline" :title="f.enum.join(', ')">{{ f.enum.join(' / ') }}</span>
+              <span v-else-if="f.description" class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ f.description }}</span>
               <span class="flex-1"></span>
-              <span v-if="f.status && f.status !== 'unchanged'" class="text-[9px] px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ $t('tools.listSchema.status.' + f.status) }}</span>
+              <span v-if="f.status && f.status !== 'unchanged'" class="text-2xs px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ $t('tools.listSchema.status.' + f.status) }}</span>
             </li>
           </ul>
-          <div v-if="requireEvidence || keepHumanEdits" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-gray-400">
+          <div v-if="requireEvidence || keepHumanEdits" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-ink-muted">
             <span v-if="requireEvidence" class="inline-flex items-center gap-1"><Icon name="heroicons-document-magnifying-glass" class="w-3 h-3" />{{ $t('tools.listSchema.requireEvidence') }}</span>
             <span v-if="keepHumanEdits" class="inline-flex items-center gap-1"><Icon name="heroicons-lock-closed" class="w-3 h-3" />{{ $t('tools.listSchema.keepHumanEdits') }}</span>
           </div>
@@ -111,7 +111,7 @@
 
         <!-- Review actions -->
         <div v-if="interactive" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2" data-testid="list-schema-review">
-          <div v-if="reason" class="mb-1.5 text-[11px] text-gray-500 dark:text-gray-400 italic" dir="auto">{{ reason }}</div>
+          <div v-if="reason" class="mb-1.5 text-2xs text-gray-500 dark:text-gray-400 italic" dir="auto">{{ reason }}</div>
           <div v-if="showFeedback" class="mb-2">
             <textarea
               v-model="feedbackDraft"
@@ -158,11 +158,11 @@
               </button>
             </template>
           </div>
-          <div v-if="respondError" class="mt-1 text-[10px] text-red-500">{{ respondError }}</div>
+          <div v-if="respondError" class="mt-1 text-2xs text-red-500">{{ respondError }}</div>
         </div>
 
         <!-- Result footer -->
-        <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-gray-400" data-testid="list-schema-result">
+        <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-ink-muted" data-testid="list-schema-result">
           <span v-if="output.tool_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.toolHint') }} <bdi class="font-mono">{{ output.tool_name }}</bdi></span></span>
           <span v-if="output.table_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-circle-stack" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.queryHint') }} <bdi class="font-mono">{{ output.table_name }}</bdi></span></span>
           <span v-if="isEdit && output.change === 'breaking'" class="text-amber-600 dark:text-amber-400">{{ $t('tools.listSchema.versionBumped', { v: output.version }) }}</span>

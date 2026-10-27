@@ -2,11 +2,11 @@
   <div class="mt-1" dir="auto">
     <div class="mb-1 flex items-center text-xs text-gray-500 dark:text-gray-400 min-w-0">
       <span v-if="status === 'in_progress'" class="tool-shimmer flex items-center">
-        <Spinner class="w-3 h-3 me-1 text-gray-400" />
+        <Spinner class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.stopSubAgent.stopping') }}
       </span>
       <template v-else>
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
+        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
         <span class="text-gray-700 dark:text-gray-300 truncate">{{ t('tools.stopSubAgent.stopped', { title: title }) }}</span>
       </template>
     </div>

@@ -9,7 +9,7 @@
 	</div>
 
 	<!-- Report not found / no access -->
-	<div v-else-if="reportNotFound" class="h-dvh w-full flex flex-col items-center justify-center text-gray-400">
+	<div v-else-if="reportNotFound" class="h-dvh w-full flex flex-col items-center justify-center text-ink-muted">
 		<span class="text-5xl font-light">404</span>
 		<span class="mt-2 text-sm">{{ $t('reportView.reportNotFound') }}</span>
 		<NuxtLink to="/reports" class="mt-4 text-sm text-blue-500 hover:underline">{{ $t('reportView.backToReports') }}</NuxtLink>
@@ -106,7 +106,7 @@
 
 		<!-- Messages -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
-			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
@@ -120,7 +120,7 @@
 				<!-- Fork summary separator -->
 				<div v-if="isFork && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
+					<span class="text-2xs text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 				</div>
 
@@ -129,7 +129,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm" :class="{ 'turn-enter': m.id === pinnedId }">
+					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -147,18 +147,18 @@
 						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
 							<button
 								@click="toggleScheduledExpand(m.id)"
-								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
 								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
-								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
+								<span v-if="getScheduledStats(m)" class="text-ink-muted">{{ getScheduledStats(m) }}</span>
 								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ms-auto flex-shrink-0" />
 							</button>
 							<!-- User bubble shown inside the collapsible area -->
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
-								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
 										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1">
@@ -195,7 +195,7 @@
 						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
-							<div class="w-full ms-0 md:ms-4 max-w-2xl">
+							<div class="w-full ms-0 md:ms-4 max-w-chat">
 								<div
 									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
 									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
@@ -205,7 +205,7 @@
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
 									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
-									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+									<span v-if="m.created_at" class="text-2xs text-ink-muted flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
 						</div>
@@ -218,31 +218,31 @@
 								:data-testid="`webhook-event-${m.id}`"
 								@click="toggleWebhookEvent(m.id)"
 							>
-								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
 								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
-									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
+									<Icon name="heroicons-eye" class="w-4 h-4 text-ink-muted animate-pulse" />
 								</span>
 								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
 								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
-								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+								<span v-if="m.created_at" class="text-2xs text-ink-muted flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
 								<Icon :name="expandedWebhookIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
 							</div>
-							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
+							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-2xs text-ink-muted italic">
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
 							</div>
 
 							<!-- The delivery itself: what arrived, and with which headers. -->
 							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
 								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
-									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
-										<span class="text-gray-400">{{ k }}:</span> {{ v }}
+									<div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
+									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-2xs font-mono text-gray-500 dark:text-gray-400 truncate">
+										<span class="text-ink-muted">{{ k }}:</span> {{ v }}
 									</div>
 								</div>
 								<div class="px-3 py-2">
-									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
-									<pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
+									<div class="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
+									<pre class="text-2xs font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
 								</div>
 							</div>
 						</div>
@@ -261,10 +261,10 @@
 						>
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
-								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+								<div class="group/usermsg flex flex-col items-end max-w-[85%] w-full mb-3 ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px]" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-2xs" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 									</div>
@@ -303,13 +303,13 @@
 										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
-												class="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
+												class="text-2xs text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
 												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
 											</button>
 										</UTooltip>
-										<span v-if="m.created_at" class="text-[10px] text-gray-400">{{ formatMessageDate(m.created_at) }}</span>
+										<span v-if="m.created_at" class="text-2xs text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
 							</template>
@@ -329,7 +329,7 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-chat">
 									<!-- System message -->
 									<div>
 										<!-- Sub-agent waves launched by this turn: one group line per wave -->
@@ -347,8 +347,8 @@
 											     moment they arrived: before the first block that started
 											     after them. -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-												<div class="flex flex-col items-end max-w-xl">
-													<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+												<div class="flex flex-col items-end max-w-[85%]">
+													<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
@@ -384,7 +384,7 @@
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
-													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400 rtl-flip" />
+													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
 														{{ getThoughtProcessLabel(block) }}
 													</span>
@@ -408,7 +408,7 @@
 															/>
 														</template>
 														<template v-else-if="block.status === 'stopped'">
-															<div class="text-gray-400 italic">{{ $t('reportView.generationStoppedBefore') }}</div>
+															<div class="text-ink-muted italic">{{ $t('reportView.generationStoppedBefore') }}</div>
 														</template>
 													</div>
 												</Transition>
@@ -458,7 +458,7 @@
 														<span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
 														</span>
-														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
+														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-ink-muted bg-gray-50 dark:bg-gray-900 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
 															<div v-if="block.tool_execution.duration_ms">{{ $t('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
 															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ $t('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
@@ -478,8 +478,8 @@
 
 										<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-											<div class="flex flex-col items-end max-w-xl">
-												<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+											<div class="flex flex-col items-end max-w-[85%]">
+												<div class="flex items-center gap-1 mb-0.5 text-2xs" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
@@ -508,7 +508,7 @@
 												</span>
 												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
 											</div>
-											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-[11px] font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
+											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-2xs font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
 												{{ rn.message }}
 											</div>
 										</div>
@@ -558,7 +558,7 @@
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
-														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
+														<div class="text-2xs uppercase tracking-wide text-ink-muted mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
 														<div class="space-y-0.5">
 															<div
 																v-for="ins in visibleInstructions(m)"
@@ -567,10 +567,10 @@
 																@click="close(); openInstructionById(ins.id)"
 															>
 																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
-																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
-																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
-																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+																<span class="text-2xs text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
+																<span class="text-2xs px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always'
 																		? 'bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-400'
 																		: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'">
@@ -593,8 +593,8 @@
 											</button>
 
 											<!-- Total run duration + AI message timestamp -->
-											<span v-if="runDurationLabel(m)" class="text-[10px] text-gray-400 ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
-											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">
+											<span v-if="runDurationLabel(m)" class="text-2xs text-ink-muted ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
+											<span v-if="m.created_at" class="text-2xs text-ink-muted ms-1">
 												<span v-if="runDurationLabel(m)" class="me-1">·</span>{{ formatMessageDate(m.created_at) }}
 											</span>
 										</div>
@@ -642,7 +642,7 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+							<span class="flex items-center gap-1.5 text-2xs text-ink-muted uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
 								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
 								{{ $t('prompt.compactedHistoryAbove') }}
 							</span>
@@ -650,7 +650,7 @@
 						</div>
 					</li>
 			</ul>
-			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-gray-400">
+			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-ink-muted">
 				<Spinner class="w-4 h-4 me-2" />
 				<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 			</div>
@@ -682,13 +682,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
-				<Spinner class="w-3 h-3 me-2 text-gray-400" />
+				<Spinner class="w-3 h-3 me-2 text-ink-muted" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
@@ -697,7 +697,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -705,7 +705,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -713,7 +713,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -721,7 +721,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
@@ -731,9 +731,9 @@
 		</div>
 		<!-- Read-only bar for project collaborators: view + fork, no composer -->
 		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
-					<div class="flex items-center gap-2 min-w-0 text-[13px] text-gray-500 dark:text-gray-400">
+					<div class="flex items-center gap-2 min-w-0 text-sm text-gray-500 dark:text-gray-400">
 						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
 						<span class="truncate">{{ $t('projects.readOnlyBy', { name: report.user?.name || '' }) }}</span>
 					</div>
@@ -742,7 +742,7 @@
 						data-testid="fork-to-edit"
 						:disabled="isForking"
 						@click="forkThisReport"
-						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
 					>
 						<UIcon name="i-heroicons-arrow-uturn-right" class="w-4 h-4" />
 						{{ isForking ? $t('common.loading') : $t('projects.forkToEdit') }}
@@ -752,7 +752,7 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<!-- An older version is open in the editor: the next edit builds
 				     on it (collab01). Said only then, with the way back. -->
 				<!-- Viewing a version from elsewhere: it is read-only; say what
@@ -850,7 +850,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'summary'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabSummary') }}
@@ -860,7 +860,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabDashboard') }}
@@ -870,7 +870,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'agent'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
@@ -889,7 +889,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'data'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
@@ -909,7 +909,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'list'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 					data-testid="list-panel-tab"
 				>
 					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
@@ -931,7 +931,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'file'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon :name="panelFile.kind === 'image' ? 'heroicons:photo' : 'heroicons:document-text'" class="w-3.5 h-3.5 shrink-0" />
 					<span class="truncate">{{ panelFile.name || $t('filePreview.document') }}</span>
@@ -945,7 +945,7 @@
 			</div>
 			<button
 				@click="toggleSplitScreen"
-				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
+				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 transition-colors"
 			>
 				<Icon name="heroicons:x-mark" class="w-4 h-4" />
 			</button>
@@ -1026,7 +1026,7 @@
 			     agent's Lists page, embedded; rows the agent writes while it is
 			     open are merged in and flashed (see the watcher on listPaneSubmits). -->
 			<div v-else-if="rightPanelView === 'list' && panelList" class="h-full min-h-0 flex flex-col" data-testid="list-panel">
-				<div v-if="!panelList.list" class="flex-1 flex items-center justify-center text-xs text-gray-400"><Spinner class="w-3.5 h-3.5" /></div>
+				<div v-if="!panelList.list" class="flex-1 flex items-center justify-center text-xs text-ink-muted"><Spinner class="w-3.5 h-3.5" /></div>
 				<template v-else>
 					<ListRowsView
 						ref="listPaneRef"
@@ -2339,7 +2339,7 @@ function machineEventIconClass(m: any): string {
 		if (outcome === 'failed') return 'text-red-400'
 		if (outcome === 'sent') return 'text-blue-500'
 	}
-	return 'text-gray-400 dark:text-gray-500'
+	return 'text-ink-muted'
 }
 // Inbound webhook events expand to show the delivery that caused the run —
 // body, and the (credential-stripped) headers the sender used.
@@ -6548,33 +6548,44 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Mobile — larger reading text (excludes Excel compact mode, which can also be narrow) */
-@media (max-width: 767px) {
-	.chat-messages:not(.compact-messages) .block-content {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content) {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
-		font-size: 13px;
-	}
-	/* User message bubbles (InstructionText renders at 13px by default) */
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
-		font-size: 15px;
-	}
-	/* Collapsible reasoning stays secondary, but readable */
-	.chat-messages:not(.compact-messages) .thinking-header {
-		font-size: 13px;
-	}
-	.chat-messages:not(.compact-messages) .thinking-content,
-	.chat-messages:not(.compact-messages) .thinking-content :deep(*),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
-		font-size: 13px !important;
-	}
+/*
+ * Chat reading size.
+ *
+ * One size at every viewport, scaled by the reader's own preference
+ * (`--bow-chat-font-size`, default 16px/24px — see assets/css/tokens.css).
+ * What this replaces was a `max-width: 767px` block that raised the
+ * transcript to 15px on phones only, leaving the desktop transcript on the
+ * 14px it inherited from the row's `text-sm` — so the product read *smaller*
+ * on the machine people actually work on, and smaller than every comparable
+ * chat surface measured.
+ *
+ * The secondary tiers stay proportional rather than fixed, so a reader who
+ * scales up gets larger code and reasoning text too: 0.8125x of chat size is
+ * 13px at the default, which is what they were pinned to.
+ */
+.chat-messages:not(.compact-messages) .block-content,
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
+/* User bubbles: InstructionText renders .instruction-prose at 13px by
+   default, which is the size it wants inside a settings panel, not inside a
+   conversation. */
+.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
+.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
+	font-size: var(--bow-chat-font-size);
+	line-height: var(--bow-chat-line-height);
+}
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+}
+/* Collapsible reasoning stays secondary, but readable */
+.chat-messages:not(.compact-messages) .thinking-header {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125);
+}
+.chat-messages:not(.compact-messages) .thinking-content,
+.chat-messages:not(.compact-messages) .thinking-content :deep(*),
+.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
+.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
+	font-size: calc(var(--bow-chat-font-size) * 0.8125) !important;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

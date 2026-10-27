@@ -41,20 +41,20 @@
                    the author knows what anyone loading the entity can set. -->
               <div v-if="declaredParams.length" class="max-w-2xl mx-auto mt-4" data-testid="entity-create-params">
                 <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityCreate.parametersHeading') }}</label>
-                <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{{ $t('entityCreate.parametersBody') }}</div>
+                <div class="text-2xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('entityCreate.parametersBody') }}</div>
                 <div class="flex flex-wrap gap-1.5">
                   <span
                     v-for="p in declaredParams"
                     :key="p.name"
-                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-[11px] text-gray-700 dark:text-gray-200"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-2xs text-gray-700 dark:text-gray-200"
                     :data-testid="`entity-create-param-${p.name}`"
                   >
-                    <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3 text-gray-400" />
+                    <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3 text-ink-muted" />
                     <span class="font-medium">{{ p.label || p.name }}</span>
-                    <span class="text-gray-400">{{ p.type || 'string' }}</span>
+                    <span class="text-ink-muted">{{ p.type || 'string' }}</span>
                     <span v-if="p.source === 'identity'" class="text-indigo-600">{{ $t('entityCreate.paramIdentity') }}</span>
-                    <span v-else-if="p.default !== null && p.default !== undefined" class="text-gray-400">= {{ p.default }}</span>
-                    <span v-else class="text-gray-400">{{ $t('entityCreate.paramAll') }}</span>
+                    <span v-else-if="p.default !== null && p.default !== undefined" class="text-ink-muted">= {{ p.default }}</span>
+                    <span v-else class="text-ink-muted">{{ $t('entityCreate.paramAll') }}</span>
                   </span>
                 </div>
               </div>

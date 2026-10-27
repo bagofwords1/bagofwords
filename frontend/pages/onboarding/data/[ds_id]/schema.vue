@@ -5,7 +5,7 @@
         <template #schema>
           <div class="relative space-y-3">
             <div v-if="initialLoading" class="flex items-center justify-center py-12">
-              <Spinner class="h-4 w-4 text-gray-400" />
+              <Spinner class="h-4 w-4 text-ink-muted" />
             </div>
 
             <template v-else>

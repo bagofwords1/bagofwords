@@ -6,9 +6,9 @@
         class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleDetails"
       >
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 rtl-flip" />
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-ink-muted" />
           Writing CSV…
         </span>
         <span v-else class="flex items-center" :class="hasError ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
@@ -16,7 +16,7 @@
           <Icon v-else name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
           <span class="align-middle">{{ statusLabel }}</span>
         </span>
-        <span v-if="formatDuration" class="ms-1.5 text-gray-400">{{ formatDuration }}</span>
+        <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
       </div>
     </Transition>
 
@@ -38,7 +38,7 @@
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-[11px] text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
+              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-2xs text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
             </div>
           </Transition>
         </div>

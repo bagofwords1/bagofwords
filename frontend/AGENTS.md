@@ -56,6 +56,87 @@ Concise overview of `@frontend/` (Nuxt 3 SPA) with structure, key building block
 - Use file-based routing under `pages/` and global route guards in `middleware/` for auth/permissions/onboarding.
 - Keep chart/editor-heavy features lazy where possible to optimize payload.
 
+### Design tokens (read before writing any markup)
+
+Visual decisions live in `tailwind.config.ts` and `assets/css/tokens.css`,
+not in the component you are editing. Reach for a token before a raw shade.
+
+**Text color.** Use the semantic classes, never a grey shade:
+
+| Use | Class | Light | Dark |
+|---|---|---|---|
+| Headings, primary text | `text-ink` | 17.74:1 | 16.98:1 |
+| Body | `text-ink-2` | 10.31:1 | 14.33:1 |
+| Labels, timestamps, helper text | `text-ink-muted` | 4.97:1 | 6.99:1 |
+| Placeholders, disabled only | `text-ink-subtle` | 3.10:1 | 3.67:1 |
+
+These flip with the theme, so **a semantic text class takes no `dark:`
+variant** — adding one re-introduces the bug they exist to fix. Surfaces
+(`bg-surface`, `bg-surface-subtle`, `bg-surface-muted`, `bg-surface-elevated`)
+and borders (`border-line`, `border-line-strong`) work the same way.
+
+Never use `text-gray-400` for light-mode text: it is 2.54:1 on white, below
+WCAG AA and below the 3:1 large-text floor. 1,938 call sites were migrated off
+it; `dark:text-gray-400` is fine and stays.
+
+**Type scale.** Nine steps, no arbitrary values — `text-[11px]` and friends
+are gone and must not come back. `text-2xs` (11px) is the floor and is for
+dense metadata only (badges, table chrome, the sidebar ticker); `text-xs`
+(12px) and `text-sm` (14px) carry ordinary UI text.
+
+**Radius.** Two, not three: `rounded`/`rounded-md` are both 6px (controls),
+`rounded-lg` is 8px (cards, panels), `rounded-xl` 12px (modals). `rounded-sm`
+(4px) is only for affordances 16px or smaller. `rounded-composer` (20px) is
+the composer surface and nothing else — it is named rather than added to the
+scale so that Tailwind's stock `rounded-2xl` keeps its 16px on the 21 call
+sites that already use it.
+
+**The conversation surface.** The transcript, the composer, the landing
+composer, the shared-link view and the tool cards inside a transcript all
+take `max-w-chat` (`--bow-measure-chat`, 48rem/768px). One token, because
+the box you type into must be the same width as the text you read back —
+they had drifted to 672px and ~53vw, so the composer resized the moment you
+pressed enter. Chat body copy uses `text-chat`, which is the `base` step
+(16px/24px) multiplied by the reader's own preference; the fixed steps are
+still right everywhere outside a conversation. Secondary tiers inside a
+transcript (code, reasoning) are `calc(var(--bow-chat-font-size) * 0.8125)`
+rather than a pinned 13px, so they scale with the reader's choice.
+
+Those two are *reader* preferences, stored per browser
+(`localStorage['bow.chat.width' | 'bow.chat.textScale']`, see
+`composables/useChatDisplay.ts`), applied to `<html>` by
+`plugins/chat-display.client.ts`, and set from `ChatDisplayMenu` in the
+report header. Reading size is not an organization setting: nobody should
+need `manage_settings` to make text bigger. If you add a surface that is part
+of a conversation, use the tokens — do not reintroduce a literal width or a
+fixed chat font size.
+
+**Motion.** A bare `transition` already inherits 180ms and the standard
+curve — do not add `duration-*`/`ease-*` unless you mean something other than
+the default. Use `duration-fast` (120ms) / `duration-slow` (280ms) when you
+do. Avoid `transition-all`; name the property. Loading shimmer is the single
+`.bow-shimmer` class, not a per-component `@keyframes`.
+
+**Layering.** Use the named scale (`z-dropdown`, `z-sticky`, `z-overlay`,
+`z-modal`, `z-popover`, `z-tooltip`, `z-toast`). Never invent a `z-[1050]`.
+
+**Press feedback and focus** are global (`assets/css/tokens.css`): every
+`button` and `[role="button"]` gets an active-state nudge, and
+`:focus-visible` gets a ring. Opt an element out with `.no-press` where the
+nudge is wrong (drag handles, gridstack items, resizers).
+
+**Numbers.** Add `.nums` to table cells and KPIs so digits are tabular and
+columns stop shifting between rows.
+
+If you change a token's value, run `node scripts/check-contrast.mjs` — it
+recomputes every pairing the stylesheet asserts and fails on a regression.
+
+**Prefer `UButton`/`UInput`/`USelectMenu` over hand-rolled `<button>` and
+`<input>`.** Around 75% of the app's buttons and 89% of its inputs still
+bypass Nuxt UI, which is why control heights and focus states disagree
+between screens; defaults for the component library live in `app.config.ts`.
+Do not add to that pile.
+
 ### Adding a feature (quick checklist)
 1. Create/extend a page under `pages/` and supporting UI in `components/`.
 2. Add data access via `composables` (prefer `useMyFetch` to inherit proxy/baseURL).

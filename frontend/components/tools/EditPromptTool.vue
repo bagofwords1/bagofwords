@@ -7,25 +7,25 @@
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-gray-400" />
+          <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-ink-muted" />
           <span>{{ $t('tools.editPrompt.updating') }}</span>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-green-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editPrompt.updatedPrefix', { title: promptTitle }) }}</span>
-          <span v-if="changedFields.length" class="ms-1.5 text-[10px] text-gray-400 shrink-0">· {{ changedFields.join(', ') }}</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 shrink-0 rtl-flip" />
+          <span v-if="changedFields.length" class="ms-1.5 text-2xs text-ink-muted shrink-0">· {{ changedFields.join(', ') }}</span>
+          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.editPrompt.notUpdated') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-[10px]">({{ rejectedReason }})</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 rtl-flip" />
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-2xs">({{ rejectedReason }})</span>
+          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
           <span>{{ $t('tools.editPrompt.failed') }}</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-gray-400 rtl-flip" />
+          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
       </div>
     </Transition>
@@ -34,23 +34,23 @@
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 dark:border-gray-700 rounded-md p-3 transition-colors">
-          <div v-if="newText" dir="auto" class="prompt-content text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
+          <div v-if="newText" dir="auto" class="prompt-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
             <MDC :value="newText" class="markdown-content" />
           </div>
-          <div class="flex flex-wrap items-center gap-2 text-[10px] mb-1">
+          <div class="flex flex-wrap items-center gap-2 text-2xs mb-1">
             <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editPrompt.changed') }}</span>
-            <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
-            <span v-if="!changedFields.length" class="text-gray-400">{{ $t('tools.editPrompt.noFields') }}</span>
+            <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
+            <span v-if="!changedFields.length" class="text-ink-muted">{{ $t('tools.editPrompt.noFields') }}</span>
           </div>
           <div v-if="isSuccess" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-[10px] font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
-            <button class="ms-auto text-[10px] text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
+            <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
+            <button class="ms-auto text-2xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
               <span>{{ $t('tools.editPrompt.openInPrompts') }}</span>
             </button>
           </div>
-          <div v-if="errorMessage" class="text-[10px] text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-2xs text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>

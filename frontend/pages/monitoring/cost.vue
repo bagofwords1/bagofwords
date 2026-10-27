@@ -3,7 +3,7 @@
          instead of a broken page (the API returns 402). -->
     <div v-if="!costLicensed" class="mt-6">
         <div class="bg-white border border-gray-200 rounded-xl p-12 text-center max-w-xl mx-auto">
-            <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-gray-400 mx-auto mb-3" />
+            <UIcon name="i-heroicons-lock-closed" class="w-6 h-6 text-ink-muted mx-auto mb-3" />
             <h3 class="text-base font-semibold text-gray-900">{{ $t('monitoring.cost.lockedTitle') }}</h3>
             <p class="text-sm text-gray-500 mt-1.5">{{ $t('monitoring.cost.lockedBody') }}</p>
         </div>
@@ -25,7 +25,7 @@
                 <div class="text-2xl font-bold text-gray-900">${{ formatNum(data?.total_cost_usd || 0, 2) }}</div>
                 <div class="text-sm font-medium text-gray-600 mt-1">
                     {{ $t('monitoring.cost.kpiTotalCost') }}
-                    <span v-if="hasEstimated" class="text-gray-400 font-normal">· {{ $t('monitoring.cost.estimated') }}</span>
+                    <span v-if="hasEstimated" class="text-ink-muted font-normal">· {{ $t('monitoring.cost.estimated') }}</span>
                 </div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
@@ -148,7 +148,7 @@
             </div>
 
             <div v-if="selectedGroupBy.value === 'data_source' || selectedGroupBy.value === 'group'"
-                 class="px-6 py-3 text-xs text-gray-400 border-t border-gray-50">
+                 class="px-6 py-3 text-xs text-ink-muted border-t border-gray-50">
                 {{ $t('monitoring.cost.fanoutNote') }}
             </div>
         </div>

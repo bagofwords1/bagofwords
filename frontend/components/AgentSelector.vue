@@ -15,10 +15,10 @@
       </UTooltip>
       <template v-else>
         <span v-if="showText" class="flex-1 text-start min-w-0">
-          <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
+          <span v-if="showLabel" class="block text-2xs uppercase tracking-wide text-ink-muted font-semibold leading-none">{{ $t('nav.context') }}</span>
           <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
             <Spinner v-if="isLoading" class="w-3 h-3 text-gray-300 animate-spin flex-shrink-0" />
-            <span class="text-xs font-medium text-gray-400 truncate">
+            <span class="text-xs font-medium text-ink-muted truncate">
               {{ isLoading ? $t('common.loading') : $t('nav.noAgents') }}
             </span>
           </span>
@@ -59,7 +59,7 @@
               <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon-token="navSelected.icon_token" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
               <DataSourceIcon v-else-if="navIconAgents.length" :type="navIconAgents[0].type" :connector-key="navIconAgents[0].connector_key" :icon-token="navIconAgents[0].icon_token" :icon="navIconAgents[0].icon" class="w-[18px] h-[18px] rounded" />
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
-              <span v-if="!navSelected && agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
+              <span v-if="!navSelected && agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-2xs font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
             </span>
           </UTooltip>
           <template v-else>
@@ -76,23 +76,23 @@
         <template v-else>
         <UTooltip v-if="collapsed" :text="triggerLabel" :popper="{ placement: 'right' }">
           <span class="flex items-center justify-center w-5 h-5">
-            <Spinner v-if="isLoading" class="w-4 h-4 text-gray-400 animate-spin" />
+            <Spinner v-if="isLoading" class="w-4 h-4 text-ink-muted animate-spin" />
             <UIcon v-else name="heroicons-chevron-down" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </span>
         </UTooltip>
         <template v-else>
           <span class="flex-shrink-0">
             <DataSourceIcon v-if="singleSelectedConnection" :type="singleSelectedConnection" class="h-3.5 w-3.5" />
-            <AgentIcon v-else class="w-3.5 h-3.5 text-gray-400" />
+            <AgentIcon v-else class="w-3.5 h-3.5 text-ink-muted" />
           </span>
           <span v-if="showText" class="flex-1 text-start min-w-0">
-            <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">{{ $t('nav.context') }}</span>
+            <span v-if="showLabel" class="block text-2xs uppercase tracking-wide text-ink-muted font-semibold leading-none">{{ $t('nav.context') }}</span>
             <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
-              <Spinner v-if="isLoading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
+              <Spinner v-if="isLoading" class="w-3 h-3 text-ink-muted animate-spin flex-shrink-0" />
               <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ triggerLabel }}</span>
             </span>
           </span>
-          <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+          <UIcon v-if="showText" name="heroicons-chevron-up-down" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
         </template>
         </template>
       </component>
@@ -103,7 +103,7 @@
           <div class="w-max min-w-[14rem] max-w-[24rem] bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
             <div class="p-1.5">
               <div v-if="isLoading" class="flex items-center justify-center py-6">
-                <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+                <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
               </div>
 
               <template v-else>
@@ -115,7 +115,7 @@
                     isAllSelected ? 'bg-indigo-50 dark:bg-indigo-950' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                   ]"
                 >
-                  <AgentIcon class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                  <AgentIcon class="w-4 h-4 text-ink-muted flex-shrink-0" />
                   <span :class="['text-xs font-medium flex-1', isAllSelected ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ $t('nav.allAgents') }}</span>
                   <UIcon v-if="isAllSelected" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                 </button>
@@ -140,7 +140,7 @@
                       :icon-token="a.icon_token" :icon="a.icon"
                       class="h-4 w-4 flex-shrink-0"
                     />
-                    <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />
+                    <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-ink-muted flex-shrink-0" />
                     <span :class="['text-xs font-medium truncate flex-1', isSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}</span>
                     <!-- Connect chip for user_required agents not yet authenticated.
                          Nested as a span (the row is a <button>) to keep markup valid. -->
@@ -151,7 +151,7 @@
                       @click.stop="onConnect(a)"
                       @keydown.enter.stop="onConnect(a)"
                       :class="[
-                        'flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border transition-colors',
+                        'flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-2xs rounded border transition-colors',
                         connectingId === a.id
                           ? 'text-blue-400 bg-blue-50 dark:bg-blue-950 border-blue-100 cursor-default'
                           : 'text-blue-600 bg-blue-50 dark:bg-blue-950 border-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/50'
@@ -170,7 +170,7 @@
                 <!-- View all -->
                 <NuxtLink
                   to="/agents"
-                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-600 dark:hover:text-gray-400 transition-colors"
                 >
                   <AgentIcon class="w-3.5 h-3.5 flex-shrink-0" />
                   <span class="text-xs">{{ $t('nav.viewAllAgents') }}</span>

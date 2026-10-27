@@ -1097,7 +1097,24 @@
     "steerFailed": "تعذّر توجيه الإكمال الجاري",
     "instructionUnavailableTitle": "التعليمة غير متاحة",
     "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها.",
-    "loopRetryNotice": "حدث خطأ داخلي — تُعاد المحاولة من أحدث سياق (المحاولة {attempt}/{max})"
+    "loopRetryNotice": "حدث خطأ داخلي — تُعاد المحاولة من أحدث سياق (المحاولة {attempt}/{max})",
+    "display": {
+      "title": "طريقة العرض",
+      "textSize": "حجم النص",
+      "pixels": "{n}px",
+      "scales": {
+        "small": "صغير",
+        "default": "افتراضي",
+        "large": "كبير",
+        "larger": "أكبر"
+      },
+      "width": "العرض",
+      "widths": {
+        "standard": "قياسي",
+        "wide": "عريض"
+      },
+      "scopeHint": "ينطبق على محادثاتك في هذا المتصفح."
+    }
   },
   "tools": {
     "common": {

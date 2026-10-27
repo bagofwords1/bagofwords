@@ -91,6 +91,11 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    // tokens.css first: it defines the CSS variables (and the global
+    // baseline) that the sheets below, and tailwind.config.ts, resolve
+    // against. Order matters — anything that overrides a token must load
+    // after it.
+    '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
@@ -113,6 +118,17 @@ export default defineNuxtConfig({
       scan: true,
     },
     fallbackToApi: false,
+  },
+
+  app: {
+    // The SPA previously had no route transitions at all: content vanished,
+    // blank frame, new content popped in — on every navigation. Classes are
+    // defined in assets/css/tokens.css.
+    //
+    // `out-in` runs leave then enter (90ms + 160ms) rather than overlapping
+    // them, which avoids two routes being painted at once on heavy pages.
+    pageTransition: { name: 'page', mode: 'out-in' },
+    layoutTransition: { name: 'layout', mode: 'out-in' },
   },
 
   colorMode: {

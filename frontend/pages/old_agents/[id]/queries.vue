@@ -26,7 +26,7 @@
                         ]"
                     >
                         {{ isAdmin ? $t('queries.draftSuggested') : $t('queries.myDrafts') }}
-                        <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
+                        <span v-if="suggestedCount > 0" class="ms-1.5 px-1.5 py-0.5 rounded-full text-2xs bg-amber-100 text-amber-700">{{ suggestedCount }}</span>
                     </button>
                 </div>
                 <input
@@ -38,7 +38,7 @@
             </div>
 
             <!-- Loading -->
-            <div v-if="loading" class="text-xs text-gray-400 flex items-center gap-1.5 py-4">
+            <div v-if="loading" class="text-xs text-ink-muted flex items-center gap-1.5 py-4">
                 <Spinner class="w-3.5 h-3.5" />
                 {{ $t('queries.loading') }}
             </div>
@@ -68,21 +68,21 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2 mb-1">
                                 <span
-                                    class="text-[10px] px-1.5 py-0.5 rounded border"
+                                    class="text-2xs px-1.5 py-0.5 rounded border"
                                     :class="item.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50 dark:bg-blue-950'"
                                 >{{ (item.type || '').toUpperCase() }}</span>
                                 <Icon v-if="getEntityType(item) === 'global'" name="heroicons:check-badge" class="w-4 h-4 text-green-600" title="Approved" />
-                                <span v-if="getEntityType(item) === 'archived'" class="text-[10px] px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50 dark:bg-red-950">{{ $t('queries.archivedBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'draft'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'private'" class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
-                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950">{{ $t('queries.suggestedBadge') }}</span>
-                                <span class="text-[11px] text-gray-400">{{ timeAgo(item.updated_at) }}</span>
+                                <span v-if="getEntityType(item) === 'archived'" class="text-2xs px-1.5 py-0.5 rounded border text-red-700 border-red-200 bg-red-50 dark:bg-red-950">{{ $t('queries.archivedBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'draft'" class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'private'" class="text-2xs px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">{{ $t('queries.draftBadge') }}</span>
+                                <span v-else-if="getEntityType(item) === 'suggested'" class="text-2xs px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950">{{ $t('queries.suggestedBadge') }}</span>
+                                <span class="text-2xs text-ink-muted">{{ timeAgo(item.updated_at) }}</span>
                             </div>
                             <div class="text-sm font-medium text-gray-900 dark:text-white mb-0.5">{{ item.title || item.slug }}</div>
                             <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{{ item.description || $t('queries.noDescription') }}</div>
 
                             <div class="flex items-center gap-3 mt-2">
-                                <div v-if="item.data?.info?.total_rows !== undefined || item.data?.info?.total_columns !== undefined" class="flex items-center gap-3 text-[11px] text-gray-400">
+                                <div v-if="item.data?.info?.total_rows !== undefined || item.data?.info?.total_columns !== undefined" class="flex items-center gap-3 text-2xs text-ink-muted">
                                     <span v-if="item.data?.info?.total_rows !== undefined" class="flex items-center gap-1">
                                         <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
                                         {{ formatCount(item.data.info.total_rows) }}
@@ -99,7 +99,7 @@
             </div>
 
             <!-- Summary -->
-            <div v-if="!loading && filteredItems.length > 0" class="mt-4 text-center text-[11px] text-gray-400">
+            <div v-if="!loading && filteredItems.length > 0" class="mt-4 text-center text-2xs text-ink-muted">
                 {{ summaryLabel }}
             </div>
         </div>
