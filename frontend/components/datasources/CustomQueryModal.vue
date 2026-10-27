@@ -13,7 +13,7 @@
             <span class="font-medium">{{ activeConnectionName }}</span> every time.
           </p>
         </div>
-        <button class="text-gray-400 hover:text-gray-600" @click="close">
+        <button class="text-ink-muted hover:text-gray-600" @click="close">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
@@ -46,7 +46,7 @@
                is that a row policy filters on the query's result columns and
                those are only known once it has been saved. -->
           <span v-if="t.disabled && t.hint"
-                class="ms-1 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-400">{{ t.hint }}</span>
+                class="ms-1 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ t.hint }}</span>
         </button>
       </div>
 
@@ -60,7 +60,7 @@
           <div v-if="editing" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <DataSourceIcon :type="activeConnectionType" class="h-3.5" />
             <span class="font-medium">{{ activeConnectionName }}</span>
-            <span class="text-[11px] text-gray-400">
+            <span class="text-2xs text-ink-muted">
               — fixed after creation; create a new query to use a different connection
             </span>
           </div>
@@ -76,18 +76,18 @@
               <span class="flex items-center gap-2 min-w-0">
                 <DataSourceIcon :type="activeConnectionType" class="h-3.5 flex-shrink-0" />
                 <span class="truncate">{{ activeConnectionName }}</span>
-                <span v-if="activeConnectionType" class="text-[11px] text-gray-400">{{ activeConnectionType }}</span>
+                <span v-if="activeConnectionType" class="text-2xs text-ink-muted">{{ activeConnectionType }}</span>
               </span>
             </template>
             <template #option="{ option }">
               <span class="flex items-center gap-2 min-w-0">
                 <DataSourceIcon :type="option.type" class="h-3.5 flex-shrink-0" />
                 <span class="truncate">{{ option.name }}</span>
-                <span class="text-[11px] text-gray-400">{{ option.type }}</span>
+                <span class="text-2xs text-ink-muted">{{ option.type }}</span>
               </span>
             </template>
           </USelectMenu>
-          <p v-if="!editing && availableConnections.length > 1" class="text-[10px] text-gray-400 mt-1">
+          <p v-if="!editing && availableConnections.length > 1" class="text-2xs text-ink-muted mt-1">
             Switching connections clears the preview — the query is dialect- and schema-specific.
           </p>
         </div>
@@ -107,7 +107,7 @@
               {{ t.datasetName }}{{ t.workspaceName ? ` (${t.workspaceName})` : '' }} — {{ t.tables.length }} table{{ t.tables.length === 1 ? '' : 's' }}
             </option>
           </select>
-          <p class="text-[10px] text-gray-400 mt-1">
+          <p class="text-2xs text-ink-muted mt-1">
             <template v-if="currentTarget">
               Tables in this model: {{ currentTarget.tables.slice(0, 12).join(', ') }}{{ currentTarget.tables.length > 12 ? ', …' : '' }}
             </template>
@@ -128,10 +128,10 @@
               placeholder="revenue_summary"
               class="w-full text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2.5 py-1.5 dark:bg-gray-900 dark:text-white font-mono"
             />
-            <p class="text-[10px] text-gray-400 mt-1">Agents query this as a table name.</p>
+            <p class="text-2xs text-ink-muted mt-1">Agents query this as a table name.</p>
           </div>
           <div class="col-span-2">
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description <span class="text-gray-400">(optional)</span></label>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description <span class="text-ink-muted">(optional)</span></label>
             <input
               v-model="form.description" data-testid="cq-description"
               placeholder="What this data represents — shown to the agent"
@@ -141,8 +141,8 @@
         </div>
 
         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-          <template v-if="isDax">DAX <span class="text-gray-400">— one EVALUATE against a Power BI semantic model</span></template>
-          <template v-else>SQL <span class="text-gray-400">— in {{ activeConnectionType }} dialect</span></template>
+          <template v-if="isDax">DAX <span class="text-ink-muted">— one EVALUATE against a Power BI semantic model</span></template>
+          <template v-else>SQL <span class="text-ink-muted">— in {{ activeConnectionType }} dialect</span></template>
         </label>
         <textarea
           v-model="form.definition_sql" data-testid="cq-sql" rows="8" spellcheck="false"
@@ -161,7 +161,7 @@
             <UIcon v-else name="heroicons-play" class="w-3.5 h-3.5" />
             Run preview
           </button>
-          <span class="text-[11px] text-gray-400">Preview is limited to {{ ROW_LIMIT }} rows.</span>
+          <span class="text-2xs text-ink-muted">Preview is limited to {{ ROW_LIMIT }} rows.</span>
         </div>
 
         <!-- preview error -->
@@ -178,7 +178,7 @@
 
         <!-- preview result -->
         <div v-if="preview && preview.columns.length" class="mt-3">
-          <div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-600 dark:text-gray-400 mb-1.5">
+          <div class="flex items-center flex-wrap gap-x-4 gap-y-1 text-2xs text-gray-600 dark:text-gray-400 mb-1.5">
             <span data-testid="cq-preview-count">
               Showing <b>{{ preview.rows.length }}</b> of
               <b>{{ preview.estimated_rows != null ? approx(preview.estimated_rows) : 'unknown' }}</b> rows
@@ -195,7 +195,7 @@
             </span>
           </div>
           <div class="border border-gray-200 dark:border-gray-800 rounded-md overflow-auto" style="max-height: 260px">
-            <table class="min-w-full text-[11px]">
+            <table class="min-w-full text-2xs">
               <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
                 <tr>
                   <th v-for="c in preview.columns" :key="c.name"
@@ -250,11 +250,11 @@
             :disabled="form.refresh_schedule_mode !== 'time'"
             class="text-sm border border-gray-300 dark:border-gray-700 rounded-md px-2 py-1.5 dark:bg-gray-900 dark:text-white disabled:opacity-40"
           />
-          <span class="text-[11px] text-gray-400">{{ localTimezoneLabel }}</span>
+          <span class="text-2xs text-ink-muted">{{ localTimezoneLabel }}</span>
         </div>
 
         <p v-if="preview?.scan_bytes" data-testid="cq-scan-projection"
-           class="mt-3 text-[11px] text-amber-700 dark:text-amber-400">
+           class="mt-3 text-2xs text-amber-700 dark:text-amber-400">
           At this schedule this query reads
           <b>{{ humanBytes(preview.scan_bytes * refreshesPerDay) }}</b> from the
           source per day ({{ humanBytes(preview.scan_bytes) }} × {{ refreshesPerDay }}).
@@ -314,7 +314,7 @@
               <input data-testid="cq-rls-enabled" type="checkbox" v-model="rls.enabled" class="mt-0.5" />
               <span>
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-200">Filter rows per user</span>
-                <span class="block text-[11px] text-gray-500 dark:text-gray-400">
+                <span class="block text-2xs text-gray-500 dark:text-gray-400">
                   The cached copy holds every row. With this on, each person sees
                   only the rows their identity allows.
                 </span>
@@ -323,7 +323,7 @@
 
             <template v-if="rls.enabled">
               <div>
-                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Filter on column</label>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Filter on column</label>
                 <select data-testid="cq-rls-column" v-model="rls.column"
                         class="w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
                   <option value="">Choose a column…</option>
@@ -332,7 +332,7 @@
               </div>
 
               <div>
-                <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">Match against</label>
+                <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">Match against</label>
                 <select data-testid="cq-rls-source" v-model="rls.source"
                         class="w-full border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1.5 text-xs bg-white dark:bg-gray-900">
                   <option value="">Nothing — use grants only</option>
@@ -343,36 +343,36 @@
                   <option value="groups">Their groups</option>
                   <option value="roles">Their roles</option>
                 </select>
-                <p v-if="!rlsOptions.attribute_keys.length" class="text-[10px] text-gray-400 mt-1">
+                <p v-if="!rlsOptions.attribute_keys.length" class="text-2xs text-ink-muted mt-1">
                   No profile attributes have synced for this org yet.
                 </p>
               </div>
 
               <div>
                 <div class="flex items-center justify-between mb-1">
-                  <label class="text-[11px] text-gray-500 dark:text-gray-400">Grants</label>
-                  <button data-testid="cq-rls-add-grant" class="text-[11px] text-blue-600 hover:underline" @click="addGrant">
+                  <label class="text-2xs text-gray-500 dark:text-gray-400">Grants</label>
+                  <button data-testid="cq-rls-add-grant" class="text-2xs text-blue-600 hover:underline" @click="addGrant">
                     + Add grant
                   </button>
                 </div>
-                <p class="text-[10px] text-gray-400 mb-1.5">
+                <p class="text-2xs text-ink-muted mb-1.5">
                   Give a group or role extra values, or <code>*</code> to see everything.
                 </p>
                 <div v-for="(g, i) in rls.grants" :key="i" class="flex items-center gap-1.5 mb-1.5">
                   <select :data-testid="`cq-rls-grant-type-${i}`" v-model="g.principal_type"
-                          class="border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
+                          class="border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900">
                     <option value="group">Group</option>
                     <option value="role">Role</option>
                     <option value="user">User</option>
                   </select>
                   <select :data-testid="`cq-rls-grant-principal-${i}`" v-model="g.principal_id"
-                          class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900">
+                          class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900">
                     <option value="">Choose…</option>
                     <option v-for="p in principalsFor(g.principal_type)" :key="p.id" :value="p.id">{{ p.name }}</option>
                   </select>
                   <input :data-testid="`cq-rls-grant-values-${i}`" v-model="g.valuesText" placeholder="EMEA, APAC or *"
-                         class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-[11px] bg-white dark:bg-gray-900" />
-                  <button :data-testid="`cq-rls-grant-remove-${i}`" class="text-gray-400 hover:text-red-600" @click="rls.grants.splice(i, 1)">
+                         class="flex-1 min-w-0 border border-gray-200 dark:border-gray-700 rounded-md px-1.5 py-1 text-2xs bg-white dark:bg-gray-900" />
+                  <button :data-testid="`cq-rls-grant-remove-${i}`" class="text-ink-muted hover:text-red-600" @click="rls.grants.splice(i, 1)">
                     <UIcon name="heroicons-x-mark" class="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -380,9 +380,9 @@
 
               <label class="flex items-start gap-2 cursor-pointer">
                 <input data-testid="cq-rls-default-deny" type="checkbox" v-model="rls.default_deny" class="mt-0.5" />
-                <span class="text-[11px] text-gray-600 dark:text-gray-300">
+                <span class="text-2xs text-gray-600 dark:text-gray-300">
                   Show no rows when the value can't be resolved
-                  <span class="block text-gray-400">
+                  <span class="block text-ink-muted">
                     Recommended. Turning this off shows <b>every</b> row to anyone the
                     policy can't place.
                   </span>
@@ -390,7 +390,7 @@
               </label>
             </template>
 
-            <p v-if="rlsError" data-testid="cq-rls-error" class="text-[11px] text-red-600">{{ rlsError }}</p>
+            <p v-if="rlsError" data-testid="cq-rls-error" class="text-2xs text-red-600">{{ rlsError }}</p>
             <button
               data-testid="cq-rls-save"
               class="border border-gray-300 dark:border-gray-700 rounded-md px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
@@ -402,7 +402,7 @@
 
           <!-- Right: preview as a specific person -->
           <div class="w-1/2 border-l border-gray-100 dark:border-gray-800 pl-5">
-            <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-1">
+            <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">
               Preview as
             </label>
             <div class="flex items-center gap-1.5">
@@ -419,15 +419,15 @@
                 Run
               </button>
             </div>
-            <p class="text-[10px] text-gray-400 mt-1">
+            <p class="text-2xs text-ink-muted mt-1">
               Uses the rule above, saved or not.
             </p>
 
-            <p v-if="rlsPreviewError" class="text-[11px] text-red-600 mt-2">{{ rlsPreviewError }}</p>
+            <p v-if="rlsPreviewError" class="text-2xs text-red-600 mt-2">{{ rlsPreviewError }}</p>
 
             <div v-if="rlsPreview" class="mt-3">
               <div data-testid="cq-rls-verdict"
-                   class="text-[11px] rounded-md px-2 py-1.5 mb-2"
+                   class="text-2xs rounded-md px-2 py-1.5 mb-2"
                    :class="rlsPreview.denied
                      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
                      : rlsPreview.filtered
@@ -445,7 +445,7 @@
                 </template>
               </div>
               <div class="overflow-auto max-h-64 border border-gray-100 dark:border-gray-800 rounded-md">
-                <table class="min-w-full text-[11px]">
+                <table class="min-w-full text-2xs">
                   <thead class="bg-gray-50 dark:bg-gray-800/50 sticky top-0">
                     <tr>
                       <th v-for="c in rlsPreview.columns" :key="c.name"
@@ -458,7 +458,7 @@
                     </tr>
                     <tr v-if="!rlsPreview.rows.length">
                       <td :colspan="Math.max(rlsPreview.columns.length, 1)"
-                          class="px-2 py-3 text-center text-gray-400">No rows.</td>
+                          class="px-2 py-3 text-center text-ink-muted">No rows.</td>
                     </tr>
                   </tbody>
                 </table>
@@ -470,7 +470,7 @@
 
       <!-- Footer -->
       <div class="flex items-center justify-between mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
-        <div class="text-[11px] text-gray-400">
+        <div class="text-2xs text-ink-muted">
           <span v-if="!canSave && tab === 'query'">Run a preview before saving.</span>
         </div>
         <div class="flex items-center gap-2">

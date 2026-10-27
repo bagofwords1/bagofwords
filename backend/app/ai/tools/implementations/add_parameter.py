@@ -164,7 +164,8 @@ class AddParameterTool(Tool):
         organization = runtime_ctx.get("organization")
 
         q = await self._resolve_query(db, organization, report, str(data.query_id))
-        if q is None:
+        # A published dashboard's copy belongs to its release, not to this report.
+        if q is None or q.artifact_release_id:
             yield self._end(
                 {"success": False, "query_id": data.query_id, "error": "Query not found in this report"},
                 {"summary": f"add_parameter failed: query {data.query_id} not found in this report.",

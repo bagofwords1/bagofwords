@@ -327,6 +327,46 @@ async def get_file_embed(
         )).scalar_one_or_none()
         if bound_report is None:
             raise HTTPException(status_code=404, detail="File not found")
+        if claims.get("pub"):
+            # Minted through the public link: it is only as good as that link
+            # is now. Re-run the anonymous gate, so turning public sharing off
+            # or unsharing the dashboard revokes it before it expires.
+            from sqlalchemy.orm import lazyload
+            from app.errors import AppError
+            from app.services.report_service import ReportService
+            report_row = (await db.execute(
+                select(_Report).options(lazyload("*")).where(_Report.id == str(claims["rid"]))
+            )).scalar_one()
+            try:
+                await ReportService()._check_visibility(db, report_row, "artifact_visibility", None)
+            except (HTTPException, AppError):
+                raise HTTPException(status_code=403, detail="Invalid or expired file token")
+    if claims.get("rel"):
+        from app.models.artifact_release import ArtifactRelease as _Release
+        bound_release = (await db.execute(
+            select(_Release).where(
+                _Release.id == str(claims["rel"]),
+                _Release.organization_id == str(claims["org"]),
+                _Release.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if bound_release is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        if claims.get("pub"):
+            # Same as above, against the dashboard's own sharing (/d).
+            from app.errors import AppError
+            from app.models.artifact import Artifact as _Artifact
+            from app.services import dashboard_access
+            dashboard = (await db.execute(
+                select(_Artifact).where(_Artifact.id == str(bound_release.artifact_id),
+                                        _Artifact.deleted_at.is_(None))
+            )).scalar_one_or_none()
+            if dashboard is None:
+                raise HTTPException(status_code=403, detail="Invalid or expired file token")
+            try:
+                await dashboard_access.check_visibility(db, dashboard, None)
+            except (HTTPException, AppError):
+                raise HTTPException(status_code=403, detail="Invalid or expired file token")
 
     content = _read_file_bytes_or_404(file)
     media_type = file.content_type or "application/octet-stream"

@@ -23,7 +23,7 @@
           <button
             @click="openNewTask"
             :disabled="creatingTask"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50"
           >
             <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
             <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
@@ -40,8 +40,8 @@
           <button
             v-for="f in statusFilters"
             :key="f.value"
-            class="px-2.5 py-1 text-[11px] rounded transition-colors"
-            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'"
+            class="px-2.5 py-1 text-2xs rounded transition-colors"
+            :class="statusFilter === f.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'"
             @click="statusFilter = f.value"
           >
             {{ f.label }}
@@ -73,14 +73,14 @@
                 {{ task.title || task.prompt?.content || $t('scheduled.untitledTask') }}
               </div>
               <div class="flex items-center gap-2">
-                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule, task.run_once_at) }}</span>
+                <span class="text-2xs text-ink-muted">{{ getCronLabel(task.cron_schedule, task.run_once_at) }}</span>
                 <!-- A schedule whose last run died reads as healthy here unless
                      the row says otherwise — the same blind spot the failure
                      alert closes for the inbox. -->
                 <span
                     v-if="task.last_run_at"
-                    class="inline-flex items-center gap-1 text-[11px]"
-                    :class="task.last_run_status === 'error' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'"
+                    class="inline-flex items-center gap-1 text-2xs"
+                    :class="task.last_run_status === 'error' ? 'text-red-500' : 'text-ink-muted'"
                     :data-testid="`task-last-run-${task.id}`"
                 >
                     <span class="text-gray-300 dark:text-gray-600">&middot;</span>
@@ -93,13 +93,13 @@
               <div class="flex items-center gap-3 mt-2">
                 <NuxtLink
                   :to="`/reports/${task.report_id}`"
-                  class="text-[11px] text-blue-500 hover:text-blue-600 flex items-center gap-1"
+                  class="text-2xs text-blue-500 hover:text-blue-600 flex items-center gap-1"
                   @click.stop
                 >
                   <UIcon name="heroicons-chat-bubble-left-right" class="w-3 h-3" />
                   {{ task.report?.title || $t('scheduled.untitledReport') }}
                 </NuxtLink>
-                <span v-if="task.user_name" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
+                <span v-if="task.user_name" class="text-2xs text-ink-muted">{{ $t('scheduled.by', { name: task.user_name }) }}</span>
               </div>
             </div>
             <div class="shrink-0 flex items-center gap-2">
@@ -130,7 +130,7 @@
       </div>
 
       <!-- Results summary -->
-      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-[11px] text-gray-500 dark:text-gray-400">
+      <div v-if="!isLoading && tasks.length > 0" class="mt-6 text-center text-2xs text-gray-500 dark:text-gray-400">
         {{ $t(pagination.total === 1 ? 'scheduled.showingOne' : 'scheduled.showingMany', { shown: tasks.length, total: pagination.total }) }}
       </div>
 

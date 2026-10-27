@@ -165,9 +165,11 @@ async def test_a_failed_run_is_rolled_back_so_its_code_is_never_persisted():
     # Partial access keeps the fork (option 3); each step leaves 'pending'.
     assert not session.deleted
     [err] = session.settled("steps", "error")
-    [ok] = session.settled("steps", "success")
+    # A step is settled as soon as its run ends (per-step settle) and again
+    # in the final sweep; every success write names s1 only, never s2.
+    oks = session.settled("steps", "success")
     assert "'s2'" in err and "'s1'" not in err
-    assert "'s1'" in ok and "'s2'" not in ok
+    assert oks and all("'s1'" in ok and "'s2'" not in ok for ok in oks)
 
 
 @pytest.mark.asyncio

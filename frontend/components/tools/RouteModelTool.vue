@@ -3,14 +3,14 @@
     <div class="mb-2 flex items-center text-xs text-gray-700 dark:text-gray-300">
       <Icon
         :name="status === 'running' ? 'heroicons-arrow-path' : 'heroicons-arrows-right-left'"
-        class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 flex-shrink-0"
+        class="w-3 h-3 me-1 text-ink-muted flex-shrink-0"
         :class="{ 'animate-spin': status === 'running' }"
       />
       <template v-if="status !== 'running' && routed">
         <span class="align-middle me-1">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}</span>
         <LLMProviderIcon v-if="providerType || modelName" :provider="providerType || 'custom'" :model="modelName" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
         <span class="font-medium align-middle">{{ modelName }}</span>
-        <span v-if="isFallback && fromModel" class="align-middle ms-1 text-gray-400 dark:text-gray-500" data-testid="fallback-switch-reason">
+        <span v-if="isFallback && fromModel" class="align-middle ms-1 text-ink-muted" data-testid="fallback-switch-reason">
           — {{ t('tools.routeModel.fallbackReason', { from: fromModel }) }}
         </span>
       </template>

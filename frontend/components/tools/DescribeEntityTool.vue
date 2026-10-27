@@ -2,10 +2,10 @@
   <div class="mt-1">
     <!-- Status header -->
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDetails">
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDetails">
+        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Loading from catalog: "</span>
           <Transition name="fade-in" mode="out-in">
             <span :key="entityTitle || ''">{{ entityTitle }}</span>
@@ -15,7 +15,7 @@
         <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
           <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
           <Icon v-else-if="isActionMode && isSuccess" name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-          <Icon v-else name="heroicons-cube" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+          <Icon v-else name="heroicons-cube" class="w-3 h-3 me-1 text-ink-muted" />
           <span class="align-middle">{{ statusLabel }}</span>
         </span>
       </div>
@@ -38,13 +38,13 @@
             <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-table-cells" class="w-3 h-3 me-1" />
             <span>{{ $t('tools.describeEntity.dataProfile') }}</span>
-            <span class="ms-2 text-gray-400 dark:text-gray-500">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
+            <span class="ms-2 text-ink-muted">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
           </div>
           <Transition name="fade">
             <div v-if="!profileCollapsed" class="mt-2 ms-4">
               <!-- Columns table -->
-              <table v-if="profileColumns.length" class="min-w-0 text-[11px]">
-                <thead class="text-gray-400 dark:text-gray-500">
+              <table v-if="profileColumns.length" class="min-w-0 text-2xs">
+                <thead class="text-ink-muted">
                   <tr>
                     <th class="text-start pe-4 font-normal">Column</th>
                     <th class="text-start pe-4 font-normal">Type</th>
@@ -55,19 +55,19 @@
                 <tbody>
                   <tr v-for="(col, idx) in profileColumns.slice(0, 10)" :key="idx">
                     <td class="pe-4 text-gray-600 dark:text-gray-400">{{ col.name }}</td>
-                    <td class="pe-4 text-gray-400 dark:text-gray-500">{{ col.dtype || '—' }}</td>
-                    <td class="pe-4 text-gray-400 dark:text-gray-500">{{ col.unique_count ?? '—' }}</td>
-                    <td class="text-gray-400 dark:text-gray-500">{{ col.null_count ?? '—' }}</td>
+                    <td class="pe-4 text-ink-muted">{{ col.dtype || '—' }}</td>
+                    <td class="pe-4 text-ink-muted">{{ col.unique_count ?? '—' }}</td>
+                    <td class="text-ink-muted">{{ col.null_count ?? '—' }}</td>
                   </tr>
                   <tr v-if="profileColumns.length > 10">
-                    <td colspan="4" class="text-gray-400 dark:text-gray-500">… {{ profileColumns.length - 10 }} more</td>
+                    <td colspan="4" class="text-ink-muted">… {{ profileColumns.length - 10 }} more</td>
                   </tr>
                 </tbody>
               </table>
               <!-- Sample rows -->
               <div v-if="sampleRows.length" class="mt-2">
-                <div class="text-gray-400 dark:text-gray-500 mb-1">Sample:</div>
-                <pre class="bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 text-[10px] text-gray-600 dark:text-gray-400 overflow-x-auto max-h-24">{{ JSON.stringify(sampleRows, null, 2) }}</pre>
+                <div class="text-ink-muted mb-1">Sample:</div>
+                <pre class="bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 text-2xs text-gray-600 dark:text-gray-400 overflow-x-auto max-h-24">{{ JSON.stringify(sampleRows, null, 2) }}</pre>
               </div>
             </div>
           </Transition>
@@ -85,13 +85,13 @@
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-[11px] text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ entityCode }}</pre>
+              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-2xs text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ entityCode }}</pre>
             </div>
           </Transition>
         </div>
 
         <!-- Execution info -->
-        <div v-if="wasRerun" class="mt-2 flex items-center text-gray-400 dark:text-gray-500">
+        <div v-if="wasRerun" class="mt-2 flex items-center text-ink-muted">
           <Icon name="heroicons-arrow-path" class="w-3 h-3 me-1" />
           <span>Re-executed with fresh data</span>
         </div>

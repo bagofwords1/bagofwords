@@ -17,7 +17,7 @@
                         <span v-if="lastRunStatus" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(lastRunStatus)]">
                             {{ localizedStatus(lastRunStatus) }}
                         </span>
-                        <span v-else class="text-gray-400 text-sm">—</span>
+                        <span v-else class="text-ink-muted text-sm">—</span>
                     </div>
                     <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('evals.lastTestResult') }}</div>
                 </div>
@@ -64,7 +64,7 @@
                             </thead>
                             <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                                 <tr v-if="loadingCases">
-                                    <td colspan="5" class="px-6 py-6 text-center text-gray-400 text-xs">{{ $t('common.loading') }}</td>
+                                    <td colspan="5" class="px-6 py-6 text-center text-ink-muted text-xs">{{ $t('common.loading') }}</td>
                                 </tr>
                                 <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-4 py-3 w-10 text-center">
@@ -72,9 +72,9 @@
                                     </td>
                                     <td class="px-6 py-3">
                                         <div class="flex items-center gap-1.5 max-w-[520px]">
-                                            <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Draft</span>
-                                            <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
-                                            <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-[10px] font-medium px-2 py-0.5 shrink-0">Auto</span>
+                                            <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-2xs font-medium px-2 py-0.5 shrink-0">Draft</span>
+                                            <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-2xs font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                            <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-2xs font-medium px-2 py-0.5 shrink-0">Auto</span>
                                             <span class="truncate flex-1" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                         </div>
                                     </td>
@@ -83,7 +83,7 @@
                                             <span
                                                 v-for="cat in categoriesForCase(c)"
                                                 :key="cat.key"
-                                                :class="['inline-flex items-center rounded-full border text-[11px] px-2 py-0.5', badgeClassesFor(cat.key)]"
+                                                :class="['inline-flex items-center rounded-full border text-2xs px-2 py-0.5', badgeClassesFor(cat.key)]"
                                             >{{ cat.label }}</span>
                                         </div>
                                     </td>
@@ -133,7 +133,7 @@
                             </thead>
                             <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                                 <tr v-if="loadingRuns">
-                                    <td colspan="6" class="px-6 py-6 text-center text-gray-400">{{ $t('common.loading') }}</td>
+                                    <td colspan="6" class="px-6 py-6 text-center text-ink-muted">{{ $t('common.loading') }}</td>
                                 </tr>
                                 <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <td class="px-6 py-3">

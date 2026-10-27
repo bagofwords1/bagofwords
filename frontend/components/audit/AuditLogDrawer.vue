@@ -25,7 +25,7 @@
         <!-- Header -->
         <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-start gap-3">
           <div class="flex-1 min-w-0">
-            <div class="text-[11px] text-gray-400 mb-1">{{ $t('settings.audit.drawer.title') }}</div>
+            <div class="text-2xs text-ink-muted mb-1">{{ $t('settings.audit.drawer.title') }}</div>
             <div class="flex items-center gap-1.5 flex-wrap">
               <span v-for="(seg, i) in split.path" :key="i" class="text-sm text-gray-500 dark:text-gray-400">{{ seg }}<span class="mx-1 text-gray-300">·</span></span>
               <span class="inline-flex px-1.5 py-0.5 rounded text-xs font-medium" :class="verbClass(log.action)">{{ split.verb }}</span>
@@ -34,7 +34,7 @@
           <button
             type="button"
             data-testid="audit-drawer-close"
-            class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300"
             :aria-label="$t('settings.audit.drawer.close')"
             @click="emit('close')"
           >
@@ -123,7 +123,7 @@
           <!-- Details -->
           <section>
             <h4 class="section-title">{{ $t('settings.audit.drawer.details') }}</h4>
-            <div v-if="knownFields.length === 0 && extraKeys.length === 0" class="text-gray-400">{{ $t('settings.audit.drawer.noDetails') }}</div>
+            <div v-if="knownFields.length === 0 && extraKeys.length === 0" class="text-ink-muted">{{ $t('settings.audit.drawer.noDetails') }}</div>
             <dl v-if="knownFields.length" class="fields" data-testid="audit-details">
               <template v-for="f in knownFields" :key="f.key">
                 <dt>{{ $t(`settings.audit.drawer.fields.${f.key}`) }}</dt>
@@ -133,15 +133,15 @@
                       v-for="(q, i) in asList(f.value)"
                       :key="i"
                       dir="ltr"
-                      class="font-mono text-[11px] whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5"
+                      class="font-mono text-2xs whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5"
                     >{{ q }}</pre>
                   </div>
                   <div v-else-if="f.key === 'changed' && isObject(f.value)" class="space-y-0.5">
-                    <div v-for="(v, k) in f.value" :key="k" class="font-mono text-[11px]" dir="ltr">
+                    <div v-for="(v, k) in f.value" :key="k" class="font-mono text-2xs" dir="ltr">
                       <span class="text-gray-500">{{ k }}:</span>
                       <template v-if="Array.isArray(v) && v.length === 2">
                         <span class="text-red-600 line-through">{{ fmt(v[0]) }}</span>
-                        <span class="text-gray-400"> → </span>
+                        <span class="text-ink-muted"> → </span>
                         <span class="text-green-700">{{ fmt(v[1]) }}</span>
                       </template>
                       <span v-else>{{ fmt(v) }}</span>
@@ -157,7 +157,7 @@
                 {{ $t('settings.audit.drawer.rawJson') }}
                 <CopyChip class="ms-auto" :value="rawJson" />
               </summary>
-              <pre dir="ltr" data-testid="audit-raw-json" class="mt-2 font-mono text-[11px] whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5 max-h-80 overflow-auto">{{ rawJson }}</pre>
+              <pre dir="ltr" data-testid="audit-raw-json" class="mt-2 font-mono text-2xs whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5 max-h-80 overflow-auto">{{ rawJson }}</pre>
             </details>
           </section>
         </div>
@@ -233,7 +233,7 @@ const CopyChip = defineComponent({
     return () =>
       h('button', {
         type: 'button',
-        class: 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0',
+        class: 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 shrink-0',
         title: copied.value ? t('settings.audit.drawer.copied') : t('settings.audit.drawer.copy'),
         'aria-label': t('settings.audit.drawer.copy'),
         onClick: copy,
@@ -244,7 +244,7 @@ const CopyChip = defineComponent({
 
 <style scoped>
 .section-title {
-  @apply text-[11px] font-medium uppercase tracking-wide text-gray-400 mb-1.5;
+  @apply text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1.5;
 }
 .fields {
   @apply grid gap-x-3 gap-y-1.5;

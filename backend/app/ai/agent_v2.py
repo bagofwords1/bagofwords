@@ -1783,25 +1783,43 @@ class AgentV2:
             from app.models.query import Query
             from app.models.visualization import Visualization
             _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
-            result = await self.db.execute(
-                select(ArtifactVersion)
-                .options(lazyload("*"))
-                # Mode lives on the parent Artifact — explicit join on this
-                # hot path (runs before every planner turn).
-                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
-                .where(
-                    ArtifactVersion.report_id == str(_report_id),
-                    ArtifactVersion.status == "completed",
-                    # Docs (mode='doc') must never occupy the active-artifact slot:
-                    # dashboard continuity rules and edit_artifact routing bind to it.
-                    Artifact.mode.in_(("page", "slides")),
+
+            def _candidates():
+                return (
+                    select(ArtifactVersion)
+                    .options(lazyload("*"))
+                    # Mode lives on the parent Artifact — explicit join on this
+                    # hot path (runs before every planner turn).
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.report_id == str(_report_id),
+                        ArtifactVersion.status == "completed",
+                        # Docs (mode='doc') must never occupy the active-artifact slot:
+                        # dashboard continuity rules and edit_artifact routing bind to it.
+                        Artifact.mode.in_(("page", "slides")),
+                    )
                 )
-                .order_by(ArtifactVersion.created_at.desc())
-                .limit(1)
-            )
+
+            result = await self.db.execute(_candidates().order_by(ArtifactVersion.created_at.desc()).limit(1))
             artifact = result.scalar_one_or_none()
             if not artifact:
                 return None
+            newest = artifact
+            # The version open in the editor is what the next edit builds on
+            # (collab01) -- until this turn saves one: from then on the
+            # newest is this turn's own work.
+            open_version = self._open_artifact_version_id()
+            if open_version and open_version != str(newest.id) and not self._saved_this_turn(newest):
+                chosen = (await self.db.execute(
+                    _candidates().where(ArtifactVersion.id == open_version).limit(1))).scalar_one_or_none()
+                if chosen is not None:
+                    artifact = chosen
+            newer_version = None
+            if artifact is not newest:
+                from app.ai.tools.implementations.edit_artifact import latest_version_in_conversation
+                latest_same = await latest_version_in_conversation(self.db, artifact)
+                if latest_same and latest_same > artifact.version:
+                    newer_version = latest_same
 
             viz_ids = []
             if isinstance(artifact.content, dict):
@@ -1869,6 +1887,9 @@ class AgentV2:
                 "title": artifact.title,
                 "mode": artifact.mode,
                 "version": artifact.version,
+                # Open in the editor although a newer version exists: build on
+                # this one (edit_artifact allows it).
+                "newer_version": newer_version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
                 # The current source: the planner authors artifact code itself
@@ -1876,10 +1897,40 @@ class AgentV2:
                 # IS the working context. Rendering caps it; oversize falls
                 # back to read_artifact.
                 "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
+                # A dashboard several people edit (collab01): its notes, and
+                # the summary this conversation started from -- structure
+                # and history only, never another person's rows.
+                "collaboration": await self._dashboard_collaboration(str(artifact.artifact_id)),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")
             return None
+
+    def _open_artifact_version_id(self) -> Optional[str]:
+        head = getattr(self, "head_completion", None)
+        prompt = (getattr(head, "prompt", None) or {}) if head else {}
+        value = prompt.get("artifact_version_id") if isinstance(prompt, dict) else None
+        return str(value) if value else None
+
+    def _saved_this_turn(self, version) -> bool:
+        """Whether `version` was saved after this turn's question was asked."""
+        asked = getattr(self.head_completion, "created_at", None) if self.head_completion else None
+        made = getattr(version, "created_at", None)
+        if asked is None or made is None:
+            return False
+        try:
+            return made.replace(tzinfo=None) >= asked.replace(tzinfo=None)
+        except Exception:
+            return False
+
+    async def _dashboard_collaboration(self, artifact_id: str) -> str:
+        try:
+            from app.services.dashboard_collab import agent_context
+
+            return await agent_context(self.db, str(self.report_id), artifact_id)
+        except Exception:
+            logger.debug("dashboard collaboration context unavailable", exc_info=True)
+            return ""
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""
@@ -4745,8 +4796,29 @@ class AgentV2:
             if inv.current_widget is not None:
                 self.current_widget = inv.current_widget
 
+    def _presence(self, started: bool) -> None:
+        """A dashboard this conversation edits shows its other editors that
+        the agent is at work (collab01). Detached: a separate session's
+        write must never wait on this run's own transaction."""
+        try:
+            if not self.report or self._is_sub_agent:
+                return
+            from app.core import fire_and_forget
+            from app.services import dashboard_presence
+
+            completion_id = str(self.system_completion_id) if getattr(self, "system_completion_id", None) else None
+            if started:
+                user_id = str(getattr(self.head_completion, "user_id", "") or "")
+                if user_id:
+                    fire_and_forget.spawn(dashboard_presence.agent_started(str(self.report_id), user_id, completion_id))
+            else:
+                fire_and_forget.spawn(dashboard_presence.agent_finished(str(self.report_id), completion_id))
+        except Exception:
+            pass
+
     async def main_execution(self):
         from app.data_sources.clients.bow_client import install_bow_client
+        self._presence(True)
         from app.models.user import User as BowUser
         bow_user = await self.db.get(BowUser, str(self.head_completion.user_id)) if self.head_completion and self.head_completion.user_id else None
         await install_bow_client(self.db, self.organization, bow_user, self.report, self.clients, mode=self.mode, allow_saved=False, writer_lock=self._tool_db_lock)
@@ -6579,7 +6651,7 @@ class AgentV2:
                                 # succeeded.
                                 if not artifact_refinement_budget.allow(tool_name, tool_input or {}):
                                     return await _refuse_before_dispatch({
-                                        "summary": "The optional visual refinement was already used. Finish with the saved artifact; requested changes and functional repairs remain available.",
+                                        "summary": "The optional visual refinement was already used (it saved a version). Finish with the saved artifact; requested changes and functional repairs remain available.",
                                         "error": {"code": "visual_refinement_exhausted", "message": "One automatic visual refinement is allowed per request."},
                                     })
 
@@ -7317,6 +7389,12 @@ class AgentV2:
                                     # breaker, the step limit, and the budget cap.
                                     if _tn in ("create_artifact", "edit_artifact"):
                                         total_artifact_calls += 1
+                                        # The optional visual refinement is spent
+                                        # only when it saved a version.
+                                        artifact_refinement_budget.record(
+                                            _tn, _ti_args if isinstance(_ti_args, dict) else {},
+                                            saved=isinstance(_obs, dict) and _obs.get("success") is not False
+                                            and _obs.get("version") is not None)
                                         # Remember what actually landed: a budget
                                         # refusal must be able to name the saved
                                         # state ("v8 is saved") instead of
@@ -7932,6 +8010,7 @@ class AgentV2:
                 pass
             raise
         finally:
+            self._presence(False)
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.

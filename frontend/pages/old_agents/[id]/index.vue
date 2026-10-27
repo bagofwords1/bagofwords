@@ -104,7 +104,7 @@
                                 <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
                                 Add Primary Instruction
                             </button>
-                            <span class="text-xs text-gray-400">or</span>
+                            <span class="text-xs text-ink-muted">or</span>
                             <PrimaryInstructionPicker
                                 :agent-id="(route.params.id as string)"
                                 label="select existing"
@@ -123,8 +123,8 @@
                 <!-- Conversation Starters -->
                 <div>
                     <div class="flex items-center gap-2">
-                        <div class="text-xs uppercase tracking-wide text-gray-400">{{ $t('dataSource.conversationStarters') }}</div>
-                        <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-[10px] text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
+                        <div class="text-xs uppercase tracking-wide text-ink-muted">{{ $t('dataSource.conversationStarters') }}</div>
+                        <button v-if="useCan('update_data_source')" @click="openEditStarters" class="text-2xs text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
                     </div>
                     <div class="mt-3 flex flex-wrap gap-2">
                         <div v-for="starter in displayDataSource?.conversation_starters" :key="starter"
@@ -148,16 +148,16 @@
                 <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
                     <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
                         <div class="flex items-center justify-between mb-1">
-                            <span class="text-[10px] uppercase tracking-wide text-gray-400">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
-                            <button @click="removeStarter(idx)" class="text-[11px] text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
+                            <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
+                            <button @click="removeStarter(idx)" class="text-2xs text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
                         </div>
                         <div class="space-y-1">
                             <div>
-                                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
+                                <label class="block text-2xs text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
                                 <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
                             </div>
                             <div>
-                                <label class="block text-[11px] text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
+                                <label class="block text-2xs text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
                                 <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
                             </div>
                         </div>

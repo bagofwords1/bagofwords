@@ -160,6 +160,7 @@ class ReadQueryTool(Tool):
                 )
                 .where(
                     Visualization.id == viz_id,
+                    Visualization.artifact_release_id.is_(None),
                     *([Visualization.report_id == str(report.id)] if report else []),
                 )
             )
@@ -189,6 +190,7 @@ class ReadQueryTool(Tool):
                 .where(
                     Query.id == query_id,
                     Query.organization_id == str(organization.id),
+                    Query.artifact_release_id.is_(None),
                 )
             )
             query = result.scalar_one_or_none()
@@ -352,10 +354,14 @@ class ReadQueryTool(Tool):
             user = runtime_ctx.get("user")
             params = await svc._resolve_step_params(
                 db, step, getattr(step, "applied_params", None), user, str(organization.id), specs)
-            df = await svc._execute_step_code(
-                db, step, full_report, current_user=user,
-                db_clients=runtime_ctx.get("ds_clients") or None,
+            from app.services.exec_context import ExecContext
+            ctx = ExecContext.from_report(
+                full_report, credential_user=user,
                 organization=organization, organization_settings=settings,
+            )
+            df = await svc._execute_step_code(
+                db, step, ctx,
+                db_clients=runtime_ctx.get("ds_clients") or None,
                 params=params, param_specs=specs, return_raw_df=True,
             )
         except Exception as exc:
@@ -440,9 +446,10 @@ class ReadQueryTool(Tool):
 
         # Saved monitoring data is gated before any rows, code, or titles reach the model.
         from app.services.bow_source_access import can_read, report_access, protect_report
+        from app.services.row_owner import query_report_id
         checked = []
         for r in results:
-            rid = await db.scalar(select(Query.report_id).where(Query.id == r.query_id)) if r.query_id else None
+            rid = await query_report_id(db, r.query_id) if r.query_id else None
             access = await report_access(db, rid)
             if not await can_read(db, access, runtime_ctx.get("user")):
                 checked.append(ReadQueryResult(query_id=r.query_id, error="Access denied"))

@@ -133,8 +133,12 @@ class SearchReportsTool(Tool):
 
             from app.services.bow_source_access import visible_reports_clause
             stmt = stmt.where(await visible_reports_clause(db, organization.id, user))
+            # Shared = a shared dashboard; the conversation's own old status
+            # where it has none (phase 9).
+            from app.services import dashboard_legacy
             if data.status != "all":
-                stmt = stmt.where(Report.status == data.status)
+                shared = dashboard_legacy.counts_as_shared()
+                stmt = stmt.where(shared if data.status == "published" else ~shared)
 
             if data.mode:
                 stmt = stmt.where(Report.mode == data.mode)
@@ -145,13 +149,14 @@ class SearchReportsTool(Tool):
 
             stmt = stmt.order_by(Report.created_at.desc()).limit(data.limit)
             reports = (await db.execute(stmt)).scalars().all()
+            shared_ids = await dashboard_legacy.shared_ids(db, [r.id for r in reports])
 
             items = [
                 SearchReportsItem(
                     id=str(r.id),
                     title=r.title or "Untitled",
                     slug=r.slug,
-                    status=r.status,
+                    status="published" if str(r.id) in shared_ids else "draft",
                     mode=r.mode,
                     has_artifacts=any(a.deleted_at is None for a in (r.artifacts or [])),
                     created_at=str(r.created_at) if r.created_at else None,

@@ -1,10 +1,10 @@
 <template>
   <div class="min-h-screen flex items-center justify-center px-6 py-24">
     <div class="w-full max-w-[360px] text-center">
-      <p class="text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500">
+      <p class="text-2xs uppercase tracking-widest text-ink-muted">
         {{ $t('errorPage.notFoundTitle') }}
       </p>
-      <h1 class="mt-2 text-[22px] leading-tight font-semibold tracking-tight text-gray-900 dark:text-white">
+      <h1 class="mt-2 text-2xl leading-tight font-semibold tracking-tight text-gray-900 dark:text-white">
         {{ $t('errorPage.notFoundMessage') }}
       </h1>
       <p class="mt-1.5 text-sm text-gray-500 dark:text-gray-400">

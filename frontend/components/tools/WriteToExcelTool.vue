@@ -8,10 +8,10 @@
       <Icon
         v-if="hasDetail"
         :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-gray-400 dark:text-gray-600 rtl-flip"
+        class="w-3 h-3 me-1 text-ink-muted rtl-flip"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500 dark:text-gray-400">
-        <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-600" />
+        <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-ink-muted" />
         Writing {{ rowLabel }} to Excel…
       </span>
       <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -21,20 +21,20 @@
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
         <span class="align-middle">Couldn't write to Excel</span>
-        <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
+        <span v-if="errorMessage" class="ms-1.5 text-2xs text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
       <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 text-xs text-gray-600 dark:text-gray-400">
-        <div v-if="title" class="mb-1 text-gray-700 dark:text-gray-300"><span class="text-gray-400 dark:text-gray-600">Title:</span> {{ title }}</div>
+        <div v-if="title" class="mb-1 text-gray-700 dark:text-gray-300"><span class="text-ink-muted">Title:</span> {{ title }}</div>
         <div v-if="columnNames.length" class="mb-1">
-          <span class="text-gray-400 dark:text-gray-600">Columns:</span>
+          <span class="text-ink-muted">Columns:</span>
           <span class="ms-1">{{ columnNames.join(', ') }}</span>
         </div>
         <div v-if="rowPreview.length" class="mt-2">
-          <div class="text-[10px] text-gray-400 dark:text-gray-600 mb-0.5">Preview ({{ rowPreview.length }} of {{ rowCount }} rows)</div>
-          <pre class="code-block text-[11px] text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ previewText }}</code></pre>
+          <div class="text-2xs text-ink-muted mb-0.5">Preview ({{ rowPreview.length }} of {{ rowCount }} rows)</div>
+          <pre class="code-block text-2xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ previewText }}</code></pre>
         </div>
       </div>
     </Transition>

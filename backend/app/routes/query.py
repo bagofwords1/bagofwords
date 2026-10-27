@@ -11,7 +11,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
-from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema
+from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest, QueryLastRunSchema, QueryStepStatusSchema
 from app.services.query_service import QueryService
 
 
@@ -54,12 +54,9 @@ async def _require_query_owner(db, query_id: str, current_user, organization) ->
     uid = str(current_user.id)
     if q.user_id and str(q.user_id) == uid:
         return
-    report_id = q.report_id
-    if not report_id and q.widget_id:
-        from app.models.widget import Widget
-        report_id = (await db.execute(
-            select(Widget.report_id).where(Widget.id == str(q.widget_id))
-        )).scalar_one_or_none()
+    from app.services.row_owner import query_report_id
+
+    report_id = await query_report_id(db, q)
     if report_id:
         report_owner = (await db.execute(
             select(Report.user_id).where(
@@ -76,13 +73,11 @@ async def _require_query_owner(db, query_id: str, current_user, organization) ->
 
 
 async def _query_parent_report(db, q: Query, organization):
-    """The report a query lives on: its own report_id, else its widget's."""
-    report_id = q.report_id
-    if not report_id and q.widget_id:
-        from app.models.widget import Widget
-        report_id = (await db.execute(
-            select(Widget.report_id).where(Widget.id == str(q.widget_id))
-        )).scalar_one_or_none()
+    """The report a query lives on: its own report_id, else its widget's
+    (row_owner); none for a published dashboard's copy or an orphan."""
+    from app.services.row_owner import query_report_id
+
+    report_id = await query_report_id(db, q)
     if not report_id:
         return None
     return (await db.execute(
@@ -143,7 +138,9 @@ async def list_queries(
         organization_id=str(organization.id) if organization else None,
     )
     from app.services.bow_source_access import can_read, report_access
-    queries = [q for q in queries if await can_read(db, await report_access(db, q.report_id), current_user)]
+    from app.services.row_owner import query_report_id
+    queries = [q for q in queries
+               if await can_read(db, await report_access(db, await query_report_id(db, q)), current_user)]
     queries = [q for q in queries if await _can_read_query(db, q, current_user, organization)]
     # Pydantic v2: model_validate for each, then apply the per-viewer step-data
     # policy so a non-owner never receives a withheld creator snapshot in the
@@ -162,6 +159,54 @@ async def list_queries(
         if lr and not (schema.default_step and schema.default_step.snapshot_withheld):
             schema.last_run = QueryLastRunSchema(**lr)
         result.append(schema)
+    return result
+
+@router.get("/statuses", response_model=list[QueryStepStatusSchema])
+@requires_permission('view_reports')
+async def list_query_step_statuses(
+    report_id: str,
+    artifact_id: str | None = None,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """The status of each query's default step behind a dashboard, in one
+    request and without rows -- what the dashboard polls while the queries
+    it was brought in with run again as the person who brought it.
+
+    The same queries, filtered by the same read checks, as ``GET /queries``.
+    A step's failure reason is the run's own error, so it is given only to
+    the owner of the conversation the step lives on (the person whose run
+    it was); anyone else gets the status alone.
+    """
+    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+    from app.services.bow_source_access import can_read, report_access
+    from app.services.row_owner import query_report_id
+
+    queries = await service.list_queries(
+        db, report_id=report_id, artifact_id=artifact_id, organization_id=str(organization.id),
+    )
+    owners: dict = {}
+    result = []
+    for q in queries:
+        rid = await query_report_id(db, q)
+        if not await can_read(db, await report_access(db, rid), current_user):
+            continue
+        if not await _can_read_query(db, q, current_user, organization):
+            continue
+        if rid not in owners:
+            owners[rid] = (await db.execute(
+                select(Report.user_id).where(Report.id == str(rid))
+            )).scalar_one_or_none() if rid else None
+        mine = owners[rid] is not None and str(owners[rid]) == str(current_user.id)
+        step = q.default_step
+        status = getattr(step, "status", None)
+        reason = getattr(step, "status_reason", None) if status == "error" else None
+        result.append(QueryStepStatusSchema(
+            query_id=str(q.id), title=q.title, step_id=str(step.id) if step else None, status=status,
+            status_reason=reason if mine else None,
+            error_code=NO_ACCESS_CODE if reason == NO_ACCESS_REASON else None,
+        ))
     return result
 
 @router.post("", response_model=QuerySchema)
@@ -303,14 +348,13 @@ async def run_existing_step(
 ):
     # Rerunning persists the result into the step's shared snapshot under the
     # caller's credentials, so it is an edit of that report: owner-only.
-    from app.models.step import Step
-    from app.models.widget import Widget
+    from app.services.row_owner import step_report_id
+
+    # A published dashboard's copy belongs to no conversation: not found here.
+    report_id = await step_report_id(db, str(step_id))
     owner_id = (await db.execute(
-        select(Report.user_id)
-        .join(Widget, Widget.report_id == Report.id)
-        .join(Step, Step.widget_id == Widget.id)
-        .where(Step.id == str(step_id), Report.organization_id == str(organization.id))
-    )).scalar_one_or_none()
+        select(Report.user_id).where(Report.id == str(report_id), Report.organization_id == str(organization.id))
+    )).scalar_one_or_none() if report_id else None
     if owner_id is None:
         raise HTTPException(status_code=404, detail="Step not found")
     if str(owner_id) != str(current_user.id):

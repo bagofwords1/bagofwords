@@ -268,7 +268,7 @@
                                     <Icon name="heroicons:chevron-right" class="w-3" />
                                 </span>
                                 Custom headers
-                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                             </button>
                             <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                 <div>
@@ -637,7 +637,7 @@
                                         <Icon name="heroicons:chevron-right" class="w-3" />
                                     </span>
                                     Custom headers
-                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                                 </button>
                                 <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                     <div>
@@ -815,7 +815,7 @@
                         <UButton
                             type="submit"
                             :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"
-                            class="!bg-blue-500 !text-white"
+                            class="!bg-blue-600 !text-white"
                             @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
                         />
                     </div>

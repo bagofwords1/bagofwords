@@ -149,6 +149,7 @@ class RunQueryTool(Tool):
                 .where(
                     Query.id == requested_id,
                     Query.organization_id == str(organization.id),
+                    Query.artifact_release_id.is_(None),
                     *report_scope,
                 )
             )).scalar_one_or_none()
@@ -165,6 +166,7 @@ class RunQueryTool(Tool):
                 )
                 .where(
                     Visualization.id == requested_id,
+                    Visualization.artifact_release_id.is_(None),
                     *([Visualization.report_id == str(report.id)] if report is not None else []),
                 )
             )).scalar_one_or_none()

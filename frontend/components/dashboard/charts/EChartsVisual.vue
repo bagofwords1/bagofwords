@@ -4,8 +4,8 @@
       <VChart :key="chartKey" class="chart" :option="chartOptions" autoresize :loading="isLoading" :theme="colorMode.value === 'dark' ? 'dark' : undefined" />
     </div>
     <div v-else-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">Loading Chart...</div>
-    <div v-else-if="!(data?.rows?.length > 0)" class="flex-1 flex items-center justify-center text-gray-400">No data to display.</div>
-    <div v-else class="flex-1 flex items-center justify-center text-gray-400">Chart configuration error or unsupported type.</div>
+    <div v-else-if="!(data?.rows?.length > 0)" class="flex-1 flex items-center justify-center text-ink-muted">No data to display.</div>
+    <div v-else class="flex-1 flex items-center justify-center text-ink-muted">Chart configuration error or unsupported type.</div>
   </div>
 </template>
 

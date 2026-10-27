@@ -64,7 +64,7 @@
                              class="flex items-center justify-between gap-4 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
                             <div class="min-w-0">
                                 <div class="text-sm font-medium">{{ rule.name }}</div>
-                                <div class="text-xs text-gray-400">{{ rule.pattern_count }} pattern{{ rule.pattern_count === 1 ? '' : 's' }}</div>
+                                <div class="text-xs text-ink-muted">{{ rule.pattern_count }} pattern{{ rule.pattern_count === 1 ? '' : 's' }}</div>
                             </div>
                             <div class="flex items-center gap-3 shrink-0">
                                 <USelect
@@ -101,7 +101,7 @@
                         <UButton size="sm" icon="i-heroicons-plus" @click="addRule">{{ $t('settings.pii.addRule') }}</UButton>
                     </div>
 
-                    <p v-if="pii.custom_rules.length === 0" class="text-sm text-gray-400 mt-4">{{ $t('settings.pii.noCustomRules') }}</p>
+                    <p v-if="pii.custom_rules.length === 0" class="text-sm text-ink-muted mt-4">{{ $t('settings.pii.noCustomRules') }}</p>
 
                     <div v-for="(rule, ri) in pii.custom_rules" :key="rule.id"
                          class="border border-gray-200 dark:border-gray-700 rounded-md p-4 mt-4 space-y-3">

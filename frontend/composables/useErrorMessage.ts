@@ -15,6 +15,33 @@
  *     toast.add({ description: getErrorMessage(e, t('errors.generic')) })
  *   }
  */
+/**
+ * The catalog keys an error code may live under, in lookup order. Most codes
+ * hold a dot ("artifact.not_found") and the catalog stores them as flat keys
+ * under `errors`, but vue-i18n reads a dotted path as nesting
+ * (errors → artifact → not_found), so the flat key needs bracket form.
+ */
+export function errorCatalogKeys(code: string): string[] {
+  return [`errors.${code}`, `errors['${code}']`]
+}
+
+/**
+ * The localized message for an AppError payload, or null when the catalog
+ * has no entry for its code. The catalog wins over the server's `detail`
+ * whenever it has one: `detail` is the server's English (backend/AGENTS.md:
+ * "the frontend localizes via the error_code").
+ */
+export function catalogMessage(
+  payload: { error_code?: string; params?: Record<string, unknown> },
+  t: (key: string, params: Record<string, unknown>) => string,
+  te: (key: string) => boolean,
+): string | null {
+  const code = payload.error_code
+  if (!code) return null
+  const key = errorCatalogKeys(code).find((k) => te(k))
+  return key ? t(key, (payload.params ?? {}) as Record<string, unknown>) : null
+}
+
 export function useErrorMessage() {
   const { t, te } = useI18n()
 
@@ -38,13 +65,8 @@ export function useErrorMessage() {
 
   function getErrorMessage(err: unknown, fallback?: string): string {
     const payload = extractPayload(err)
-    const code = payload.error_code
-    if (code) {
-      const key = `errors.${code}`
-      if (te(key)) {
-        return t(key, (payload.params ?? {}) as Record<string, unknown>)
-      }
-    }
+    const localized = catalogMessage(payload, t, te)
+    if (localized) return localized
     // Fall back to server-provided English string, then caller fallback, then generic.
     if (typeof payload.detail === 'string' && payload.detail) return payload.detail
     // FastAPI validation responses are arrays, not localized AppError envelopes.

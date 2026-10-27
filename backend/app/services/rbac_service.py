@@ -368,6 +368,11 @@ class RBACService:
 
     async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> None:
         group = await self._get_editable_group(db, org_id, group_id)
+        # Dashboard grants go with the group. Their foreign key cascades on
+        # Postgres only; SQLite does not enforce it here.
+        from sqlalchemy import delete
+        from app.models.artifact_release import ArtifactShare
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.group_id == group.id))
         await db.delete(group)
         await db.commit()
 

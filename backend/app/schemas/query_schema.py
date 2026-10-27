@@ -14,6 +14,18 @@ class QueryCreate(BaseModel):
     user_id: Optional[str] = None
 
 
+class QueryStepStatusSchema(BaseModel):
+    """One query's default-step state, without rows: what a dashboard polls
+    while its copied queries run again for the person who brought it."""
+    query_id: str
+    title: Optional[str] = None
+    step_id: Optional[str] = None
+    status: Optional[str] = None
+    # Only for the conversation's owner -- the person whose run it was.
+    status_reason: Optional[str] = None
+    error_code: Optional[str] = None
+
+
 class QueryLastRunSchema(BaseModel):
     """The most recent executed step (success OR error) for a query.
 

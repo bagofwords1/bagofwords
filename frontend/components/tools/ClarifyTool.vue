@@ -1,8 +1,8 @@
 <template>
   <div class="mt-1 mb-6" dir="auto">
     <!-- Header: spinner while running, checkmark when done -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-3">
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400" />
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 mb-3">
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.clarify.clarifying') }}</span>
       <span v-else class="text-gray-500 dark:text-gray-400">{{ $t('tools.clarify.clarifying') }}</span>
@@ -13,7 +13,7 @@
 
       <div v-for="(q, i) in questions" :key="i" class="space-y-1.5">
         <p class="text-sm font-medium text-gray-900 dark:text-white" dir="auto">{{ q.text }}</p>
-        <p v-if="isMulti(q)" class="text-xs text-gray-400 dark:text-gray-500" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
+        <p v-if="isMulti(q)" class="text-xs text-ink-muted" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
 
         <!-- Lettered options -->
         <div v-if="q.options?.length" class="space-y-1" :role="isMulti(q) ? 'group' : 'radiogroup'" :aria-label="q.text">
@@ -36,7 +36,7 @@
           >
             <span
               :class="[
-                'w-5 h-5 rounded text-[10px] font-bold flex-shrink-0 flex items-center justify-center transition-colors duration-100',
+                'w-5 h-5 rounded text-2xs font-bold flex-shrink-0 flex items-center justify-center transition-colors duration-100',
                 isSelected(i, opt) ? 'bg-sky-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
               ]"
             >
@@ -101,7 +101,7 @@
             'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
             allAnswered && !saving
               ? 'bg-sky-500 text-white hover:bg-sky-600 cursor-pointer'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed',
+              : 'bg-gray-100 dark:bg-gray-800 text-ink-muted cursor-not-allowed',
           ]"
         >
           {{ $t('tools.clarify.submit') }}

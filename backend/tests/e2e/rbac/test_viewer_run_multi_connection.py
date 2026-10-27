@@ -158,9 +158,14 @@ def test_chart_on_missing_connection_fails_with_that_connections_error(
     )
     test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
 
+    from app.services.access_errors import CREDENTIALS_REQUIRED_REASON
+
     vr = _viewer_step(test_client, report, seeded, 1, viewer).get("viewer_result") or {}
     assert vr.get("status") == "error"
-    assert "User credentials required" in (vr.get("status_reason") or ""), (
+    # The connection's own cause -- the viewer must connect -- as one fixed
+    # sentence and its code, never the client's bare key.
+    assert vr.get("error_code") == "credentials_required", vr
+    assert vr.get("status_reason") == CREDENTIALS_REQUIRED_REASON, (
         f"expected the connection's own credential error, got {vr.get('status_reason')!r}"
     )
 

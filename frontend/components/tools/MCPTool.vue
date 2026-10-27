@@ -3,22 +3,22 @@
     <!-- Status header -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="flex items-center gap-1">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
           <DataSourceIcon v-if="connectorKey" type="mcp" :connector-key="connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ doneLabel }}</span>
-          <span v-if="duration" class="text-gray-400 ms-1">{{ duration }}</span>
+          <span v-if="duration" class="text-ink-muted ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 rtl-flip"
+            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
           />
         </span>
       </div>
@@ -35,13 +35,13 @@
       <button
         v-if="argsOneLine"
         type="button"
-        class="block max-w-full truncate text-start text-[11px] font-mono text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+        class="block max-w-full truncate text-start text-2xs font-mono text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
         :title="showArgs ? '' : argsOneLine"
         @click="showArgs = !showArgs"
       >{{ argsOneLine }}</button>
       <pre
         v-if="showArgs"
-        class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
+        class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
       >{{ confirmationArgs }}</pre>
       <div class="flex flex-wrap items-center gap-1.5 text-xs">
         <button
@@ -58,13 +58,13 @@
           :disabled="responding" @click="respond(false, false)"
         >{{ $t('tools.mcp.denyOnce') }}</button>
         <button
-          class="px-2 py-0.5 rounded text-gray-400 dark:text-gray-500 hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+          class="px-2 py-0.5 rounded text-ink-muted hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
           :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(false, true)"
         >{{ $t('tools.mcp.alwaysDeny') }}</button>
       </div>
       <div
         v-if="respondError"
-        class="flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-500"
+        class="flex items-start gap-1 text-2xs text-amber-600 dark:text-amber-500"
         data-testid="mcp-approval-error"
       >
         <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
@@ -77,7 +77,7 @@
          without needing to expand the row. -->
     <div
       v-if="isFailed && errorMessage"
-      class="mt-1 ms-1 flex items-start gap-1 text-[11px] text-amber-600 dark:text-amber-500"
+      class="mt-1 ms-1 flex items-start gap-1 text-2xs text-amber-600 dark:text-amber-500"
       data-testid="mcp-error"
     >
       <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
@@ -89,8 +89,8 @@
          local decision renders as "by you" until the output arrives. -->
     <div
       v-if="approvalOutcome"
-      class="mt-1 flex items-center gap-1 text-[10px]"
-      :class="approvalOutcome.approved ? 'text-gray-400 dark:text-gray-500' : 'text-amber-600 dark:text-amber-500'"
+      class="mt-1 flex items-center gap-1 text-2xs"
+      :class="approvalOutcome.approved ? 'text-ink-muted' : 'text-amber-600 dark:text-amber-500'"
       data-testid="mcp-approval-outcome"
     >
       <Icon :name="approvalOutcome.approved ? 'heroicons-check-circle' : 'heroicons-no-symbol'" class="w-3 h-3 shrink-0" />
@@ -100,8 +100,8 @@
     <!-- Auto policy verdict ('auto' policy): small-model review outcome -->
     <div
       v-if="autoPolicy"
-      class="mt-1 flex items-center gap-1 text-[10px]"
-      :class="autoPolicy.approved ? 'text-gray-400 dark:text-gray-500' : 'text-amber-600 dark:text-amber-500'"
+      class="mt-1 flex items-center gap-1 text-2xs"
+      :class="autoPolicy.approved ? 'text-ink-muted' : 'text-amber-600 dark:text-amber-500'"
       data-testid="mcp-auto-policy"
     >
       <Icon :name="autoPolicy.approved ? 'heroicons-shield-check' : 'heroicons-shield-exclamation'" class="w-3 h-3 shrink-0" />
@@ -114,52 +114,52 @@
         <!-- Command (input) -->
         <div v-if="command" class="group">
           <div
-            class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="showCommand = !showCommand"
           >
             <Icon
               :name="showCommand ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
+              class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip"
             />
             <span>{{ $t('tools.common.input') }}</span>
           </div>
           <div v-if="showCommand" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-            <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
+            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
           </div>
         </div>
 
         <!-- Result preview -->
         <div v-if="preview" class="group">
           <div
-            class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="showPreview = !showPreview"
           >
             <Icon
               :name="showPreview ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-2.5 h-2.5 me-1 text-gray-400 rtl-flip"
+              class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip"
             />
             <span>{{ $t('tools.common.output') }}</span>
-            <span v-if="previewMeta" class="ms-1.5 text-gray-400 dark:text-gray-500">{{ previewMeta }}</span>
+            <span v-if="previewMeta" class="ms-1.5 text-ink-muted">{{ previewMeta }}</span>
           </div>
           <div
             v-if="showPreview"
             class="overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800"
             :class="previewFull ? 'max-h-[32rem]' : 'max-h-56'"
           >
-            <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
+            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ preview }}</pre>
           </div>
           <!-- The output now carries the whole result, not three sample rows,
                so a fixed 7rem box scrolls a full response through a slit. -->
           <button
             v-if="showPreview && previewIsLong"
             type="button"
-            class="mt-0.5 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+            class="mt-0.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300"
             @click="previewFull = !previewFull"
           >{{ previewFull ? $t('tools.common.collapse') : $t('tools.common.expand') }}</button>
         </div>
 
         <!-- Error message (amber: a failed tool call is recoverable context) -->
-        <div v-if="errorMessage" class="text-[10px] text-amber-600 dark:text-amber-500 bg-amber-50/60 dark:bg-amber-950/40 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-2xs text-amber-600 dark:text-amber-500 bg-amber-50/60 dark:bg-amber-950/40 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

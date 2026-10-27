@@ -1,5 +1,5 @@
 <template>
-  <span v-if="loaded && data" class="inline-flex items-center text-[11px]" @click.stop>
+  <span v-if="loaded && data" class="inline-flex items-center text-2xs" @click.stop>
     <!-- Nothing resolves and no shelf to show: grayed, disabled -->
     <template v-if="!data.case_count && !hasShelf">
       <span class="inline-flex items-center gap-1 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/40 text-gray-300 dark:text-gray-600 cursor-not-allowed"
@@ -48,12 +48,12 @@
           <button type="button"
             class="px-1 h-6 rounded-e-md border-s border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50"
             :title="$t('evals.strip.title')">
-            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 text-ink-muted" />
           </button>
 
           <template #panel>
             <div class="w-80 max-h-96 overflow-auto p-2" @click.stop>
-              <div class="flex items-center gap-1 px-0.5 mb-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              <div class="flex items-center gap-1 px-0.5 mb-1 text-2xs uppercase tracking-wide text-ink-muted">
                 <span>{{ $t('evals.strip.title') }}</span>
                 <span v-if="buildId" class="normal-case ms-auto">{{ $t('evals.strip.pinned') }}</span>
               </div>
@@ -62,12 +62,12 @@
                 class="w-full flex items-center gap-1.5 px-1.5 h-7 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
                 :disabled="isRunning" @click.stop="runCases(allCaseIds)">
                 <UIcon name="i-heroicons-play" class="w-3 h-3 text-blue-500 shrink-0" />
-                <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ $t('evals.strip.runAll') }}</span>
-                <span class="ms-auto text-[10px] text-gray-400 dark:text-gray-500">{{ data.case_count }}</span>
+                <span class="text-2xs font-medium text-gray-700 dark:text-gray-300">{{ $t('evals.strip.runAll') }}</span>
+                <span class="ms-auto text-2xs text-ink-muted">{{ data.case_count }}</span>
               </button>
 
               <div v-for="g in data.groups" :key="g.scope" class="mt-1.5">
-                <div class="flex items-center gap-1 px-0.5 text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                <div class="flex items-center gap-1 px-0.5 text-2xs uppercase tracking-wide text-ink-muted">
                   <UIcon :name="g.scope === 'global' ? 'i-heroicons-globe-alt' : 'i-heroicons-cpu-chip'" class="w-3 h-3 shrink-0" />
                   <span class="truncate">{{ g.scope === 'global' ? $t('evals.strip.orgWide') : g.label }}</span>
                   <!-- A global instruction has no agents of its own; say so
@@ -75,7 +75,7 @@
                   <span v-if="data.scope_source === 'report' && g.scope !== 'global'" class="normal-case shrink-0">· {{ $t('evals.strip.fromChat') }}</span>
                 </div>
 
-                <div v-if="!g.suites.length" class="px-2 py-1 text-[11px] text-gray-400 dark:text-gray-500">
+                <div v-if="!g.suites.length" class="px-2 py-1 text-2xs text-ink-muted">
                   {{ $t('agentsPage.noSuites') }}
                 </div>
 
@@ -86,17 +86,17 @@
                     :title="s.case_count ? $t('evals.strip.runSuite', { name: s.name }) : $t('evals.strip.emptyShelf')"
                     @click.stop="runCases(s.cases.map((c) => c.id))">
                     <UIcon name="i-heroicons-folder" class="w-3.5 h-3.5 shrink-0" :class="s.case_count ? 'text-violet-400' : 'text-gray-300 dark:text-gray-600'" />
-                    <span class="truncate text-[11px]" :class="s.case_count ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500'">{{ s.name }}</span>
-                    <span v-if="s.is_drafts" class="shrink-0 px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[9px]">{{ $t('evals.strip.default') }}</span>
-                    <span class="ms-auto shrink-0 inline-flex items-center gap-1 text-[10px]">
+                    <span class="truncate text-2xs" :class="s.case_count ? 'text-gray-700 dark:text-gray-300' : 'text-ink-muted'">{{ s.name }}</span>
+                    <span v-if="s.is_drafts" class="shrink-0 px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-2xs">{{ $t('evals.strip.default') }}</span>
+                    <span class="ms-auto shrink-0 inline-flex items-center gap-1 text-2xs">
                       <template v-if="suiteRollup(s).done">
                         <span v-if="suiteRollup(s).passed" class="text-green-600 dark:text-green-400">✓ {{ suiteRollup(s).passed }}</span>
                         <span v-if="suiteRollup(s).failed" class="text-red-600 dark:text-red-400">✗ {{ suiteRollup(s).failed }}</span>
                         <!-- "/3" rather than a bare 3: next to a ✓/✗ tally an
                              unmarked number reads as a third outcome. -->
-                        <span class="text-gray-400 dark:text-gray-500">/ {{ s.case_count }}</span>
+                        <span class="text-ink-muted">/ {{ s.case_count }}</span>
                       </template>
-                      <span v-else class="text-gray-400 dark:text-gray-500">{{ s.case_count }}</span>
+                      <span v-else class="text-ink-muted">{{ s.case_count }}</span>
                     </span>
                   </button>
 
@@ -106,7 +106,7 @@
                        name and then added an invisible `·` glyph on top, so a
                        case row read as two levels deep and floated free of its
                        suite. -->
-                  <div v-for="c in s.cases" :key="c.id" class="flex items-center gap-1.5 py-0.5 ps-4 pe-1.5 text-[11px]">
+                  <div v-for="c in s.cases" :key="c.id" class="flex items-center gap-1.5 py-0.5 ps-4 pe-1.5 text-2xs">
                     <UIcon :name="caseIcon(c.id)" class="w-3 h-3 shrink-0" :class="statusColor(c.id)" />
                     <span class="truncate text-gray-600 dark:text-gray-400">{{ c.name }}</span>
                   </div>
@@ -120,13 +120,13 @@
                   <div class="flex items-center gap-1.5">
                     <UIcon :name="isRunning ? 'i-heroicons-arrow-path' : (activeRun.status === 'success' ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle')"
                       :class="['w-3.5 h-3.5', isRunning ? 'text-blue-500 animate-spin' : (activeRun.status === 'success' ? 'text-green-500' : 'text-red-500')]" />
-                    <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300">{{ prettyStatus }}</span>
+                    <span class="text-2xs font-medium text-gray-700 dark:text-gray-300">{{ prettyStatus }}</span>
                   </div>
-                  <NuxtLink :to="`/evals/runs/${activeRun.id}`" class="text-[10px] text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">
+                  <NuxtLink :to="`/evals/runs/${activeRun.id}`" class="text-2xs text-blue-500 dark:text-blue-400 hover:underline inline-flex items-center gap-0.5">
                     {{ $t('agentsPage.viewDetails') }}<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
                   </NuxtLink>
                 </div>
-                <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                <div class="flex flex-wrap items-center gap-1.5 text-2xs">
                   <span class="px-1.5 py-0.5 rounded border bg-slate-50 dark:bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-500/30">{{ $t('agentsPage.casesLabel') }}: {{ summary.total }}</span>
                   <span class="px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-500/10 text-green-700 dark:text-green-400 border-green-200 dark:border-green-500/30">{{ $t('agentsPage.passLabel') }}: {{ summary.passed }}</span>
                   <span class="px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30">{{ $t('agentsPage.failLabel') }}: {{ summary.failed }}</span>

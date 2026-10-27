@@ -12,7 +12,7 @@
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-500"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                     />
                 </div>
             </div>
@@ -180,7 +180,7 @@
                                         </div>
                                         <div class="ms-2.5 leading-tight">
                                             <div class="text-sm font-medium text-gray-900 dark:text-white">{{ member.user.name }}</div>
-                                            <div class="text-xs text-gray-400 dark:text-gray-500">{{ member.user.email }}</div>
+                                            <div class="text-xs text-ink-muted">{{ member.user.email }}</div>
                                         </div>
                                     </div>
                                     <div v-else class="flex items-center">
@@ -209,7 +209,7 @@
                                             <div class="flex gap-1 items-center">
                                                 <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                     {{ cap(r.name) }}
-                                                    <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
+                                                    <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-2xs">via {{ r.source.replace('group:', '') }}</span>
                                                 </UBadge>
                                                 <UBadge v-if="!member.roles?.length" size="xs" color="gray" variant="subtle">
                                                     {{ member.role ? member.role.charAt(0).toUpperCase() + member.role.slice(1) : '—' }}
@@ -221,7 +221,7 @@
                                         <div class="flex gap-1 items-center">
                                             <UBadge v-for="r in member.roles" :key="r.id" size="xs" :color="r.source === 'direct' ? 'gray' : 'blue'" :variant="r.source === 'direct' ? 'solid' : 'subtle'">
                                                 {{ cap(r.name) }}
-                                                <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-[10px]">via {{ r.source.replace('group:', '') }}</span>
+                                                <span v-if="r.source && r.source !== 'direct'" class="ms-1 opacity-70 text-2xs">via {{ r.source.replace('group:', '') }}</span>
                                             </UBadge>
                                         </div>
                                     </template>
@@ -265,7 +265,7 @@
                                                 </div>
                                             </template>
                                         </UPopover>
-                                        <span v-if="getMemberGroups(member).length === 0" class="text-gray-400 dark:text-gray-500 text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
+                                        <span v-if="getMemberGroups(member).length === 0" class="text-ink-muted text-sm italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
                                 <td v-if="showQuotaColumn" class="px-4 py-2">
@@ -294,7 +294,7 @@
                                                     <span v-if="quota.source === 'inherited'" class="me-1 opacity-70">{{ $t('quotaPolicies.inherited') }}</span>
                                                     {{ quota.name }}
                                                 </UBadge>
-                                                <span v-if="getMemberQuotaPolicies(member).length === 0" class="text-gray-400 dark:text-gray-500 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                                <span v-if="getMemberQuotaPolicies(member).length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
                                             </span>
                                         </template>
                                         <template #option="{ option }">
@@ -331,7 +331,7 @@
                                         </UTooltip>
                                         <button
                                             type="button"
-                                            class="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-blue-600"
+                                            class="inline-flex items-center gap-0.5 text-xs text-ink-muted hover:text-blue-600"
                                             :aria-label="$t('settings.members.editAttributes')"
                                             :data-testid="`edit-attributes-${member.id}`"
                                             @click="openAttributesModal(member)"
@@ -355,7 +355,7 @@
                                     <UTooltip v-else-if="member.note" :text="member.note">
                                         <span class="text-sm text-gray-700 dark:text-gray-300 truncate block max-w-[16rem]">{{ member.note }}</span>
                                     </UTooltip>
-                                    <span v-else class="text-gray-400 dark:text-gray-500 italic text-sm">—</span>
+                                    <span v-else class="text-ink-muted italic text-sm">—</span>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap">
                                     <div v-if="member.user?.external_user_mappings.length > 0">
@@ -366,7 +366,7 @@
                                         </div>
                                     </div>
                                     <div v-else>
-                                        <span class="text-gray-400 dark:text-gray-500 italic">{{ $t('settings.members.emptyNone') }}</span>
+                                        <span class="text-ink-muted italic">{{ $t('settings.members.emptyNone') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -425,7 +425,7 @@
                                     <div class="flex flex-col items-center">
                                         <Icon
                                             name="heroicons:users"
-                                            class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+                                            class="mx-auto h-12 w-12 text-ink-muted"
                                         />
                                         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">
                                             {{ $t('settings.members.noMembers') }}
@@ -525,7 +525,7 @@
                                     {{ groups.find(g => g.id === gid)?.name }}
                                 </UBadge>
                             </span>
-                            <span v-else class="text-gray-400 dark:text-gray-500">{{ $t('settings.members.emptyNone') }}</span>
+                            <span v-else class="text-ink-muted">{{ $t('settings.members.emptyNone') }}</span>
                         </template>
                     </USelectMenu>
                 </div>

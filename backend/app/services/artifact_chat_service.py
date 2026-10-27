@@ -207,7 +207,13 @@ class ArtifactChatService:
             # default model apply on the viewer's next turn.
             chat_report.model_id = self.chat_model_id(source)
 
-        # Sync roster to the effective set (idempotent).
+        await self.sync_roster(db, chat_report, agent_ids)
+        await db.commit()
+        return chat_report
+
+    @staticmethod
+    async def sync_roster(db, chat_report: Report, agent_ids: list[str]) -> None:
+        """The chat report's agents set to `agent_ids` (idempotent; not committed)."""
         current_rows = (await db.execute(
             select(report_data_source_association.c.data_source_id).where(
                 report_data_source_association.c.report_id == str(chat_report.id)
@@ -224,8 +230,6 @@ class ArtifactChatService:
                 report_data_source_association.c.report_id == str(chat_report.id),
                 report_data_source_association.c.data_source_id.in_(list(current - target)),
             ))
-        await db.commit()
-        return chat_report
 
     async def build_platform_context(self, db, source: Report, agent_ids: list[str], viewer=None) -> dict:
         """The artifact-chat platform_context injected into the planner prompt.

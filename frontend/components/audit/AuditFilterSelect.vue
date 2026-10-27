@@ -35,7 +35,7 @@
           @click="pick(null)"
         >{{ allLabel }}</button>
         <template v-for="group in grouped" :key="group.name">
-          <div v-if="group.name" class="px-2.5 pt-2 pb-0.5 text-[10px] uppercase tracking-wide text-gray-400">{{ group.name }}</div>
+          <div v-if="group.name" class="px-2.5 pt-2 pb-0.5 text-2xs uppercase tracking-wide text-ink-muted">{{ group.name }}</div>
           <label
             v-for="opt in group.options"
             :key="opt.value"
@@ -51,12 +51,12 @@
             />
             <span class="flex-1 min-w-0">
               <span class="block truncate" :class="isSelected(opt.value) ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-700 dark:text-gray-300'">{{ opt.label }}</span>
-              <span v-if="opt.sub" class="block truncate text-[10px] text-gray-400">{{ opt.sub }}</span>
+              <span v-if="opt.sub" class="block truncate text-2xs text-ink-muted">{{ opt.sub }}</span>
             </span>
             <UIcon v-if="!multiple && isSelected(opt.value)" name="i-heroicons-check" class="w-3.5 h-3.5 text-blue-600" />
           </label>
         </template>
-        <div v-if="filtered.length === 0" class="px-2.5 py-2 text-xs text-gray-400">{{ emptyLabel }}</div>
+        <div v-if="filtered.length === 0" class="px-2.5 py-2 text-xs text-ink-muted">{{ emptyLabel }}</div>
       </div>
     </div>
   </div>

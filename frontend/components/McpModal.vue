@@ -24,7 +24,7 @@
             <!-- Content -->
             <div v-if="loading" class="py-12 flex items-center justify-center">
                 <div class="text-center">
-                    <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
+                    <Spinner class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
                     <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('mcpServerModal.loading') }}</p>
                 </div>
             </div>
@@ -49,7 +49,7 @@
 
                 <!-- Configuration -->
                 <div>
-                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
+                    <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
                     <div class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
                         <pre class="px-3 py-2.5 pr-20 font-mono text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{{ mcpConfig }}</pre>
                         <div class="absolute top-2 right-2">
@@ -77,7 +77,7 @@
 
                 <!-- Token display -->
                 <div>
-                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
+                    <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
                     <!-- No tokens exist yet -->
                     <div v-if="apiKeys.length === 0 && !currentToken" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center">
                         <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{{ $t('mcpServerModal.noTokenYet') }}</p>
@@ -95,7 +95,7 @@
                     <div v-else class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
                         <div class="px-3 py-2 pr-20 flex items-center gap-3">
                             <code class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
-                            <span v-if="!currentToken && apiKeys.length > 0" class="text-[10px] text-gray-400">{{ formatDate(apiKeys[0].created_at) }}</span>
+                            <span v-if="!currentToken && apiKeys.length > 0" class="text-2xs text-ink-muted">{{ formatDate(apiKeys[0].created_at) }}</span>
                         </div>
                         <div class="absolute top-1/2 -translate-y-1/2 right-2">
                             <UTooltip
@@ -124,7 +124,7 @@
                 <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
                     <button
                         @click="showTokens = !showTokens"
-                        class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
                     >
                         <UIcon
                             :name="showTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -141,11 +141,11 @@
                         >
                             <div class="flex items-center gap-3 min-w-0">
                                 <code class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ key.key_prefix }}•••••••••</code>
-                                <span class="text-[10px] text-gray-400">{{ formatDate(key.created_at) }}</span>
+                                <span class="text-2xs text-ink-muted">{{ formatDate(key.created_at) }}</span>
                             </div>
                             <button
                                 @click="deleteApiKey(key)"
-                                class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                class="text-ink-muted hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                                 :title="$t('mcpServerModal.deleteTokenTitle')"
                             >
                                 <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />

@@ -41,7 +41,7 @@
       </div>
 
       <!-- Path -->
-      <div v-if="resource.path" class="text-gray-400 text-xs">
+      <div v-if="resource.path" class="text-ink-muted text-xs">
         {{ resource.path.split('/').pop() }}
       </div>
     </div>

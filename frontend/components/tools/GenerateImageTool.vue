@@ -23,14 +23,14 @@ const error = computed(() => rj.value.error_message || '')
   <div class="mt-1 text-xs">
     <!-- Running: spinner + shimmer -->
     <span v-if="status === 'running'" class="flex items-center text-gray-500 dark:text-gray-400">
-      <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+      <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
       <span class="tool-shimmer">Generating image: {{ title }}…</span>
     </span>
 
     <!-- Success: header + inline image -->
     <template v-else-if="fileId">
       <div class="flex items-center gap-1 text-gray-600 dark:text-gray-300 mb-1.5">
-        <Icon name="heroicons:photo" class="w-3.5 h-3.5 text-gray-400" />
+        <Icon name="heroicons:photo" class="w-3.5 h-3.5 text-ink-muted" />
         <span class="font-medium truncate">{{ title }}</span>
       </div>
       <AuthenticatedImage

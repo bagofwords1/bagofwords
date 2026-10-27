@@ -20,7 +20,7 @@ class ResourceInput(BaseModel):
 
 async def scoped_service(db, user, organization, data, manage=False):
     service = await ArtifactResources.open(db, data.artifact_id, user, str(organization.id), manage=manage)
-    if str(service.report.id) != data.report_id:
+    if service.report is None or str(service.report.id) != data.report_id:
         fail("NOT_FOUND", "Artifact not found in this report", 404)
     return service
 

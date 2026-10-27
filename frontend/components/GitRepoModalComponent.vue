@@ -22,8 +22,8 @@
                         class="flex items-center gap-1.5"
                     >
                         <div
-                            class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-medium transition-colors"
-                            :class="step <= currentStep ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-400'"
+                            class="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-medium transition-colors"
+                            :class="step <= currentStep ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
                         >
                             <UIcon v-if="step < currentStep" name="i-heroicons-check" class="w-3 h-3" />
                             <span v-else>{{ step }}</span>
@@ -68,7 +68,7 @@
                 <div v-if="showRepositoryList" class="space-y-1">
                     <div v-if="loadingRepositories" class="py-8 flex items-center justify-center">
                         <div class="text-center">
-                            <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 mx-auto mb-2 text-gray-400 animate-spin" />
+                            <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 mx-auto mb-2 text-ink-muted animate-spin" />
                             <p class="text-sm text-gray-500 dark:text-gray-400">Loading repositories...</p>
                         </div>
                     </div>
@@ -76,7 +76,7 @@
                     <div v-else-if="gitRepositories.length === 0" class="py-8 text-center">
                         <UIcon name="i-heroicons-code-bracket" class="w-8 h-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
                         <p class="text-sm text-gray-500 dark:text-gray-400">No Git repositories connected.</p>
-                        <p class="text-xs text-gray-400 mt-1">Connect a repository to sync instructions from Git.</p>
+                        <p class="text-xs text-ink-muted mt-1">Connect a repository to sync instructions from Git.</p>
                         <UButton
                             icon="i-heroicons-plus"
                             color="blue"
@@ -104,7 +104,7 @@
                                             <p class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ formatRepoName(repo.repo_url) }}</p>
                                             <p class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 mt-0.5">
                                                 <span>{{ repo.branch || 'main' }}</span>
-                                                <span v-if="repo.last_indexed_at" class="text-gray-400">
+                                                <span v-if="repo.last_indexed_at" class="text-ink-muted">
                                                     • {{ formatTimeAgo(repo.last_indexed_at) }}
                                                 </span>
                                             </p>
@@ -157,18 +157,18 @@
 
                         <div class="grid grid-cols-2 gap-3 text-sm">
                             <div>
-                                <p class="text-gray-400">Branch</p>
+                                <p class="text-ink-muted">Branch</p>
                                 <p class="font-medium text-gray-700 dark:text-gray-300">{{ connectedRepo.branch }}</p>
                             </div>
                             <div>
-                                <p class="text-gray-400">Status</p>
+                                <p class="text-ink-muted">Status</p>
                                 <p class="font-medium" :class="statusClass">{{ statusText }}</p>
                                 <p v-if="statusText === 'Indexed' && (connectedRepo.last_indexed_at || metadata_resources?.completed_at)" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                                     {{ formatDate(connectedRepo.last_indexed_at || metadata_resources.completed_at) }}
                                 </p>
                             </div>
                             <div v-if="resourceCount > 0">
-                                <p class="text-gray-400">Files Found</p>
+                                <p class="text-ink-muted">Files Found</p>
                                 <p class="font-medium text-gray-700 dark:text-gray-300">{{ resourceCount }}</p>
                             </div>
                         </div>
@@ -177,7 +177,7 @@
                         <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center gap-2 min-w-0">
-                                    <p class="text-gray-400 text-sm flex-shrink-0">Git Repo ID</p>
+                                    <p class="text-ink-muted text-sm flex-shrink-0">Git Repo ID</p>
                                     <p class="font-mono text-xs text-gray-600 dark:text-gray-400 truncate">{{ connectedRepo.id }}</p>
                                 </div>
                                 <UButton
@@ -193,19 +193,19 @@
                         <!-- Capabilities Indicator - always show -->
                         <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
                             <div class="flex items-center gap-3 text-xs">
-                                <div class="flex items-center gap-1" :class="connectedRepo.can_push ? 'text-green-600' : 'text-gray-400'">
+                                <div class="flex items-center gap-1" :class="connectedRepo.can_push ? 'text-green-600' : 'text-ink-muted'">
                                     <UIcon :name="connectedRepo.can_push ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-3.5 h-3.5" />
                                     <span>Push</span>
                                 </div>
-                                <div class="flex items-center gap-1" :class="connectedRepo.can_create_pr ? 'text-green-600' : 'text-gray-400'">
+                                <div class="flex items-center gap-1" :class="connectedRepo.can_create_pr ? 'text-green-600' : 'text-ink-muted'">
                                     <UIcon :name="connectedRepo.can_create_pr ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-3.5 h-3.5" />
                                     <span>Create PR</span>
                                 </div>
-                                <div class="flex items-center gap-1" :class="connectedRepo.has_ssh_key ? 'text-blue-600' : 'text-gray-400'">
+                                <div class="flex items-center gap-1" :class="connectedRepo.has_ssh_key ? 'text-blue-600' : 'text-ink-muted'">
                                     <UIcon name="i-heroicons-key" class="w-3.5 h-3.5" />
                                     <span>SSH</span>
                                 </div>
-                                <div class="flex items-center gap-1" :class="connectedRepo.has_access_token ? 'text-blue-600' : 'text-gray-400'">
+                                <div class="flex items-center gap-1" :class="connectedRepo.has_access_token ? 'text-blue-600' : 'text-ink-muted'">
                                     <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
                                     <span>PAT</span>
                                 </div>
@@ -233,12 +233,12 @@
 
                     <!-- Settings -->
                     <div class="space-y-3">
-                        <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider">Instruction Settings</h4>
+                        <h4 class="text-xs font-medium text-ink-muted uppercase tracking-wider">Instruction Settings</h4>
 
                         <div class="flex items-center justify-between py-2">
                             <div>
                                 <p class="text-sm text-gray-700 dark:text-gray-300">Auto-publish</p>
-                                <p class="text-xs text-gray-400">Publish automatically</p>
+                                <p class="text-xs text-ink-muted">Publish automatically</p>
                             </div>
                             <UToggle
                                 color="blue"
@@ -269,7 +269,7 @@
                         <div class="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-800 pt-3">
                             <div>
                                 <p class="text-sm text-gray-700 dark:text-gray-300">Enable write access</p>
-                                <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
+                                <p class="text-xs text-ink-muted">Allow pushing builds to Git and creating PRs</p>
                             </div>
                             <UToggle
                                 color="blue"
@@ -281,7 +281,7 @@
                         </div>
 
                         <!-- Read-only notice for non-admins -->
-                        <div v-if="!canEditSettings" class="text-xs text-gray-400 italic">
+                        <div v-if="!canEditSettings" class="text-xs text-ink-muted italic">
                             Settings are read-only. Contact an admin to make changes.
                         </div>
                     </div>
@@ -291,7 +291,7 @@
                 <div v-else-if="currentStep === 1" class="space-y-4">
                     <!-- Git Provider -->
                     <div>
-                        <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Provider</label>
+                        <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Provider</label>
                         <div class="grid grid-cols-4 gap-2 mt-2">
                             <button
                                 v-for="provider in gitProviders"
@@ -312,7 +312,7 @@
                     <div v-if="selectedProvider" class="space-y-4">
                         <!-- Custom Host -->
                         <div v-if="selectedProvider === 'custom'">
-                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Custom Host</label>
+                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Custom Host</label>
                             <input
                                 v-model="formData.customHost"
                                 type="text"
@@ -323,7 +323,7 @@
 
                         <!-- Repository URL -->
                         <div>
-                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Repository URL</label>
+                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Repository URL</label>
                             <div class="flex gap-2 mt-1.5">
                                 <input
                                     v-model="formData.repoUrl"
@@ -342,7 +342,7 @@
 
                         <!-- Auth Method Toggle -->
                         <div>
-                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Authentication</label>
+                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Authentication</label>
                             <div class="flex gap-2 mt-2">
                                 <button
                                     type="button"
@@ -375,7 +375,7 @@
 
                         <!-- SSH Key Input -->
                         <div v-if="authMethod === 'ssh'">
-                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">SSH Private Key <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
+                            <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">SSH Private Key <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
                             <UTextarea
                                 v-model="formData.privateKey"
                                 color="blue"
@@ -385,32 +385,32 @@
                                 class="mt-1.5 w-full font-mono"
                                 :ui="{ base: 'bg-gray-50 text-sm' }"
                             />
-                            <p class="text-xs text-gray-400 mt-1">Used for clone/push via SSH. Cannot create PRs.</p>
+                            <p class="text-xs text-ink-muted mt-1">Used for clone/push via SSH. Cannot create PRs.</p>
                         </div>
 
                         <!-- PAT Input -->
                         <div v-if="authMethod === 'pat'" class="space-y-3">
                             <div>
-                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Personal Access Token <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
+                                <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Personal Access Token <span class="text-gray-300 dark:text-gray-600 font-normal">(optional for public repos)</span></label>
                                 <input
                                     v-model="formData.accessToken"
                                     type="password"
                                     placeholder="ghp_xxxx or glpat-xxxx"
                                     class="mt-1.5 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500 font-mono"
                                 />
-                                <p class="text-xs text-gray-400 mt-1">Enables clone/push via HTTPS and PR creation.</p>
+                                <p class="text-xs text-ink-muted mt-1">Enables clone/push via HTTPS and PR creation.</p>
                             </div>
 
                             <!-- Username for Bitbucket Cloud -->
                             <div v-if="selectedProvider === 'bitbucket' && !formData.customHost">
-                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Bitbucket Username</label>
+                                <label class="text-xs font-medium text-ink-muted uppercase tracking-wider">Bitbucket Username</label>
                                 <input
                                     v-model="formData.accessTokenUsername"
                                     type="text"
                                     placeholder="your-username"
                                     class="mt-1.5 border border-gray-200 dark:border-gray-700 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
                                 />
-                                <p class="text-xs text-gray-400 mt-1">Required for Bitbucket Cloud App Passwords.</p>
+                                <p class="text-xs text-ink-muted mt-1">Required for Bitbucket Cloud App Passwords.</p>
                             </div>
                         </div>
 
@@ -440,7 +440,7 @@
                     </div>
 
                     <div class="space-y-4">
-                        <h4 class="text-xs font-medium text-gray-400 uppercase tracking-wider">Instruction Settings</h4>
+                        <h4 class="text-xs font-medium text-ink-muted uppercase tracking-wider">Instruction Settings</h4>
 
                         <div class="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
                             <div>
@@ -467,7 +467,7 @@
                         <div class="flex items-center justify-between py-2 border-t border-gray-100 dark:border-gray-800 pt-3">
                             <div>
                                 <p class="text-sm text-gray-700 dark:text-gray-300">Enable write access</p>
-                                <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
+                                <p class="text-xs text-ink-muted">Allow pushing builds to Git and creating PRs</p>
                             </div>
                             <UToggle color="blue" v-model="formData.writeEnabled" size="sm" />
                         </div>
