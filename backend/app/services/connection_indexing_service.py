@@ -386,10 +386,21 @@ class ConnectionIndexingService:
             "Reindex to start it again."
         )
         await db.commit()
-        # The runner's cancel event is deliberately left alone. A runner that
-        # is alive after all (its loop was blocked, not dead) would otherwise
-        # stop after committing the catalog but before syncing it to agents;
-        # instead it finishes, and finalize turns this row `completed`.
+        # Should a slow-but-alive runner exist in this process after all, stop
+        # it at its next checkpoint rather than let it race a fresh run.
+        #
+        # This leaves a known defect in place: such a runner stops `cancelled`
+        # after committing the catalog but before syncing agents (P2.2 in
+        # docs/mssql-indexing-stale-reap-analysis.md). Removing the signal
+        # fixes that, but a reaped-yet-live runner then continues through warm
+        # and agent sync while `get_active` reports nothing active, so a
+        # replacement run admitted by `start()` can overlap it inside one
+        # worker and commit a stale catalog over the newer one. Deferred until
+        # a two-run test establishes what that overlap actually does.
+        with _cancel_lock:
+            ev = _cancel_events.get(str(row.id))
+        if ev is not None:
+            ev.set()
         logger.warning(
             "indexing.reaped_stale",
             extra={
@@ -597,15 +608,25 @@ class ConnectionIndexingService:
         def _new_session():
             return session_factory()
 
+        # One writer at a time for `events_json`. This function and `_flush`
+        # both read-modify-write that column from their own sessions, and both
+        # await inside that window, so without a shared lock the later commit
+        # silently drops the other's entries. The save-step yields are what
+        # let the two interleave: before them the save blocked the loop, so a
+        # flush could not land mid-append. The entry lost that way can be the
+        # `saving` RSS reading an out-of-memory post-mortem depends on.
+        event_log_lock = asyncio.Lock()
+
         async def _append_event(level: str, phase: str | None, message: str,
                                 done: int = 0, total: int = 0) -> None:
             """Append a single entry to the indexing row's events_json.
 
             Best-effort: a failure to log must never affect the run. Events
-            are capped at `_EVENT_LOG_MAX` (oldest dropped).
+            are capped at `_EVENT_LOG_MAX` (oldest dropped). Serialized
+            against the progress flush on `event_log_lock`.
             """
             try:
-                async with _new_session() as ev_db:
+                async with event_log_lock, _new_session() as ev_db:
                     fresh = await ev_db.get(ConnectionIndexing, indexing_id)
                     if fresh is None:
                         return
@@ -675,7 +696,6 @@ class ConnectionIndexingService:
                 state_lock = threading.Lock()
                 activity_events: list[tuple] = []
                 last_activity = {"phase": None, "bucket": -1, "time": 0.0}
-                flush_lock = asyncio.Lock()
                 flush_scheduled = False
                 last_scheduled_at = float("-inf")
 
@@ -693,7 +713,9 @@ class ConnectionIndexingService:
 
                 async def _flush(force: bool = False) -> None:
                     nonlocal last_flush_at
-                    async with flush_lock:
+                    # `event_log_lock`, not a flush-only lock: this writes
+                    # `events_json` too, so it must exclude `_append_event`.
+                    async with event_log_lock:
                         now = time.perf_counter()
                         if not force and (now - last_flush_at) < _PROGRESS_FLUSH_SECONDS:
                             return

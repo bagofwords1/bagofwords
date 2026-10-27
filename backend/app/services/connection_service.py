@@ -1798,6 +1798,10 @@ class ConnectionService:
             )
 
             # Only needed to pass to the client; release them before saving.
+            # `_extra` holds the same `prior_tables` dict (Power BI /
+            # incremental), and it outlives this block, so clearing it is what
+            # actually frees that copy before the save.
+            _extra.clear()
             del prior_catalog, prior_tables_arg
 
             # Stash for same-request reuse (see docstring). Recorded even when
