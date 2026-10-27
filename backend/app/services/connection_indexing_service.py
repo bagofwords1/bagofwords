@@ -386,10 +386,21 @@ class ConnectionIndexingService:
             "Reindex to start it again."
         )
         await db.commit()
-        # The runner's cancel event is deliberately left alone. A runner that
-        # is alive after all (its loop was blocked, not dead) would otherwise
-        # stop after committing the catalog but before syncing it to agents;
-        # instead it finishes, and finalize turns this row `completed`.
+        # Should a slow-but-alive runner exist in this process after all, stop
+        # it at its next checkpoint rather than let it race a fresh run.
+        #
+        # This leaves a known defect in place: such a runner stops `cancelled`
+        # after committing the catalog but before syncing agents (P2.2 in
+        # docs/mssql-indexing-stale-reap-analysis.md). Removing the signal
+        # fixes that, but a reaped-yet-live runner then continues through warm
+        # and agent sync while `get_active` reports nothing active, so a
+        # replacement run admitted by `start()` can overlap it inside one
+        # worker and commit a stale catalog over the newer one. Deferred until
+        # a two-run test establishes what that overlap actually does.
+        with _cancel_lock:
+            ev = _cancel_events.get(str(row.id))
+        if ev is not None:
+            ev.set()
         logger.warning(
             "indexing.reaped_stale",
             extra={
@@ -597,6 +608,12 @@ class ConnectionIndexingService:
         def _new_session():
             return session_factory()
 
+        # `events_json` is read, extended and written back by two writers on
+        # separate sessions: `_append_event` and the progress `_flush`. Run
+        # concurrently, the later commit drops the other's entries, so both
+        # hold this lock around their read-modify-write.
+        events_lock = asyncio.Lock()
+
         async def _append_event(level: str, phase: str | None, message: str,
                                 done: int = 0, total: int = 0) -> None:
             """Append a single entry to the indexing row's events_json.
@@ -605,7 +622,7 @@ class ConnectionIndexingService:
             are capped at `_EVENT_LOG_MAX` (oldest dropped).
             """
             try:
-                async with _new_session() as ev_db:
+                async with events_lock, _new_session() as ev_db:
                     fresh = await ev_db.get(ConnectionIndexing, indexing_id)
                     if fresh is None:
                         return
@@ -704,7 +721,7 @@ class ConnectionIndexingService:
                             events = list(activity_events)
                             activity_events.clear()
                         try:
-                            async with _new_session() as flush_db:
+                            async with events_lock, _new_session() as flush_db:
                                 fresh = await flush_db.get(ConnectionIndexing, indexing_id)
                                 if fresh is None:
                                     return
@@ -958,6 +975,9 @@ class ConnectionIndexingService:
                                 )
                             else:
                                 message = f"Saving catalog of {info['tables']:,} {noun_plural}, {_rss_note()}"
+                            # Write the progress queued so far first, so the
+                            # log keeps the order things happened in.
+                            await _flush(force=True)
                             await _append_event("info", stage, message)
 
                         discovery = svc.refresh_schema(
@@ -1412,10 +1432,15 @@ class ConnectionIndexingService:
 
         # Snapshot the connection's linked DS IDs from the runner's session,
         # then close that scope — per-DS work happens in its own session.
+        # `populate_existing`: the runner's session has held this connection
+        # since the run started and never expires it, so without a re-read a
+        # data source linked during the run is missing from the list and
+        # never receives the catalog.
         result = await db.execute(
             select(Connection)
             .options(selectinload(Connection.data_sources))
             .where(Connection.id == str(connection_id))
+            .execution_options(populate_existing=True)
         )
         connection_snapshot = result.scalar_one_or_none()
         if connection_snapshot is None or not connection_snapshot.data_sources:

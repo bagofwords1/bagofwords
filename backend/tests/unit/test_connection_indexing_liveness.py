@@ -263,50 +263,6 @@ async def test_discovery_that_keeps_reporting_outlives_the_idle_window(env, monk
     assert (await _row(maker, row.id)).status == ConnectionIndexingStatus.COMPLETED.value
 
 
-async def _go_silent_and_get_reaped(maker, svc, connection):
-    """Make the running row look abandoned, then read it the way the UI poll
-    does in this same process, which reaps it. Raw write: the API has no way
-    to age a heartbeat."""
-    async with maker() as db:
-        row = await svc.get_active(db, str(connection.id))
-        row.updated_at = datetime.utcnow() - timedelta(seconds=cis._STALE_AFTER_SECONDS + 60)
-        await db.commit()
-        assert await svc.get_latest(db, str(connection.id)) is not None
-    async with maker() as db:
-        reaped = await svc.get_latest(db, str(connection.id))
-    assert reaped.status == ConnectionIndexingStatus.FAILED.value
-
-
-@pytest.mark.asyncio
-async def test_run_reaped_while_alive_still_finishes_as_completed(env, monkeypatch):
-    """A runner whose loop was only blocked past the stale window is reaped by
-    a reader, then carries on. It must end `completed` with no error, and must
-    still sync agents — not stop as `cancelled` after saving the catalog."""
-    maker, connection = env
-    svc = ConnectionIndexingService()
-    synced = {"n": 0}
-
-    async def discovery(self, **kwargs):
-        await _go_silent_and_get_reaped(maker, svc, connection)
-        return []
-
-    async def sync_linked(self, db, **kwargs):
-        synced["n"] += 1
-        return 0
-
-    monkeypatch.setattr(ConnectionService, "refresh_schema", discovery)
-    monkeypatch.setattr(ConnectionService, "construct_client", _construct_client)
-    monkeypatch.setattr(ConnectionIndexingService, "_sync_linked_data_sources", sync_linked)
-    async with maker() as db:
-        row = await svc.start(db=db, connection=connection, kick_off=False)
-    await asyncio.wait_for(svc._run(str(row.id)), timeout=10)
-
-    done = await _row(maker, row.id)
-    assert done.status == ConnectionIndexingStatus.COMPLETED.value
-    assert done.error is None
-    assert synced["n"] == 1
-
-
 @pytest.mark.asyncio
 async def test_cancel_recorded_by_another_worker_is_not_overwritten(env, monkeypatch):
     """`request_cancel` handled by another worker only changes the row (its
@@ -371,3 +327,33 @@ async def test_run_log_records_discovery_and_save_before_writing_the_catalog(
     with_memory = [e["phase"] for e in done.events_json if "rss" in e["message"]]
     assert "discovered" in with_memory and "saving" in with_memory
     assert with_memory.index("discovered") < with_memory.index("saving")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rounds", [5, 40])
+async def test_event_log_keeps_every_entry_when_progress_and_run_events_interleave(
+    env, monkeypatch, rounds,
+):
+    """Progress reports and the runner's own events are written to the same
+    log by different writers. Neither may overwrite the other's entries."""
+    maker, connection = env
+
+    async def discovery(self, *, progress_callback=None, diagnostics_hook=None, **kwargs):
+        for i in range(rounds):
+            progress_callback(f"stage-{i}", f"dbo.t{i}", i + 1, rounds)
+            await diagnostics_hook("discovered", {"tables": i, "columns": i})
+        return []
+
+    monkeypatch.setattr(ConnectionService, "refresh_schema", discovery)
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct_client)
+    svc = ConnectionIndexingService()
+    async with maker() as db:
+        row = await svc.start(db=db, connection=connection, kick_off=False)
+    await asyncio.wait_for(svc._run(str(row.id)), timeout=30)
+
+    events = (await _row(maker, row.id)).events_json
+    phases = [e["phase"] for e in events]
+    assert all(f"stage-{i}" in phases for i in range(rounds)), phases
+    assert phases.count("discovered") == rounds, phases
+    stage_positions = [phases.index(f"stage-{i}") for i in range(rounds)]
+    assert stage_positions == sorted(stage_positions)

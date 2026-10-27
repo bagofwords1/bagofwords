@@ -257,6 +257,27 @@ Baseline memory of the process before the run: 0.49 GB.
    discovery progress and the `saving` phase are never written. In the "killed
    in saving" run, the row still showed `connecting`.
 
+### Found by CI on the fix PR (both fixed)
+
+4. **Two writers of the event log could drop each other's entries.**
+   `_append_event` and the progress `_flush` each read `events_json`, append
+   and write it back on their own session. When they overlap, the later commit
+   wins and the other's entries are lost. Mid-run events (the new memory
+   readings) made the overlap common. Both writers now share a lock.
+5. **A data source linked during a run never got the catalog.**
+   `_sync_linked_data_sources` lists linked data sources through the runner's
+   session, which has held the connection since the run started and never
+   expires it (`expire_on_commit=False`), so a link made during the run was
+   not seen. If the new data source also read the catalog before the run
+   committed it, the agent was left with zero tables. This was the cause of
+   the intermittent `test_member_on_own_token_sees_priority_titles` failure
+   on other branches; the extra event writes made it fail consistently here.
+   The lookup now uses `populate_existing=True`.
+
+   Still open, narrower: if the data source's create transaction reads the
+   catalog before the run commits it and commits its link only after the run
+   lists linked data sources, both sides still miss each other.
+
 ## Comparison with Oracle
 
 The indexing pipeline is the same for both: runner, heartbeat, thread-pool
@@ -477,12 +498,36 @@ on changing it.
 
    A reaped run that finished correctly becomes `completed` with no error; a
    run a user cancelled stays cancelled.
-2. **(Done, smallest fix.) A reap in the same worker cancels a live run after it saves.**
+2. **(Deferred — not fixed here.) A reap in the same worker cancels a live run after it saves.**
    `_reap_if_stale` sets the local cancel event (`:372`), and the cancel check
-   at `:1016` then skips the agent sync after the catalog is committed.
-   Smallest fix: stop setting the event in the reaper and let finalize decide
-   with the re-read above. Fuller fix: the runner re-reads its row status at
-   checkpoints (P3.1), so a user cancel works from any worker.
+   at `:1016` then skips the agent sync after the catalog is committed, leaving
+   the row `cancelled` with the catalog ahead of the agents.
+
+   The smallest fix — stop setting the event in the reaper and let the finalize
+   re-read (defect 1, done) decide — was tried and reverted. Without the
+   signal, a reaped-yet-live runner continues through warm (up to
+   `_WARM_TIMEOUT_SECONDS`) and agent sync while `get_active` reports nothing
+   active, so a replacement run admitted by `start()` (`:480`, whose only
+   dedup is that call) can overlap it **inside a single worker**, where the
+   cancel event previously prevented it. The older runner then commits its
+   stale catalog snapshot over the newer one and syncs agents last, and
+   `get_latest` shows the newer run green, so nothing surfaces. P3.1 and P3.2
+   describe the same hazard across replicas; removing the signal brings it to
+   the default single-worker install.
+
+   Unblocked by a deterministic two-run test: force one runner past the
+   `progress_callback("saving", ...)` checkpoint in `refresh_schema`, reap it,
+   run a replacement to completion, and assert what the catalog holds, what
+   was pruned, and the agent-sync order. Until that exists there is no
+   evidence for sizing a fix, and the three obvious ones are each wrong:
+   re-setting the event from the heartbeat reinstates this very defect
+   (`_finalize_cancelled` returns before the finalize re-read); skipping the
+   prune still permits the stale column overwrite; and a partial unique index
+   on pending/running does not bind, because the reaped row is already
+   `failed` when the replacement inserts. A real fix has to tie
+   replacement-run ownership to the catalog write and the agent sync together.
+   Fuller direction: the runner re-reads its row status at checkpoints (P3.1),
+   so a user cancel works from any worker.
 3. **(Done.) Message wording.** "No progress" points at the wrong field. Now:
    "Indexing stopped reporting for 13 minute(s) — the server running it most
    likely restarted or ran out of memory. Reindex to start it again."
@@ -496,6 +541,9 @@ on changing it.
    - lets the row be overwritten as `completed` at finalize (`:1033`), the same
      stale read as defect 1 above;
    - lets a new run start meanwhile, so two crawls hit the same source.
+
+   This stays a multi-replica-only hazard because the reaper still sets the
+   local cancel event; see P2.2 for why removing it was deferred.
 
    Fix: have the runner re-read the row status at its checkpoints (the
    heartbeat is a natural place to do this) and set the local cancel event when
