@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Integer, JSON, Text, UniqueConstraint, select
+from sqlalchemy import Boolean, Column, DateTime, String, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, select
 from sqlalchemy.orm import column_property, relationship
 from app.models.base import BaseSchema
 
@@ -23,13 +23,25 @@ class Artifact(BaseSchema):
     on old data.
     """
     __tablename__ = 'artifacts'
+    # /d/{slug} names one dashboard in the whole installation (dashfc01); an
+    # old /r/{report_id} link leads to at most one dashboard (dashfc03).
+    __table_args__ = (
+        Index('uq_artifacts_slug', 'slug', unique=True),
+        Index('uq_artifacts_legacy_report_id', 'legacy_report_id', unique=True),
+    )
 
-    report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
+    # The editing conversation. Nullable since dashfc01: a published dashboard
+    # outlives the conversation it was made in (dashboards project, phase 7);
+    # until then every row still has one.
+    report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
     # lazy="select", not selectin: the factory and the service load parents
     # with a bare db.get() to rename / soft-delete them, and a selectin here
     # would pull the Report and its whole selectin graph (completions,
     # queries -> steps, widgets, ...) into every such call.
-    report = relationship("Report", back_populates="artifacts", lazy="select")
+    # foreign_keys: reports.source_artifact_id is a second path between the
+    # two tables.
+    report = relationship("Report", back_populates="artifacts", lazy="select",
+                          foreign_keys="Artifact.report_id")
 
     # Organization for multi-tenancy
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
@@ -41,6 +53,46 @@ class Artifact(BaseSchema):
     mode = Column(String(20), nullable=False, default='page', index=True)
 
     title = Column(String(255), nullable=True, default="Untitled Artifact")
+
+    # ── The dashboard's own settings and sharing (dashfc01) ──────────────
+    # They mirror the conversation-level columns on `reports` (same
+    # defaults). Since phase 4 the /d routes read them and /api/artifacts
+    # writes them; /r keeps reading the conversation's until the data
+    # migration (docs/design/dashboards-first-class.md). The schedule ones
+    # refresh the published release (phase 6).
+    owner_id = Column(String(36), ForeignKey('users.id', name='fk_artifacts_owner_id'), nullable=True, index=True)
+    project_id = Column(String(36), ForeignKey('projects.id', name='fk_artifacts_project_id'),
+                        nullable=True, index=True)
+    visibility = Column(String(20), nullable=False, default='none', server_default='none')
+    slug = Column(String(255), nullable=True)
+    shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
+    include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    chat_enabled = Column(Boolean, nullable=False, default=False, server_default='0')
+    chat_data_source_ids = Column(JSON, nullable=True)
+    chat_model_id = Column(String(36), nullable=True)  # llm_models id or 'org_default'; no FK
+    cron_schedule = Column(String, nullable=True)
+    refresh_on_view = Column(Boolean, nullable=False, default=True, server_default='1')
+    last_run_at = Column(DateTime, nullable=True)
+    # How the last refresh of the published release went (dashfc05):
+    # 'success' | 'failed', and why it failed. last_run_at: the last success.
+    last_run_status = Column(String(20), nullable=True)
+    last_run_error = Column(Text, nullable=True)
+    notification_subscribers = Column(JSON, nullable=True)
+    # The live release. artifact_releases.artifact_id points back here, so the
+    # key is created after both tables (use_alter) and cleared, not blocked,
+    # when its release is deleted.
+    published_release_id = Column(
+        String(36),
+        ForeignKey('artifact_releases.id', name='fk_artifacts_published_release_id',
+                   ondelete='SET NULL', use_alter=True),
+        nullable=True, index=True,
+    )
+    # The conversation whose old /r/{report_id} link leads here (dashfc03).
+    # No foreign key: the value outlives the conversation it names.
+    legacy_report_id = Column(String(36), nullable=True)
+    # Collaboration (collab01): the dashboard's notes -- its README, carried
+    # into every editing conversation.
+    notes = Column(Text, nullable=True)
 
     # Never loaded implicitly: a version's content JSON can be ~100kB.
     versions = relationship(
@@ -123,6 +175,21 @@ class ArtifactVersion(BaseSchema):
     completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
     completion = relationship("Completion", lazy="selectin")
 
+    # Collaboration (collab01). The version this one grew from: the previous
+    # version in its conversation, or the version a conversation joining the
+    # dashboard copied (a soft reference: no foreign key, it outlives the row).
+    # Publish reads the chain to tell whether the live release is behind it.
+    base_version_id = Column(String(36), nullable=True)
+    # The named draft it belongs to; NULL is the dashboard's implicit draft.
+    draft_id = Column(String(36), ForeignKey('artifact_drafts.id', name='fk_artifact_versions_draft_id',
+                                             ondelete='SET NULL'), nullable=True, index=True)
+    # A name someone gave this version ("v2", "Q3 launch"); collab01.
+    name = Column(String(120), nullable=True)
+    # Each chart's fingerprint when this version was made:
+    # {element_key: {"fp": ..., "title": ...}} (dashboard_collab.snapshot_elements).
+    # Comparing versions by it says who changed which chart.
+    elements = Column(JSON, nullable=True)
+
     __table_args__ = (
         UniqueConstraint('artifact_id', 'version', name='uq_artifact_versions_artifact_version'),
     )
@@ -163,3 +230,9 @@ class ArtifactVersion(BaseSchema):
                 "artifact_service.new_artifact()/new_version()"
             )
         super().__init__(**kw)
+
+
+# Register the dashfc01 tables wherever artifacts are loaded (metadata walks,
+# e.g. the agent-delete foreign-key guard, must see them).
+from app.models import artifact_release  # noqa: E402,F401
+from app.models import dashboard_refresh_run  # noqa: E402,F401

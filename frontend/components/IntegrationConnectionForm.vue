@@ -10,12 +10,25 @@
       <div class="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-xs text-gray-600 dark:text-gray-400 space-y-1">
         <div class="font-medium text-gray-700 dark:text-gray-300">{{ $t('data.setupTitle') }}</div>
         <div>
-          {{ $t('data.integrationSetupHint') }}
+          {{ isSharedAuth ? $t('data.integrationSharedSetupHint') : $t('data.integrationSetupHint') }}
         </div>
       </div>
 
       <div v-if="loadingFields" class="text-xs text-ink-muted">{{ $t('common.loading') }}</div>
       <template v-else>
+        <!-- Only when the registry offers more than one admin option (e.g.
+             Google Drive: OAuth client vs. shared service account). Fixed in
+             edit mode: switching changes who the connection runs as. -->
+        <div v-if="authOptions.length > 1" class="flex flex-col">
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('data.authMethod') }}</label>
+          <USelectMenu
+            v-model="selectedAuth"
+            :options="authOptions"
+            option-attribute="label"
+            value-attribute="value"
+            :disabled="isEditMode"
+          />
+        </div>
         <div v-for="field in credentialFields" :key="field.key" class="flex flex-col">
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
             {{ field.title }}
@@ -43,7 +56,7 @@
       <div class="rounded-md border border-blue-100 bg-blue-50 dark:bg-blue-950 p-3 text-xs text-blue-800 flex items-start gap-2">
         <UIcon name="heroicons-information-circle" class="w-4 h-4 mt-0.5" />
         <div>
-          {{ $t('data.integrationAfterSaveHint') }}
+          {{ isSharedAuth ? $t('data.integrationSharedAfterSaveHint') : $t('data.integrationAfterSaveHint') }}
         </div>
       </div>
 
@@ -112,10 +125,30 @@ interface FieldSpec {
 // registry declares, so adding a new integration is a registry change + an
 // icon, no code change here.
 const fieldsByAuth = ref<Record<string, any>>({})
+const authMeta = ref<Record<string, any>>({})
 const defaultAuth = ref<string>('')
+const selectedAuth = ref<string>('')
 const loadingFields = ref(true)
+const authOptions = computed(() =>
+  Object.keys(fieldsByAuth.value).map((k) => ({ label: authMeta.value[k]?.title || k, value: k }))
+)
+// A variant that can't run as a user (service account) makes the connection
+// shared: system_only, one admin-side catalog, no per-user sign-in.
+const isSharedAuth = computed(() => {
+  const scopes = authMeta.value[selectedAuth.value]?.scopes
+  return Array.isArray(scopes) && !scopes.includes('user')
+})
+// What create / test send for the chosen variant. The default variant keeps
+// the original payload (config {}) so existing behavior is unchanged.
+function authPayload() {
+  const config: Record<string, any> = {}
+  if (selectedAuth.value && selectedAuth.value !== defaultAuth.value) config.auth_type = selectedAuth.value
+  return isSharedAuth.value
+    ? { config, auth_policy: 'system_only', allowed_user_auth_modes: [] }
+    : { config, auth_policy: 'user_required', allowed_user_auth_modes: ['oauth'] }
+}
 const credentialFields = computed<FieldSpec[]>(() => {
-  const schema = fieldsByAuth.value[defaultAuth.value]
+  const schema = fieldsByAuth.value[selectedAuth.value]
   if (!schema) return []
   const props = (schema.properties || {})
   const req = schema.required || []
@@ -131,8 +164,10 @@ const credentialFields = computed<FieldSpec[]>(() => {
     }
   })
 })
+// In edit mode a blank field means "keep existing" (the PUT strips blanks),
+// which covers secrets in textareas too (a service-account key).
 const hasMissingRequired = computed(() =>
-  credentialFields.value.some(f => f.required && !form.credentials[f.key] && !(isEditMode.value && f.format === 'password'))
+  credentialFields.value.some(f => f.required && !form.credentials[f.key] && !(isEditMode.value && (f.format === 'password' || f.format === 'textarea')))
 )
 
 const form = reactive<{ name: string, credentials: Record<string, any> }>({
@@ -170,10 +205,8 @@ async function onTest() {
       body: {
         name: form.name || 'test',
         type: props.integrationType,
-        config: {},
         credentials,
-        auth_policy: 'user_required',
-        allowed_user_auth_modes: ['oauth'],
+        ...authPayload(),
       },
     })
     // useMyFetch resolves (never throws) on HTTP errors — surface them as a
@@ -202,9 +235,11 @@ async function loadFields() {
     })
     const payload = data.value as any
     fieldsByAuth.value = payload?.credentials_by_auth || {}
+    authMeta.value = payload?.auth?.by_auth || {}
     // Pick the auth variant that isn't the empty "oauth" delegated one. By
     // convention the admin variant is the registry's default.
     defaultAuth.value = payload?.auth?.default || Object.keys(fieldsByAuth.value)[0] || ''
+    if (!selectedAuth.value || !fieldsByAuth.value[selectedAuth.value]) selectedAuth.value = defaultAuth.value
   } catch (e: any) {
     toast.add({ title: t('data.loadFieldsFailed'), description: e?.data?.detail || String(e), color: 'red' })
   } finally {
@@ -225,6 +260,9 @@ watch(() => props.editConnection, async (conn) => {
     const detail = data.value as any
     if (detail) {
       form.name = detail.name || ''
+      let cfg: any = detail.config || {}
+      if (typeof cfg === 'string') { try { cfg = JSON.parse(cfg) } catch { cfg = {} } }
+      if (cfg?.auth_type) selectedAuth.value = cfg.auth_type
       const meta = detail.credentials_meta || {}
       // Copy in non-secret fields only — secrets stay blank with "unchanged"
       // placeholder. The backend treats blank as "keep existing".
@@ -272,12 +310,10 @@ async function handleSubmit() {
       body: {
         name: form.name,
         type: props.integrationType,
-        config: {},
         credentials,
-        // Integrations are user_required by definition — the admin enables
-        // the org-level OAuth app; each user signs in individually.
-        auth_policy: 'user_required',
-        allowed_user_auth_modes: ['oauth'],
+        // Per-user variants are user_required (the admin enables the org-level
+        // OAuth app; each user signs in). A shared variant is system_only.
+        ...authPayload(),
       },
     })
     // A failed create must NOT emit 'saved' — the parent would toast

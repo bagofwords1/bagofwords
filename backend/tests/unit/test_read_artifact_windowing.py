@@ -5,6 +5,8 @@ import pytest
 
 from app.ai.tools.implementations.read_artifact import (
     FULL_READ_MAX_CHARS,
+    GREP_LINE_CLIP,
+    GREP_WINDOW_MIN_AFTER,
     build_outline,
     grep_code,
     slice_range,
@@ -121,10 +123,136 @@ def test_grep_context_at_boundaries():
     assert m["context_start_line"] == 1
 
 
-def test_grep_long_line_clipped():
-    code = "x" * 2000
-    matches, _, _ = grep_code(code, r"x")
-    assert len(matches[0]["line"]) == 500
+# ─── grep_code on long lines ─────────────────────────────────────────────────
+# Generated JSX often keeps a whole section on one line, with the text being
+# looked for thousands of chars in. A long line comes back as a window around
+# each occurrence: verbatim, at most GREP_LINE_CLIP chars, and locatable.
+
+def _long_line(length, needles):
+    """A line of `length` filler chars with each (col, text) needle placed at col."""
+    chars = list("." * length)
+    for col, text in needles:
+        chars[col:col + len(text)] = text
+    return "".join(chars)[:length]
+
+
+def _assert_window_contract(m, line):
+    assert m["line"] == line[m["col_start"]:m["col_end"]]   # verbatim slice
+    assert len(m["line"]) <= GREP_LINE_CLIP
+    assert m["line_length"] == len(line)
+
+
+@pytest.mark.parametrize("length,col", [(3172, 2415), (900, 640), (5000, 120), (12000, 9000)])
+def test_grep_long_line_window_shows_the_match(length, col):
+    line = _long_line(length, [(col, "כל המותגים")])
+    code = "function App() {\n" + line + "\n}"
+    matches, total, _ = grep_code(code, r"כל המותגים")
+    assert total == 1 and len(matches) == 1
+    m = matches[0]
+    assert m["line_no"] == 2
+    assert "כל המותגים" in m["line"]
+    _assert_window_contract(m, line)
+    assert m["line"] in code  # quotable as an edit find string
+
+
+def test_grep_long_line_window_near_line_end_stays_full_width():
+    line = _long_line(2000, [(2000 - len("END"), "END")])
+    m = grep_code(line, r"END")[0][0]
+    assert m["line"].endswith("END") and len(m["line"]) == GREP_LINE_CLIP
+    _assert_window_contract(m, line)
+
+
+def test_grep_long_line_window_per_occurrence():
+    cols = [700, 1900, 3100]
+    line = _long_line(4000, [(c, "<select") for c in cols])
+    matches, total, truncated = grep_code(line, r"<select")
+    assert total == len(cols) and len(matches) == len(cols) and truncated is False
+    for m, col in zip(matches, cols, strict=True):
+        assert m["col_start"] <= col < m["col_end"]
+        _assert_window_contract(m, line)
+
+
+def test_grep_long_line_occurrences_sharing_a_window_are_not_repeated():
+    line = _long_line(3000, [(1000, "hit"), (1040, "hit"), (1100, "hit")])
+    matches, total, _ = grep_code(line, r"hit")
+    assert total == 1 and len(matches) == 1
+    assert matches[0]["line"].count("hit") == 3
+
+
+@pytest.mark.parametrize("cols", [(1642, 1952, 2245), (600, 1050, 1100, 1380), (900, 1395)])
+def test_grep_long_line_every_occurrence_shown_with_what_follows_it(cols):
+    # An occurrence that only clips the tail of the previous window is not
+    # "shown": what follows it (the options of a <select>) is what an edit needs.
+    line = _long_line(4000, [(c, "<select") for c in cols])
+    matches, _, _ = grep_code(line, r"<select")
+    for col in cols:
+        shown = [m for m in matches if m["col_start"] <= col and col + len("<select") <= m["col_end"]]
+        assert shown, col
+        assert max(m["col_end"] for m in shown) - (col + len("<select")) >= GREP_WINDOW_MIN_AFTER
+
+
+def test_grep_long_line_context_rides_on_first_window_only():
+    line = _long_line(3000, [(800, "hit"), (2500, "hit")])
+    code = "\n".join(["above", line, "below"])
+    matches, _, _ = grep_code(code, r"hit", before=1, after=1)
+    first, second = matches
+    assert first["before"] == ["above"] and first["after"] == ["below"]
+    assert first["context_start_line"] == 1
+    assert second["before"] == [] and second["after"] == []
+    assert second["context_start_line"] == second["line_no"] == 2
+
+
+def test_grep_max_matches_counts_long_line_windows():
+    line = _long_line(6000, [(c, "hit") for c in range(400, 6000, 900)])
+    matches, total, truncated = grep_code(line, r"hit", max_matches=3)
+    assert total == 7 and len(matches) == 3 and truncated is True
+
+
+def test_grep_line_at_clip_length_is_returned_whole():
+    for length in (GREP_LINE_CLIP - 1, GREP_LINE_CLIP):
+        line = _long_line(length, [(length - 3, "hit")])
+        m = grep_code(line, r"hit")[0][0]
+        assert m["line"] == line
+        assert not {"col_start", "col_end", "line_length"} & m.keys()
+
+
+def _coverage(matches, length):
+    """How many returned windows each char of the line appears in."""
+    counts = [0] * length
+    for m in matches:
+        for c in range(m["col_start"], m["col_end"]):
+            counts[c] += 1
+    return counts
+
+
+@pytest.mark.parametrize("pattern,line", [
+    (r"x", "x" * 2000),                                              # every char matches
+    (r"className", 'className="c" ' * 1400),                         # a frequent word
+    (r"\b", "שלום עולם " * 400),                                      # zero-width, Hebrew
+    (r"", "." * 3000),                                               # empty pattern
+])
+def test_grep_dense_matches_on_a_long_line_stay_bounded(pattern, line):
+    matches, total, _ = grep_code(line, pattern, max_matches=200)
+    assert total == len(matches) > 1
+    for m in matches:
+        _assert_window_contract(m, line)
+    # Windows overlap by at most their lead-in: no char is repeated more than twice.
+    assert max(_coverage(matches, len(line))) <= 2
+
+
+def test_grep_long_line_ignore_case():
+    line = _long_line(3000, [(2200, "MarketParams")])
+    m = grep_code(line, r"marketparams", ignore_case=True)[0][0]
+    assert "MarketParams" in m["line"]
+    _assert_window_contract(m, line)
+
+
+def test_grep_long_line_occurrence_longer_than_lead_in_opens_its_window():
+    body = "<select>" + "o" * 600 + "</select>"
+    line = _long_line(4000, [(1500, body)])
+    m = grep_code(line, r"<select>o+</select>")[0][0]
+    assert m["col_start"] == 1500  # starts on the occurrence, not 200 chars before it
+    _assert_window_contract(m, line)
 
 
 # ─── build_outline ───────────────────────────────────────────────────────────

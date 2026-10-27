@@ -236,7 +236,7 @@
 
                                     <!-- Push to Git button - only for non-git-sourced builds -->
                                     <UButton
-                                        v-if="gitRepoId && canCreateBuilds && !selectedBuild.git_pushed_at && selectedBuild.source !== 'git'"
+                                        v-if="gitRepoId && canPushToGit && !selectedBuild.git_pushed_at && selectedBuild.source !== 'git'"
                                         color="gray"
                                         variant="soft"
                                         size="xs"
@@ -945,6 +945,9 @@ const toast = useToast()
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
+// Pushing to git needs ORG-level manage_instructions (the /git/{id}/push gate);
+// per-agent manage_instructions is enough for builds but would 403 here.
+const canPushToGit = computed(() => useCan('manage_instructions'))
 // Builds carry trace coordinates but not the agents behind the report, so gate
 // on console access (org-wide or agent manager) and let the backend's
 // ConsoleScope scope the per-report drill-down. `view_console` was never a

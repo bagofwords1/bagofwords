@@ -241,12 +241,16 @@ class ReadReportTool(Tool):
                 # Keep the most recent messages.
                 conversation = conversation[-_MAX_MESSAGES:]
 
+        # Shared = a shared dashboard, as the list and search_reports read it (phase 9).
+        from app.services import dashboard_legacy
+        status = report.status if report.status == "archived" else (
+            "published" if str(report.id) in await dashboard_legacy.shared_ids(db, [report.id]) else "draft")
         output = ReadReportOutput(
             success=True,
             report_id=str(report.id),
             title=report.title,
             slug=report.slug,
-            status=report.status,
+            status=status,
             mode=report.mode,
             created_at=str(report.created_at) if report.created_at else None,
             updated_at=str(report.updated_at) if report.updated_at else None,
@@ -271,7 +275,7 @@ class ReadReportTool(Tool):
                     "summary": summary,
                     "report_id": str(report.id),
                     "title": report.title,
-                    "status": report.status,
+                    "status": status,
                     "mode": report.mode,
                     "data_sources": data_source_names,
                     "artifacts": [a.model_dump() for a in artifact_items],

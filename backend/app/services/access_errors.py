@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import re
 
+from fastapi import HTTPException
+
 NO_ACCESS_CODE = "no_access"
 
 # The one sentence a refused reader is shown. Deliberately fixed: the
@@ -54,3 +56,69 @@ _ACCESS_DENIED = re.compile(
 def is_access_denied(error: object) -> bool:
     """True when a failed run's error is the provider refusing this identity."""
     return bool(error) and bool(_ACCESS_DENIED.search(str(error)))
+
+
+# ── a reader who must sign in ────────────────────────────────────────────
+#
+# A connection each person signs in to (auth_policy user_required) cannot be
+# built for a reader without an active sign-in of their own. That reader has
+# access and needs to connect -- the viewer gate's "connect your account"
+# state -- which is neither a broken connection nor a refusal. The cause is
+# typed where it is raised (connection_service / data_source_service), so it
+# is recognised by type, not by its wording; a chart that ran without the
+# client stores this fixed reason, as a refused one stores NO_ACCESS_REASON.
+
+CREDENTIALS_REQUIRED_CODE = "credentials_required"
+CREDENTIALS_REQUIRED_REASON = "Connect your account to see the data behind this query."
+
+
+class CredentialsRequiredError(HTTPException):
+    """The reader must sign in to this connection: a 403, so every caller
+    that already handles an HTTPException is unchanged."""
+
+    def __init__(self, detail: str = "User credentials required"):
+        super().__init__(status_code=403, detail=detail)
+
+
+# The two sentences CredentialsRequiredError is raised with. A chart's code
+# runs in the sandbox, so what comes back from it is the message, not the
+# exception: these are recognised there, and only there.
+_CREDENTIALS_REQUIRED_TEXT = re.compile(r"\b(?:connect|user credentials) required\b", re.IGNORECASE)
+
+
+def needs_credentials(error: object) -> bool:
+    """True when a failure is a reader's missing sign-in: the typed cause,
+    a stand-in client's error that wraps it (ConnectionUnavailableError keeps
+    its cause), or -- from a chart's sandboxed run -- its message."""
+    seen, current = 0, error
+    while current is not None and seen < 5:
+        if isinstance(current, CredentialsRequiredError):
+            return True
+        current = getattr(current, "cause", None)
+        seen += 1
+    return bool(error) and not isinstance(error, HTTPException) and bool(
+        _CREDENTIALS_REQUIRED_TEXT.search(str(error)))
+
+
+def source_error_code(error: object) -> str:
+    """The machine-readable cause of a data source that could not be built
+    for a reader: credentials_required, no_access or connection_failed."""
+    if needs_credentials(error):
+        return CREDENTIALS_REQUIRED_CODE
+    detail = str(getattr(error, "detail", None) or error).lower()
+    if "credentials required" in detail:
+        return CREDENTIALS_REQUIRED_CODE
+    if "do not have access" in detail:
+        return NO_ACCESS_CODE
+    return "connection_failed"
+
+
+def viewer_error_code(status: str | None, reason: str | None) -> str | None:
+    """The code a reader's stored failed run carries, from its fixed reason."""
+    if status != "error":
+        return None
+    if reason == NO_ACCESS_REASON:
+        return NO_ACCESS_CODE
+    if reason == CREDENTIALS_REQUIRED_REASON:
+        return CREDENTIALS_REQUIRED_CODE
+    return None

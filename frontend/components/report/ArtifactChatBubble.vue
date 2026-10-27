@@ -2,7 +2,7 @@
     <!-- Floating chat for the shared artifact page /r/{id}. Small on purpose:
          a bubble that opens a single-thread panel. The thread is private to
          this viewer (backend keeps it on a hidden per-viewer chat report). -->
-    <!-- `raised` clears the "Made with Bag of words" badge pinned bottom-end;
+    <!-- `raised` clears the "Made with BOW" badge pinned bottom-end;
          `lift` (px) clears anything stacked under both, e.g. Intercom's launcher. -->
     <div class="fixed end-4 z-[1001] flex flex-col items-end" :style="{ bottom: `${bottomPx}px` }" data-testid="artifact-chat">
         <!-- Panel -->
@@ -26,7 +26,7 @@
                 class="flex-1 flex flex-col items-center justify-center px-6 text-center" data-testid="chat-signin-prompt">
                 <Icon name="heroicons:lock-closed" class="w-8 h-8 text-gray-300 mb-3" />
                 <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">Sign in to ask questions about this dashboard.</p>
-                <a :href="`/users/sign-in?redirect=/r/${reportId}`"
+                <a :href="`/users/sign-in?redirect=${chatBase}`"
                     class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Sign in</a>
             </div>
 
@@ -134,7 +134,10 @@
 import { ref, computed, nextTick } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const props = defineProps<{ reportId: string; raised?: boolean; lift?: number }>()
+// base: the page the chat belongs to -- the conversation's /r/{id}, or a
+// dashboard's /d/{id}, whose chat API mirrors it.
+const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number }>()
+const chatBase = computed(() => props.base || `/r/${props.reportId}`)
 
 const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
 
@@ -159,7 +162,7 @@ const toggle = async () => {
 
 async function loadStatus() {
     try {
-        const { data, error } = await useMyFetch(`/r/${props.reportId}/chat`)
+        const { data, error } = await useMyFetch(`${chatBase.value}/chat`)
         if (error.value) {
             status.value = { available: false, reason: 'error' }
             return
@@ -172,7 +175,7 @@ async function loadStatus() {
 
 async function loadHistory() {
     try {
-        const { data, error } = await useMyFetch(`/r/${props.reportId}/chat/completions?limit=30`)
+        const { data, error } = await useMyFetch(`${chatBase.value}/chat/completions?limit=30`)
         if (error.value || !data.value) return
         const list = (data.value as any).completions || []
         messages.value = list
@@ -255,7 +258,7 @@ async function send() {
     scrollToBottom()
 
     try {
-        const res: any = await useMyFetch(`/r/${props.reportId}/chat/completions`, {
+        const res: any = await useMyFetch(`${chatBase.value}/chat/completions`, {
             method: 'POST',
             stream: true,
             body: JSON.stringify({ prompt: { content }, stream: true }),

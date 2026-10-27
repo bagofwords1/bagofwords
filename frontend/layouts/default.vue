@@ -716,6 +716,18 @@
     <div class="p-4">
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.deleteTitle') }}</h3>
       <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ $t('reports.deleteBody') }}</p>
+      <!-- Never-published dashboards go with the conversation (phase 7);
+           published ones stay, losing changes not yet published. -->
+      <p v-if="deleteNotesShown.deleted.length" class="mt-2 text-xs text-amber-700 dark:text-amber-400" data-testid="delete-unpublished-dashboards">
+        {{ $t('reports.deleteUnpublishedDashboards', { names: deleteNotesShown.deleted.join(', ') }) }}
+      </p>
+      <p v-if="deleteNotesShown.losesChanges.length" class="mt-2 text-xs text-amber-700 dark:text-amber-400" data-testid="delete-loses-changes">
+        {{ $t('reports.deleteLosesUnpublishedChanges', { names: deleteNotesShown.losesChanges.join(', ') }) }}
+      </p>
+      <!-- Other conversations keep editing it (collab01): it stays as it is. -->
+      <p v-if="deleteNotesShown.othersEditing.length" class="mt-2 text-xs text-gray-500 dark:text-gray-400" data-testid="delete-others-editing">
+        {{ $t('dashboardCollab.conversation.deleteOthersEditing', { names: deleteNotesShown.othersEditing.join(', ') }) }}
+      </p>
       <div class="flex justify-end gap-2 mt-4">
         <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="deleteOpen = false">{{ $t('common.cancel') }}</button>
         <button class="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
@@ -1388,7 +1400,16 @@
     }
   }
 
-  const openDelete = (report: any) => { menuReport.value = report; deleteOpen.value = true }
+  const noDeleteNotes = () => ({ deleted: [] as string[], losesChanges: [] as string[], othersEditing: [] as string[] })
+  const deleteNotesShown = ref(noDeleteNotes())
+  const openDelete = async (report: any) => {
+    menuReport.value = report
+    deleteNotesShown.value = noDeleteNotes()
+    deleteOpen.value = true
+    const notes = await dashboardsDeleteNotes([report.id])
+    // A later dialog (another conversation) may have opened meanwhile.
+    if (menuReport.value?.id === report.id) deleteNotesShown.value = notes
+  }
   const doDelete = async () => {
     const r = menuReport.value
     if (!r || deleting.value) return

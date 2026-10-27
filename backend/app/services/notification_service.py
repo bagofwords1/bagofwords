@@ -74,8 +74,13 @@ class NotificationService:
         locale: Optional[str] = None,
         db=None,
         organization_id: Optional[str] = None,
+        attachment_builder=None,
     ) -> NotifyResponse:
         """Send notifications across multiple channels. Failures in one channel don't block others.
+
+        ``attachment_builder``: an async callable returning the email's
+        attachments, in place of the conversation's PDF (a published
+        dashboard's share, phase 8). Called only when an email goes out.
 
         When ``db`` + ``organization_id`` are supplied, email goes out via the
         org's **system** transport (Org SMTP → global), not the AI mailbox.
@@ -94,6 +99,7 @@ class NotificationService:
             "locale": _valid_locale(locale),
             "db": db,
             "organization_id": organization_id,
+            "attachment_builder": attachment_builder,
         }
 
         for channel in channels:
@@ -416,6 +422,12 @@ class NotificationService:
             # the PDF renders the creator's snapshot, which those viewers
             # must not receive (see viewer_data_policy) — email ships with
             # the link only.
+            if context.get("attachment_builder") is not None:
+                try:
+                    return await context["attachment_builder"]()
+                except Exception as e:
+                    logger.warning("Attachment for shared dashboard %s failed: %s", context.get("report_id"), e)
+                    return []
             attachments = []
             report_id = context.get("report_id")
             if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:
@@ -670,6 +682,7 @@ class NotificationService:
         subscribers: list,
         report_url: str,
         locale: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ):
         """Send post-rerun notification to all subscribers with optional PDF attachment.
 
@@ -683,6 +696,7 @@ class NotificationService:
             report_url=report_url,
             exec_summary=None,
             locale=locale,
+            organization_id=organization_id,
         )
 
     async def send_automation_failure(
@@ -733,8 +747,13 @@ class NotificationService:
         report_url: str,
         exec_summary: Optional[dict] = None,
         locale: Optional[str] = None,
+        organization_id: Optional[str] = None,
     ):
         """Send notification after a scheduled prompt execution completes.
+
+        `organization_id` routes the mail through that organization's relay
+        when `report_id` is not a conversation (a published dashboard's
+        schedule, phase 6); otherwise the conversation's organization.
 
         exec_summary: {"iterations": N, "queries": N, "artifacts": N, "last_content": "..."}
         """
@@ -758,7 +777,6 @@ class NotificationService:
 
         # Resolve subscriber emails + the report's org (for Org SMTP routing).
         recipient_emails = []
-        organization_id = None
         try:
             from app.dependencies import async_session_maker
             from app.models.user import User
@@ -766,7 +784,7 @@ class NotificationService:
 
             async with async_session_maker() as db:
                 rep = await db.get(Report, report_id)
-                organization_id = rep.organization_id if rep else None
+                organization_id = (rep.organization_id if rep else None) or organization_id
                 for sub in subscribers:
                     if sub.get("type") == "email" and sub.get("address"):
                         recipient_emails.append(sub["address"])

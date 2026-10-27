@@ -56,6 +56,12 @@ class _Result:
     def scalar_one_or_none(self):
         return self._value
 
+    def first(self):
+        # The owner lookup (app/services/row_owner.py) runs after the Query
+        # and Visualization reads, on an empty queue: None = the query
+        # belongs to no saved report, the ungated path these tests are about.
+        return self._value
+
 
 class _FakeDB:
     """Returns the queued rows in call order: read_query looks up the Query

@@ -14,6 +14,20 @@
           <UIcon v-if="pendingView" name="i-heroicons-x-mark" class="w-3.5 h-3.5 opacity-70" />
         </button>
         <GitConnectionButton v-if="canManageGit" :has-connection="gitRepos.length > 0" :connected-repos="gitRepos" :last-indexed-at="gitLastIndexed" @click="showGitModal = true" />
+        <!-- Push a build to the connected repo as a branch (+ PR when a token
+             is set). Same manage_instructions gate as the git button and the
+             backend /git/{id}/push route; disabled until write access is on. -->
+        <button
+          v-if="canManageGit && gitRepos.length > 0"
+          data-testid="agents-push-to-git"
+          class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white dark:disabled:hover:bg-gray-900 transition-colors"
+          :disabled="!gitPushRepoId"
+          :title="gitPushRepoId ? $t('agentsPage.pushToGitTip') : $t('agentsPage.pushToGitDisabledTip')"
+          @click="showPushBuilds = true"
+        >
+          <UIcon name="i-heroicons-cloud-arrow-up" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+          {{ $t('agentsPage.pushToGit') }}
+        </button>
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -479,6 +493,7 @@
                       <div class="flex shrink-0 items-center gap-1.5"><button class="h-7 rounded-md px-3 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800" @click="cancelPrimary">{{ $t('agentsPage.cancel') }}</button><button class="h-7 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button></div>
                     </div>
                     <div class="prose-instruction"><InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" :placeholder="$t('agentsPage.primaryPlaceholder')" /></div>
+                    <p class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(primaryDraft.text)) }) }}</p>
                   </div>
                   <AgentInstructionPreview v-else-if="agentDetail?.primary_instruction" :key="agentView.agentId + agentDetail.primary_instruction.id" :text="agentDetail.primary_instruction.text" :references="agentDetail.primary_instruction.references || []" class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
                     <template v-if="agentCanUpdate" #actions>
@@ -891,6 +906,7 @@
                   <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
                   <InstructionText v-else :key="(detail?.id || 'new') + '-view'" :text="draft.text" :references="detailTextRefs" :prose="true" :markdown="true" />
                 </div>
+                <p v-if="editing" class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(draft.text)) }) }}</p>
               </div>
             </div>
           </div>
@@ -1056,6 +1072,7 @@
     </div>
 
     <GitRepoModalComponent v-model="showGitModal" @changed="onGitChanged" />
+    <BuildExplorerModal v-if="canManageGit && gitPushRepoId" v-model="showPushBuilds" :git-repo-id="gitPushRepoId" />
 
     <!-- Org-wide instruction list + changelog. The tree browses one agent at a
          time; this is the view across all of them, and the only place
@@ -1212,6 +1229,7 @@ import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+const BuildExplorerModal = defineAsyncComponent(() => import('~/components/instructions/BuildExplorerModal.vue'))
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
@@ -1220,6 +1238,7 @@ import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
 import { fileIcon } from '~/utils/fileTree'
+import { estimateTokens, formatTokens } from '~/utils/tokens'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
@@ -2023,6 +2042,9 @@ const isUnpublishedVersion = (i: number) => currentVersionIndex.value > 0 && i <
 const gitRepos = ref<{ provider: string; repoName: string }[]>([])
 const gitLastIndexed = ref<string | null>(null)
 const showGitModal = ref(false)
+// First connected repo that can take a push (write access on + SSH key or PAT).
+const gitPushRepoId = ref<string>('')
+const showPushBuilds = ref(false)
 
 // Org-wide instruction list + changelog (the "All instructions" modal).
 // URL-bound so a link reproduces the exact view — support can point at
@@ -3556,7 +3578,7 @@ const toolGroups = (agentId: string) => {
 const fetchLabels = async () => { try { const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' }); labels.value = data.value || [] } catch {} }
 const fetchCategories = async () => { try { const { data } = await useMyFetch<string[]>('/instructions/categories', { method: 'GET' }); categories.value = data.value || [] } catch {} }
 const fetchGitStatus = async () => {
-  // Every /git/* endpoint requires create_data_source; the button is hidden
+  // Every /git/* endpoint requires manage_instructions; the button is hidden
   // without it, so skip the guaranteed-403 fetch for regular members.
   if (!canManageGit.value) return
   try {
@@ -3564,6 +3586,7 @@ const fetchGitStatus = async () => {
     const repos = data.value || []
     gitRepos.value = repos.map((r: any) => ({ provider: r.provider, repoName: (r.repo_url || '').split('/').pop()?.replace(/\.git$/, '') || 'Repo' }))
     gitLastIndexed.value = repos.map((r: any) => r.last_indexed_at).filter(Boolean).sort().pop() || null
+    gitPushRepoId.value = repos.find((r: any) => r.can_push)?.id || ''
   } catch {}
 }
 const onGitChanged = () => { fetchGitStatus(); fetchAll() }

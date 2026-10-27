@@ -27,7 +27,7 @@
             <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
                 This dashboard shows data based on your access.
             </p>
-            <a :href="`/users/sign-in?redirect=/r/${reportId}`"
+            <a :href="`/users/sign-in?redirect=${returnPath || `/r/${reportId}`}`"
                 class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
                 Sign in
             </a>
@@ -106,6 +106,8 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue';
 const props = defineProps<{
     state: 'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready';
     reportId: string;
+    // Where sign-in returns to; the conversation's /r page when not given
+    returnPath?: string;
     isRunning?: boolean;
     // Data sources the run couldn't build the viewer's client for
     sourceErrors?: Array<{ data_source: string; data_source_id?: string; code?: string; error: string }>;

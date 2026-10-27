@@ -46,7 +46,7 @@ def _entity(test_client, token, org_id, title, ds_ids, description=None):
     return resp.json()
 
 
-async def _titles(org_id, user_id, report_id, text, data_source_ids=None, top_k=5):
+async def _section(org_id, user_id, report_id, text, data_source_ids=None, top_k=5):
     async with async_session_maker() as db:
         org = await db.get(Organization, org_id)
         user = await db.get(User, user_id)
@@ -55,10 +55,14 @@ async def _titles(org_id, user_id, report_id, text, data_source_ids=None, top_k=
             report = (await db.execute(
                 select(Report).options(selectinload(Report.data_sources)).where(Report.id == report_id)
             )).scalars().first()
-        section = await EntityContextBuilder(db, org, report, user=user).build_for_turn(
+        return await EntityContextBuilder(db, org, report, user=user).build_for_turn(
             top_k=top_k, require_source_assoc=True, user_text=text, data_source_ids=data_source_ids,
         )
-        return [i.title for i in (section.items if section else [])]
+
+
+async def _titles(org_id, user_id, report_id, text, data_source_ids=None, top_k=5):
+    section = await _section(org_id, user_id, report_id, text, data_source_ids, top_k)
+    return [i.title for i in (section.items if section else [])]
 
 
 @pytest.fixture
@@ -112,3 +116,18 @@ def test_no_keyword_overlap_falls_back_to_recent_entities_on_those_agents(world,
 def test_entities_on_agents_outside_the_run_never_appear(world):
     titles = asyncio.run(_titles(world["org_id"], world["admin"]["user_id"], world["attached"], "payroll by department"))
     assert "Payroll by Department" not in titles
+
+
+@pytest.mark.e2e
+def test_discovered_entities_carry_their_declared_parameters(world):
+    """An entity reaches the planner with the values it accepts.
+
+    Without them the reader cannot tell a parameterized saved query from a
+    fixed one, and asks for a rebuild instead of passing values.
+    """
+    section = asyncio.run(_section(
+        world["org_id"], world["admin"]["user_id"], world["attached"], "show me all rock albums",
+    ))
+    item = next(i for i in section.items if i.title == "Albums by Genre")
+    assert [p["name"] for p in (item.parameters or [])] == ["genre"]
+    assert '<param name="genre"' in section.render()

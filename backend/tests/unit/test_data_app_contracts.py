@@ -62,12 +62,17 @@ def test_identity_values_are_not_projected_into_anonymous_snapshots():
 
 def test_optional_visual_refinement_is_bounded_without_consuming_requested_edits():
     budget = ArtifactRefinementBudget()
+    refine = {"purpose": "visual_refinement"}
     for name in ["create_artifact", "read_artifact", "edit_artifact"]:
         assert budget.allow(name, {})
-    assert budget.allow("edit_artifact", {"purpose": "visual_refinement"})
-    assert not budget.allow("edit_artifact", {"purpose": "visual_refinement"})
+    assert budget.allow("edit_artifact", refine)
+    # A rejected refinement (contract error, failed render) does not spend it.
+    budget.record("edit_artifact", refine, saved=False)
+    assert budget.allow("edit_artifact", refine)
+    budget.record("edit_artifact", refine, saved=True)
+    assert not budget.allow("edit_artifact", refine)
     assert budget.allow("edit_artifact", {"purpose": "requested_change"})
-    assert ArtifactRefinementBudget().allow("edit_artifact", {"purpose": "visual_refinement"})
+    assert ArtifactRefinementBudget().allow("edit_artifact", refine)
 
 
 def test_identity_defaults_do_not_copy_the_snapshot_owners_value():

@@ -1,17 +1,20 @@
 <template>
   <!-- The trigger is optional: ArtifactFrame lists "Data" in its overflow
        menu and opens this modal through the exposed open() instead. -->
-  <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.viewData')">
+  <UTooltip v-if="!hideTrigger && !embedded" :text="$t('artifactFrame.viewData')">
     <button @click="openModal" class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center">
       <Icon name="heroicons:circle-stack" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
     </button>
   </UTooltip>
 
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl', height: 'h-[90vh]' }">
+  <!-- A modal of its own, or (embedded) the Data tab of the dashboard's settings. -->
+  <component :is="embedded ? 'div' : UModal" v-bind="embedded ? { class: 'h-full' } : { modelValue: isOpen, ui: { width: 'sm:max-w-4xl', height: 'h-[90vh]' } }"
+    @update:model-value="(v: boolean) => { isOpen = v }">
     <div class="h-full flex flex-col">
       <!-- Header -->
-      <div class="p-3 flex justify-between items-center border-b bg-white dark:bg-gray-900">
-        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('artifactFrame.dataTitle') }}</span>
+      <div :class="embedded ? 'pb-3 flex justify-between items-center gap-3' : 'p-3 flex justify-between items-center border-b bg-white dark:bg-gray-900'">
+        <span v-if="!embedded" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('artifactFrame.dataTitle') }}</span>
+        <span v-else class="text-xs text-gray-500 dark:text-gray-400">{{ $t('dashboardSettings.dataDesc') }}</span>
         <div class="flex items-center gap-2">
           <!-- Add an existing report query to the dashboard -->
           <UPopover v-if="canManage" :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
@@ -47,12 +50,12 @@
               </div>
             </template>
           </UPopover>
-          <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="isOpen = false" />
+          <UButton v-if="!embedded" color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="isOpen = false" />
         </div>
       </div>
 
       <!-- Dashboard query list -->
-      <div class="flex-1 min-h-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
+      <div :class="embedded ? 'flex-1 min-h-0' : 'flex-1 min-h-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4'">
         <div v-if="isLoading" class="flex items-center justify-center h-full">
           <Spinner class="w-5 h-5 text-ink-muted" />
         </div>
@@ -132,7 +135,7 @@
         </div>
       </div>
     </div>
-  </UModal>
+  </component>
 
   <!-- Remove confirmation -->
   <UModal :model-value="!!confirmTarget" @update:model-value="confirmTarget = null" :ui="{ width: 'sm:max-w-sm' }">
@@ -193,7 +196,10 @@ const props = defineProps<{
   artifactMode?: string | null
   /** Render only the modal; the parent supplies its own trigger via open(). */
   hideTrigger?: boolean
+  /** No modal, no trigger: the Data tab of the dashboard's settings. */
+  embedded?: boolean
 }>()
+const UModal = resolveComponent('UModal')
 
 const { t } = useI18n()
 const toast = useToast()
@@ -238,6 +244,7 @@ function openModal() {
 }
 
 defineExpose({ open: openModal })
+onMounted(() => { if (props.embedded) openModal() })
 
 // Fetch the artifact to learn which viz ids its code actually renders. Also
 // refreshes membership — the server copy beats possibly-stale props.

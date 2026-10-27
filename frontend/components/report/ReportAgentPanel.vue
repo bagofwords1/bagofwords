@@ -393,7 +393,7 @@
                         />
                         <Icon
                           v-else
-                          :name="ref.object_type === 'datasource_table' ? 'heroicons:table-cells' : ref.object_type === 'instruction' ? 'heroicons:document-text' : ref.object_type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:cube'"
+                          :name="ref.object_type === 'datasource_table' ? 'heroicons:table-cells' : ref.object_type === 'instruction' ? 'heroicons:cube' : ref.object_type === 'connection_tool' ? 'heroicons:wrench-screwdriver' : 'heroicons:cube'"
                           class="w-2.5 h-2.5 flex-shrink-0"
                           :class="ref.object_type === 'instruction' ? 'text-indigo-400' : 'text-slate-400'"
                         />

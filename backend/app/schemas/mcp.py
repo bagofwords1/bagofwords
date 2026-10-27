@@ -36,6 +36,10 @@ class MCPRichContext:
     instructions_text: str = ""
     resources_text: str = ""
     files_text: str = ""
+    # Published saved queries (catalog entities) on the agents in play, as the
+    # planner sees them — so generated code reuses a saved definition instead
+    # of inventing one.
+    entities_text: str = ""
     
     # Data source connection status
     connected_sources: List[str] = field(default_factory=list)
@@ -94,6 +98,21 @@ class ResourceInfo(BaseModel):
     description: Optional[str] = None
 
 
+class EntityInfo(BaseModel):
+    """Summary of a published saved query (catalog entity).
+
+    Title, description and declared parameters only — the SQL and the rows come
+    from ``describe_entity``.
+    """
+    id: str
+    slug: Optional[str] = None
+    type: str
+    title: str
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list, description="Names of the agents (data sources) this saved query reads.")
+    parameters: List[str] = Field(default_factory=list, description="Names of the parameters describe_entity accepts for it.")
+
+
 class GetContextInput(BaseModel):
     """Input for get_context MCP tool."""
     report_id: str = Field(..., description="Session ID from create_report. Required.")
@@ -105,7 +124,9 @@ class GetContextOutput(BaseModel):
     report_id: str
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
+    entities: List[EntityInfo] = Field(default_factory=list, description="Published saved queries available on these agents.")
     tools_hint: Optional[str] = Field(default=None, description="Set when agents expose tools: how to get their full input schemas.")
+    entities_hint: Optional[str] = Field(default=None, description="Set when saved queries exist: use them instead of writing a definition from scratch.")
 
 
 # === list_agent_tools (gateway discovery) ===
@@ -551,3 +572,71 @@ class MCPSendEmailOutput(BaseModel):
     attachments: List[SendEmailAttachmentResult] = Field(default_factory=list)
     rejected: List[str] = Field(default_factory=list, description="Requested addresses that are not org members and were skipped.")
     error: Optional[str] = None
+
+
+# === list_entities / describe_entity (saved queries) ===
+
+MCP_ENTITY_DEFAULT_PREVIEW_ROWS = 20
+MCP_ENTITY_MAX_PREVIEW_ROWS = 200
+
+
+class MCPEntityParameter(BaseModel):
+    """A parameter a saved query declares, as describe_entity accepts it."""
+    name: str
+    type: str = "string"
+    source: Optional[str] = None
+    default: Optional[Any] = None
+    required: bool = False
+    options: List[Any] = Field(default_factory=list, description="Allowed values, when the parameter declares a fixed list.")
+
+
+class MCPEntityItem(BaseModel):
+    """A published saved query in the catalog listing."""
+    id: str
+    slug: Optional[str] = None
+    type: str = Field(..., description="'metric' or 'model'.")
+    title: str
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list)
+    parameters: List[MCPEntityParameter] = Field(default_factory=list)
+
+
+class MCPListEntitiesInput(BaseModel):
+    """Input for the list_entities MCP tool."""
+    report_id: Optional[str] = Field(default=None, description="Scope to the agents attached to this report. Without it, every agent you can see is searched.")
+    search: Optional[str] = Field(default=None, description="Optional text matched against title and description.")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum saved queries to return.")
+
+
+class MCPListEntitiesOutput(BaseModel):
+    """Output for the list_entities MCP tool."""
+    entities: List[MCPEntityItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class MCPDescribeEntityInput(BaseModel):
+    """Input for the describe_entity MCP tool."""
+    name_or_id: str = Field(..., description="The saved query's id, slug or title (a partial title also matches).")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Values for the parameters the saved query declares. Passing any value runs the saved code with them.")
+    run: bool = Field(default=False, description="Re-execute the saved code instead of serving the stored snapshot.")
+    limit: Optional[int] = Field(default=None, ge=1, le=MCP_ENTITY_MAX_PREVIEW_ROWS, description="Maximum preview rows to return.")
+
+
+class MCPDescribeEntityOutput(BaseModel):
+    """Output for the describe_entity MCP tool."""
+    success: bool
+    entity_id: Optional[str] = None
+    slug: Optional[str] = None
+    type: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list)
+    code: Optional[str] = Field(default=None, description="The saved query's code — the definition to reuse rather than rewrite.")
+    parameters: List[MCPEntityParameter] = Field(default_factory=list)
+    applied_params: Optional[Dict[str, Any]] = Field(default=None, description="The parameter values the returned rows were produced with.")
+    columns: List[str] = Field(default_factory=list)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    total_rows: int = 0
+    truncated: bool = False
+    data_source: Optional[str] = Field(default=None, description="Where the rows came from: 'snapshot', 'executed', 'cache', or 'withheld'.")
+    error_message: Optional[str] = None

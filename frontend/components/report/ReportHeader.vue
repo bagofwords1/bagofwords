@@ -42,7 +42,7 @@
                 </span>
             </h1>
             <div class="ms-auto flex items-center gap-2">
-                <ShareModal v-if="report" :report="report" share-type="conversation" title="Share Conversation" />
+                <ShareModal v-if="report" :report="report" share-type="conversation" :title="$t('share.shareConversation')" />
                 <ChatDisplayMenu />
                 <UTooltip :text="isSplitScreen ? t('reportView.closeSidebar') : t('reportView.openSidebar')">
                     <button @click="$emit('toggleSplitScreen')" class="hidden md:flex p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 items-center gap-1.5">

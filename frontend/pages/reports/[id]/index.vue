@@ -76,6 +76,8 @@
 						:artifacts="reportArtifacts"
 						:latest-artifact="latestArtifact"
 						:requested-artifact-id="requestedArtifactId"
+						:requested-dashboard-id="requestedDashboardId"
+						:agent-running="hasInProgressCompletion"
 						:prefetch="artifactFramePrefetch"
 						@close="mobileView = 'chat'"
 						class="h-full"
@@ -88,10 +90,18 @@
 		<template v-if="!isMobile || mobileView === 'chat'">
 		<!-- Fork banner -->
 		<ForkBanner
-			v-if="report?.forked_from_id"
+			v-if="isFork"
 			:forked-from-id="report.forked_from_id"
+			:forked-from-dashboard-id="report.forked_from_artifact_id"
 			:forked-from-title="report.forked_from_title"
 			:forked-from-user-name="report.forked_from_user_name"
+		/>
+		<!-- A conversation that joined a dashboard (collab01): whose work it
+		     continues and what changed before. Renders nothing otherwise. -->
+		<ContinuedFromCard
+			v-if="reportLoaded && report?.id"
+			:report-id="report.id"
+			@rerun-done="artifactFrameKey += 1"
 		/>
 
 		<!-- Messages -->
@@ -100,7 +110,7 @@
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
-				<ForkPreparing v-if="report?.forked_from_id && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
+				<ForkPreparing v-if="isFork && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
 				<ForkedQueriesPanel
 					v-else-if="forkedQueries.length > 0"
 					:queries="forkedQueries"
@@ -108,7 +118,7 @@
 				/>
 
 				<!-- Fork summary separator -->
-				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
+				<div v-if="isFork && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 					<span class="text-chat-3 text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
@@ -290,13 +300,13 @@
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
 									<div class="flex items-center gap-2 me-[36px] mt-1 opacity-0 group-hover/usermsg:opacity-100 transition-opacity duration-150">
-										<UTooltip :text="copiedMessageId === m.id ? 'Copied!' : 'Copy'" :popper="{ placement: 'bottom' }">
+										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
 												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
-												{{ copiedMessageId === m.id ? 'Copied!' : 'Copy' }}
+												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
 											</button>
 										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
@@ -522,6 +532,16 @@
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
 										<div class="flex items-center gap-1">
+											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'top' }">
+												<UButton
+													:icon="copiedMessageId === m.id ? 'i-heroicons-check' : 'i-heroicons-clipboard'"
+													color="gray"
+													variant="ghost"
+													size="xs"
+													:aria-label="$t('common.copy')"
+													@click="copyToClipboard(responseText(m), m.id)"
+												/>
+											</UTooltip>
 											<CompletionItemFeedback
 												:completion="{ id: (m.system_completion_id || m.id) }"
 												:feedbackScore="m.feedback_score || 0"
@@ -733,6 +753,28 @@
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
+				<!-- An older version is open in the editor: the next edit builds
+				     on it (collab01). Said only then, with the way back. -->
+				<!-- Viewing a version from elsewhere: it is read-only; say what
+				     the next edit builds on, and offer to edit it here. -->
+				<div v-if="openVersion && openVersion.viewing_version != null"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-viewing-version">
+					<UIcon name="i-heroicons-eye" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditViewing', { n: openVersion.viewing_version, here: openVersion.version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-edit-here" @click="editViewingHere">
+						{{ $t('dashboardCollab.versions.editHere', { n: openVersion.viewing_version }) }}
+					</button>
+				</div>
+				<div v-else-if="openVersion && openVersion.version_id !== openVersion.newest_id"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-open-version">
+					<UIcon name="i-heroicons-information-circle" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditBuildsOn', { n: openVersion.version, newest: openVersion.newest_version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-open-newest" @click="openNewestVersion">
+						{{ $t('dashboardCollab.versions.openNewest', { n: openVersion.newest_version }) }}
+					</button>
+				</div>
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -957,6 +999,8 @@
 				:artifacts="reportArtifacts"
 				:latest-artifact="latestArtifact"
 				:requested-artifact-id="requestedArtifactId"
+				:requested-dashboard-id="requestedDashboardId"
+				:agent-running="hasInProgressCompletion"
 				:prefetch="artifactFramePrefetch"
 				@close="toggleSplitScreen"
 				class="h-full"
@@ -1127,6 +1171,7 @@ import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
+import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import { artifactPageLibs } from '~/utils/artifactIframe'
@@ -1256,6 +1301,24 @@ const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
 const router = useRouter()
 const report_id = (route.params.id as string) || ''
+
+// The dashboard version open in the editor (ArtifactFrame announces it): sent
+// with each message, so the next edit builds on it (collab01).
+const openVersion = ref<{ version_id: string; version: number; newest_id: string; newest_version: number; viewing_version?: number | null } | null>(null)
+function onOpenVersion(e: Event) {
+	const d = (e as CustomEvent).detail || {}
+	if (d.report_id !== report_id) return
+	openVersion.value = d.version_id ? d : null
+}
+function editViewingHere() {
+	window.dispatchEvent(new CustomEvent('artifact:edit-here', { detail: { report_id } }))
+}
+function openNewestVersion() {
+	if (!openVersion.value) return
+	window.dispatchEvent(new CustomEvent('artifact:select', { detail: { artifact_id: openVersion.value.newest_id } }))
+}
+onMounted(() => window.addEventListener('artifact:open-version', onOpenVersion))
+onBeforeUnmount(() => window.removeEventListener('artifact:open-version', onOpenVersion))
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
@@ -1752,6 +1815,9 @@ const latestArtifact = ref<any | null>(null)
 // the request in page state instead of a transient event makes it survive the
 // remount, so the pane opens what was clicked rather than the newest artifact.
 const requestedArtifactId = ref<string | null>(null)
+// Edit from a dashboard's draft page names the dashboard (`?dashboard=`): the
+// pane opens on its newest version rather than the conversation's newest.
+const requestedDashboardId = computed(() => typeof route.query.dashboard === 'string' ? route.query.dashboard : null)
 // Keep the shared ids in sync when ArtifactFrame changes selection.
 function handleArtifactVizIdsBroadcast(ev: Event) {
 	const ids = (ev as CustomEvent).detail?.visualization_ids
@@ -2301,6 +2367,16 @@ function webhookActed(m: any): boolean {
 	return !!(d && d.act)
 }
 
+// The answer prose the timeline shows (same text expression as the block template),
+// as raw markdown; reasoning and tool cards are left out.
+function responseText(m: ChatMessage): string {
+	return visibleBlocks(m)
+		.filter((b: any) => b.status !== 'error' && b.tool_execution?.tool_name !== 'clarify')
+		.map((b: any) => (b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || '').trim())
+		.filter(Boolean)
+		.join('\n\n')
+}
+
 function copyToClipboard(text?: string, messageId?: string) {
 	if (!text) return
 	navigator.clipboard.writeText(text)
@@ -2478,6 +2554,10 @@ const forkedArtifactRef = computed(() => {
 // refresh-on-view; mounted mid-hydration it would rerun every query
 // underneath the hydration pass. Mounting after it, the backend skips that
 // rerun — hydration stamped last_run_at, so the data reads as fresh.
+// A conversation's fork names its conversation; a fork from a published
+// dashboard's page names the dashboard (phase 8). Both show the same banner
+// and wait for hydration the same way.
+const isFork = computed(() => !!((report.value as any)?.forked_from_id || (report.value as any)?.forked_from_artifact_id))
 const forkStatusChecked = ref(false)
 const forkHydrating = ref(false)
 const forkNothingRan = ref(false)
@@ -2507,7 +2587,7 @@ let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
 // gated, so the waiting state is reached only by the forks it was written for.
 const forkMayHydrate = computed(() => {
     const r = report.value as any
-    if (!r?.forked_from_id || !r?.created_at) return false
+    if (!isFork.value || !r?.created_at) return false
     // Naive UTC on the wire (the backend stores utcnow()); only stamp a zone
     // onto a value that carries none, or the parse turns to NaN.
     const raw = String(r.created_at)
@@ -5363,6 +5443,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					model_id: data.model_id || null,
 					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
+					artifact_version_id: openVersion.value?.version_id || null,
 				},
 				queue: true
 			})
@@ -5546,6 +5627,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			model_id: data.model_id || null,
 			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
+			artifact_version_id: openVersion.value?.version_id || null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,

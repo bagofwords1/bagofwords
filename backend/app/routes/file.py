@@ -327,6 +327,17 @@ async def get_file_embed(
         )).scalar_one_or_none()
         if bound_report is None:
             raise HTTPException(status_code=404, detail="File not found")
+    if claims.get("rel"):
+        from app.models.artifact_release import ArtifactRelease as _Release
+        bound_release = (await db.execute(
+            select(_Release.id).where(
+                _Release.id == str(claims["rel"]),
+                _Release.organization_id == str(claims["org"]),
+                _Release.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
+        if bound_release is None:
+            raise HTTPException(status_code=404, detail="File not found")
 
     content = _read_file_bytes_or_404(file)
     media_type = file.content_type or "application/octet-stream"

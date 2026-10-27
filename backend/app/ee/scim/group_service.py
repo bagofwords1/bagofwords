@@ -529,6 +529,9 @@ class ScimGroupService:
         # resource grants and quota assignments reference it by principal id,
         # so they would be left as orphans the APIs keep listing.
         await db.execute(delete(ReportShare).where(ReportShare.group_id == group.id))
+        # Dashboard grants: their key cascades on Postgres only, not on SQLite.
+        from app.models.artifact_release import ArtifactShare
+        await db.execute(delete(ArtifactShare).where(ArtifactShare.group_id == group.id))
         await db.execute(
             delete(RoleAssignment)
             .where(RoleAssignment.organization_id == organization_id)

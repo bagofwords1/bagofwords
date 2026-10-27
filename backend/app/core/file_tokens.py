@@ -39,6 +39,7 @@ def mint_file_token(
     *,
     organization_id: str,
     report_id: Optional[str] = None,
+    release_id: Optional[str] = None,
 ) -> str:
     """Mint a signed capability token for a single file id.
 
@@ -56,6 +57,10 @@ def mint_file_token(
     }
     if report_id:
         payload["rid"] = str(report_id)
+    if release_id:
+        # A published dashboard's embed: bound to its release, which outlives
+        # the conversation it came from.
+        payload["rel"] = str(release_id)
     return jwt.encode(payload, _secret(), algorithm=_ALGO)
 
 

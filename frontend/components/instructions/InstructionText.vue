@@ -14,8 +14,8 @@
           />
           <Icon
             v-else-if="segment.ref.type === 'instruction'"
-            name="heroicons:document-text"
-            class="w-3 h-3 flex-shrink-0 text-indigo-400"
+            name="heroicons:cube"
+            class="w-3 h-3 flex-shrink-0 text-indigo-500"
           />
           <Icon
             v-else

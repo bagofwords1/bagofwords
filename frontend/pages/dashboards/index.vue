@@ -87,16 +87,43 @@
                 <!-- Cards grid -->
                 <div v-else-if="reports.length > 0">
                     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-6">
-                        <!-- view-mode="org" so cards open the dashboard view
-                             (/r/[id]) on both tabs — owners edit via the pencil
-                             (/reports/[id]). 'my' mode would link the editor. -->
-                        <RecentReportCard
-                            v-for="report in reports"
-                            :key="report.id"
-                            :report="report"
-                            view-mode="org"
-                            :is-owner="report.user?.id === (currentUser as any)?.id"
-                        />
+                        <!-- One card per dashboard (phase 8): it opens the
+                             dashboard's /d page on both tabs. Whoever may edit
+                             it (its owner, its editors -- collab01) does so
+                             through the pencil: their own conversation on it,
+                             or a new one. Shared cards say "Can edit" /
+                             "Can view"; on My dashboards every card is theirs. -->
+                        <div
+                            v-for="dashboard in reports"
+                            :key="dashboard.id"
+                            class="group relative"
+                        >
+                            <RecentReportCard
+                                :report="asCard(dashboard)"
+                                view-mode="org"
+                                :to="`/d/${dashboard.slug || dashboard.id}`"
+                                :is-owner="false"
+                            />
+                            <span
+                                v-if="roleLabel(dashboard)"
+                                class="absolute top-2 start-2 px-2 py-0.5 text-[11px] font-medium rounded-full bg-white/90 dark:bg-gray-900/90 text-gray-700 dark:text-gray-200 shadow-sm pointer-events-none"
+                                data-testid="dashboard-card-role"
+                            >{{ roleLabel(dashboard) }}</span>
+                            <button
+                                v-if="canEdit(dashboard)"
+                                type="button"
+                                class="absolute top-2 end-2 p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm transition-opacity focus:opacity-100 disabled:cursor-wait"
+                                :class="editingId === dashboard.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
+                                :disabled="!!editingId"
+                                :aria-label="$t('dashboardCollab.list.edit')"
+                                :title="$t('dashboardCollab.list.edit')"
+                                data-testid="dashboard-card-edit"
+                                @click.prevent.stop="editDashboard(dashboard)"
+                            >
+                                <Spinner v-if="editingId === dashboard.id" class="w-4 h-4 text-gray-600" />
+                                <Icon v-else name="heroicons:pencil-square" class="w-4 h-4 text-gray-600" />
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Pagination -->
@@ -174,10 +201,11 @@
 <script setup lang="ts">
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import RecentReportCard from '~/components/home/RecentReportCard.vue'
+import Spinner from '~/components/Spinner.vue'
 
-const { data: currentUser } = useAuth()
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 definePageMeta({ auth: true })
 
@@ -258,20 +286,19 @@ const setTypeFilter = async (tf: 'all' | 'page' | 'doc') => {
 const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my', search: string = '') => {
     isLoading.value = true
     try {
-        const response = await useMyFetch('/reports', {
+        const response = await useMyFetch('/artifacts', {
             method: 'GET',
             query: {
                 page,
                 limit: pagination.value.limit,
                 filter,
                 search: search?.trim() || undefined,
-                has_artifacts: 'yes',
-                artifact_mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
+                mode: typeFilter.value === 'all' ? undefined : typeFilter.value,
             },
         })
 
         if (response.status.value === 'success' && response.data.value) {
-            reports.value = response.data.value.reports
+            reports.value = (response.data.value as any).dashboards
             pagination.value = response.data.value.meta
         } else {
             throw new Error('Could not fetch dashboards')
@@ -285,6 +312,54 @@ const fetchDashboards = async (page: number = 1, filter: 'my' | 'shared' = 'my',
         })
     } finally {
         isLoading.value = false
+    }
+}
+
+// The card reads a conversation's fields: give it the dashboard's. Its id is
+// the editing conversation's when there is one, for the activity dot, as
+// the conversation's card had.
+const asCard = (d: any) => ({
+    id: d.report_id || d.id,
+    title: d.title,
+    slug: d.slug || d.id,
+    status: d.published ? 'published' : 'draft',
+    user: d.owner || {},
+    artifact_modes: [d.mode],
+    conversation_share_enabled: false,
+    thumbnail_url: d.thumbnail_url,
+})
+
+// What this reader may do with it (collab01). Older answers without `role`
+// fall back to ownership.
+const roleOf = (d: any): 'owner' | 'edit' | 'view' => d.role || (d.is_owner ? 'owner' : 'view')
+const canEdit = (d: any) => roleOf(d) === 'owner' || roleOf(d) === 'edit'
+// Ownership stays implicit (My dashboards lists only one's own).
+const roleLabel = (d: any) => {
+    const role = roleOf(d)
+    if (role === 'edit') return t('dashboardCollab.list.canEdit')
+    if (role === 'view') return t('dashboardCollab.list.canView')
+    return ''
+}
+
+// The pencil: the reader's own conversation on the dashboard when they have
+// one; else Edit makes one (a copy of the newest draft, run again with their
+// credentials -- or, for an owner whose conversation was deleted, a new one
+// from the published version, as on /d).
+const editingId = ref<string | null>(null)
+const editDashboard = async (d: any) => {
+    if (editingId.value) return
+    if (d.report_id) return navigateTo(`/reports/${d.report_id}`)
+    editingId.value = d.id
+    try {
+        const { data, error } = await useMyFetch(`/artifacts/${encodeURIComponent(d.id)}/edit`, { method: 'POST' })
+        const reportId = (data.value as any)?.report_id
+        if (error.value || !reportId) {
+            toast.add({ title: t('dashboardCollab.list.editFailed'), description: getErrorMessage(error.value), color: 'red' })
+            return
+        }
+        await navigateTo(`/reports/${reportId}`)
+    } finally {
+        editingId.value = null
     }
 }
 

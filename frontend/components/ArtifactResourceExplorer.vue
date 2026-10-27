@@ -1,7 +1,8 @@
 <template>
-  <UModal :model-value="true" :ui="{ width: 'sm:max-w-4xl' }" @update:model-value="$emit('close')">
-    <section class="p-4 sm:p-5 space-y-4 rounded-lg bg-white dark:bg-gray-900 max-h-[85vh] overflow-y-auto" aria-labelledby="artifact-data-title">
-      <header class="flex items-center justify-between gap-4">
+  <!-- A modal of its own, or (embedded) a tab of the dashboard's settings. -->
+  <component :is="embedded ? 'div' : UModal" v-bind="embedded ? {} : { modelValue: true, ui: { width: 'sm:max-w-4xl' } }" @update:model-value="$emit('close')">
+    <section :class="embedded ? 'space-y-4' : 'p-4 sm:p-5 space-y-4 rounded-lg bg-white dark:bg-gray-900 max-h-[85vh] overflow-y-auto'" aria-labelledby="artifact-data-title">
+      <header v-if="!embedded" class="flex items-center justify-between gap-4">
         <div><h2 id="artifact-data-title" class="text-base font-semibold">{{ t(view === 'analytics' ? 'artifactResources.analytics' : 'artifactResources.inspect') }}</h2>
           <p class="text-xs text-ink-muted mt-0.5">{{ t(view === 'resources' ? 'artifactResources.readOnlyLabel' : 'artifactResources.readOnly') }}</p></div>
         <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" :aria-label="t('common.close')" @click="$emit('close')" />
@@ -61,10 +62,11 @@
         <dl v-if="analytics" class="flex gap-6 text-sm"><div v-for="surface in ['embedded','standalone']" :key="surface"><dt class="text-gray-500">{{ t(`artifactResources.${surface}`) }}</dt><dd>{{ analytics.surfaces[surface] || 0 }}</dd></div></dl>
       </div>
     </section>
-  </UModal>
+  </component>
 </template>
 <script setup lang="ts">
-const props = withDefaults(defineProps<{artifactId: string; view?: 'resources' | 'analytics'}>(), {view: 'resources'})
+const props = withDefaults(defineProps<{artifactId: string; view?: 'resources' | 'analytics'; embedded?: boolean}>(), {view: 'resources', embedded: false})
+const UModal = resolveComponent('UModal')
 defineEmits(['close'])
 const {t} = useI18n()
 const {token} = useAuth()

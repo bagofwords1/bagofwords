@@ -381,6 +381,16 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             for viz in ctx.get('visualizations') or []:
                 lines.append('  <visualization>')
                 lines.append(f'    title: {json.dumps(viz.get("title"))}')
+                if viz.get('withheld'):
+                    # This reader's own rows for the chart, not the creator's:
+                    # the dashboard withholds them until they run it themselves
+                    # (viewer_data_policy). Never guess at the numbers.
+                    lines.append('    rows: NOT AVAILABLE TO THIS VIEWER — this chart runs under each '
+                                 'viewer\'s own identity and they have no result of their own yet. '
+                                 'Say the data for this chart is not available to them and suggest '
+                                 'opening the dashboard; never estimate or infer its values.')
+                    lines.append('  </visualization>')
+                    continue
                 cols = viz.get('columns') or []
                 if cols:
                     lines.append(f'    columns: {json.dumps(cols)}')
@@ -536,6 +546,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
         if artifact.get("version") is not None:
             lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+        if artifact.get("newer_version") is not None:
+            lines.append(
+                f"  <open_in_editor>The user has this version open and the next edit builds on it, "
+                f"although v{_esc(artifact.get('newer_version'))} is newer: edit this artifact_id with "
+                f"expected_latest_version={_esc(artifact.get('version'))}.</open_in_editor>"
+            )
 
         gen_prompt = artifact.get("generation_prompt")
         if gen_prompt:
@@ -576,6 +592,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     f"  <code>(omitted: {len(code_str)} chars — call read_artifact to load an "
                     "outline or slice before authoring edit_artifact ops)</code>"
                 )
+
+        collaboration = artifact.get("collaboration")
+        if collaboration:
+            # Other people edit this dashboard too (collab01): what it is for,
+            # and what changed before this conversation picked it up.
+            lines.append(f"  <collaboration>{_esc(collaboration)}</collaboration>")
 
         lines.append("</current_artifact>")
         return "\n".join(lines)

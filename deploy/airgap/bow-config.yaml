@@ -19,5 +19,6 @@ intercom:
 telemetry:
   enabled: false
 
+# API docs at /swagger. Swagger UI is bundled in the image, so it works offline.
 swagger:
-  enabled: false
+  enabled: true

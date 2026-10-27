@@ -33,8 +33,8 @@ LLM_MODEL_DETAILS = [
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-sol
-        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra, so
-        # GPT-5.6 Terra keeps the provider default.
+        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra;
+        # GPT-6.1 Terra holds the provider default.
         "name": "GPT-6 Sol",
         "model_id": "gpt-6-sol",
         "provider_type": "openai",
@@ -64,6 +64,23 @@ LLM_MODEL_DETAILS = [
         "max_output_tokens": 128000,
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://openai.com/index/introducing-gpt-6-1-terra/
+        # Successor to GPT-5.6 Terra at half its price: $1/$5, cached input
+        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES). Provider
+        # default, taking over from GPT-5.6 Terra at half the price.
+        "name": "GPT-6.1 Terra",
+        "model_id": "gpt-6.1-terra",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 1.00,
+        "output_cost_per_million_tokens_usd": 5.00
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-luna
@@ -101,7 +118,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,

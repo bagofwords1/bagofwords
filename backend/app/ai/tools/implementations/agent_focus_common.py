@@ -74,6 +74,31 @@ async def signin_required_ids(db, agents: List[Any], user: Any) -> set:
         return set()
 
 
+def run_scope_agents(runtime_ctx: dict[str, Any]) -> list[Any]:
+    """The agents a tool call may resolve against: the run's working set plus
+    the report's own attachments, de-duplicated, attachments last.
+
+    The working set (``runtime_ctx["run_agents"]``, from AgentV2) is what Auto
+    resolves to — the running user's accessible agents — so a tool that only
+    walked ``report.data_sources`` saw nothing under Auto. Attachments are
+    added because a mid-run set_report_agents / create_agent attaches to the
+    report. Callers without a working set (standalone tool calls, tests) get
+    the attachments alone, exactly as before. No report means no scope.
+    """
+    report = runtime_ctx.get("report")
+    if report is None:
+        return []
+    out: list[Any] = []
+    seen: set = set()
+    for ds in list(runtime_ctx.get("run_agents") or []) + list(getattr(report, "data_sources", None) or []):
+        key = str(getattr(ds, "id", "") or id(ds))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ds)
+    return out
+
+
 def report_selection_is_auto(report: Any) -> bool:
     """Empty attached roster = Auto (the user never pinned a selection)."""
     return not list(getattr(report, "data_sources", None) or [])

@@ -160,6 +160,7 @@ class ReadQueryTool(Tool):
                 )
                 .where(
                     Visualization.id == viz_id,
+                    Visualization.artifact_release_id.is_(None),
                     *([Visualization.report_id == str(report.id)] if report else []),
                 )
             )
@@ -189,6 +190,7 @@ class ReadQueryTool(Tool):
                 .where(
                     Query.id == query_id,
                     Query.organization_id == str(organization.id),
+                    Query.artifact_release_id.is_(None),
                 )
             )
             query = result.scalar_one_or_none()
@@ -249,6 +251,54 @@ class ReadQueryTool(Tool):
             applied_params=getattr(step, "applied_params", None) if step else None,
         )
 
+    @staticmethod
+    async def _as_viewer(db, r: ReadQueryResult, report_id, user, allow_llm_see_data: bool) -> ReadQueryResult:
+        """Replace the stored snapshot with what `user` may actually see.
+
+        `Step.data` is materialized under the report owner's identity and
+        credentials. Every surface that serves step rows resolves them through
+        viewer_data_policy.resolve_step_data instead (see the banner on that
+        module) — this tool reads saved steps for whoever is running the agent,
+        a shared dashboard's viewer in artifact chat included, so it goes
+        through the same authority: the owner's snapshot for the owner, the
+        reader's own run when they have one, and nothing (no rows, no code, no
+        creator identity in applied_params) when the policy withholds it.
+        """
+        if not r.step_id or r.error or user is None:
+            return r
+        from app.models.report import Report as _Report
+        from app.models.step import Step as _Step
+        from app.services.viewer_data_policy import redact_applied_params, resolve_step_data
+
+        step = await db.get(_Step, r.step_id)
+        if step is None:
+            return r
+        step_report = await db.get(_Report, str(report_id)) if report_id else None
+        if step_report is not None and str(step_report.user_id) == str(user.id):
+            return r
+
+        resolution = await resolve_step_data(db, step, step_report, user)
+        r.applied_params = redact_applied_params(
+            r.applied_params, r.parameters, withheld=resolution.withheld
+        )
+        if resolution.withheld:
+            # Same boundary as the read endpoints: no rows, and no code either
+            # (SQL leaks the schema, tables and filters behind them).
+            r.data = None
+            r.data_preview = None
+            r.code = None
+            r.error = (
+                "This query's saved rows are not available to you: it runs under each "
+                "viewer's own identity and you have no result of your own for it."
+            )
+            return r
+        r.data = resolution.data
+        if isinstance(resolution.data, dict):
+            r.data_preview = build_data_preview(
+                resolution.data, allow_llm_see_data=allow_llm_see_data
+            )
+        return r
+
     async def _with_page(self, db, runtime_ctx, report, organization, r: ReadQueryResult,
                          data: ReadQueryInput, allow_llm_see_data: bool) -> ReadQueryResult:
         """Attach the requested rows window to ``r``.
@@ -304,10 +354,14 @@ class ReadQueryTool(Tool):
             user = runtime_ctx.get("user")
             params = await svc._resolve_step_params(
                 db, step, getattr(step, "applied_params", None), user, str(organization.id), specs)
-            df = await svc._execute_step_code(
-                db, step, full_report, current_user=user,
-                db_clients=runtime_ctx.get("ds_clients") or None,
+            from app.services.exec_context import ExecContext
+            ctx = ExecContext.from_report(
+                full_report, credential_user=user,
                 organization=organization, organization_settings=settings,
+            )
+            df = await svc._execute_step_code(
+                db, step, ctx,
+                db_clients=runtime_ctx.get("ds_clients") or None,
                 params=params, param_specs=specs, return_raw_df=True,
             )
         except Exception as exc:
@@ -392,16 +446,18 @@ class ReadQueryTool(Tool):
 
         # Saved monitoring data is gated before any rows, code, or titles reach the model.
         from app.services.bow_source_access import can_read, report_access, protect_report
+        from app.services.row_owner import query_report_id
         checked = []
         for r in results:
-            rid = await db.scalar(select(Query.report_id).where(Query.id == r.query_id)) if r.query_id else None
+            rid = await query_report_id(db, r.query_id) if r.query_id else None
             access = await report_access(db, rid)
             if not await can_read(db, access, runtime_ctx.get("user")):
                 checked.append(ReadQueryResult(query_id=r.query_id, error="Access denied"))
                 continue
             if access:
                 await protect_report(db, getattr(report, "id", None), access)
-            checked.append(r)
+            checked.append(await self._as_viewer(
+                db, r, rid, runtime_ctx.get("user"), allow_llm_see_data))
         results = checked
 
         if data.offset is not None or data.limit is not None:
