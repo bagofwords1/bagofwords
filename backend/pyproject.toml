@@ -38,7 +38,6 @@ dependencies = [
     "selectolax>=0.4.10,<0.5",
     "anthropic>=0.40.0,<0.41",
     "openai>=1.109.1,<1.110",
-    "google-generativeai>=0.8.6,<0.9",
     "google-genai>=1.75.0,<1.76",
     "google-api-python-client>=2.197.0,<2.198",
     "google-auth>=2.55.0,<2.56",
@@ -57,7 +56,6 @@ dependencies = [
     "pymongo>=4.18.2,<4.19",
     "pyodbc>=5.3.0,<5.4",
     "oracledb>=3.4.2,<3.5",
-    "vertica-python>=1.4.0,<1.5",
     "verticapy>=1.1.1,<1.2",
     "trino>=0.337.0,<0.338",
     "pinotdb>=5.7.0,<5.8",
@@ -75,7 +73,6 @@ dependencies = [
     "pillow>=13.0.0,<13.1",
     "openpyxl>=3.1.5,<3.2",
     "xlrd>=2.0.2,<2.1",
-    "xlsxwriter>=3.2.9,<3.3",
     "pypdf>=6.21.2,<6.22",
     "pdfminer-six>=20251107,<20260000",
     "python-pptx>=1.0.2,<1.1",
@@ -92,7 +89,6 @@ dependencies = [
     "tiktoken>=0.13.0,<0.14",
     # Model-written regex (search_agents, describe_tables) runs with a timeout; stdlib re has none.
     "regex>=2026.5.9,<2027",
-    "rapidfuzz>=3.14.5,<3.15",
     "partialjson>=0.0.9,<0.1",
     "pathspec>=1.1.1,<1.2",
     # gitpython < 3.2.0 is affected by SNYK-PYTHON-GITPYTHON-21246264 (Critical,
@@ -102,7 +98,6 @@ dependencies = [
     # Type of Input), all fixed in 3.2.0. gitpython is a direct dependency
     # (app/services/git_service.py).
     "gitpython>=3.2.0,<3.3",
-    "ipython>=8.39.0,<8.40",
     "fastapi-mail>=1.6.5,<1.7",
     "posthog>=6.9.3,<6.10",
     "stripe>=11.6.0,<11.7",

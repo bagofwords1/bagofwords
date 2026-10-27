@@ -1,5 +1,10 @@
 # Code cleanup audit — 2026-10-27
 
+> **Status (2026-10-27, later):** sections 1 (dead parts), 2, 3, 5 (components) and
+> 6 have been actioned — see `## Corrections` at the end for four claims below
+> that implementation proved wrong. The remaining open items are the
+> `BOW_PLANNER=v2` retirement (§1), §4, §7, §8 and §9.
+
 Research only; nothing was changed. Every claim below was verified by
 import-reachability analysis (AST walk from `main.py` / `bow-eval.py` /
 `app/ee/routes.py`, with the dynamic loaders — `app/ai/registry.py`,
@@ -51,9 +56,18 @@ Current state of that directory:
 | `prompt_blocks.py` | 32 | Exists to keep v2 and v3 prompt text in sync |
 
 v3 is the default (`app/ai/agent_v2.py:1051`); v2 is reachable only by setting
-`BOW_PLANNER=v2`. Retiring the flag deletes **~2,300 LOC**, removes the
-if/else at `agent_v2.py:1052-1070`, and removes the dual-contract maintenance
-burden that `prompt_blocks.py` exists to carry.
+`BOW_PLANNER=v2`.
+
+**Correction (from implementation):** retiring the flag is **not** a clean
+~2,300 LOC delete. `prompt_builder_v3.py:27` does
+`from .prompt_builder import PromptBuilder` and calls four of its helpers
+(`_format_user_prompt`, `_format_platform_context`, `_render_current_artifact`,
+`_compact_past_observations`) at eight call sites, so the live v3 path depends
+on the "deprecated" v2 builder. Those helpers must be extracted to a shared
+module first, and four tests import `PromptBuilder` directly. `prompt_blocks.py`
+is genuinely shared (v3 imports `NO_OVERFIT_BLOCK`) and stays either way.
+Realistic delete after extraction: `planner_v2.py` (244) + `planner_state.py`
+(21) + whatever of `prompt_builder.py` (1,263) is v2-only.
 
 Two more agents fall out with it:
 
@@ -83,9 +97,16 @@ remaining live consumer is a backwards-compat name lookup in
 `app/ai/tools/mcp_tool_registry.py:60` (`mcp_native_tools_max` → `tools_max`),
 which can be kept as a one-line special case.
 
-So: a user-facing settings block where **four toggles do nothing at all** and
-three gate dead code. This is worth removing both for the LOC and because it
-mis-advertises behaviour to admins.
+So: a settings block where **four toggles do nothing at all** and three gate
+dead code.
+
+**Correction (from implementation):** this is *not* a user-facing surface —
+`ai_settings.vue:331` skips the whole dict, so none of the seven ever rendered.
+And the `ai_features` key itself must **stay**: it is a read fallback for orgs
+that saved a setting under the old nested shape, consulted by
+`OrganizationSettings.get_config`, `mcp_tool_registry._stored` and
+`artifact_verification_policy`. Only the seven dead *declarations* were
+removable; the dict is now empty with a comment saying why it stays.
 
 ---
 
@@ -165,8 +186,15 @@ Nuxt directory-prefixed auto-import name):
 | `ee/components/UpgradeBanner.vue` | 46 |
 
 **Composables / utils with zero references:** `composables/useDebouncedRef.ts`
-(20), `composables/usePublicAgent.ts` (24), `utils/agentIcon.ts` (52),
-`utils/projectRoute.ts` (26).
+(20) only.
+
+**Correction (from implementation):** the other three in this list were FALSE
+POSITIVES. Nuxt auto-imports `composables/` and `utils/` by *exported symbol*,
+not by filename, so a file-level grep misses every real consumer:
+`utils/agentIcon.ts` exports `parseAgentIcon`, used by `DataSourceIcon.vue` and
+`AgentIconPicker.vue`; `utils/projectRoute.ts` exports `projectIdFromPath`, used
+by `composables/useProjects.ts`; `composables/usePublicAgent.ts` exports
+`createPublicAgent`, used by three connector components. All three are live.
 
 **`pages/old_agents/**` — 11 routable pages, 4,178 LOC.** Still reachable:
 `layouts/data.vue` links to it in five places (lines 7, 125, 138, 234-236), and
@@ -198,7 +226,13 @@ Verified by grepping the actual import name, not the package name:
 | `xlsxwriter` | no import anywhere (`openpyxl` is what's used) |
 | `ipython` | no `IPython` import anywhere |
 
-Each drops install size and one more thing for Snyk/Aikido to flag.
+**Correction (from implementation):** only three of the five shrink the
+install. `vertica-python` survives as a transitive dep of `verticapy`, and
+`xlsxwriter` as a transitive dep of `python-pptx`; dropping those two pins
+removes a redundant direct declaration (and our version ceiling), not the
+package. Removing all five took 16 packages out of `uv.lock`
+(`google-generativeai` + `google-ai-generativelanguage`, `ipython` + 10
+transitive, `rapidfuzz`).
 (I did **not** flag `bcrypt`/`argon2-cffi` — they look like deliberate
 transitive pins for `fastapi-users`' password helper.)
 
@@ -336,3 +370,60 @@ skill index.
 Items 1-3 are mechanical and could land as one PR each with no behaviour change.
 Item 8 and the dashboard/widget work you already named are the two that need a
 product call before any code moves.
+
+---
+
+## Corrections
+
+Four claims in this audit were wrong, found while implementing it. Each is
+annotated inline above; collected here so the method errors are reusable.
+
+1. **`utils/` and `composables/` deadness was checked by filename** (§5). Nuxt
+   auto-imports those directories by *exported symbol*, so a file-level grep
+   reports a live module as dead. Three of the four "dead" entries were live
+   (`parseAgentIcon`, `projectIdFromPath`, `createPublicAgent`). Components are
+   auto-imported by path-derived name, so the component findings were sound.
+   **Check exported symbols, not filenames.**
+2. **`ai_features` was called a user-facing settings surface** (§2). It has no
+   UI at all, and the key is a still-live read fallback for legacy stored
+   settings — only the seven declarations were dead, not the dict.
+3. **The `BOW_PLANNER=v2` retirement was sized as a delete** (§1). The live v3
+   prompt builder imports four helpers from the "deprecated" v2 builder, so it
+   needs an extraction first.
+4. **Two of the five unused deps survive transitively** (§6), so the install
+   shrinks by 16 packages, not by all five.
+
+### What was actioned
+
+| Change | Result |
+|---|---|
+| `planner.py` (v1), `agents/answer/`, `agents/dashboard_designer/`, empty `ai/agent.py` + `agents/router.py` | 1,199 LOC removed |
+| Stale `PlannerV2` import in the knowledge harness (it runs `PlannerV3`) | removed; `prompt_blocks.py` docstring corrected |
+| §3 dead backend modules | **not** done — not in the requested scope |
+| 7 dead `ai_features` declarations | removed, dict kept empty as a documented read fallback |
+| 5 dead Vue components + `useDebouncedRef.ts` | 1,208 LOC removed |
+| `pages/old_agents/**` (11 routes), `layouts/data.vue`, its one spec, and the 2 components it exclusively owned | 5,066 LOC removed |
+| 5 unused Python dep pins | 16 packages out of `uv.lock` |
+| `.snyk` exclude + 2 agent-skill references to the removed routes | updated |
+
+### Verification performed
+
+- `pytest tests/unit -n 4 --db=sqlite`: **319 failed, 8444 passed, 40 skipped** —
+  byte-identical to the same run on clean `HEAD`. All 319 are pre-existing
+  environment failures (missing `libodbc.so.2` and similar native libs for the
+  SharePoint/Sybase connector tests), not regressions.
+- `alembic upgrade head`, FastAPI app builds (70 routes), full import of
+  `agent_v2`.
+- `yarn build`: succeeds. (Needs `--max-old-space-size` above the 2 GB default;
+  `boot_stack.sh` already sets 4096.)
+- Full stack booted via `tools/agent/boot_stack.sh`; org + demo data source
+  seeded through the real API.
+- 18 authenticated pages driven in Chromium: all render distinct content with
+  zero console or page errors. `/old_agents` serves the 404 page and appears in
+  no built bundle.
+- One agent turn end to end against the stub LLM: `status=success`, no planner
+  errors in the backend log.
+- Playwright config still collects 80 tests in 24 files. The suite itself was
+  **not** run: its projects stage off a fresh DB (`setup` → `onboarding` → …)
+  and this DB was already seeded and onboarded, so a run would not have been
+  trustworthy.
