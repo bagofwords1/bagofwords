@@ -249,6 +249,9 @@ const GROUP_TYPE_MAP: Record<string, string> = {
   'FILES': 'file',
   'ENTITIES': 'entity',
   'CONNECTION TOOLS': 'connection_tool',
+  // Without this, an instruction mention fell through to 'entity' and the chip
+  // drew the table glyph — an instruction is not a table.
+  'INSTRUCTIONS': 'instruction',
 }
 
 export interface PromptMentionRef {

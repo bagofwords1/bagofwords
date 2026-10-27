@@ -260,6 +260,7 @@ const formatCategory = (category: string) => {
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
+    if (type === 'instruction') return 'i-heroicons-cube'
     return 'i-heroicons-circle'
 }
 
