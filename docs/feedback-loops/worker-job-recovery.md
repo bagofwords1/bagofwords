@@ -140,3 +140,9 @@ Final combined selection: **112 passed on SQLite** (47.91s) and **112 passed
 on PostgreSQL 15** (58.49s), including the added partial-deadline cases. Both
 runs applied the migration chain. No failing assertions remained in this
 selection; the full repository suite was not run.
+
+After rebasing onto `df64479eb`, the same **112-test selection passed on both
+SQLite and PostgreSQL** again. The first rerun exposed five failures caused by
+a test still mocking the removed `claim_scheduled_run` import; removing that
+obsolete mock restored the delivery-time permission tests. This was test
+adaptation required by this PR, not attributed to an upstream defect.
