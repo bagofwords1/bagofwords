@@ -209,6 +209,7 @@
     "pendingMany": "{n} שינויים ממתינים לבדיקה",
     "review": "בדיקה",
     "untitledInstruction": "הנחיה ללא כותרת",
+    "tokenCount": "~{count} טוקנים",
     "addDescriptionOptional": "הוסף תיאור (אופציונלי)",
     "instructionPlaceholder": "כתוב את ההנחיה ב-Markdown… (הקלד {'@'} כדי להזכיר טבלה או הנחיה)",
     "details": "פרטים",

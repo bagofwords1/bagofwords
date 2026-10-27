@@ -210,6 +210,7 @@
     "pendingMany": "{n} pending changes are waiting for review",
     "review": "Review",
     "untitledInstruction": "Untitled instruction",
+    "tokenCount": "~{count} tokens",
     "addDescriptionOptional": "Add a description (optional)",
     "instructionPlaceholder": "Write the instruction in markdown… (type {'@'} to mention a table or instruction)",
     "details": "Details",
