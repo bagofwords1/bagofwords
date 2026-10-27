@@ -270,3 +270,53 @@ def test_existing_public_share_can_still_be_edited_or_turned_off(test_client, cr
         fetched = test_client.get(f"/api/reports/{rid}", headers=h).json()
         assert fetched["artifact_visibility"] == "none"
         assert fetched["conversation_visibility"] == "none"
+
+
+# ---------------------------------------------------------------------------
+# Entry stored without its metadata
+# ---------------------------------------------------------------------------
+
+def _store_raw_setting(org_id, key, raw):
+    """Write a settings entry the way a build that did not know `key` yet
+    stored it (bare {"value": ...}, no name/description). Direct DB write:
+    the current API always stores the full feature shape."""
+    import asyncio
+    from sqlalchemy import select
+    from sqlalchemy.orm.attributes import flag_modified
+    from app.dependencies import async_session_maker
+    from app.models.organization_settings import OrganizationSettings
+
+    async def _write():
+        async with async_session_maker() as db:
+            row = (await db.execute(
+                select(OrganizationSettings).where(OrganizationSettings.organization_id == str(org_id))
+            )).scalar_one()
+            config = dict(row.config or {})
+            config[key] = raw
+            row.config = config
+            flag_modified(row, "config")
+            await db.commit()
+
+    asyncio.run(_write())
+
+
+@pytest.mark.e2e
+def test_setting_stored_without_metadata_is_honored_and_repairable(test_client, create_report, cast):
+    admin, owner = cast["admin"], cast["owner"]
+    org_id = admin["org_id"]
+    h = _headers(admin["token"], org_id)
+    report = _new_report(create_report, owner["token"], org_id)
+    assert _put_visibility(test_client, report["id"], "artifact", owner["token"], org_id, visibility="public").status_code == 200
+
+    _store_raw_setting(org_id, "allow_public_sharing", {"value": False})
+
+    # The stored "off" is enforced, not read as truthy.
+    assert test_client.get(f"/api/r/{report['id']}").status_code == 401
+
+    # Settings still load (and show the stored value) and can be changed back.
+    resp = test_client.get("/api/organization/settings", headers=h)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["config"]["allow_public_sharing"]["value"] is False
+
+    _set_public_sharing(test_client, admin, True)
+    assert test_client.get(f"/api/r/{report['id']}").status_code == 200

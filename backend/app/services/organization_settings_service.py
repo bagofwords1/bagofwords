@@ -78,6 +78,22 @@ class OrganizationSettingsService:
                 changed = True
         return changed
 
+    @classmethod
+    def _repair_partial_feature(cls, config: dict, key: str, schema_feature) -> bool:
+        """A feature entry stored without its metadata (e.g. {'value': False},
+        written by a build that did not know the key yet) fails the response
+        model and makes every settings read and write 500. Rebuild it from the
+        schema default, keeping the org's own value/state."""
+        stored = config.get(key)
+        if not (isinstance(stored, dict) and not cls._is_feature_dict(stored)
+                and cls._is_feature_dict(schema_feature)):
+            return False
+        merged = {**schema_feature, **{k: v for k, v in stored.items() if k in ('value', 'state')}}
+        if 'value' in stored and 'state' not in stored:
+            merged.pop('state', None)  # let FeatureConfig derive state from the stored value
+        config[key] = FeatureConfig(**merged).dict()
+        return True
+
     async def _sync_new_features(self, db: AsyncSession, settings: OrganizationSettings):
         """Sync the stored config with the schema: add new features, refresh
         code-owned metadata on existing ones (so renames/description edits and
@@ -96,6 +112,8 @@ class OrganizationSettingsService:
                  current_config[key] = feature_or_value if not isinstance(feature_or_value, FeatureConfig) else feature_or_value.dict()
                  config_modified = True
              elif self._refresh_feature_metadata(current_config[key], feature_or_value):
+                 config_modified = True
+             elif self._repair_partial_feature(current_config, key, feature_or_value):
                  config_modified = True
 
         # Drop stored feature entries (never plain values or nested blocks like

@@ -31,7 +31,14 @@ async def public_sharing_allowed(db: AsyncSession, organization_id) -> bool:
     cfg = settings.get_config(SETTING_KEY)
     if cfg is None:
         return True
-    value = cfg.value if hasattr(cfg, "value") else cfg
+    if hasattr(cfg, "value"):
+        value = cfg.value
+    elif isinstance(cfg, dict):
+        # Entry stored without its metadata (e.g. {"value": false}); see
+        # OrganizationSettingsService._repair_partial_feature.
+        value = cfg.get("value", True)
+    else:
+        value = cfg
     return bool(value)
 
 
