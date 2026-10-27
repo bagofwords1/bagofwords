@@ -408,10 +408,26 @@ annotated inline above; collected here so the method errors are reusable.
 
 ### Verification performed
 
-- `pytest tests/unit -n 4 --db=sqlite`: **319 failed, 8444 passed, 40 skipped** —
-  byte-identical to the same run on clean `HEAD`. All 319 are pre-existing
-  environment failures (missing `libodbc.so.2` and similar native libs for the
-  SharePoint/Sybase connector tests), not regressions.
+- `pytest tests/unit -n 4 --db=sqlite`: **210 failed, 8559 passed** on this
+  branch and **the identical 210-test failure set** on clean `HEAD`
+  (`diff` of the sorted FAILED lists is empty). Zero regressions.
+
+  An earlier run of this comparison reported 319 failures on both sides. That
+  number was inflated by my own harness: I had exported an invalid
+  `BOW_ENCRYPTION_KEY` (not a 32-byte url-safe base64 Fernet key), which fails
+  ~110 tests at encryption setup. With a real `Fernet.generate_key()` the count
+  is 210. The no-regression conclusion was unaffected — both sides ran with the
+  same bad key — but the characterisation of the failures as "missing
+  `libodbc.so.2` and similar" was wrong for most of them.
+
+  Of the 210: ~135 are the SharePoint on-prem/2010 connector suites, which need
+  `libodbc.so.2` and a CA bundle this container lacks; 28 are OBO stored-login
+  recovery (same ODBC import); 4 are `test_artifact_precompile.py`, which is
+  `skipif(not HAVE_BABEL)` and therefore only *runs* once `boot_stack.sh` has
+  downloaded `babel-standalone.min.js` — copying the vendor libs into a clean
+  `HEAD` worktree reproduces all 4 there, so they are pre-existing and merely
+  unmasked. Every one of these files was last touched between 2026-10-10 and
+  2026-10-23, before this PR's only commit.
 - `alembic upgrade head`, FastAPI app builds (70 routes), full import of
   `agent_v2`.
 - `yarn build`: succeeds. (Needs `--max-old-space-size` above the 2 GB default;
