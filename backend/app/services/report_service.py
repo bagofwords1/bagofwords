@@ -124,6 +124,14 @@ class ReportService:
 
         visibility = getattr(report, visibility_field, 'none') or 'none'
 
+        # Org turned public links off: a report still stored as 'public' only
+        # opens for members of its own org (the stored value is kept so the
+        # links come back if the setting is turned on again).
+        if visibility == 'public':
+            from app.services.public_sharing_policy import public_sharing_allowed
+            if not await public_sharing_allowed(db, report.organization_id):
+                visibility = 'internal'
+
         if visibility == 'none':
             # Only owner can access
             if user is None or str(user.id) != str(report.user_id):
@@ -335,6 +343,12 @@ class ReportService:
         await assert_shareable(db, report.id, visibility == 'public')
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
         previous_visibility = getattr(report, field, None)
+        # No new public shares while the org has them off. Re-sending an
+        # unchanged 'public' stays allowed: the share dialog does that when
+        # it saves display settings, and it opens nothing new.
+        if visibility == 'public' and previous_visibility != 'public':
+            from app.services.public_sharing_policy import assert_public_sharing_allowed
+            await assert_public_sharing_allowed(db, report.organization_id)
         setattr(report, field, visibility)
 
         if share_type == 'artifact' and run_identity in ('viewer', 'creator'):
@@ -826,6 +840,8 @@ class ReportService:
         from app.services.viewer_data_policy import has_rls_relations, has_user_scoped_connections
         report_schema.has_rls = await has_rls_relations(db, str(report.id))
         report_schema.has_user_scoped = await has_user_scoped_connections(db, str(report.id))
+        from app.services.public_sharing_policy import public_sharing_allowed
+        report_schema.public_sharing_allowed = await public_sharing_allowed(db, report.organization_id)
 
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
@@ -1127,6 +1143,9 @@ class ReportService:
         
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, report_data.status == 'published')
+        if report_data.status == 'published' and report.artifact_visibility != 'public':
+            from app.services.public_sharing_policy import assert_public_sharing_allowed
+            await assert_public_sharing_allowed(db, report.organization_id)
         if report_data.title:
             report.title = report_data.title
         if report_data.status:
@@ -1864,6 +1883,9 @@ class ReportService:
         
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, report.status != 'published')
+        if report.status != 'published' and report.artifact_visibility != 'public':
+            from app.services.public_sharing_policy import assert_public_sharing_allowed
+            await assert_public_sharing_allowed(db, report.organization_id)
         if report.status == 'published':
             report.status = 'draft'
             report.artifact_visibility = 'none'
@@ -3694,6 +3716,9 @@ class ReportService:
         
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, new_enabled)
+        if new_enabled and report.conversation_visibility != 'public':
+            from app.services.public_sharing_policy import assert_public_sharing_allowed
+            await assert_public_sharing_allowed(db, report.organization_id)
         if new_enabled:
             # Generate a new token if enabling and no token exists
             if not report.conversation_share_token:

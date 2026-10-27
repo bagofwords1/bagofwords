@@ -3066,7 +3066,7 @@
         },
         "workspace": {
           "title": "Espacio de trabajo",
-          "description": "Webhooks, bifurcaciones y retención de datos"
+          "description": "Enlaces públicos, webhooks, bifurcaciones y retención de datos"
         },
         "other": {
           "title": "Otros",
@@ -3184,6 +3184,10 @@
         "allow_forks": {
           "name": "Permitir bifurcaciones",
           "description": "Permite a los usuarios bifurcar informes publicados hacia su propio espacio de trabajo"
+        },
+        "allow_public_sharing": {
+          "name": "Compartir con enlace público",
+          "description": "Permite compartir paneles y conversaciones con cualquier persona que tenga el enlace, incluidas personas ajenas a la organización. Si se desactiva, los enlaces que ya son públicos solo se abren para los miembros de esta organización que hayan iniciado sesión; al volver a activarlo se restauran."
         },
         "mcp_enabled": {
           "name": "MCP",
@@ -4128,10 +4132,13 @@
     "visibilityInternalDesc": "Todos los miembros de la organización pueden acceder",
     "visibilityPublic": "Cualquiera con el enlace",
     "visibilityPublicDesc": "Cualquiera puede ver",
+    "visibilityPublicDisabledDesc": "Desactivado por el administrador de su organización",
     "runOnBehalf": "Ejecutar en mi nombre",
     "runOnBehalfDesc": "Este panel usa conexiones de datos por usuario. Por defecto, los espectadores lo ejecutan con su propia conexión; actívalo para que sus ejecuciones usen la tuya. Cada espectador sigue viendo solo sus propios resultados.",
     "runOnBehalfRlsDisabled": "No disponible: este panel usa seguridad a nivel de fila, por lo que los espectadores siempre se ejecutan con su propia identidad.",
     "publicPerUserNote": "Los datos de este panel son por usuario. Los visitantes deben iniciar sesión y tener acceso a los datos; los demás solo ven el diseño.",
+    "publicDisabledNote": "Los enlaces públicos están desactivados en su organización, por lo que solo los miembros que hayan iniciado sesión pueden abrir este enlace.",
+    "publicLinksOff": "Los enlaces públicos están desactivados en su organización.",
     "copyLink": "Copiar enlace",
     "copied": "¡Copiado!",
     "sharingUpdated": "Compartir actualizado",
@@ -4256,7 +4263,8 @@
     "member_attributes.invalid": "Atributos de miembro no válidos.",
     "member_identity.invalid": "Asignación de identidad por miembro no válida.",
     "member_identity.not_configured": "Un administrador aún no ha elegido qué atributo de miembro identifica a los miembros en esta conexión.",
-    "member_identity.unresolved": "Tu cuenta en esta conexión aún no está configurada. Pide a un administrador que defina tus atributos de miembro ({attributes})."
+    "member_identity.unresolved": "Tu cuenta en esta conexión aún no está configurada. Pide a un administrador que defina tus atributos de miembro ({attributes}).",
+    "sharing.public_disabled": "Compartir con enlace público está desactivado en esta organización."
   },
   "email": {
     "dashboardShare": {

@@ -3146,7 +3146,7 @@
         },
         "workspace": {
           "title": "Workspace",
-          "description": "Webhooks, forks and data retention"
+          "description": "Public links, webhooks, forks and data retention"
         },
         "other": {
           "title": "Other",
@@ -3264,6 +3264,10 @@
         "allow_forks": {
           "name": "Allow Forks",
           "description": "Allow users to fork published reports into their own workspace"
+        },
+        "allow_public_sharing": {
+          "name": "Public link sharing",
+          "description": "Allow dashboards and conversations to be shared with anyone who has the link, including people outside the organization. When off, links that are already public only open for signed-in members of this organization; turning it back on restores them."
         },
         "mcp_enabled": {
           "name": "MCP",
@@ -4190,10 +4194,13 @@
     "visibilityInternalDesc": "All org members can access",
     "visibilityPublic": "Anyone with link",
     "visibilityPublicDesc": "Anyone can view",
+    "visibilityPublicDisabledDesc": "Turned off by your organization's admin",
     "runOnBehalf": "Run on my behalf",
     "runOnBehalfDesc": "This dashboard uses per-user data connections. By default viewers run it with their own connection; turn this on to let their runs use yours. Each viewer still sees only their own results.",
     "runOnBehalfRlsDisabled": "Not available: this dashboard uses row-level security, so viewers always run under their own identity.",
     "publicPerUserNote": "This dashboard's data is per-user. Visitors must sign in and have data access; others only see the layout.",
+    "publicDisabledNote": "Public links are turned off for your organization, so only signed-in members can open this link.",
+    "publicLinksOff": "Public links are turned off for your organization.",
     "copyLink": "Copy link",
     "copied": "Copied!",
     "sharingUpdated": "Sharing updated",
@@ -4316,7 +4323,8 @@
     "member_attributes.invalid": "Invalid member attributes.",
     "member_identity.invalid": "Invalid per-member identity mapping.",
     "member_identity.not_configured": "An admin hasn't chosen which member attribute identifies members on this connection yet.",
-    "member_identity.unresolved": "Your account on this connection isn't set up yet. Ask an admin to set your member attributes ({attributes})."
+    "member_identity.unresolved": "Your account on this connection isn't set up yet. Ask an admin to set your member attributes ({attributes}).",
+    "sharing.public_disabled": "Public link sharing is turned off for this organization."
   },
   "email": {
     "dashboardShare": {

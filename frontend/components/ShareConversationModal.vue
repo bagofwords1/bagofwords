@@ -17,8 +17,16 @@
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
                 Enable conversation sharing
-                <UToggle color="sky" :model-value="isShared" class="ms-2" @update:model-value="toggleShare" :loading="isLoading" />
+                <UToggle color="sky" :model-value="isShared" class="ms-2" @update:model-value="toggleShare" :loading="isLoading"
+                    :disabled="!isShared && !publicSharingAllowed" />
             </div>
+            <!-- Org turned public links off: no new share; an existing one only
+                 opens for signed-in members of the organization. -->
+            <p v-if="!publicSharingAllowed" data-testid="public-sharing-disabled-note"
+                class="flex items-start gap-1.5 mt-2 text-xs text-amber-700 dark:text-amber-400">
+                <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                <span>{{ isShared ? $t('share.publicDisabledNote') : $t('share.publicLinksOff') }}</span>
+            </p>
             <div class="flex flex-col mt-4 text-sm" v-if="isShared && shareToken">
                 <div class="my-2 font-semibold">Share URL</div>
                 <div class="flex">
@@ -80,6 +88,9 @@ const modalOpen = computed({
 // Local state for sharing status
 const isShared = ref(false);
 const shareToken = ref<string | null>(null);
+// Org setting allow_public_sharing, from GET /reports/{id}.
+const publicSharingAllowed = ref(true);
+const { getErrorMessage } = useErrorMessage();
 
 /**
  * Note: in some screens, `report` is a partial object and may not include
@@ -94,6 +105,7 @@ const syncFromProps = () => {
     if (r.conversation_share_token !== undefined) {
         shareToken.value = r.conversation_share_token ?? null;
     }
+    publicSharingAllowed.value = r.public_sharing_allowed !== false;
 };
 
 const fetchShareStatus = async () => {
@@ -106,6 +118,7 @@ const fetchShareStatus = async () => {
 
     isShared.value = enabled;
     shareToken.value = token;
+    publicSharingAllowed.value = data?.public_sharing_allowed !== false;
 
     // Best-effort: keep parent object in sync too
     if (props.report) {
@@ -150,7 +163,7 @@ const toggleShare = async (newValue: boolean) => {
         const response = await useMyFetch(`/reports/${props.report.id}/conversation-share`, { method: 'POST' });
 
         if (response.error.value) {
-            throw new Error('Failed to toggle sharing');
+            throw response.error.value;
         }
 
         const data = response.data.value as { enabled: boolean; token: string | null };
@@ -171,7 +184,7 @@ const toggleShare = async (newValue: boolean) => {
     } catch (error) {
         toast.add({
             title: 'Error',
-            description: 'Failed to toggle conversation sharing',
+            description: getErrorMessage(error, 'Failed to toggle conversation sharing'),
             color: 'red',
         });
     } finally {

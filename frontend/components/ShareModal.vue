@@ -1,6 +1,6 @@
 <template>
     <UTooltip :text="buttonLabel">
-        <button @click="openModal"
+        <button @click="openModal" :data-testid="`share-modal-trigger-${shareType}`"
             :class="[
                 'items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-600 dark:text-gray-400',
                 compact ? 'p-1.5' : 'px-2 py-1 text-xs'
@@ -56,9 +56,17 @@
 
             <!-- Public link on a per-user-data dashboard: the link is open to
                  anyone, but data resolves per signed-in viewer — say so. -->
-            <p v-if="shareType === 'artifact' && currentVisibility === 'public' && showRunIdentity"
+            <p v-if="shareType === 'artifact' && effectiveVisibility === 'public' && showRunIdentity"
                 class="text-[11px] text-gray-400 -mt-3 mb-5">
                 {{ $t('share.publicPerUserNote') }}
+            </p>
+
+            <!-- Shared publicly before the org turned public links off: the
+                 backend now treats it as organization-only. -->
+            <p v-if="publicLinkSuspended" data-testid="public-sharing-disabled-note"
+                class="flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-400 -mt-3 mb-5">
+                <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 flex-shrink-0 mt-px" />
+                <span>{{ $t('share.publicDisabledNote') }}</span>
             </p>
 
             <!-- Share link -->
@@ -250,6 +258,7 @@ const props = withDefaults(defineProps<{
 
 const toast = useToast()
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 const { smtpEnabled } = useAppSettings()
 const modalOpen = ref(false)
 const isSaving = ref(false)
@@ -327,11 +336,21 @@ const hasRls = ref(false)
 const hasUserScoped = ref(false)
 const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
+// Org setting allow_public_sharing (sent on GET /reports/{id}). Off = no new
+// "anyone with the link" shares, and an existing public share only opens for
+// org members.
+const publicSharingFetched = ref<boolean | null>(null)
+const publicSharingAllowed = computed(() =>
+    publicSharingFetched.value ?? (props.report?.public_sharing_allowed !== false)
+)
+
 const visibilityOptions = computed(() => [
     { value: 'none', label: t('share.visibilityPrivate'), description: t('share.visibilityPrivateDesc'), icon: 'heroicons:lock-closed' },
     { value: 'shared', label: t('share.visibilityShared'), description: t('share.visibilitySharedDesc'), icon: 'heroicons:user-group' },
     { value: 'internal', label: t('share.visibilityInternal'), description: t('share.visibilityInternalDesc'), icon: 'heroicons:building-office' },
-    { value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDesc'), icon: 'heroicons:globe-alt' },
+    publicSharingAllowed.value
+        ? { value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDesc'), icon: 'heroicons:globe-alt' }
+        : { value: 'public', label: t('share.visibilityPublic'), description: t('share.visibilityPublicDisabledDesc'), icon: 'heroicons:globe-alt', disabled: true },
 ])
 
 const visibilityField = computed(() =>
@@ -340,6 +359,12 @@ const visibilityField = computed(() =>
 
 const isShared = computed(() => currentVisibility.value !== 'none')
 
+// Stored as public while the org has public links off. The stored value is
+// kept (and re-sent unchanged by the display toggles) so the link comes back
+// if the setting is turned on again; until then it behaves as Organization.
+const publicLinkSuspended = computed(() => currentVisibility.value === 'public' && !publicSharingAllowed.value)
+const effectiveVisibility = computed(() => (publicLinkSuspended.value ? 'internal' : currentVisibility.value))
+
 const shareDescription = computed(() =>
     props.shareType === 'artifact'
         ? t('share.shareDashboardDesc')
@@ -347,7 +372,7 @@ const shareDescription = computed(() =>
 )
 
 const selectedOption = computed(() =>
-    visibilityOptions.value.find(o => o.value === currentVisibility.value) || visibilityOptions.value[0]
+    visibilityOptions.value.find(o => o.value === effectiveVisibility.value) || visibilityOptions.value[0]
 )
 
 const buttonLabel = computed(() => {
@@ -475,6 +500,10 @@ const fetchVisibility = async () => {
         if (res.data.value) {
             const data = res.data.value as any
             currentVisibility.value = data[visibilityField.value] || 'none'
+            if (typeof data.public_sharing_allowed === 'boolean') {
+                publicSharingFetched.value = data.public_sharing_allowed
+                if (props.report) props.report.public_sharing_allowed = data.public_sharing_allowed
+            }
             hasRls.value = !!data.has_rls
             hasUserScoped.value = !!data.has_user_scoped
             if (data.shared_run_identity !== undefined) {
@@ -576,8 +605,10 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
             title: visibility === 'none' ? t('share.sharingDisabled') : t('share.sharingUpdated'),
             color: 'green',
         })
-    } catch {
-        toast.add({ title: t('share.sharingFailed'), color: 'red' })
+    } catch (e) {
+        // Show what the server stored, not the option that was refused.
+        currentVisibility.value = props.report?.[visibilityField.value] || 'none'
+        toast.add({ title: t('share.sharingFailed'), description: getErrorMessage(e), color: 'red' })
     } finally {
         isSaving.value = false
     }
@@ -686,6 +717,10 @@ const onChatAgentsChange = async () => {
 const onVisibilityChange = async (value: string) => {
     const prev = props.report?.[visibilityField.value] || 'none'
     if (value === prev) return
+    if (value === 'public' && !publicSharingAllowed.value) {
+        currentVisibility.value = prev
+        return
+    }
 
     const userIds = value === 'shared' ? sharedUserIds() : undefined
     const groupIds = value === 'shared' ? sharedGroupIds() : undefined
