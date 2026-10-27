@@ -98,9 +98,18 @@ do. Avoid `transition-all`; name the property. Loading shimmer is the single
 `z-modal`, `z-popover`, `z-tooltip`, `z-toast`). Never invent a `z-[1050]`.
 
 **Press feedback and focus** are global (`assets/css/tokens.css`): every
-`button` and `[role="button"]` gets an active-state nudge, and
-`:focus-visible` gets a ring. Opt an element out with `.no-press` where the
-nudge is wrong (drag handles, gridstack items, resizers).
+`button` and `[role="button"]` gets an active-state nudge. Opt an element out
+with `.no-press` where the nudge is wrong (drag handles, gridstack items,
+resizers).
+
+The focus ring is a **zero-specificity fallback**, written with `:where()` so
+it sits below every class in the cascade. Any `outline-*`, `ring-*` or
+`focus-visible:*` utility you write beats it automatically — you never need to
+fight it, and `outline-none` means what it says. It paints only on links,
+buttons and `[tabindex]` elements that style focus nowhere else. Form controls
+are excluded on purpose: Nuxt UI rings them, and the app's own inputs are
+often deliberately `outline-none` inside a styled wrapper. If you need a focus
+style, write it on the element — do not widen this rule.
 
 **Numbers.** Add `.nums` to table cells and KPIs so digits are tabular and
 columns stop shifting between rows.

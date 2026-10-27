@@ -161,12 +161,41 @@ button:not(:disabled):not([aria-disabled='true']):active,
 }
 
 /*
- * Focus rings: visible for keyboard users, absent for mouse users. The app
- * has 753 `focus:` variants against 44 `focus-visible:`, so rings were
- * firing on click — which reads as sloppy rather than accessible. This is a
- * floor for elements that style neither.
+ * Focus rings, as a FALLBACK ONLY, for elements that style focus nowhere else.
+ *
+ * The first version of this rule was a bare `:focus-visible { outline: ... }`,
+ * which was wrong twice over:
+ *
+ *   1. It outranked deliberate opt-outs. The app has 318 of them (254
+ *      `focus:outline-none`, 59 `outline-none`, 5 `focus-visible:outline-none`).
+ *      A bare `:focus-visible` has the same specificity as a `.outline-none`
+ *      utility, so the winner came down to stylesheet order — and this file
+ *      is registered first in nuxt.config, so it won. Every one of those 318
+ *      opt-outs was being overridden.
+ *   2. An outline does not follow the border radius of an element that has
+ *      none. `components/prompt/ModelPickerPanel.vue` puts a borderless
+ *      `outline-none` input inside a rounded grey pill; the override drew a
+ *      hard square rectangle around the rounded container, offset by 2px.
+ *
+ * Both are fixed by wrapping everything in `:where()`, which contributes
+ * ZERO specificity. The rule now sits below every class in the cascade, so
+ * any `outline-*`, `ring-*` or `focus-visible:*` utility — Nuxt UI's own
+ * included — beats it automatically. It only paints where genuinely nothing
+ * else does, which is the 1,089 hand-rolled `<button>`s this was added for.
+ *
+ * Form controls are excluded as well: they either come from Nuxt UI (which
+ * gives them a ring, and a second outline would double it) or are styled
+ * through a wrapper, as in the ModelPickerPanel case above.
  */
-:focus-visible {
+:where(
+    a[href],
+    button,
+    summary,
+    [role='button'],
+    [role='tab'],
+    [role='menuitem'],
+    [tabindex]:not([tabindex='-1'])
+  ):where(:focus-visible) {
   outline: 2px solid var(--bow-accent);
   outline-offset: 2px;
 }
