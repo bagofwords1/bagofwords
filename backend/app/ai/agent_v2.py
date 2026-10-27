@@ -201,9 +201,10 @@ def capabilities_for_agents(agents) -> set:
 
 def capabilities_for_report_files(has_files: bool) -> set:
     """Capabilities the report's OWN file space contributes to the tool
-    catalog. Session files back read_file (lazy content/pages/vision) and
-    grep_files (line sweep) even with no file connector attached; discovery
-    stays with the <files> index, so list/search remain connector-only."""
+    catalog. Session files (uploads, plus the run agents' library files)
+    back read_file (lazy content/pages/vision) and grep_files (line sweep)
+    even with no file connector attached; discovery stays with the <files>
+    index, so list/search remain connector-only."""
     return {"read_file", "grep_files"} if has_files else set()
 
 
@@ -813,11 +814,24 @@ class AgentV2:
                 if not (getattr(f, 'content_type', '') or '').startswith('image/')
                 and not str(getattr(f, 'source_ref', '') or '').endswith('#source')
             ]
+            # Files in the run agents' libraries, resolved live (Auto mode and
+            # files uploaded after the conversation started included). They
+            # join the analyzable roster; images among them stay out of the
+            # vision set — they are agent material, not user attachments.
+            from app.ai.context.agent_files import agent_library_files, merge_files
+            self.agent_files = agent_library_files(
+                self.data_sources, getattr(organization, "id", None)
+            )
+            self.analysis_files = merge_files(self.analysis_files, [
+                f for f in self.agent_files
+                if not (getattr(f, 'content_type', '') or '').startswith('image/')
+            ])
         else:
             self.data_sources = []
             self.clients = {}
             self.image_files = []
             self.analysis_files = []
+            self.agent_files = []
 
         self.sigkill_event = asyncio.Event()
         # Set once the final answer is saved; a non-streaming caller waits on
@@ -2552,6 +2566,7 @@ class AgentV2:
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
                         "memory_trace": getattr(self, "_memory_trace", {}),
                         "project_files": await self._get_project_files(),
+                        "agent_files": getattr(self, "agent_files", None) or [],
                         "project_manager": self.project_manager,
                         "model": self.model,
                         "reasoning_effort": getattr(self, "_reasoning_effort", None),
@@ -6736,6 +6751,7 @@ class AgentV2:
                                         "current_step": _inv.current_step,
                                         "current_step_id": _inv.current_step_id,
                                         "project_files": await self._get_project_files(),
+                                        "agent_files": getattr(self, "agent_files", None) or [],
                                         "project_manager": self.project_manager,
                                         "model": self.model,
                                         "reasoning_effort": getattr(self, "_reasoning_effort", None),
@@ -8713,7 +8729,10 @@ class AgentV2:
         grep_files with no file connector attached)."""
         caps = capabilities_for_agents(self._run_capability_agents())
         try:
-            caps |= capabilities_for_report_files(bool(getattr(self.report, "files", None)))
+            caps |= capabilities_for_report_files(
+                bool(getattr(self.report, "files", None))
+                or bool(getattr(self, "agent_files", None))
+            )
         except Exception:
             logger.warning("[agent] report files unavailable for capability gating", exc_info=True)
         return caps

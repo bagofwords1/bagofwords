@@ -31,6 +31,7 @@ from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._text_window import outline_from_patterns
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_OBSERVATION,
     ANON_PREVIEW_NOTE,
@@ -78,29 +79,7 @@ def build_outline(code: str, mode: str) -> str:
     Returns lines like `  123: function RevenueChart()` so the planner can
     navigate a long artifact and follow up with targeted range/grep reads.
     """
-    patterns = _outline_patterns(mode)
-    lines = code.split("\n")
-    entries: List[str] = []
-    for i, line in enumerate(lines):
-        if any(p.search(line) for p in patterns):
-            text = line.strip()
-            if len(text) > 160:
-                text = text[:160] + "…"
-            entries.append(f"{i + 1:>6}: {text}")
-            if len(entries) >= OUTLINE_MAX_ENTRIES:
-                entries.append(f"     … outline truncated at {OUTLINE_MAX_ENTRIES} entries ({len(lines)} lines total)")
-                break
-    if not entries:
-        # Nothing structural matched — show evenly spaced sample lines so the
-        # planner still gets landmarks to range-read around.
-        step = max(1, len(lines) // 40)
-        for i in range(0, len(lines), step):
-            text = lines[i].strip()
-            if text:
-                entries.append(f"{i + 1:>6}: {text[:160]}")
-            if len(entries) >= 40:
-                break
-    return "\n".join(entries)
+    return outline_from_patterns(code, _outline_patterns(mode), max_entries=OUTLINE_MAX_ENTRIES)
 
 
 def slice_range(code: str, offset: int, limit: Optional[int]) -> Tuple[str, int, int, int, bool]:
