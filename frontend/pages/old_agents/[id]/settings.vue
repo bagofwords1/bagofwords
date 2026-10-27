@@ -52,7 +52,7 @@
                         <button
                             v-if="canManageDsMembers"
                             @click="openAdd"
-                            class="px-2.5 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                            class="px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                         >
                             Add member
                         </button>
@@ -245,7 +245,7 @@
 
                 <div class="flex justify-end space-x-2 mt-4">
                     <button @click="showAddModal = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
-                    <button @click="addSelected" :disabled="addDisabled || adding" class="px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                    <button @click="addSelected" :disabled="addDisabled || adding" class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                         {{ adding ? 'Adding…' : 'Add' }}
                     </button>
                 </div>
@@ -259,7 +259,7 @@
                 <div class="text-xs text-gray-600 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
                 <div class="flex justify-end gap-2 mt-5">
                     <button @click="showDelete = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
-                    <button @click="confirmDelete" :disabled="deleting" class="px-3 py-1.5 text-xs bg-red-500 text-white rounded-lg hover:bg-red-600 disabled:opacity-50">
+                    <button @click="confirmDelete" :disabled="deleting" class="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
                         {{ deleting ? 'Deleting…' : 'Delete' }}
                     </button>
                 </div>

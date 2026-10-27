@@ -74,7 +74,7 @@
                                     :aria-pressed="recurDays.includes(d.value)"
                                     class="flex items-center justify-center w-6 h-6 rounded-full text-2xs font-medium border transition-colors"
                                     :class="recurDays.includes(d.value)
-                                        ? 'bg-blue-500 text-white border-blue-500'
+                                        ? 'bg-blue-600 text-white border-blue-500'
                                         : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'"
                                 >
                                     {{ d.short }}
@@ -157,7 +157,7 @@
                     <button
                         @click="scheduleReport"
                         :disabled="isSaving"
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 border border-transparent rounded-md hover:bg-blue-600 disabled:opacity-40"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 disabled:opacity-40"
                     >
                         <Spinner v-if="isSaving" class="w-3.5 h-3.5" />
                         {{ scheduleEnabled ? 'Schedule' : 'Save' }}

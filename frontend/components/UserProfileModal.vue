@@ -10,7 +10,7 @@
             alt=""
             class="w-12 h-12 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
           />
-          <div v-else class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-500 text-white text-lg font-bold">
+          <div v-else class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-600 text-white text-lg font-bold">
             {{ userInitial }}
           </div>
           <div class="min-w-0 w-full">
@@ -68,7 +68,7 @@
                 />
                 <div
                   v-else
-                  class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-2xl font-bold"
+                  class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-600 text-white text-2xl font-bold"
                 >
                   {{ userInitial }}
                 </div>

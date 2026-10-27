@@ -19,7 +19,7 @@
           <div class="mt-2 mb-5" data-testid="management-account">
             <p class="status-meta font-medium text-gray-700 dark:text-gray-300">{{ $t(personalManagement ? 'data.yourAccount' : 'data.organizationAccount') }}</p>
             <p class="status-meta text-gray-500 mt-1">{{ $t(personalManagement ? 'data.managementPersonalHint' : 'data.managementOrganizationHint') }}</p>
-            <button v-if="needsPersonalSignIn" :disabled="signingIn" class="mt-2 inline-flex items-center gap-1.5 rounded bg-blue-500 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" @click="signIn"><Spinner v-if="signingIn" class="h-3 w-3" />{{ $t('data.signIn') }}</button>
+            <button v-if="needsPersonalSignIn" :disabled="signingIn" class="mt-2 inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" @click="signIn"><Spinner v-if="signingIn" class="h-3 w-3" />{{ $t('data.signIn') }}</button>
           </div>
           <div v-if="!needsPersonalSignIn" class="space-y-1 mb-6">
             <div class="flex items-start gap-2 status-body text-gray-800 dark:text-gray-200">
@@ -44,8 +44,8 @@
         </aside>
       </div>
       <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 dark:border-gray-800 pt-4">
-        <template v-if="editing"><button :disabled="state.busy" class="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-300" @click="cancelEdit">{{ $t('data.cancel') }}</button><button :disabled="loading || state.busy" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50" @click="form?.connect()">{{ state.busy ? $t('data.saving') : $t('common.saveChanges') }}</button></template>
-        <button v-else class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded" @click="open = false">{{ $t('data.setupDone') }}</button>
+        <template v-if="editing"><button :disabled="state.busy" class="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-300" @click="cancelEdit">{{ $t('data.cancel') }}</button><button :disabled="loading || state.busy" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50" @click="form?.connect()">{{ state.busy ? $t('data.saving') : $t('common.saveChanges') }}</button></template>
+        <button v-else class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded" @click="open = false">{{ $t('data.setupDone') }}</button>
       </div>
     </div>
   </UModal>

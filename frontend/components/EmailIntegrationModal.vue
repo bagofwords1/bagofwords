@@ -169,7 +169,7 @@
             class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
             {{ testingForm ? $t('settings.integrations.channels.common.testing') : $t('settings.integrations.channels.common.testConnection') }}
           </button>
-          <button type="submit" :disabled="submitting" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
+          <button type="submit" :disabled="submitting" class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
             {{ submitting ? $t('settings.integrations.channels.common.connecting') : $t('settings.integrations.channels.common.connect') }}
           </button>
         </div>

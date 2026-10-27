@@ -184,7 +184,7 @@
           </div>
 
           <div class="flex items-center gap-3 justify-start rtl:flex-row-reverse pt-4">
-            <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+            <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
               <span v-if="saving">Saving...</span>
               <span v-else>Finish</span>
             </button>

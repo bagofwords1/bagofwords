@@ -475,7 +475,7 @@
           <button
             type="submit"
             :disabled="!polishInstruction.trim()"
-            class="self-end px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            class="self-end px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {{ $t('artifactFrame.apply') }}
           </button>

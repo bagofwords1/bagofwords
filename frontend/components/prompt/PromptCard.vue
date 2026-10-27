@@ -82,7 +82,7 @@
     <!-- Footer: Run -->
     <div class="flex justify-end mt-3 pt-3 border-t border-gray-100 dark:border-gray-800">
       <button
-        class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+        class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50"
         :disabled="running"
         @click.stop="$emit('run', prompt)"
       >

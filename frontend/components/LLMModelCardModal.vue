@@ -13,7 +13,7 @@
                 <div class="leading-tight min-w-0">
                     <div class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 flex-wrap">
                         <span class="truncate">{{ model.name }}</span>
-                        <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                        <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                         <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                     </div>
                     <div class="text-xs text-gray-500 dark:text-gray-400 truncate">
@@ -97,7 +97,7 @@
                      another model, so these are buttons rather than draft toggles. -->
                 <div class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.badgeDefault') }}</span>
-                    <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                    <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                     <UButton
                         v-else
                         size="2xs" color="gray" variant="soft"
@@ -205,7 +205,7 @@
                     </UTooltip>
                     <div class="ms-auto space-x-2">
                         <UButton color="gray" variant="soft" size="sm" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
-                        <UButton size="sm" class="!bg-blue-500 !text-white" :disabled="!isDirty || saving" :loading="saving" data-testid="card-save-button" @click="save">
+                        <UButton size="sm" class="!bg-blue-600 !text-white" :disabled="!isDirty || saving" :loading="saving" data-testid="card-save-button" @click="save">
                             {{ $t('settings.llms.save') }}
                         </UButton>
                     </div>

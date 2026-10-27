@@ -7,7 +7,7 @@
           <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('prompts.title') }}</h1>
           <button
             @click="openNew"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
           >
             <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('prompts.newPrompt') }}

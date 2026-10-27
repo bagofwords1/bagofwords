@@ -336,7 +336,7 @@
           type="button"
           @click="onConnectAccount"
           :disabled="signingIn"
-          class="mt-2 inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+          class="mt-2 inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
         >
           <Spinner v-if="signingIn" class="w-3.5 h-3.5" />
           Connect your account
@@ -637,7 +637,7 @@
       <button 
         @click="onSave" 
         :disabled="saving || bulkUpdating || catalogLoading"
-        class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+        class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>

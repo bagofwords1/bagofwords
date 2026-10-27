@@ -23,7 +23,7 @@
           </button>
           <ol v-show="setupGuideOpen" class="mt-2 space-y-3">
             <li v-for="(step, i) in setupGuide" :key="i" class="flex gap-2">
-              <span class="flex-none w-5 h-5 rounded-full bg-blue-500 text-white text-2xs font-semibold flex items-center justify-center mt-0.5">{{ i + 1 }}</span>
+              <span class="flex-none w-5 h-5 rounded-full bg-blue-600 text-white text-2xs font-semibold flex items-center justify-center mt-0.5">{{ i + 1 }}</span>
               <div class="min-w-0 flex-1">
                 <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ stepText(step, i, 'title') }}</div>
                 <div v-if="stepText(step, i, 'body')" class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-pre-line">{{ stepText(step, i, 'body') }}</div>
@@ -205,7 +205,7 @@
             </UTooltip>
 
             <UTooltip :text="!connectionTestPassed ? $t('data.passTestFirst') : ''">
-              <button type="submit" :disabled="submitting || !connectionTestPassed" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+              <button type="submit" :disabled="submitting || !connectionTestPassed" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
                 <span v-if="submitting">{{ $t('data.saving') }}</span>
                 <span v-else>{{ $t('data.saveAndContinue') }}</span>
               </button>

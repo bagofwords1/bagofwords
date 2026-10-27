@@ -74,7 +74,7 @@
                     :key="page"
                     @click="currentPage = page"
                     class="w-6 h-6 text-xs rounded-full transition-colors"
-                    :class="currentPage === page ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                    :class="currentPage === page ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
                   >
                     {{ page }}
                   </button>
@@ -155,7 +155,7 @@
               <button 
                 @click="handleSave" 
                 :disabled="saving"
-                class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+                class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
               >
                 <span v-if="saving">{{ $t('onboarding.context.saving') }}</span>
                 <span v-else>{{ $t('onboarding.context.save') }}</span>

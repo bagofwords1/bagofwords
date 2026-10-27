@@ -151,7 +151,7 @@
                 <UButton color="gray" variant="soft" size="sm" @click="open = false">{{ $t('settings.llms.cancel') }}</UButton>
                 <UButton
                     size="sm"
-                    class="!bg-blue-500 !text-white"
+                    class="!bg-blue-600 !text-white"
                     :disabled="!canSubmit || isSubmitting"
                     :loading="isSubmitting"
                     data-testid="add-model-submit"

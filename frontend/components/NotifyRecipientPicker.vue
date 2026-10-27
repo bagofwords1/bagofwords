@@ -45,7 +45,7 @@
             </span>
             <span v-else></span>
             <button @click="send" :disabled="recipients.length === 0 || isSending"
-                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Spinner v-if="isSending" class="w-3 h-3" />
                 <Icon v-else name="heroicons:paper-airplane" class="w-3 h-3" />
                 Send

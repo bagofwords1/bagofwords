@@ -184,7 +184,7 @@
             type="button"
             data-testid="license-key-save"
             :disabled="saving || !keyInput.trim()"
-            class="bg-blue-500 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
+            class="bg-blue-600 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
             @click="save"
           >
             {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}

@@ -45,7 +45,7 @@
                   <span v-if="personalCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: personalCheckedDisplay }) }}</span></span>
                 </div>
                 <div class="flex flex-wrap items-center gap-3 mt-3">
-                  <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-500 text-white hover:bg-blue-600"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
+                  <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-600 text-white hover:bg-blue-700"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
                   <template v-else>
                     <button @click="reloadMySchema" :disabled="reloadingMySchema || isIndexingActive(indexingState) || switchingIdentity" class="access-button border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"><Spinner v-if="reloadingMySchema || isIndexingActive(indexingState)" class="w-3.5 h-3.5" />{{ reloadingMySchema || isIndexingActive(indexingState) ? $t('data.refreshing') : $t('data.refreshAccess') }}</button>
                     <button @click="disconnect" :disabled="disconnecting || switchingIdentity" class="access-meta font-medium text-gray-500 hover:text-red-600 disabled:opacity-50">{{ disconnecting ? $t('data.disconnecting') : $t('data.signOut') }}</button>

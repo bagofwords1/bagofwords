@@ -108,7 +108,7 @@
 
       <div class="flex items-center gap-2">
         <button type="submit" :disabled="busy" data-testid="smtp-save"
-          class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
+          class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
           {{ saving ? 'Saving…' : 'Save' }}
         </button>
         <button type="button" v-if="form.enabled" :disabled="busy" @click="test" data-testid="smtp-test"

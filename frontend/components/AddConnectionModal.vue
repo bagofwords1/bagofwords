@@ -236,7 +236,7 @@
               <Spinner v-if="retesting" class="w-4 h-4" />
               {{ retesting ? $t('data.testing') : $t('data.testAgain') }}
             </button>
-            <button type="button" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" :disabled="formState.busy || retrying || (!!createdConnection && !isIndexingTerminal)" @click="primaryAction">
+            <button type="button" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2" :disabled="formState.busy || retrying || (!!createdConnection && !isIndexingTerminal)" @click="primaryAction">
               <Spinner v-if="formState.busy || retrying || (!!createdConnection && !isIndexingTerminal)" class="w-4 h-4" />
               {{ formState.busy ? $t('data.setupConnecting') : createdConnection && !isIndexingTerminal ? $t('data.indexing') : indexingState?.status === 'failed' ? $t('data.retry') : createdConnection ? $t('data.setupDone') : $t('data.connect') }}
             </button>

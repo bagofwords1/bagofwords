@@ -815,7 +815,7 @@
                         <UButton
                             type="submit"
                             :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"
-                            class="!bg-blue-500 !text-white"
+                            class="!bg-blue-600 !text-white"
                             @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
                         />
                     </div>

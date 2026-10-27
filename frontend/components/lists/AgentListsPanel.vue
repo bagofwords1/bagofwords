@@ -43,7 +43,7 @@
           v-if="canManage"
           type="button"
           data-testid="agent-list-new"
-          class="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600"
+          class="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
           @click="mode = 'create'"
         >
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
@@ -66,7 +66,7 @@
         <button
           v-if="canManage"
           type="button"
-          class="mt-4 inline-flex items-center gap-1 h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600"
+          class="mt-4 inline-flex items-center gap-1 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
           @click="mode = 'create'"
         >
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />

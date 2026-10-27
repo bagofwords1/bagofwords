@@ -6,7 +6,7 @@
     <div v-if="showGlobalOnboardingBanner" class="hidden sm:block fixed top-0 start-0 end-0 z-[1000]">
       <div
         @click="router.push(showGlobalOnboardingBannerLink)"
-        class="text-center cursor-pointer text-white text-sm bg-blue-500/95 dark:bg-blue-700/90 hover:bg-blue-600/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
+        class="text-center cursor-pointer text-white text-sm bg-blue-600/95 dark:bg-blue-700/90 hover:bg-blue-700/90 dark:hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
       >
         <UIcon name="i-heroicons-rocket-launch" class="h-5 me-2" />
         <span>{{ showGlobalOnboardingBannerText }}</span>
@@ -159,7 +159,7 @@
             <UTooltip v-if="isCollapsed" :text="$t(item.label)" :popper="{ placement: tooltipPlacement }">
               <span class="relative flex items-center justify-center w-5 h-5 text-base">
                 <UIcon :name="item.icon || 'i-heroicons-bell'" />
-                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-2xs font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+                <span v-if="notifUnread" class="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-2xs font-semibold leading-none flex items-center justify-center ring-2 ring-gray-50 dark:ring-gray-950">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
               </span>
             </UTooltip>
             <template v-else>
@@ -167,7 +167,7 @@
                 <UIcon :name="item.icon || 'i-heroicons-bell'" />
               </span>
               <span v-if="showText" class="flex-1 text-start">{{ $t(item.label) }}</span>
-              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-2xs font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
+              <span v-if="showText && notifUnread" class="min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-2xs font-semibold leading-none flex items-center justify-center">{{ notifUnread > 9 ? '9+' : notifUnread }}</span>
             </template>
           </button>
           <NuxtLink v-else :to="item.href" :class="[
@@ -463,7 +463,7 @@
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-2xs font-bold rounded-full">
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full">
                   {{ userInitial }}
                 </div>
               </UTooltip>
@@ -484,7 +484,7 @@
               </span>
               <template v-else-if="!isCollapsed">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-2xs font-bold rounded-full shrink-0">
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
                 <!-- Name, and under it the member's own quota. Inside this

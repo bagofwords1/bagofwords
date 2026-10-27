@@ -288,7 +288,7 @@
                 </UTooltip>
 
                 <UTooltip :text="!connectionTestPassed ? $t('onboarding.llm.passTestFirst') : ''">
-                  <UButton type="button" class="!bg-blue-500 !text-white text-xs py-1.5 px-3" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
+                  <UButton type="button" class="!bg-blue-600 !text-white text-xs py-1.5 px-3" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
                     <template v-if="isSaving">
                       <Spinner class="w-4 h-4 me-2 inline-block align-[-0.125em]" />
                       {{ $t('onboarding.llm.saving') }}

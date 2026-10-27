@@ -194,7 +194,7 @@
     </div>
 
     <div v-if="showSave && canUpdate && totalResources > 0" class="mt-3 flex justify-end">
-      <button @click="onSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+      <button @click="onSave" :disabled="saving" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>
       </button>

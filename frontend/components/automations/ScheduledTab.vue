@@ -23,7 +23,7 @@
           <button
             @click="openNewTask"
             :disabled="creatingTask"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors disabled:opacity-50"
           >
             <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
             <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />

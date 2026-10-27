@@ -98,7 +98,7 @@
                                 Cancel
                             </UButton>
                             <UButton
-                                class="!bg-blue-500 !text-white"
+                                class="!bg-blue-600 !text-white"
                                 :loading="isSaving"
                                 @click="submit"
                                 :disabled="!canSubmit"

@@ -188,7 +188,7 @@
                                 <div class="ms-2.5 leading-tight">
                                     <div class="text-sm font-medium text-gray-900 dark:text-white flex items-center gap-1.5">
                                         {{ model.name }}
-                                        <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
+                                        <span v-if="model.is_default" class="text-xs bg-blue-600 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeDefault') }}</span>
                                         <UTooltip v-if="model.is_small_default" :text="$t('settings.llms.smallDefaultTooltip')">
                                             <span class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md">{{ $t('settings.llms.badgeSmallDefault') }}</span>
                                         </UTooltip>
@@ -331,7 +331,7 @@
             <button
                 v-if="useCan('manage_llm_settings')"
                 @click="openAddProvider"
-                class="bg-blue-500 text-white text-sm px-4 py-2 rounded-md hover:bg-blue-600 transition-colors"
+                class="bg-blue-600 text-white text-sm px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
             >
                 {{ $t('settings.llms.addProvider') }}
             </button>

@@ -23,7 +23,7 @@
                     >
                         <div
                             class="w-5 h-5 rounded-full flex items-center justify-center text-2xs font-medium transition-colors"
-                            :class="step <= currentStep ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
+                            :class="step <= currentStep ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
                         >
                             <UIcon v-if="step < currentStep" name="i-heroicons-check" class="w-3 h-3" />
                             <span v-else>{{ step }}</span>

@@ -7,7 +7,7 @@
           <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('notifications.title') }}</h2>
           <span
             v-if="unread"
-            class="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-500 text-white text-2xs font-semibold leading-none flex items-center justify-center"
+            class="min-w-[18px] h-[18px] px-1 rounded-full bg-blue-600 text-white text-2xs font-semibold leading-none flex items-center justify-center"
           >{{ unread > 99 ? '99+' : unread }}</span>
         </div>
         <div class="flex items-center gap-1">
