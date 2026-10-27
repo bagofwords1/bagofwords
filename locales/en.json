@@ -338,7 +338,10 @@
     "unchangedLineOne": "{n} unchanged line",
     "unchangedLineMany": "{n} unchanged lines",
     "loadPendingFailed": "Couldn’t load pending changes.",
-    "allPendingResolved": "No pending changes — all resolved."
+    "allPendingResolved": "No pending changes — all resolved.",
+    "pushToGit": "Push to Git",
+    "pushToGitTip": "Push a build to the connected repository as a branch, with a pull request when an access token is set",
+    "pushToGitDisabledTip": "Turn on write access in the repository settings to push"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",

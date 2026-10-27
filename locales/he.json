@@ -338,7 +338,10 @@
     "unchangedLineOne": "שורה אחת ללא שינוי",
     "unchangedLineMany": "{n} שורות ללא שינוי",
     "loadPendingFailed": "לא ניתן לטעון את השינויים הממתינים.",
-    "allPendingResolved": "אין שינויים ממתינים — הכול טופל."
+    "allPendingResolved": "אין שינויים ממתינים — הכול טופל.",
+    "pushToGit": "דחיפה ל-Git",
+    "pushToGitTip": "דחיפת גרסה למאגר המחובר כענף, עם בקשת משיכה כאשר מוגדר אסימון גישה",
+    "pushToGitDisabledTip": "יש להפעיל הרשאת כתיבה בהגדרות המאגר כדי לדחוף"
   },
   "smoke": {
     "hello": "שלום",
