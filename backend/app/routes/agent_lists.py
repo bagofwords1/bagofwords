@@ -285,7 +285,10 @@ async def delete_list_rows(
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
     if payload.all:
-        # Clearing a shared list wipes what every linked agent saved.
+        # Clearing a shared list wipes what every linked agent saved. Hold the
+        # list while checking, as the field edit and delete-all do: a link
+        # added meanwhile would otherwise let the clear through.
+        await svc.lock_list(db, lst)
         access = await _access(db, current_user, organization, lst)
         if access.shared:
             _require_schema_authority(access)

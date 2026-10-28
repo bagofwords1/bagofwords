@@ -119,6 +119,9 @@ async def link_list(db, lst: AgentList, ds: DataSource, *, commit: bool = True) 
     if str(ds.organization_id) != str(lst.organization_id):
         raise HTTPException(status_code=404, detail="Agent not found")
     await lock_list(db, lst)
+    # Check again under the lock: the list may have been deleted meanwhile.
+    if lst.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="List not found")
     existing = await live_lists_for_agents(db, [ds.id])
     if any(str(l.id) == str(lst.id) for l in existing):
         return

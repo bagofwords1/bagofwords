@@ -388,6 +388,28 @@ def test_a_deleted_list_cannot_be_linked(test_client, world):
     assert world["list"]["id"] not in _lists(test_client, world, "other_agent")
 
 
+def test_a_list_deleted_while_linking_is_not_linked(test_client, world):
+    """The deleted check must hold for the committed list, not a copy loaded
+    before someone else deleted it."""
+    from app.models.agent_list import AgentList
+    from app.models.data_source import DataSource
+    from app.services.agent_lists import service as svc
+
+    async def _fn(db, maker):
+        lst = await db.get(AgentList, world["list"]["id"])  # loaded while live
+        ds = await db.get(DataSource, world["other_agent"]["id"])
+        await db.commit()  # end the read so the delete below can write (SQLite)
+        r = test_client.delete(f"/api/data_sources/{world['agent']['id']}/lists/{world['list']['id']}",
+                               headers=_h(world["admin"]["token"], world["org_id"]))
+        assert r.status_code == 204
+        await svc.link_list(db, lst, ds)
+
+    with pytest.raises(HTTPException) as exc:
+        run_async(_fn)
+    assert exc.value.status_code == 404
+    assert world["list"]["id"] not in _lists(test_client, world, "other_agent")
+
+
 def test_a_link_to_an_agent_the_list_left_still_opens_it_for_who_can_see_it(test_client, shared):
     """Chat cards remember the agent a row was saved through. After the list
     leaves that agent, the list is still reachable by id through an agent the
