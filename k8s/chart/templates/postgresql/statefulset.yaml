@@ -18,9 +18,10 @@
 {{- fail (printf `
 
 This release still runs the Bitnami PostgreSQL subchart (%s) from chart 2.x.
-Upgrading to chart 3.x moves the existing database onto the official postgres image.
-  1. Back up the database (pg_dump or a volume snapshot).
-  2. Read the 3.0.0 section of the chart CHANGELOG.
+Upgrading to chart 3.x restarts the database on the official postgres image,
+reusing the existing volume in place. There is no rollback to 2.x afterwards.
+  1. Read the 3.0.0 section of the chart CHANGELOG.
+  2. Recommended: snapshot the volume or pg_dump the database first.
   3. Re-run the upgrade with --set postgresql.migrateFromBitnami=true
 To stay on 2.x instead, pin the chart: --version "^2.0.0"` $liveChart) }}
 {{- end }}

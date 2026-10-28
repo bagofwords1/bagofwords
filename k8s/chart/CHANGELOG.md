@@ -15,11 +15,17 @@ Official Image `postgres:17-bookworm`, and has no chart dependencies.
 (`<volume>/data`, uid/gid 1001) and Secret keys (`password`,
 `postgres-password`) all match what the Bitnami subchart rendered, and both
 images are PostgreSQL 17 on Debian 12, so `helm upgrade` restarts the database
-pod on the new image against the same volume.
+pod on the new image against the same volume — nothing is copied or converted.
+Expect about a minute of database downtime: the old pod is stopped (up to 30s)
+and the new one replays the write-ahead log on its first start. The minor
+version moves from 17.2 to the current 17.x; check the PostgreSQL 17.x release
+notes for any reindex advice that applies to you.
 
 **Before upgrading:**
 
-1. Back up the database (`pg_dump`, or a volume snapshot).
+1. Recommended: snapshot the data volume or `pg_dump` the database. The data
+   is reused in place, but there is no rollback to 2.x — its Bitnami image can
+   no longer be pulled — so the backup is your way back if anything goes wrong.
 2. Remove Bitnami-only keys under `postgresql:` from your values (e.g.
    `architecture`, `primary.resourcesPreset`, `metrics`, `readReplicas`). They
    are now rejected by the values schema instead of being silently ignored. The
@@ -45,8 +51,8 @@ pod on the new image against the same volume.
    kubectl delete statefulset <release>-postgresql -n <namespace> --cascade=orphan
    ```
 
-   Deleting it also removes what the upgrade check looks for, so make sure you
-   took the backup in step 1 first.
+   Deleting it also removes what the upgrade check looks for, so take the
+   backup from step 1 before you do.
 
 ### Other changes in 3.0.0
 

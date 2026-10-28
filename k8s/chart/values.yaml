@@ -21,7 +21,8 @@ postgresql:
   # -- Confirm the one-time move of a chart 2.x database (Bitnami subchart)
   # onto this chart's PostgreSQL. While a release still runs the Bitnami
   # StatefulSet, `helm upgrade` fails until this is `true`, so an unpinned
-  # pipeline cannot migrate the database unattended. Back up first; see the
+  # pipeline cannot migrate the database unattended. A backup first is
+  # recommended (there is no rollback to 2.x); see the
   # 3.0.0 section of CHANGELOG.md. Not needed for fresh installs or after the
   # first 3.x upgrade.
   migrateFromBitnami: false
