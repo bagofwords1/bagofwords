@@ -615,26 +615,29 @@ class CustomQueryService:
         self, db: AsyncSession, connection: Connection, cq: ConnectionTable
     ) -> dict:
         """Soft-delete the relation, drop its agent activations, remove the file."""
-        self._unschedule(cq.id)
+        async with _lock_for(connection.id), artifacts.refresh_lock(connection.id):
+            await db.refresh(cq)
+            self._unschedule(cq.id)
 
-        # Agent activations must go too, or the relation lingers in contexts.
-        rows = (
-            await db.execute(
-                select(DataSourceTable).where(
-                    DataSourceTable.connection_table_id == cq.id
+            # Agent activations must go too, or the relation lingers in contexts.
+            rows = (
+                await db.execute(
+                    select(DataSourceTable).where(
+                        DataSourceTable.connection_table_id == cq.id
+                    )
                 )
-            )
-        ).scalars().all()
-        for r in rows:
-            await db.delete(r)
+            ).scalars().all()
+            for r in rows:
+                await db.delete(r)
 
-        artifacts.delete_artifact(cq.artifact_path)
-        name = cq.name
-        cq.deleted_at = datetime.utcnow()
-        cq.artifact_path = None
-        cq.artifact_key_enc = None
-        await db.commit()
-        return {"success": True, "message": f"Custom table '{name}' deleted"}
+            old_path = cq.artifact_path
+            name = cq.name
+            cq.deleted_at = datetime.utcnow()
+            cq.artifact_path = None
+            cq.artifact_key_enc = None
+            await db.commit()
+            artifacts.delete_artifact(old_path)
+            return {"success": True, "message": f"Custom table '{name}' deleted"}
 
     # -- refresh -----------------------------------------------------------
 
@@ -646,7 +649,13 @@ class CustomQueryService:
         current_user: User = None,
     ) -> ConnectionTable:
         """Rebuild the artifact. A failure keeps the previous one serving."""
-        async with _lock_for(connection.id):
+        async with _lock_for(connection.id), artifacts.refresh_lock(connection.id):
+            # A queued caller may have loaded this row before another worker
+            # committed its swap. Reload under the volume lock before reading
+            # old_path, otherwise the newly superseded file is never removed.
+            await db.refresh(cq)
+            if cq.deleted_at is not None:
+                return cq
             cq.last_refresh_status = "running"
             await db.commit()
 
@@ -663,8 +672,18 @@ class CustomQueryService:
                     client, cq.definition_sql, cq.name, connection.id
                 )
 
+            extraction = asyncio.create_task(asyncio.to_thread(_run))
             try:
-                res = await asyncio.to_thread(_run)
+                # A cancelled request must not release the volume lock while
+                # its extraction thread is still writing into that directory.
+                res = await asyncio.shield(extraction)
+            except asyncio.CancelledError:
+                try:
+                    res = await extraction
+                    artifacts.delete_artifact(res.artifact_path)
+                except Exception:
+                    logger.exception("custom_query.cancelled_extraction.failed")
+                raise
             except Exception as e:
                 cq.last_refresh_status = "error"
                 cq.last_refresh_error = str(e)[:2000]
@@ -675,26 +694,44 @@ class CustomQueryService:
                 )
                 raise HTTPException(status_code=400, detail=str(e))
 
-            cq.artifact_path = res.artifact_path
-            cq.artifact_key_enc = artifacts.encrypt_key(res.artifact_key)
-            cq.artifact_bytes = res.artifact_bytes
-            cq.columns = res.columns
-            cq.no_rows = res.row_count
-            cq.last_refreshed_at = datetime.utcnow()
-            cq.last_refresh_status = "ok"
-            cq.last_refresh_error = None
-            cq.last_refresh_ms = res.elapsed_ms
-            await db.commit()
-            await db.refresh(cq)
+            try:
+                cq.artifact_path = res.artifact_path
+                cq.artifact_key_enc = artifacts.encrypt_key(res.artifact_key)
+                cq.artifact_bytes = res.artifact_bytes
+                cq.columns = res.columns
+                cq.no_rows = res.row_count
+                cq.last_refreshed_at = datetime.utcnow()
+                cq.last_refresh_status = "ok"
+                cq.last_refresh_error = None
+                cq.last_refresh_ms = res.elapsed_ms
+                await db.commit()
+            except BaseException:
+                # A commit error can be ambiguous (e.g. a lost acknowledgement).
+                # Only discard the new file after a fresh DB read proves it is
+                # unreferenced. If verification fails, leave it for daily GC.
+                try:
+                    await db.rollback()
+                    referenced = (await db.execute(
+                        select(ConnectionTable.id).where(
+                            ConnectionTable.artifact_path == res.artifact_path
+                        ).limit(1)
+                    )).first()
+                    if referenced is None:
+                        artifacts.delete_artifact(res.artifact_path)
+                except Exception:
+                    logger.exception("custom_query.failed_swap.cleanup_failed")
+                raise
 
             # DataSourceTable carries legacy copies of name/columns/no_rows that
             # the schema context reads; leaving them stale would show agents the
             # previous shape of the relation.
-            await self._sync_activations(db, cq)
-
-            # Only once the swap is committed is the old file safe to remove.
-            if old_path and old_path != res.artifact_path:
-                artifacts.delete_artifact(old_path)
+            try:
+                await db.refresh(cq)
+                await self._sync_activations(db, cq)
+            finally:
+                # The swap is committed even if activation metadata sync fails.
+                if old_path and old_path != res.artifact_path:
+                    artifacts.delete_artifact(old_path)
 
             logger.info(
                 "custom_query.refresh.ok",

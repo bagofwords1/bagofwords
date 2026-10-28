@@ -16,11 +16,14 @@ ConnectionTable row using the same `settings.bow_config.encryption_key` that
 already backs SMTP and external-platform secrets.
 """
 
+import asyncio
 import base64
+import fcntl
 import logging
 import os
 import secrets
 import uuid
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -91,12 +94,13 @@ def delete_artifact(path: Optional[str]) -> None:
     """Best-effort removal of an artifact file."""
     if not path:
         return
-    try:
-        os.unlink(path)
-    except FileNotFoundError:
-        pass
-    except OSError as e:
-        logger.warning("fast.artifact.delete_failed", extra={"path": path, "error": str(e)})
+    for candidate in (path, str(path) + ".wal"):
+        try:
+            os.unlink(candidate)
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            logger.warning("fast.artifact.delete_failed", extra={"path": candidate, "error": str(e)})
 
 
 def artifact_size(path: Optional[str]) -> int:
@@ -106,3 +110,66 @@ def artifact_size(path: Optional[str]) -> int:
         return os.path.getsize(path)
     except OSError:
         return 0
+
+
+@contextmanager
+def try_refresh_lock(connection_id: str):
+    """Coordinate writers/GC across processes sharing the artifact volume.
+
+    The inode must persist: unlinking a lock file lets another process lock a
+    different inode while the first owner is still working. A crashed process
+    releases flock automatically. All replicas sharing artifacts must share this
+    directory too; unrelated volumes contain independent files.
+    """
+    path = artifact_dir(connection_id) / ".refresh.lock"
+    with path.open("a") as handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@asynccontextmanager
+async def refresh_lock(connection_id: str):
+    """Wait without blocking the event loop; cancellation closes the handle."""
+    while True:
+        with try_refresh_lock(connection_id) as acquired:
+            if acquired:
+                yield
+                return
+        await asyncio.sleep(0.1)
+
+
+def prune_unreferenced(connection_id: str, references: list[str], before: float) -> dict:
+    """Delete only old artifact files; caller must hold the refresh lock.
+
+    Preserve references from *all* rows (including soft-deleted ones), their WAL
+    sidecars, recent files, symlinks, and unknown file types. No recursive walk:
+    artifact directories are flat and GC must never traverse outside its volume.
+    """
+    directory = artifact_dir(connection_id)
+    protected = {str(Path(p).resolve()) for p in references if p}
+    protected |= {p + ".wal" for p in protected}
+    deleted = reclaimed = 0
+    for path in directory.iterdir():
+        if path.is_symlink() or not path.is_file():
+            continue
+        if path.suffix not in {".db", ".tmp", ".wal"}:
+            continue
+        if str(path.resolve()) in protected:
+            continue
+        try:
+            info = path.stat()
+            if info.st_mtime >= before:
+                continue
+            path.unlink()
+        except FileNotFoundError:
+            continue
+        deleted += 1
+        reclaimed += info.st_size
+    return {"deleted": deleted, "reclaimed_bytes": reclaimed}

@@ -521,6 +521,21 @@ async def startup_event():
     # Register daily maintenance jobs
     if is_scheduler_leader:
         try:
+            from app.services.fast_artifact_maintenance import purge_orphaned_fast_artifacts
+            scheduler.add_job(
+                purge_orphaned_fast_artifacts,
+                trigger="cron",
+                hour=3,
+                minute=15,
+                id="purge_orphaned_fast_artifacts_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+        except Exception:
+            logger.exception("Failed to schedule custom-table artifact cleanup")
+        try:
             scheduler.add_job(
                 purge_step_payloads_keep_latest_per_query,
                 trigger="cron",
