@@ -238,7 +238,15 @@ const isAutoMode = computed(() => autoState.value.isAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
-const flyout = reactive({ visible: false, bottom: 0, left: 0, maxHeight: 0 })
+const flyout = reactive<{
+    visible: boolean
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+    maxHeight?: number
+    maxWidth?: number
+}>({ visible: false, left: 0, maxHeight: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
 // On touch/coarse-pointer devices there is no hover. Tapping a row would
@@ -307,36 +315,44 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
     const el = evt.currentTarget as HTMLElement | null
     if (!el) return
 
-    // Find the dropdown panel to align with it
     const panel = el.closest('.rounded-xl') as HTMLElement | null
-    const panelRect = panel?.getBoundingClientRect()
-    const rect = el.getBoundingClientRect()
-
-    // Matches AgentFlyout's max width (it grows to fit long names) so a
-    // left-placed flyout reserves enough room and never overlaps the dropdown.
-    const flyoutWidth = 520
+    const rowRect = el.getBoundingClientRect()
+    const panelRect = panel?.getBoundingClientRect() ?? rowRect
+    const vw = window.innerWidth
+    const vh = window.innerHeight
     const gap = 8
+    const edge = 12
+    // AgentFlyout's width range (min-w-[320px] / max-w-[440px]).
+    const minWidth = 320
+    const maxWidth = 440
 
-    // Position to the right of the dropdown panel
-    let left = (panelRect?.right ?? rect.right) + gap
-
-    // If not enough space on right, position to the left
-    if (left + flyoutWidth > window.innerWidth - 12) {
-        left = (panelRect?.left ?? rect.left) - flyoutWidth - gap
+    // Horizontal: sit beside the dropdown. Prefer the right side; otherwise
+    // anchor the flyout's RIGHT edge to the dropdown's left edge, so it hugs
+    // the dropdown whatever width the card ends up rendering at.
+    const roomRight = vw - panelRect.right - gap - edge
+    const roomLeft = panelRect.left - gap - edge
+    flyout.left = undefined
+    flyout.right = undefined
+    if (roomRight >= minWidth || roomRight >= roomLeft) {
+        flyout.left = panelRect.right + gap
+        flyout.maxWidth = Math.min(maxWidth, Math.max(roomRight, minWidth))
+    } else {
+        flyout.right = vw - panelRect.left + gap
+        flyout.maxWidth = Math.min(maxWidth, Math.max(roomLeft, minWidth))
     }
 
-    // Clamp left to viewport
-    left = Math.max(12, Math.min(left, window.innerWidth - flyoutWidth - 12))
-
-    // Align bottom of flyout with bottom of dropdown panel (use CSS bottom)
-    const panelBottom = panelRect?.bottom ?? rect.bottom
-    const bottom = window.innerHeight - panelBottom
-
-    flyout.left = left
-    flyout.bottom = Math.max(12, bottom) // Clamp to viewport
-    // Cap height to the room available above the bottom anchor so the flyout
-    // never grows off the top of the screen — it scrolls internally instead.
-    flyout.maxHeight = Math.max(160, window.innerHeight - flyout.bottom - 12)
+    // Vertical: line up with the hovered row. Near the bottom of the screen,
+    // grow upward from the row instead so the card stays on screen.
+    flyout.top = undefined
+    flyout.bottom = undefined
+    const roomBelow = vh - rowRect.top - edge
+    if (roomBelow >= 240) {
+        flyout.top = Math.max(edge, rowRect.top - gap)
+        flyout.maxHeight = vh - flyout.top - edge
+    } else {
+        flyout.bottom = Math.max(edge, vh - rowRect.bottom - gap)
+        flyout.maxHeight = vh - flyout.bottom - edge
+    }
     flyout.visible = true
 }
 

@@ -86,19 +86,26 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const props = defineProps<{
   agentId: string | null
   visible: boolean
-  position: { top?: number; bottom?: number; left: number; maxHeight?: number }
+  position: { top?: number; bottom?: number; left?: number; right?: number; maxHeight?: number; maxWidth?: number }
 }>()
 
 const positionStyle = computed(() => {
-  const style: Record<string, string> = { left: `${props.position.left}px` }
+  const style: Record<string, string> = {}
+  // `right` lets a caller pin the flyout's right edge (e.g. against a dropdown
+  // on its right) without knowing how wide the card will render.
+  if (props.position.right !== undefined) style.right = `${props.position.right}px`
+  else style.left = `${props.position.left ?? 0}px`
   if (props.position.bottom !== undefined) style.bottom = `${props.position.bottom}px`
   else if (props.position.top !== undefined) style.top = `${props.position.top}px`
   return style
 })
 
 const panelStyle = computed(() => {
-  const h = props.position.maxHeight
-  return h ? { maxHeight: `${h}px` } : {}
+  const style: Record<string, string> = {}
+  const { maxHeight, maxWidth } = props.position
+  if (maxHeight) style.maxHeight = `${maxHeight}px`
+  if (maxWidth) style.maxWidth = `${maxWidth}px`
+  return style
 })
 
 const emit = defineEmits<{
