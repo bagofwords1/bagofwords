@@ -10,3 +10,5 @@ fonts/
 artifact-fonts.css
 
 !artifact-sdk.js
+# Downloaded by scripts/download-vendor-libs.sh for the /swagger page, like the libs above
+swagger-ui/
