@@ -12,8 +12,10 @@ The contract:
   refused and stages nothing;
 - the share is an ordinary version field: it shows as a `scope` field change,
   nothing moves until a reviewer with authority over the new agents accepts it
-  (a text-only accept leaves it pending) OR the whole build is published, which
-  applies it like every other staged change;
+  (a text-only accept leaves it pending) OR the whole build is published by
+  someone with that same authority, which applies it like every other staged
+  change — publishing the staged scope is gated on the new agents exactly as an
+  accept is;
 - a proposal follows the 3-way rule: an edit that does not change scope relative
   to its base proposes nothing, even against a stale version snapshot.
 """
@@ -324,6 +326,27 @@ async def test_accepting_needs_authority_over_every_new_agent(test_client, world
 
     both = world["manager_of"]("a", "b")
     _accept(test_client, world, iid, bid, token=both["token"])
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"], world["b"]["id"]}
+
+
+@pytest.mark.asyncio
+async def test_publishing_needs_authority_over_every_new_agent(test_client, world):
+    """A whole-build publish applies the staged scope, so it is gated like an
+    accept: the publisher must manage every agent the share ADDS, not only the
+    ones the instruction already lives on. A manager of `a` alone must not be
+    able to publish a share to `b` past the per-agent gate."""
+    iid = _instruction(test_client, world, ["a"])
+    bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
+    assert out["success"], out
+
+    only_a = world["manager_of"]("a")
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=_hdr(only_a["token"], world["org_id"]))
+    assert r.status_code == 403, r.text
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"]}
+
+    both = world["manager_of"]("a", "b")
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=_hdr(both["token"], world["org_id"]))
+    assert r.status_code == 200, r.text
     assert _live(test_client, world, iid)[0] == {world["a"]["id"], world["b"]["id"]}
 
 

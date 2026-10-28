@@ -868,6 +868,16 @@ class BuildService:
         Used for strict per-DS permission enforcement on build publish/submit/rollback:
         the acting user must hold `manage_instructions` on every returned DS (admin
         bypass via `manage_instructions` is handled in the resolver).
+
+        Includes the LIVE attachment of every instruction AND the scope a change
+        row STAGES (the ``is_change`` version's ``data_source_ids``). A share or a
+        ``table_names`` edit widens an instruction to a new agent on the version,
+        not on the live row until promotion applies it — so without the staged
+        side a per-agent manager could stage a share to an agent they do not
+        manage and publish it past this gate. Gating the resulting scope here, at
+        the route that has the acting user, mirrors the reviewer-accept check
+        (``require_scope_authority`` over ``live | added``) without threading
+        permissions into the system-driven ``promote_build``.
         """
         result = await db.execute(
             select(BuildContent)
@@ -880,6 +890,15 @@ class BuildService:
             if inst and inst.data_sources:
                 for ds in inst.data_sources:
                     ds_ids.add(str(ds.id))
+        from app.models.instruction_version import InstructionVersion as _IV
+        staged = (await db.execute(
+            select(_IV.data_source_ids)
+            .join(BuildContent, BuildContent.instruction_version_id == _IV.id)
+            .where(BuildContent.build_id == build_id, BuildContent.is_change.is_(True))
+        )).all()
+        for (staged_ds,) in staged:
+            for d in (staged_ds or []):
+                ds_ids.add(str(d))
         return list(ds_ids)
 
     async def get_build_instruction_ids(self, db: AsyncSession, build_id: str) -> set[str]:
