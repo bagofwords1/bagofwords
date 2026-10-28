@@ -141,7 +141,7 @@
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isReviewConflict, sameSelection, type ReviewUnit } from '~/utils/reviewRetry'
+import { isReviewConflict, sameSelection, selectionStillValid, type ReviewUnit } from '~/utils/reviewRetry'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -440,7 +440,14 @@ watch(contentEl, (next, previous) => {
 // `silent` swaps the hunk data in place WITHOUT flipping `loading` (which would
 // blank the pane to a "Loading…" placeholder). Used after accept/reject so the
 // view updates the resolved hunk away smoothly instead of flickering.
-async function load(opts: { silent?: boolean } = {}) {
+// `emitState: false` suppresses the `empty`/`error` emits (NOT the data swap or
+// `loadError`). postResolve's internal retry reload uses it: those emits are a
+// state signal hosts act on — `EditInstructionTool` answers `empty` by marking
+// the card ACCEPTED — and an internal reload that happens to find the pane empty
+// (a not-retried or twice-failed conflict) must not mislabel a failed resolve as
+// an accepted one. The deliberate post-success reloads in _resolve/resolveAll
+// emit normally (and emit `changed` to the host first).
+async function load(opts: { silent?: boolean; emitState?: boolean } = {}) {
   if (!props.instructionId) return
   if (!opts.silent) loading.value = true
   try {
@@ -469,8 +476,10 @@ async function load(opts: { silent?: boolean } = {}) {
   // a failed fetch made hosts resolve the change away on nothing more than a
   // dropped request — KnowledgeGroup marks it rejected, and the chat's
   // EditInstructionTool marks it ACCEPTED.
-  if (loadError.value) emit('error')
-  else if (!totalHunks.value) emit('empty')
+  if (opts.emitState !== false) {
+    if (loadError.value) emit('error')
+    else if (!totalHunks.value) emit('empty')
+  }
   // Fires when the pane has real content (or knows it has none) — hosts use
   // it to keep their previous stable view up until this exact moment instead
   // of showing this component's own "Loading…" placeholder.
@@ -489,20 +498,32 @@ function onScreenUnits(): ReviewUnit[] {
 // second card's accept failed on nothing but the first card's. Clicking again
 // resent the same stale ids and failed again; only a reload helped.
 //
-// On a 409: reload silently, and if the reviewer is still looking at exactly
-// the units they acted on (same builds, same keys — see sameSelection), send
-// the same decision once more against the current main. If anything on
-// screen changed, keep the fresh state and let them decide again. One retry
-// only: a second 409 is reported like any other failure.
-async function postResolve(url: string, body: Record<string, any>, units: ReviewUnit[]): Promise<void> {
+// On a stale-main 409 (isReviewConflict — NOT the invalid-selection 409): reload
+// silently, and if the reviewer is still looking at what they acted on, send the
+// same decision once more against the current main. The "still looking at" test
+// differs by call site — a single hunk needs only that unit present
+// (selectionStillValid), "Accept/Reject all" needs the whole set unchanged
+// (sameSelection, via `exact`). If it changed, keep the fresh state and let them
+// decide again. One retry only: a second 409 is reported like any other failure.
+//
+// The retry reload passes `emitState: false` so it does not fire `empty`/`error`
+// at the host: this is an internal step, not a state change, and emitting here
+// would let a host mark a still-failing card as accepted (see `load`). The
+// post-success reload is done by the callers, which emit `changed` first.
+async function postResolve(
+  url: string, body: Record<string, any>, units: ReviewUnit[],
+  opts: { exact?: boolean } = {},
+): Promise<void> {
   const send = () => useMyFetch(url, {
     method: 'POST',
     body: { ...body, against_main_build_id: mainBuildId.value, against_main_version_id: mainVersionId.value },
   })
   let { error } = await send()
   if (error.value && isReviewConflict(error.value)) {
-    await load({ silent: true })
-    if (!loadError.value && sameSelection(units, onScreenUnits())) ({ error } = await send())
+    await load({ silent: true, emitState: false })
+    const onScreen = onScreenUnits()
+    const stillValid = opts.exact ? sameSelection(units, onScreen) : selectionStillValid(units, onScreen)
+    if (!loadError.value && stillValid) ({ error } = await send())
   }
   if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
 }
@@ -539,6 +560,7 @@ async function resolveAll(mode: 'accept' | 'reject') {
       `/api/instructions/${props.instructionId}/hunks/${mode}-all`,
       { hunks: units.map(u => ({ build_id: u.build_id, hunk_key: u.key })) },
       units,
+      { exact: true },
     )
     // Tell the host the resolve landed BEFORE reloading ourselves. Reloading
     // first emits `empty`/`error` on the way, and every host answers those by

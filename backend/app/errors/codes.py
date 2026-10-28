@@ -86,6 +86,10 @@ class ErrorCode(str, Enum):
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"
     DUPLICATE_RESOURCE = "resource.duplicate"
+    # A review resolve named a main build/version that has since moved. Distinct
+    # from RESOURCE_CONFLICT (which the resolve routes also raise for a selection
+    # that no refresh can fix) so the client can retry ONLY the stale-main case.
+    REVIEW_STALE_MAIN = "review.stale_main"
 
     # Settings
     SETTING_UPDATE_FAILED = "setting.update_failed"

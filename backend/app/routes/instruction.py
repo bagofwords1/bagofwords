@@ -1249,7 +1249,7 @@ async def accept_instruction_hunk(
         organization=organization, current_user=current_user,
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "This change moved since you viewed it — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1338,7 +1338,7 @@ async def reject_instruction_hunk(
         organization=organization, current_user=current_user,
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change moved since you viewed it — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "This change moved since you viewed it — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "This change couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1399,7 +1399,7 @@ async def accept_all_instruction_hunks(
         selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "These changes moved since you viewed them — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
@@ -1442,7 +1442,7 @@ async def reject_all_instruction_hunks(
         selected_hunks=[(h.build_id, h.hunk_key) for h in body.hunks],
     )
     if status == "stale":
-        raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes moved since you viewed them — refresh and try again.")
+        raise AppError.conflict(ErrorCode.REVIEW_STALE_MAIN, "These changes moved since you viewed them — refresh and try again.")
     if status == "invalid_selection":
         raise AppError.conflict(ErrorCode.RESOURCE_CONFLICT, "These changes couldn't be applied as displayed. Refresh to reload the review; if this keeps happening, please report it.")
     if resolved is None:
