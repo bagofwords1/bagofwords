@@ -554,6 +554,29 @@
                         </template>
                     </UPopover>
 
+                    <!-- Voice input (browser speech recognition); hidden when the org
+                         turns it off or the browser has no SpeechRecognition -->
+                    <UTooltip
+                        v-if="showVoiceInput"
+                        :text="isListening ? $t('prompt.voiceInput.stop') : $t('prompt.voiceInput.start')"
+                        :popper="{ strategy: 'fixed', placement: 'top' }"
+                    >
+                        <button
+                            type="button"
+                            data-testid="voice-input-button"
+                            class="w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                            :class="isListening
+                                ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                            :aria-pressed="isListening"
+                            :aria-label="isListening ? $t('prompt.voiceInput.stop') : $t('prompt.voiceInput.start')"
+                            :disabled="!!latestInProgressCompletion || isSubmitting"
+                            @click="toggleVoiceInput"
+                        >
+                            <Icon :name="isListening ? 'heroicons-stop-solid' : 'heroicons-microphone'" class="w-4 h-4" />
+                        </button>
+                    </UTooltip>
+
                     <!-- Send / Submitting / Stop -->
                     <button
                         v-if="latestInProgressCompletion"
@@ -615,6 +638,7 @@ import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan, useCanAny } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
+import { useSpeechToText, speechLangForLocale } from '@/composables/useSpeechToText'
 import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
@@ -762,7 +786,7 @@ const pickProject = async (proj: any | null, close: () => void) => {
 // just org admins.
 const canCreateInstructions = computed(() => canManageInstructionsForSelectedAgents.value)
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toast = useToast()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -1116,7 +1140,7 @@ const modeIcon = computed(() => {
 // per-data_source `manage` grant implies it, and full_admin bypasses) — mirrors
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
-const { isTrainingModeEnabled, isDemoDataEnabled } = useOrgSettings()
+const { isTrainingModeEnabled, isDemoDataEnabled, isVoiceInputEnabled } = useOrgSettings()
 const canManageInstructionsForSelectedAgents = computed(() => {
     const dss = selectedDataSources.value || []
     if (dss.length === 0) {
@@ -1472,8 +1496,48 @@ function buildSubmitPayload() {
     }
 }
 
+// ── Voice input ─────────────────────────────────────────────────────────────
+// One press of the microphone is one "take". Whatever the user had typed
+// before pressing it is kept as a prefix; the live transcript (interim words
+// included) is appended after it so the text updates while they speak. A
+// second press, or the browser ending the session, settles the take; the
+// user still presses Send themselves — nothing is auto-submitted.
+const voiceBaseText = ref('')
+const {
+    isSupported: isVoiceSupported,
+    isListening,
+    start: startVoiceInput,
+    stop: stopVoiceInput,
+    abort: abortVoiceInput,
+} = useSpeechToText({
+    lang: () => speechLangForLocale(locale.value),
+    onTranscript: (transcript) => {
+        const base = voiceBaseText.value
+        text.value = base && transcript ? `${base} ${transcript}` : (base || transcript)
+    },
+    onError: (code) => {
+        const key = code === 'not-allowed' ? 'permissionDenied'
+            : code === 'no-speech' ? 'noSpeech'
+            : code === 'audio-capture' ? 'noMicrophone'
+            : code === 'network' ? 'network'
+            : 'failed'
+        toast.add({ title: t(`prompt.voiceInput.errors.${key}`), color: code === 'no-speech' ? 'orange' : 'red' })
+    },
+})
+const showVoiceInput = computed(() => isVoiceInputEnabled.value && isVoiceSupported.value)
+
+function toggleVoiceInput() {
+    if (isListening.value) {
+        stopVoiceInput()
+        return
+    }
+    voiceBaseText.value = text.value.trim()
+    startVoiceInput()
+}
+
 function submit() {
     if (!canSubmit.value || isSubmitting.value) return
+    if (isListening.value) abortVoiceInput()
 
     // A completion is running: Enter/arrow adds the prompt to the queue
     // instead of starting (or clobbering) a run.

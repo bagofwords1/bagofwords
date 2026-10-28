@@ -650,6 +650,17 @@
       "runsAs": "Körs som {level} på den här modellen",
       "faster": "Snabbare",
       "smarter": "Smartare"
+    },
+    "voiceInput": {
+      "start": "Diktera en fråga",
+      "stop": "Sluta diktera",
+      "errors": {
+        "permissionDenied": "Åtkomst till mikrofonen blockerades. Tillåt den i webbläsarens inställningar för att diktera.",
+        "noSpeech": "Inget tal upptäcktes.",
+        "noMicrophone": "Ingen mikrofon hittades.",
+        "network": "Taligenkänning kräver en nätverksanslutning.",
+        "failed": "Röstinmatningen misslyckades. Försök igen."
+      }
     }
   },
   "reports": {
@@ -2937,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Följdförslag",
           "description": "Föreslår efter varje svar i webbappen några följdfrågor som användaren kan ställa härnäst. Genereras på den lilla modellen eller standardmodellen."
+        },
+        "enable_voice_input": {
+          "name": "Röstinmatning",
+          "description": "Visa en mikrofonknapp i chattfältet så att användare kan diktera en fråga. Transkriberingen sker i användarens webbläsare (Chrome, Edge och Safari); ljudet når aldrig den här servern, men webbläsarleverantörens taltjänst kan behandla det."
         },
         "auto_suggest_evals": {
           "name": "Föreslå utvärderingar automatiskt",

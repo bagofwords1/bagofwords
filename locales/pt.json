@@ -650,6 +650,17 @@
       "runsAs": "Executa como {level} neste modelo",
       "faster": "Mais rápido",
       "smarter": "Mais inteligente"
+    },
+    "voiceInput": {
+      "start": "Ditar um pedido",
+      "stop": "Parar de ditar",
+      "errors": {
+        "permissionDenied": "O acesso ao microfone foi bloqueado. Permita-o nas configurações do navegador para ditar.",
+        "noSpeech": "Nenhuma fala foi detectada.",
+        "noMicrophone": "Nenhum microfone foi encontrado.",
+        "network": "O reconhecimento de voz precisa de conexão com a rede.",
+        "failed": "A entrada por voz falhou. Tente novamente."
+      }
     }
   },
   "reports": {
@@ -2937,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Sugestões de acompanhamento",
           "description": "Após cada resposta no aplicativo web, sugere algumas perguntas de acompanhamento que o usuário pode fazer em seguida. Geradas no modelo pequeno ou padrão."
+        },
+        "enable_voice_input": {
+          "name": "Entrada por voz",
+          "description": "Mostra um botão de microfone no compositor do chat para que os usuários possam ditar um pedido. A transcrição é feita no navegador do usuário (Chrome, Edge e Safari); o áudio nunca chega a este servidor, mas o serviço de voz do fornecedor do navegador pode processá-lo."
         },
         "auto_suggest_evals": {
           "name": "Sugerir avaliações automaticamente",

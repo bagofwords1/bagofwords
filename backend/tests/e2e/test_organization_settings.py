@@ -257,3 +257,37 @@ def test_session_staleness_settings_defaults_and_update(
     final = get_organization_settings(user_token=user_token, org_id=org_id)
     assert final["config"]["teams_session_max_age_hours"] == 48
     assert final["config"]["whatsapp_session_max_age_hours"] == 12
+
+
+@pytest.mark.e2e
+def test_voice_input_feature_defaults_on_and_toggle_persists(
+    get_organization_settings,
+    update_organization_settings,
+    create_user,
+    login_user,
+    whoami
+):
+    """The composer's voice-input gate is a regular editable feature flag:
+    it surfaces on first read (default on, so existing orgs get the button
+    without a migration), a disable persists across reads, and it can be
+    turned back on."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    settings = get_organization_settings(user_token=user_token, org_id=org_id)
+    feature = settings["config"]["enable_voice_input"]
+    assert feature["value"] is True
+    assert feature["editable"] is True
+    assert feature["state"] == "enabled"
+
+    for value in (False, True):
+        updated = update_organization_settings(
+            config={"enable_voice_input": {"value": value}},
+            user_token=user_token,
+            org_id=org_id,
+        )
+        assert updated["config"]["enable_voice_input"]["value"] is value
+        fetched = get_organization_settings(user_token=user_token, org_id=org_id)
+        assert fetched["config"]["enable_voice_input"]["value"] is value
+        assert fetched["config"]["enable_voice_input"]["state"] == ("enabled" if value else "disabled")

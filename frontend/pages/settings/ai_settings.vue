@@ -234,7 +234,7 @@ const FEATURE_PARENT: Record<string, string> = {
 // A backend setting not listed here lands in "other" so it never disappears.
 const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
-    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
     { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },

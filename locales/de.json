@@ -650,6 +650,17 @@
       "runsAs": "Läuft auf diesem Modell als {level}",
       "faster": "Schneller",
       "smarter": "Intelligenter"
+    },
+    "voiceInput": {
+      "start": "Anfrage diktieren",
+      "stop": "Diktat beenden",
+      "errors": {
+        "permissionDenied": "Der Mikrofonzugriff wurde blockiert. Erlauben Sie ihn in den Browsereinstellungen, um zu diktieren.",
+        "noSpeech": "Es wurde keine Sprache erkannt.",
+        "noMicrophone": "Kein Mikrofon gefunden.",
+        "network": "Die Spracherkennung benötigt eine Netzwerkverbindung.",
+        "failed": "Die Spracheingabe ist fehlgeschlagen. Bitte versuchen Sie es erneut."
+      }
     }
   },
   "reports": {
@@ -2937,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Anschlussvorschläge",
           "description": "Schlägt nach jeder Antwort in der Web-App einige Anschlussfragen vor, die der Nutzer als Nächstes stellen kann. Wird auf dem kleinen bzw. Standardmodell erzeugt."
+        },
+        "enable_voice_input": {
+          "name": "Spracheingabe",
+          "description": "Zeigt im Chat-Eingabefeld eine Mikrofon-Schaltfläche, damit Nutzer eine Anfrage diktieren können. Die Transkription läuft im Browser des Nutzers (Chrome, Edge und Safari); Audio erreicht diesen Server nie, der Sprachdienst des Browser-Anbieters kann es jedoch verarbeiten."
         },
         "auto_suggest_evals": {
           "name": "Evaluierungen automatisch vorschlagen",

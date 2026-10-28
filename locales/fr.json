@@ -650,6 +650,17 @@
       "runsAs": "S'exécute en {level} sur ce modèle",
       "faster": "Plus rapide",
       "smarter": "Plus intelligent"
+    },
+    "voiceInput": {
+      "start": "Dicter une requête",
+      "stop": "Arrêter la dictée",
+      "errors": {
+        "permissionDenied": "L'accès au micro a été bloqué. Autorisez-le dans les paramètres du navigateur pour dicter.",
+        "noSpeech": "Aucune parole détectée.",
+        "noMicrophone": "Aucun micro trouvé.",
+        "network": "La reconnaissance vocale nécessite une connexion réseau.",
+        "failed": "La saisie vocale a échoué. Veuillez réessayer."
+      }
     }
   },
   "reports": {
@@ -2937,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Suggestions de suivi",
           "description": "Après chaque réponse dans l'application web, propose quelques questions de suivi que l'utilisateur peut poser ensuite. Générées sur le modèle petit ou par défaut."
+        },
+        "enable_voice_input": {
+          "name": "Saisie vocale",
+          "description": "Affiche un bouton micro dans le compositeur de chat pour que les utilisateurs puissent dicter une requête. La transcription s'exécute dans le navigateur de l'utilisateur (Chrome, Edge et Safari) ; l'audio n'atteint jamais ce serveur, mais le service vocal de l'éditeur du navigateur peut le traiter."
         },
         "auto_suggest_evals": {
           "name": "Suggérer des évaluations automatiquement",

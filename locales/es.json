@@ -671,6 +671,17 @@
       "runsAs": "Se ejecuta como {level} en este modelo",
       "faster": "Más rápido",
       "smarter": "Más inteligente"
+    },
+    "voiceInput": {
+      "start": "Dictar una solicitud",
+      "stop": "Dejar de dictar",
+      "errors": {
+        "permissionDenied": "Se bloqueó el acceso al micrófono. Permítelo en la configuración del navegador para dictar.",
+        "noSpeech": "No se detectó voz.",
+        "noMicrophone": "No se encontró ningún micrófono.",
+        "network": "El reconocimiento de voz necesita conexión a la red.",
+        "failed": "La entrada de voz falló. Inténtalo de nuevo."
+      }
     }
   },
   "reports": {
@@ -3172,6 +3183,10 @@
         "enable_follow_ups": {
           "name": "Sugerencias de seguimiento",
           "description": "Después de cada respuesta en la aplicación web, sugiere algunas preguntas de seguimiento que el usuario puede hacer a continuación. Se generan con el modelo pequeño o predeterminado."
+        },
+        "enable_voice_input": {
+          "name": "Entrada de voz",
+          "description": "Muestra un botón de micrófono en el compositor del chat para que los usuarios puedan dictar una solicitud. La transcripción se realiza en el navegador del usuario (Chrome, Edge y Safari); el audio nunca llega a este servidor, pero el servicio de voz del proveedor del navegador puede procesarlo."
         },
         "auto_suggest_evals": {
           "name": "Sugerir evaluaciones automáticamente",

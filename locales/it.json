@@ -650,6 +650,17 @@
       "runsAs": "Eseguito come {level} su questo modello",
       "faster": "Più veloce",
       "smarter": "Più intelligente"
+    },
+    "voiceInput": {
+      "start": "Detta una richiesta",
+      "stop": "Interrompi la dettatura",
+      "errors": {
+        "permissionDenied": "L'accesso al microfono è stato bloccato. Consentilo nelle impostazioni del browser per dettare.",
+        "noSpeech": "Nessun parlato rilevato.",
+        "noMicrophone": "Nessun microfono trovato.",
+        "network": "Il riconoscimento vocale richiede una connessione di rete.",
+        "failed": "L'input vocale non è riuscito. Riprova."
+      }
     }
   },
   "reports": {
@@ -2937,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Suggerimenti di approfondimento",
           "description": "Dopo ogni risposta nell'app web, propone alcune domande di approfondimento che l'utente può porre successivamente. Generate sul modello piccolo o predefinito."
+        },
+        "enable_voice_input": {
+          "name": "Input vocale",
+          "description": "Mostra un pulsante microfono nel compositore della chat così gli utenti possono dettare una richiesta. La trascrizione avviene nel browser dell'utente (Chrome, Edge e Safari); l'audio non raggiunge mai questo server, ma il servizio vocale del fornitore del browser potrebbe elaborarlo."
         },
         "auto_suggest_evals": {
           "name": "Suggerisci valutazioni automaticamente",
