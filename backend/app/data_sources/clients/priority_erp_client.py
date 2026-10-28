@@ -253,13 +253,27 @@ class PriorityErpClient(DataSourceClient):
                 "$expand), it is not enabled for the API in Priority's Limited Access/API Forms, "
                 "or the name or company is wrong (form names are case-sensitive in the URL)."
             )
-        if resp.status_code == 501 or "$apply" in (url or ""):
+        if "$apply" in unquote(url or ""):
             # Priority documents no $apply. The agent reaches for aggregation
             # naturally, so name the limitation and the workaround rather than
             # surfacing a bare "501 Not Implemented".
             raise RuntimeError(
                 "Priority's OData API does not support $apply (server-side aggregation). "
                 "Select the rows you need with $filter/$select and aggregate in code instead."
+            )
+        if resp.status_code == 501:
+            # Not only $apply: a server can parse a standard OData function
+            # (contains, startswith, ...) and still not implement it. Calling
+            # every 501 "$apply" sent the agent rewriting its pandas
+            # aggregation while the unsupported function stayed in $filter.
+            raise RuntimeError(
+                f"Priority returned HTTP 501 (not implemented) for '{path}': "
+                f"{self._error_detail(resp)}. This Priority server does not implement part of "
+                "the request, most often a function in $filter such as contains, startswith or "
+                "endswith. Do not retry the same function, do not change the aggregation, and do "
+                "not swap it for ge/lt on the text column (not a reliable prefix match on Priority): "
+                "read a bounded set of rows (a date range, $select of the few columns needed), "
+                "match the text in pandas to find the exact value, then filter on it with eq."
             )
         if resp.status_code >= 400:
             # Priority puts the real reason (missing form privilege, unknown
@@ -1088,6 +1102,18 @@ in code. Keep `$top` tight: every row crosses the network.
 - String literals use single quotes: `$filter=CUSTNAME eq '1011'`.
 - Decimals always use a period, regardless of locale.
 - Dates are DateTimeOffset: `$filter=CURDATE ge 2026-01-01T00:00:00Z`.
+- String functions in `$filter`: `contains(CDES,'abc')`, `startswith(...)`,
+  `endswith(...)`, optionally around `tolower(CDES)`. The OData v2 function
+  `substringof` is **not** supported (HTTP 400).
+- **Matching part of a name.** Not every Priority server implements the string
+  functions; an unimplemented one answers HTTP 501. A 501 on a filter is not
+  an aggregation problem — change the filter, not the pandas code. Find the
+  exact value first: read a bounded set of rows with only the columns needed
+  (`ORDERS?$filter=CURDATE ge 2026-01-01T00:00:00Z&$select=CUSTNAME,CDES`),
+  match the text in pandas (`df["CDES"].str.contains("abc", case=False, na=False)`),
+  then query with `CUSTNAME eq '<the value found>'`. Do **not** emulate a prefix
+  match with `ge`/`lt` on a text column (`CDES ge 'abc' and CDES lt 'abd'`): on
+  a real tenant it returned rows that do not start with the prefix.
 - **Calculated columns are not stored** and cannot be used in `$filter` or
   `$orderby` — read them from the returned rows instead.
 - A table carrying `<priority_erp subform_of=...>` is a subform; see below.

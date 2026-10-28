@@ -17,6 +17,10 @@ Deliberately faithful to the details that shape the client:
   position with the literal password `PAT`. Wrong shapes get a 401.
 * **No `$apply`.** Priority documents no aggregation, so `$apply` returns 501
   rather than silently succeeding.
+* **Unimplemented string functions** (`--no-string-functions`): `contains`,
+  `startswith` and `endswith` in `$filter` answer 501 with a reason in the
+  body — a server that parses the standard function names without supporting
+  them. Off by default.
 * **Subforms are contained, not addressable.** A subform (ORDERITEMS under
   ORDERS, ORDERITEMSTEXT under ORDERITEMS) has an `EntityType` but no
   `EntitySet`, exactly as on a real tenant: `GET {root}/ORDERITEMS` is a 404.
@@ -454,6 +458,10 @@ class _BadRequest(Exception):
     pass
 
 
+class _NotImplemented(Exception):
+    pass
+
+
 def _no_property(name: str, form: str) -> _BadRequest:
     return _BadRequest(f"Could not find a property named '{name}' on type 'Priority.OData.{form}'.")
 
@@ -559,6 +567,11 @@ _TOKEN_RE = re.compile(r"""
 
 _CMP = {"eq", "ne", "gt", "ge", "lt", "le"}
 
+# String functions parsed but not implemented, answered with a 501 — a server
+# that knows the standard OData v4 function names without supporting them.
+# Empty by default; `--no-string-functions` fills it.
+UNIMPLEMENTED_FUNCTIONS: set = set()
+
 
 def _tokenize(expr: str) -> List[Tuple[str, str]]:
     out, pos, expr = [], 0, expr.strip()
@@ -611,6 +624,8 @@ def _compile_filter(expr: str, form: str) -> Callable[[dict], bool]:
             expect(")")
             return node
         if k == "word" and t.lower() in ("contains", "startswith", "endswith") and peek(1)[1] == "(":
+            if t.lower() in UNIMPLEMENTED_FUNCTIONS:
+                raise _NotImplemented(f"The function '{t}' is not implemented.")
             take()
             take()
             a = operand()
@@ -831,6 +846,8 @@ def query(path: str, request: Request):
         value = _shape(form, rows, qp)
     except _BadRequest as e:
         return JSONResponse({"error": {"code": "", "message": str(e)}}, status_code=400)
+    except _NotImplemented as e:
+        return JSONResponse({"error": {"code": "501", "message": str(e)}}, status_code=501)
 
     cost = _response_cost(value, bool(qp.get("$expand")))
     if cost > 0:
@@ -855,8 +872,12 @@ if __name__ == "__main__":
     ap.add_argument("--speed", type=float, default=1.0,
                     help="latency multiplier in large-tenant mode (0 = instant)")
     ap.add_argument("--log", help="append a JSON line per request to this file")
+    ap.add_argument("--no-string-functions", action="store_true",
+                    help="answer contains/startswith/endswith in $filter with a 501")
     args = ap.parse_args()
     ACCESS_LOG_PATH = args.log
+    if args.no_string_functions:
+        UNIMPLEMENTED_FUNCTIONS.update({"contains", "startswith", "endswith"})
     if args.orders:
         seed_large(args.orders)
         LATENCY.update({k: v * args.speed for k, v in
