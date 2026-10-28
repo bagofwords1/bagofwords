@@ -321,8 +321,9 @@ class OrganizationSettingsConfig(BaseModel):
     # Voice input in the web composer. Transcription runs in the user's
     # browser (the Web Speech API), so no audio reaches this server; the
     # browser vendor's speech service may receive it. Frontend-only gate:
-    # when off, the microphone button is hidden.
-    enable_voice_input: FeatureConfig = FeatureConfig(value=True, name="Voice input", description="Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it.", is_lab=False, editable=True)
+    # when off, the microphone button is hidden. Off by default: an admin
+    # opts the organization in once they accept that trade-off.
+    enable_voice_input: FeatureConfig = FeatureConfig(value=False, name="Voice input", description="Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it.", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)
     suggest_instructions: FeatureConfig = FeatureConfig(value=True, name="Autogenerate instructions", description="Automatically generate instructions following clarifications provided by the user", is_lab=False, editable=True)

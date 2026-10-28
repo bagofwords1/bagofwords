@@ -260,7 +260,7 @@ def test_session_staleness_settings_defaults_and_update(
 
 
 @pytest.mark.e2e
-def test_voice_input_feature_defaults_on_and_toggle_persists(
+def test_voice_input_feature_defaults_off_and_toggle_persists(
     get_organization_settings,
     update_organization_settings,
     create_user,
@@ -268,20 +268,20 @@ def test_voice_input_feature_defaults_on_and_toggle_persists(
     whoami
 ):
     """The composer's voice-input gate is a regular editable feature flag:
-    it surfaces on first read (default on, so existing orgs get the button
-    without a migration), a disable persists across reads, and it can be
-    turned back on."""
+    it surfaces on first read (default off, so no org shows the microphone
+    until an admin opts in), an enable persists across reads, and it can
+    be turned back off."""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
     org_id = whoami(user_token)['organizations'][0]['id']
 
     settings = get_organization_settings(user_token=user_token, org_id=org_id)
     feature = settings["config"]["enable_voice_input"]
-    assert feature["value"] is True
+    assert feature["value"] is False
     assert feature["editable"] is True
-    assert feature["state"] == "enabled"
+    assert feature["state"] == "disabled"
 
-    for value in (False, True):
+    for value in (True, False):
         updated = update_organization_settings(
             config={"enable_voice_input": {"value": value}},
             user_token=user_token,
