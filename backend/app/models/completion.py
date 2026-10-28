@@ -12,6 +12,7 @@ from app.streaming.completion_event_bus import websocket_manager
 import json
 from app.models.mention import MentionType
 from sqlalchemy.orm.exc import DetachedInstanceError
+from app.ee.encryption import EncryptedJSON
 
 # Add these imports for the new functionality
 from app.settings.database import create_async_session_factory
@@ -25,8 +26,11 @@ logger = get_logger(__name__)
 class Completion(BaseSchema):
     __tablename__ = 'completions'
 
-    prompt = Column(JSON, nullable=False, default="")
-    completion = Column(JSON, nullable=False, default="")
+    # User and assistant text restate query results, so both are encrypted at
+    # rest (enterprise data_encryption). Anything that searches these columns
+    # in SQL must handle ciphertext — see ReportService.get_reports.
+    prompt = Column(EncryptedJSON, nullable=False, default="")
+    completion = Column(EncryptedJSON, nullable=False, default="")
 
     status = Column(String, nullable=False, default='success')
     model = Column(String, nullable=False, default='gpt4o')

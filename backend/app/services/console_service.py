@@ -2503,6 +2503,40 @@ class ConsoleService:
             ))
         return out
 
+    async def _search_encrypted_prompts(self, db: AsyncSession, organization_id, search: str) -> list[str]:
+        """Ids of *encrypted* user completions whose prompt contains ``search``.
+
+        get_agent_execution_summaries ILIKEs over Completion.prompt cast to
+        text; a row stored as a ciphertext envelope (enterprise
+        data_encryption) never matches that way. Only enveloped rows are
+        hydrated here — the column type decrypts them — and tested with the
+        same case-insensitive substring rule over the serialized JSON. On an
+        instance that has never encrypted this selects nothing.
+        """
+        from app.ee.encryption import envelope_marker_expr
+        from app.models.report import Report
+
+        rows = (await db.execute(
+            select(Completion.id, Completion.prompt)
+            .join(Report, Report.id == Completion.report_id)
+            .where(
+                Report.organization_id == organization_id,
+                envelope_marker_expr(Completion.prompt),
+            )
+        )).all()
+        needle = search.lower()
+        hits: list[str] = []
+        for cid, prompt in rows:
+            if prompt is None:
+                continue
+            try:
+                haystack = json.dumps(prompt, ensure_ascii=False)
+            except (TypeError, ValueError):
+                haystack = str(prompt)
+            if needle in haystack.lower():
+                hits.append(str(cid))
+        return hits
+
     async def get_agent_execution_summaries(
         self,
         db: AsyncSession,
@@ -2633,11 +2667,17 @@ class ConsoleService:
             from sqlalchemy.orm import aliased
             PromptSystemCompletion = aliased(Completion)
             PromptUserCompletion = aliased(Completion)
+            prompt_match = sa_cast(PromptUserCompletion.prompt, Text).ilike(f'%{prompt_search}%')
+            # Prompts written under enterprise data_encryption are ciphertext
+            # in SQL, so the ILIKE cannot see them; match those in Python.
+            encrypted_hits = await self._search_encrypted_prompts(db, organization.id, prompt_search)
+            if encrypted_hits:
+                prompt_match = or_(prompt_match, PromptUserCompletion.id.in_(encrypted_hits))
             base_query = (
                 base_query
                 .join(PromptSystemCompletion, PromptSystemCompletion.id == AgentExecution.completion_id, isouter=True)
                 .join(PromptUserCompletion, PromptUserCompletion.id == PromptSystemCompletion.parent_id, isouter=True)
-                .where(sa_cast(PromptUserCompletion.prompt, Text).ilike(f'%{prompt_search}%'))
+                .where(prompt_match)
             )
 
         # Recalculate total with filters
