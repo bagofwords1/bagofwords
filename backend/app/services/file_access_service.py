@@ -33,6 +33,8 @@ from sqlalchemy import String, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
+from app.ee.encryption import envelope_marker_expr
+
 from app.core.permission_resolver import (
     FULL_ADMIN,
     get_accessible_data_source_ids,
@@ -242,7 +244,13 @@ async def _embedded_in_viewable_artifact(
                 Report.artifact_visibility.in_(("public", "internal", "shared")),
                 Report.conversation_visibility.in_(("public", "internal", "shared")),
             ),
-            cast(ArtifactVersion.content, String).contains(str(file.id)),
+            or_(
+                cast(ArtifactVersion.content, String).contains(str(file.id)),
+                # An encrypted version (enterprise data_encryption) is opaque to
+                # the substring prefilter; let it through to the structural
+                # check below, where the ORM has decrypted it.
+                envelope_marker_expr(ArtifactVersion.content),
+            ),
         )
     )).all()
     report_ids = {str(rid) for rid, content in rows if str(file.id) in _embedded_ids(content)}

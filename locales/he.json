@@ -671,6 +671,17 @@
       "runsAs": "רץ כ-{level} במודל זה",
       "faster": "מהיר יותר",
       "smarter": "חכם יותר"
+    },
+    "voiceInput": {
+      "start": "הכתבת הנחיה",
+      "stop": "הפסקת ההכתבה",
+      "errors": {
+        "permissionDenied": "הגישה למיקרופון נחסמה. יש לאפשר אותה בהגדרות הדפדפן כדי להכתיב.",
+        "noSpeech": "לא זוהה דיבור.",
+        "noMicrophone": "לא נמצא מיקרופון.",
+        "network": "זיהוי הדיבור דורש חיבור לרשת.",
+        "failed": "הקלט הקולי נכשל. נסו שוב."
+      }
     }
   },
   "reports": {
@@ -3009,6 +3020,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "וובהוק HTTPS",
           "syslog": "Syslog על גבי TLS"
         },
@@ -3018,6 +3030,7 @@
           "sentinel": "Logs Ingestion API ‏(DCR)",
           "s3": "אובייקט NDJSON לכל אצווה",
           "gcs": "אובייקטי NDJSON עם מפתחות HMAC",
+          "cloudwatch": "PutLogEvents לקבוצת לוגים",
           "https": "POST של JSON חתום",
           "syslog": "RFC 5424, ‏JSON או CEF"
         },
@@ -3045,6 +3058,8 @@
           "stream_name": "שם הזרם",
           "authority_url": "כתובת רשות (Authority)",
           "bucket": "דלי (Bucket)",
+          "log_group": "קבוצת לוגים",
+          "log_stream": "זרם לוגים",
           "region": "אזור",
           "prefix": "קידומת מפתח",
           "role_arn": "ARN של התפקיד",
@@ -3052,6 +3067,7 @@
           "access_key_id": "מזהה מפתח גישה",
           "secret_access_key": "מפתח גישה סודי",
           "gzip": "דחיסת אובייקטים ב-gzip",
+          "create_log_group": "צור קבוצת לוגים אם אינה קיימת",
           "endpoint_url": "כתובת נקודת קצה מותאמת",
           "sts_endpoint_url": "נקודת קצה STS מותאמת",
           "host": "שרת",
@@ -3167,6 +3183,10 @@
         "enable_follow_ups": {
           "name": "הצעות להמשך",
           "description": "אחרי כל תשובה באפליקציה, מציע כמה שאלות המשך שהמשתמש יכול לשאול. נוצר על המודל הקטן/ברירת המחדל."
+        },
+        "enable_voice_input": {
+          "name": "קלט קולי",
+          "description": "הצגת כפתור מיקרופון בתיבת הצ'אט כדי שמשתמשים יוכלו להכתיב הנחיה. התמלול מתבצע בדפדפן של המשתמש (Chrome, Edge ו-Safari); השמע לעולם לא מגיע לשרת הזה, אך שירות הדיבור של ספק הדפדפן עשוי לעבד אותו."
         },
         "auto_suggest_evals": {
           "name": "הצעת בדיקות אוטומטית",

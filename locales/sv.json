@@ -650,6 +650,17 @@
       "runsAs": "Körs som {level} på den här modellen",
       "faster": "Snabbare",
       "smarter": "Smartare"
+    },
+    "voiceInput": {
+      "start": "Diktera en fråga",
+      "stop": "Sluta diktera",
+      "errors": {
+        "permissionDenied": "Åtkomst till mikrofonen blockerades. Tillåt den i webbläsarens inställningar för att diktera.",
+        "noSpeech": "Inget tal upptäcktes.",
+        "noMicrophone": "Ingen mikrofon hittades.",
+        "network": "Taligenkänning kräver en nätverksanslutning.",
+        "failed": "Röstinmatningen misslyckades. Försök igen."
+      }
     }
   },
   "reports": {
@@ -2778,6 +2789,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "HTTPS-webhook",
           "syslog": "Syslog över TLS"
         },
@@ -2787,6 +2799,7 @@
           "sentinel": "Logs Ingestion-API (DCR)",
           "s3": "NDJSON-objekt per batch",
           "gcs": "NDJSON-objekt via HMAC-nycklar",
+          "cloudwatch": "PutLogEvents till en logggrupp",
           "https": "Signerad JSON-POST",
           "syslog": "RFC 5424, JSON eller CEF"
         },
@@ -2814,6 +2827,8 @@
           "stream_name": "Strömnamn",
           "authority_url": "Authority-URL",
           "bucket": "Bucket",
+          "log_group": "Logggrupp",
+          "log_stream": "Loggström",
           "region": "Region",
           "prefix": "Nyckelprefix",
           "role_arn": "Roll-ARN",
@@ -2821,6 +2836,7 @@
           "access_key_id": "Åtkomstnyckel-ID",
           "secret_access_key": "Hemlig åtkomstnyckel",
           "gzip": "Komprimera objekt med gzip",
+          "create_log_group": "Skapa logggruppen om den saknas",
           "endpoint_url": "Anpassad slutpunkts-URL",
           "sts_endpoint_url": "Anpassad STS-slutpunkt",
           "host": "Värd",
@@ -2932,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Följdförslag",
           "description": "Föreslår efter varje svar i webbappen några följdfrågor som användaren kan ställa härnäst. Genereras på den lilla modellen eller standardmodellen."
+        },
+        "enable_voice_input": {
+          "name": "Röstinmatning",
+          "description": "Visa en mikrofonknapp i chattfältet så att användare kan diktera en fråga. Transkriberingen sker i användarens webbläsare (Chrome, Edge och Safari); ljudet når aldrig den här servern, men webbläsarleverantörens taltjänst kan behandla det."
         },
         "auto_suggest_evals": {
           "name": "Föreslå utvärderingar automatiskt",

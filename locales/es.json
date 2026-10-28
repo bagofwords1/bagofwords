@@ -671,6 +671,17 @@
       "runsAs": "Se ejecuta como {level} en este modelo",
       "faster": "Más rápido",
       "smarter": "Más inteligente"
+    },
+    "voiceInput": {
+      "start": "Dictar una solicitud",
+      "stop": "Dejar de dictar",
+      "errors": {
+        "permissionDenied": "Se bloqueó el acceso al micrófono. Permítelo en la configuración del navegador para dictar.",
+        "noSpeech": "No se detectó voz.",
+        "noMicrophone": "No se encontró ningún micrófono.",
+        "network": "El reconocimiento de voz necesita conexión a la red.",
+        "failed": "La entrada de voz falló. Inténtalo de nuevo."
+      }
     }
   },
   "reports": {
@@ -3009,6 +3020,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook HTTPS",
           "syslog": "Syslog sobre TLS"
         },
@@ -3018,6 +3030,7 @@
           "sentinel": "API de ingesta de logs (DCR)",
           "s3": "Objetos NDJSON por lote",
           "gcs": "Objetos NDJSON con claves HMAC",
+          "cloudwatch": "PutLogEvents a un grupo de logs",
           "https": "POST JSON firmado",
           "syslog": "RFC 5424, JSON o CEF"
         },
@@ -3045,6 +3058,8 @@
           "stream_name": "Nombre del flujo",
           "authority_url": "URL de autoridad",
           "bucket": "Bucket",
+          "log_group": "Grupo de logs",
+          "log_stream": "Flujo de logs",
           "region": "Región",
           "prefix": "Prefijo de clave",
           "role_arn": "ARN del rol",
@@ -3052,6 +3067,7 @@
           "access_key_id": "ID de clave de acceso",
           "secret_access_key": "Clave de acceso secreta",
           "gzip": "Comprimir objetos con gzip",
+          "create_log_group": "Crear el grupo de logs si no existe",
           "endpoint_url": "URL de endpoint personalizada",
           "sts_endpoint_url": "Endpoint STS personalizado",
           "host": "Host",
@@ -3167,6 +3183,10 @@
         "enable_follow_ups": {
           "name": "Sugerencias de seguimiento",
           "description": "Después de cada respuesta en la aplicación web, sugiere algunas preguntas de seguimiento que el usuario puede hacer a continuación. Se generan con el modelo pequeño o predeterminado."
+        },
+        "enable_voice_input": {
+          "name": "Entrada de voz",
+          "description": "Muestra un botón de micrófono en el compositor del chat para que los usuarios puedan dictar una solicitud. La transcripción se realiza en el navegador del usuario (Chrome, Edge y Safari); el audio nunca llega a este servidor, pero el servicio de voz del proveedor del navegador puede procesarlo."
         },
         "auto_suggest_evals": {
           "name": "Sugerir evaluaciones automáticamente",

@@ -650,6 +650,17 @@
       "runsAs": "Eseguito come {level} su questo modello",
       "faster": "Più veloce",
       "smarter": "Più intelligente"
+    },
+    "voiceInput": {
+      "start": "Detta una richiesta",
+      "stop": "Interrompi la dettatura",
+      "errors": {
+        "permissionDenied": "L'accesso al microfono è stato bloccato. Consentilo nelle impostazioni del browser per dettare.",
+        "noSpeech": "Nessun parlato rilevato.",
+        "noMicrophone": "Nessun microfono trovato.",
+        "network": "Il riconoscimento vocale richiede una connessione di rete.",
+        "failed": "L'input vocale non è riuscito. Riprova."
+      }
     }
   },
   "reports": {
@@ -2778,6 +2789,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook HTTPS",
           "syslog": "Syslog su TLS"
         },
@@ -2787,6 +2799,7 @@
           "sentinel": "API di acquisizione log (DCR)",
           "s3": "Oggetti NDJSON per batch",
           "gcs": "Oggetti NDJSON tramite chiavi HMAC",
+          "cloudwatch": "PutLogEvents verso un gruppo di log",
           "https": "POST JSON firmato",
           "syslog": "RFC 5424, JSON o CEF"
         },
@@ -2814,6 +2827,8 @@
           "stream_name": "Nome del flusso",
           "authority_url": "URL dell'autorità",
           "bucket": "Bucket",
+          "log_group": "Gruppo di log",
+          "log_stream": "Flusso di log",
           "region": "Regione",
           "prefix": "Prefisso chiave",
           "role_arn": "ARN del ruolo",
@@ -2821,6 +2836,7 @@
           "access_key_id": "ID chiave di accesso",
           "secret_access_key": "Chiave di accesso segreta",
           "gzip": "Comprimi oggetti con gzip",
+          "create_log_group": "Crea il gruppo di log se mancante",
           "endpoint_url": "URL endpoint personalizzato",
           "sts_endpoint_url": "Endpoint STS personalizzato",
           "host": "Host",
@@ -2932,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Suggerimenti di approfondimento",
           "description": "Dopo ogni risposta nell'app web, propone alcune domande di approfondimento che l'utente può porre successivamente. Generate sul modello piccolo o predefinito."
+        },
+        "enable_voice_input": {
+          "name": "Input vocale",
+          "description": "Mostra un pulsante microfono nel compositore della chat così gli utenti possono dettare una richiesta. La trascrizione avviene nel browser dell'utente (Chrome, Edge e Safari); l'audio non raggiunge mai questo server, ma il servizio vocale del fornitore del browser potrebbe elaborarlo."
         },
         "auto_suggest_evals": {
           "name": "Suggerisci valutazioni automaticamente",

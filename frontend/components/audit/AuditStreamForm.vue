@@ -152,7 +152,7 @@ const formError = ref<string | null>(null)
 const spec = computed(() => props.specs.find((s) => s.type === destination.value))
 const basicFields = computed(() => (spec.value?.fields || []).filter((f) => !f.advanced))
 const advancedFields = computed(() => (spec.value?.fields || []).filter((f) => f.advanced))
-const externalId = computed(() => (destination.value === 's3' && props.stream?.config?.role_arn ? props.stream.config.external_id : null))
+const externalId = computed(() => ((destination.value === 's3' || destination.value === 'cloudwatch') && props.stream?.config?.role_arn ? props.stream.config.external_id : null))
 const wide = (f: DestinationField) => ['textarea', 'headers', 'url'].includes(f.kind)
 
 function reset() {

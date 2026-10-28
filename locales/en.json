@@ -688,6 +688,17 @@
       "runsAs": "Runs as {level} on this model",
       "faster": "Faster",
       "smarter": "Smarter"
+    },
+    "voiceInput": {
+      "start": "Dictate a prompt",
+      "stop": "Stop dictating",
+      "errors": {
+        "permissionDenied": "Microphone access was blocked. Allow it in your browser settings to dictate.",
+        "noSpeech": "No speech was detected.",
+        "noMicrophone": "No microphone was found.",
+        "network": "Speech recognition needs a network connection.",
+        "failed": "Voice input failed. Please try again."
+      }
     }
   },
   "exports": {
@@ -3089,6 +3100,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "HTTPS webhook",
           "syslog": "Syslog over TLS"
         },
@@ -3098,6 +3110,7 @@
           "sentinel": "Logs Ingestion API (DCR)",
           "s3": "NDJSON objects per batch",
           "gcs": "NDJSON objects via HMAC keys",
+          "cloudwatch": "PutLogEvents to a log group",
           "https": "Signed JSON POST",
           "syslog": "RFC 5424, JSON or CEF"
         },
@@ -3125,6 +3138,8 @@
           "stream_name": "Stream name",
           "authority_url": "Authority URL",
           "bucket": "Bucket",
+          "log_group": "Log group",
+          "log_stream": "Log stream",
           "region": "Region",
           "prefix": "Key prefix",
           "role_arn": "Role ARN",
@@ -3132,6 +3147,7 @@
           "access_key_id": "Access key ID",
           "secret_access_key": "Secret access key",
           "gzip": "Gzip objects",
+          "create_log_group": "Create log group if missing",
           "endpoint_url": "Custom endpoint URL",
           "sts_endpoint_url": "Custom STS endpoint",
           "host": "Host",
@@ -3247,6 +3263,10 @@
         "enable_follow_ups": {
           "name": "Follow-up suggestions",
           "description": "After each answer in the web app, suggest a few follow-up questions the user can ask next. Generated on the small/default model."
+        },
+        "enable_voice_input": {
+          "name": "Voice input",
+          "description": "Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it."
         },
         "auto_suggest_evals": {
           "name": "Auto-suggest evals",
