@@ -95,12 +95,9 @@ export const useOrgSettings = () => {
   const isFollowUpsEnabled = computed(() => featureEnabled(getFeature('enable_follow_ups')))
   const isCustomQueriesEnabled = computed(() => featureEnabled(getFeature('enable_custom_queries')))
   const isAgentDreamingEnabled = computed(() => featureEnabled(getFeature('enable_agent_dreaming')))
-  // Defaults on: an org whose stored settings predate the flag still gets the
-  // microphone button; the backend schema default is True as well.
-  const isVoiceInputEnabled = computed(() => {
-    const f = getFeature('enable_voice_input')
-    return f ? featureEnabled(f) : true
-  })
+  // Off by default (matches the backend schema): the mic button shows only
+  // once an admin turns the feature on in AI settings.
+  const isVoiceInputEnabled = computed(() => featureEnabled(getFeature('enable_voice_input')))
   // Defaults on: an org whose stored settings predate the flag still has memory.
   const isUserMemoryEnabled = computed(() => {
     const f = getFeature('enable_user_memory')
