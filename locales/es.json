@@ -1426,7 +1426,17 @@
       "reading": "Leyendo…",
       "read": "Instrucción leída",
       "readSkill": "Habilidad leída",
-      "failed": "No se pudo leer la instrucción"
+      "failed": "No se pudo leer la instrucción",
+      "lines": "líneas {start}–{end} / {total}",
+      "truncated": "truncado",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} coincidencia",
+      "matchPlural": "{count} coincidencias",
+      "moreMatches": "+más",
+      "moreShown": "+{count} más mostradas al agente",
+      "noMatches": "Sin líneas coincidentes — se devolvió el esquema en su lugar",
+      "outline": "Esquema",
+      "longLine": "línea larga: caracteres {start}–{end} de {length}"
     },
     "createEval": {
       "drafting": "Redactando evaluación",

@@ -1407,7 +1407,17 @@
       "reading": "جارٍ القراءة…",
       "read": "تمت قراءة التعليمات",
       "readSkill": "تمت قراءة المهارة",
-      "failed": "تعذّرت قراءة التعليمات"
+      "failed": "تعذّرت قراءة التعليمات",
+      "lines": "الأسطر {start}–{end} / {total}",
+      "truncated": "مقتطع",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} تطابق",
+      "matchPlural": "{count} تطابقات",
+      "moreMatches": "+المزيد",
+      "moreShown": "+{count} أخرى عُرضت على الوكيل",
+      "noMatches": "لا توجد أسطر مطابقة — أُعيد المخطط بدلاً من ذلك",
+      "outline": "المخطط",
+      "longLine": "سطر طويل: الأحرف {start}–{end} من {length}"
     },
     "createEval": {
       "drafting": "جارٍ صياغة التقييم",

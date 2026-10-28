@@ -1407,7 +1407,17 @@
       "reading": "A ler…",
       "read": "Instrução lida",
       "readSkill": "Habilidade lida",
-      "failed": "Não foi possível ler a instrução"
+      "failed": "Não foi possível ler a instrução",
+      "lines": "linhas {start}–{end} / {total}",
+      "truncated": "truncado",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} correspondência",
+      "matchPlural": "{count} correspondências",
+      "moreMatches": "+mais",
+      "moreShown": "+{count} mais mostradas ao agente",
+      "noMatches": "Nenhuma linha correspondente — o esboço foi retornado em vez disso",
+      "outline": "Esboço",
+      "longLine": "linha longa: caracteres {start}–{end} de {length}"
     },
     "createEval": {
       "drafting": "Esboçando avaliação",

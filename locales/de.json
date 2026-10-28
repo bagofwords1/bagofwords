@@ -1407,7 +1407,17 @@
       "reading": "Wird gelesen…",
       "read": "Anweisung gelesen",
       "readSkill": "Skill gelesen",
-      "failed": "Anweisung konnte nicht gelesen werden"
+      "failed": "Anweisung konnte nicht gelesen werden",
+      "lines": "Zeilen {start}–{end} / {total}",
+      "truncated": "gekürzt",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} Treffer",
+      "matchPlural": "{count} Treffer",
+      "moreMatches": "+mehr",
+      "moreShown": "+{count} weitere dem Agenten gezeigt",
+      "noMatches": "Keine passenden Zeilen — stattdessen wurde die Gliederung zurückgegeben",
+      "outline": "Gliederung",
+      "longLine": "lange Zeile: Zeichen {start}–{end} von {length}"
     },
     "createEval": {
       "drafting": "Entwurf der Auswertung",
