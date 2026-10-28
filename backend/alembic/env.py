@@ -12,6 +12,7 @@ from alembic.operations import ops
 from app.settings.config import settings
 from app.settings.db_auth import get_auth_provider
 
+from app.models.background_job import BackgroundJob
 from app.models.base import BaseSchema
 from app.models.report import Report
 from app.models.artifact_release import ArtifactRelease, ArtifactShare

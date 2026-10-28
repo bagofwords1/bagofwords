@@ -149,6 +149,8 @@ class AgentReliabilityService:
     # ----- concurrency guard --------------------------------------------------
 
     async def _already_running(self, db, data_source_id: str) -> bool:
+        from app.services.worker_recovery import recover_automation
+        await recover_automation(db, data_source_id)
         stmt = select(AgentAutomationRun.id).where(
             AgentAutomationRun.data_source_id == str(data_source_id),
             AgentAutomationRun.status == STATUS_RUNNING,
@@ -243,98 +245,100 @@ class AgentReliabilityService:
             detail={"hint": changed_hint, "policy": policy.model_dump()},
             started=True,
         )
-        test_run_ids: List[str] = []
-        detail: Dict[str, Any] = {"hint": changed_hint, "iterations": []}
-        try:
-            # --- Baseline: measure against the current main build. -----------
-            baseline = await self._evaluate(
-                db, organization, actor, case_ids, build_id=None, trigger=trigger,
-            )
-            test_run_ids.extend(baseline.get("run_ids") or ([baseline["run_id"]] if baseline.get("run_id") else []))
-            detail["baseline"] = baseline["summary"]
-            baseline_passing = set(baseline["passing_case_ids"])
-
-            if baseline["failed"] == 0 and baseline["errored"] == 0:
-                return await self._finish(
-                    db, run, STATUS_PASSED, iterations=0, build_id=None,
-                    test_run_ids=test_run_ids,
-                    detail={**detail, "reason": "evals green at baseline"},
+        from app.services.worker_recovery import monitor
+        async with monitor(AgentAutomationRun, run.id, STATUS_RUNNING):
+            test_run_ids: List[str] = []
+            detail: Dict[str, Any] = {"hint": changed_hint, "iterations": []}
+            try:
+                # --- Baseline: measure against the current main build. -----------
+                baseline = await self._evaluate(
+                    db, organization, actor, case_ids, build_id=None, trigger=trigger,
                 )
+                test_run_ids.extend(baseline.get("run_ids") or ([baseline["run_id"]] if baseline.get("run_id") else []))
+                detail["baseline"] = baseline["summary"]
+                baseline_passing = set(baseline["passing_case_ids"])
 
-            # --- Remediation gated on train_on_failure. ----------------------
-            # An à-la-carte Review action can override the saved policy for this
-            # one invocation: "off" => eval-only (report), "auto" => force train.
-            effective_train = train_override or policy.stage("train_on_failure")
-            if effective_train == AUTONOMY_OFF:
-                # We measured and reported, but aren't allowed to fix.
+                if baseline["failed"] == 0 and baseline["errored"] == 0:
+                    return await self._finish(
+                        db, run, STATUS_PASSED, iterations=0, build_id=None,
+                        test_run_ids=test_run_ids,
+                        detail={**detail, "reason": "evals green at baseline"},
+                    )
+
+                # --- Remediation gated on train_on_failure. ----------------------
+                # An à-la-carte Review action can override the saved policy for this
+                # one invocation: "off" => eval-only (report), "auto" => force train.
+                effective_train = train_override or policy.stage("train_on_failure")
+                if effective_train == AUTONOMY_OFF:
+                    # We measured and reported, but aren't allowed to fix.
+                    return await self._finish(
+                        db, run, STATUS_GAVE_UP, iterations=0, build_id=None,
+                        test_run_ids=test_run_ids,
+                        detail={**detail, "reason": "evals failing; train_on_failure is off (report-only)"},
+                        apply_outcome=policy, organization=organization, data_source=data_source,
+                    )
+
+                candidate_build_id: Optional[str] = None
+                passed = False
+                iterations_done = 0
+                for i in range(policy.max_iterations):
+                    iterations_done = i + 1
+                    step = await self._train_iteration(
+                        db, organization, actor, data_source,
+                        failing_case_ids=baseline["failing_case_ids"],
+                        build_id=candidate_build_id,
+                        trigger=trigger,
+                        iteration=iterations_done,
+                        brief=brief or changed_hint,
+                    )
+                    candidate_build_id = step["build_id"]
+
+                    result = await self._evaluate(
+                        db, organization, actor, case_ids,
+                        build_id=candidate_build_id, trigger=trigger,
+                    )
+                    test_run_ids.extend(result.get("run_ids") or ([result["run_id"]] if result.get("run_id") else []))
+
+                    now_passing = set(result["passing_case_ids"])
+                    regressed = sorted(baseline_passing - now_passing)
+                    green = result["failed"] == 0 and result["errored"] == 0
+
+                    detail["iterations"].append({
+                        "iteration": iterations_done,
+                        "build_id": candidate_build_id,
+                        "summary": result["summary"],
+                        "training": step.get("summary"),
+                        "regressed_case_ids": regressed,
+                    })
+
+                    if green and not regressed:
+                        passed = True
+                        break
+                    # else keep iterating against the same candidate build
+
+                if passed:
+                    return await self._promote_or_pend(
+                        db, run, organization, actor, policy,
+                        build_id=candidate_build_id, iterations=iterations_done,
+                        test_run_ids=test_run_ids, detail=detail,
+                    )
+
+                # Exhausted iterations without a clean pass.
                 return await self._finish(
-                    db, run, STATUS_GAVE_UP, iterations=0, build_id=None,
-                    test_run_ids=test_run_ids,
-                    detail={**detail, "reason": "evals failing; train_on_failure is off (report-only)"},
+                    db, run, STATUS_GAVE_UP, iterations=iterations_done,
+                    build_id=candidate_build_id, test_run_ids=test_run_ids,
+                    detail={**detail, "reason": "could not reach green within max_iterations"},
                     apply_outcome=policy, organization=organization, data_source=data_source,
                 )
-
-            candidate_build_id: Optional[str] = None
-            passed = False
-            iterations_done = 0
-            for i in range(policy.max_iterations):
-                iterations_done = i + 1
-                step = await self._train_iteration(
-                    db, organization, actor, data_source,
-                    failing_case_ids=baseline["failing_case_ids"],
-                    build_id=candidate_build_id,
-                    trigger=trigger,
-                    iteration=iterations_done,
-                    brief=brief or changed_hint,
+            except Exception as e:  # noqa: BLE001 — never let a trigger crash the caller
+                logger.exception("agent_reliability.loop_failed ds=%s: %s", ds_id, e)
+                return await self._finish(
+                    db, run, STATUS_ERROR, iterations=detail.get("iterations") and len(detail["iterations"]) or 0,
+                    build_id=None, test_run_ids=test_run_ids,
+                    detail={**detail, "error": str(e)},
                 )
-                candidate_build_id = step["build_id"]
-
-                result = await self._evaluate(
-                    db, organization, actor, case_ids,
-                    build_id=candidate_build_id, trigger=trigger,
-                )
-                test_run_ids.extend(result.get("run_ids") or ([result["run_id"]] if result.get("run_id") else []))
-
-                now_passing = set(result["passing_case_ids"])
-                regressed = sorted(baseline_passing - now_passing)
-                green = result["failed"] == 0 and result["errored"] == 0
-
-                detail["iterations"].append({
-                    "iteration": iterations_done,
-                    "build_id": candidate_build_id,
-                    "summary": result["summary"],
-                    "training": step.get("summary"),
-                    "regressed_case_ids": regressed,
-                })
-
-                if green and not regressed:
-                    passed = True
-                    break
-                # else keep iterating against the same candidate build
-
-            if passed:
-                return await self._promote_or_pend(
-                    db, run, organization, actor, policy,
-                    build_id=candidate_build_id, iterations=iterations_done,
-                    test_run_ids=test_run_ids, detail=detail,
-                )
-
-            # Exhausted iterations without a clean pass.
-            return await self._finish(
-                db, run, STATUS_GAVE_UP, iterations=iterations_done,
-                build_id=candidate_build_id, test_run_ids=test_run_ids,
-                detail={**detail, "reason": "could not reach green within max_iterations"},
-                apply_outcome=policy, organization=organization, data_source=data_source,
-            )
-        except Exception as e:  # noqa: BLE001 — never let a trigger crash the caller
-            logger.exception("agent_reliability.loop_failed ds=%s: %s", ds_id, e)
-            return await self._finish(
-                db, run, STATUS_ERROR, iterations=detail.get("iterations") and len(detail["iterations"]) or 0,
-                build_id=None, test_run_ids=test_run_ids,
-                detail={**detail, "error": str(e)},
-            )
-        finally:
-            _INFLIGHT.discard(ds_id)
+            finally:
+                _INFLIGHT.discard(ds_id)
 
     # ----- promotion ----------------------------------------------------------
 
@@ -343,6 +347,8 @@ class AgentReliabilityService:
     ) -> AgentAutomationRun:
         """Evals are green on the candidate build. Either auto-approve+promote it
         (approve_instructions == auto) or leave it pending human approval."""
+        from app.services.worker_recovery import require_running
+        await require_running(db, AgentAutomationRun, run.id, STATUS_RUNNING)
         if not build_id:
             return await self._finish(
                 db, run, STATUS_PASSED, iterations=iterations, build_id=None,
@@ -670,6 +676,8 @@ class AgentReliabilityService:
         apply_outcome: Optional[AgentAutomationPolicy] = None,
         organization=None, data_source=None,
     ) -> AgentAutomationRun:
+        from app.services.worker_recovery import require_running
+        await require_running(db, AgentAutomationRun, run.id, STATUS_RUNNING)
         if apply_outcome is not None and organization is not None and data_source is not None:
             action = await self._apply_failure_outcome(db, organization, data_source, apply_outcome)
             detail = {**(detail or {}), "outcome_action": action}

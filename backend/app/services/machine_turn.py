@@ -50,41 +50,46 @@ async def run_machine_turn(
     from app.schemas.completion_v2_schema import CompletionCreate
     from app.services.completion_service import CompletionService
 
-    last = (
-        await session.execute(
-            select(Completion)
-            .where(Completion.report_id == str(report.id))
-            .order_by(Completion.turn_index.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    turn = (last.turn_index + 1) if last else 0
+    from app.services.background_jobs import delivery_event
+    event = await delivery_event(session)
+    if event is None:
+        last = (
+            await session.execute(
+                select(Completion)
+                .where(Completion.report_id == str(report.id))
+                .order_by(Completion.turn_index.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        turn = (last.turn_index + 1) if last else 0
 
-    event = Completion(
-        # ``summary`` is the fallback text; ``meta`` carries structured fields
-        # so the frontend can render a locale-aware label instead.
-        prompt={
-            "content": summary,
-            "summary": summary,
-            **({"details": details} if details else {}),
-            **({"meta": meta} if meta else {}),
-        },
-        completion={"content": ""},
-        model=trigger_source,
-        report_id=str(report.id),
-        turn_index=turn,
-        message_type=message_type,
-        role="external",
-        status="in_progress",
-        user_id=str(user.id),
-        # Drives the event-strip icon in the UI (same field webhooks use for
-        # their source icon); no external system is actually involved.
-        external_platform=trigger_source,
-        trigger_source=trigger_source,
-    )
-    session.add(event)
-    await session.commit()
-    await session.refresh(event)
+        event = Completion(
+            # ``summary`` is the fallback text; ``meta`` carries structured fields
+            # so the frontend can render a locale-aware label instead.
+            prompt={
+                "content": summary,
+                "summary": summary,
+                **({"details": details} if details else {}),
+                **({"meta": meta} if meta else {}),
+            },
+            completion={"content": ""},
+            model=trigger_source,
+            report_id=str(report.id),
+            turn_index=turn,
+            message_type=message_type,
+            role="external",
+            status="in_progress",
+            user_id=str(user.id),
+            # Drives the event-strip icon in the UI (same field webhooks use for
+            # their source icon); no external system is actually involved.
+            external_platform=trigger_source,
+            trigger_source=trigger_source,
+        )
+        session.add(event)
+        from app.services.background_jobs import checkpoint_event
+        await checkpoint_event(session, event)
+        await session.commit()
+        await session.refresh(event)
     if on_event is not None:
         try:
             on_event(event)

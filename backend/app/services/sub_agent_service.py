@@ -367,6 +367,9 @@ class SubAgentService:
     def _arm_deadline(self, job_id: str, wave_id: str, deadline_at: datetime) -> None:
         try:
             from app.core.scheduler import scheduler
+            from app.services.background_jobs import enqueue_sync
+            enqueue_sync(key=job_id, kind='wave_deadline', available_at=deadline_at,
+                         payload={'job_id': job_id, 'wave_id': wave_id})
             scheduler.add_job(
                 func=run_wave_deadline, trigger="date",
                 run_date=deadline_at.replace(tzinfo=timezone.utc),
@@ -380,6 +383,8 @@ class SubAgentService:
         if not job_id:
             return
         try:
+            from app.services.background_jobs import cancel_pending
+            cancel_pending(job_id)
             from app.core.scheduler import scheduler
             scheduler.remove_job(job_id=job_id)
         except Exception:
@@ -685,10 +690,12 @@ class SubAgentService:
                 .values(status=WAVE_FIRING, fired_at=datetime.utcnow())
                 .execution_options(synchronize_session=False)
             )
+            if (res.rowcount or 0) == 1:
+                from app.services.background_jobs import enqueue
+                await enqueue(db, key=f'fan_in:{wave.id}', kind='fan_in', payload={'wave_id': str(wave.id)})
             await db.commit()
             if (res.rowcount or 0) == 1:
                 self._cancel_deadline(wave.deadline_job_id)
-                spawn(run_fan_in(str(wave.id)))
 
     async def _write_back(self, db, row: SubAgentRun) -> None:
         """Copy the record into the parent's `delegate` ToolExecution.result_json
@@ -898,12 +905,16 @@ sub_agent_service = SubAgentService()
 # Module-level jobs (APScheduler serialises callables by import path)
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def run_wave_deadline(job_id: str, wave_id: str) -> None:
+async def run_wave_deadline(job_id: str, wave_id: str):
+    from app.services.background_jobs import enqueue, session_factory
+    async with session_factory()() as db:
+        await enqueue(db, key=job_id, kind='wave_deadline', payload={'job_id': job_id, 'wave_id': wave_id})
+        await db.commit()
+
+
+async def deliver_wave_deadline(job_id: str, wave_id: str) -> None:
     """Deadline fired: stop stragglers, record them as timed out, fan in."""
-    from app.core.scheduler import claim_scheduled_run
     from app.dependencies import async_session_maker
-    if not await asyncio.to_thread(claim_scheduled_run, job_id):
-        return
     svc = sub_agent_service
     async with async_session_maker() as db:
         wave = await db.get(SubAgentWave, wave_id)
@@ -916,7 +927,7 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
             .execution_options(synchronize_session=False)
         )
         await db.commit()
-        if (res.rowcount or 0) != 1:
+        if (res.rowcount or 0) != 1 and wave.status != WAVE_TIMED_OUT:
             return
         children = (await db.execute(select(SubAgentRun).where(SubAgentRun.wave_id == wave.id))).scalars().all()
         for c in children:
@@ -928,7 +939,10 @@ async def run_wave_deadline(job_id: str, wave_id: str) -> None:
             c.envelope_json = _envelope(c)
             await db.commit()
             await svc._write_back(db, c)
-    await run_fan_in(wave_id)
+    from app.services.background_jobs import enqueue
+    async with async_session_maker() as db:
+        await enqueue(db, key=f'fan_in:{wave_id}', kind='fan_in', payload={'wave_id': wave_id})
+        await db.commit()
 
 
 async def run_fan_in(wave_id: str) -> None:
@@ -960,6 +974,8 @@ async def run_fan_in(wave_id: str) -> None:
         user = await db.get(User, wave.user_id) if wave.user_id else None
         if not (report and organization and user) or report.deleted_at:
             logger.warning("fan-in for wave %s: report/org/user gone", wave_id)
+            wave.status = WAVE_DONE
+            await db.commit()
             return
         children = (await db.execute(
             select(SubAgentRun).where(SubAgentRun.wave_id == wave.id).order_by(SubAgentRun.wave_index.asc())
@@ -981,7 +997,6 @@ async def run_fan_in(wave_id: str) -> None:
             # Runs in the same session before the agent turn: bind the strip.
             try:
                 wave.fan_in_completion_id = str(event.id)
-                wave.status = WAVE_DONE
             except Exception:
                 pass
 
@@ -993,16 +1008,11 @@ async def run_fan_in(wave_id: str) -> None:
             )
         except Exception:
             logger.exception("fan-in turn for wave %s failed", wave_id)
-        finally:
-            try:
-                w2 = await db.get(SubAgentWave, wave_id)
-                if w2 is not None:
-                    w2.status = WAVE_DONE
-                    if not w2.fan_in_completion_id and wave.fan_in_completion_id:
-                        w2.fan_in_completion_id = wave.fan_in_completion_id
-                    await db.commit()
-            except Exception:
-                pass
+            raise
+        # Do not mark done on cancellation: a pre-agent delivery must remain
+        # resumable. The receipt closes interrupted post-agent deliveries.
+        wave.status = WAVE_DONE
+        await db.commit()
 
 
 async def _report_busy(db, wave_id: str) -> bool:
