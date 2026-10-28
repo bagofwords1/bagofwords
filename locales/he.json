@@ -647,6 +647,8 @@
     "modelAuto": "אוטומטי",
     "modelAutoHint": "הנתב בוחר את המודל המתאים",
     "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
+    "searchAgents": "חיפוש סוכנים…",
+    "noAgentsMatch": "אין סוכנים תואמים",
     "loadingDataSources": "טוען מקורות נתונים…",
     "noDataSources": "לא נמצאו מקורות נתונים",
     "effort": {

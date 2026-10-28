@@ -647,6 +647,8 @@
     "modelAuto": "Auto",
     "modelAutoHint": "El enrutador elige el mejor modelo",
     "autoAgentsHint": "Cualquier agente al que tengas acceso",
+    "searchAgents": "Buscar agentes…",
+    "noAgentsMatch": "Ningún agente coincide",
     "loadingDataSources": "Cargando fuentes de datos…",
     "noDataSources": "No se encontraron fuentes de datos",
     "effort": {

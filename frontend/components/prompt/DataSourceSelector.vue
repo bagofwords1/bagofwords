@@ -51,7 +51,28 @@
                 </button>
             </UTooltip>
             <template #panel>
-                <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
+                <div class="text-xs w-max min-w-[260px] max-w-[420px] rounded-xl" data-testid="agent-scope-panel">
+                    <!-- Search — same affordance as the model picker. Mounts with
+                         the panel, so focus on mount == focus on open; the query
+                         is reset when the panel closes so it never carries over. -->
+                    <div
+                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0)"
+                        class="p-2 border-b border-gray-100 dark:border-gray-800"
+                    >
+                        <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-800/60">
+                            <Icon name="heroicons-magnifying-glass" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
+                            <input
+                                v-model="agentQuery"
+                                type="text"
+                                data-testid="agent-scope-search"
+                                class="flex-1 min-w-0 bg-transparent outline-none text-xs text-gray-800 dark:text-gray-100 placeholder-gray-400"
+                                :placeholder="$t('prompt.searchAgents')"
+                                @vue:mounted="focusSearch"
+                                @vue:unmounted="agentQuery = ''"
+                            />
+                        </div>
+                    </div>
+                    <div class="p-2 max-h-64 overflow-y-auto">
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
@@ -60,9 +81,17 @@
                         <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
                             {{ $t('prompt.noDataSources') }}
                         </div>
+                        <div
+                            v-else-if="hasQuery && filteredGroups.length === 0 && filteredConnectable.length === 0"
+                            class="text-center text-gray-500 dark:text-gray-400 py-4"
+                            data-testid="agent-scope-no-match"
+                        >
+                            {{ $t('prompt.noAgentsMatch') }}
+                        </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
                                 <div
+                                    v-if="!hasQuery"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                                     @click="toggleAutoMode"
                                     data-testid="agent-scope-auto"
@@ -79,8 +108,8 @@
                                     </div>
                                     <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <template v-for="group in sourceGroups" :key="group.key">
+                                <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                <template v-for="group in filteredGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                     {{ group.label }}
@@ -121,10 +150,10 @@
                             <!-- Not-yet-connected (user_required) data sources: grayed out
                                  with a Connect action. These are NOT selectable and are
                                  never persisted to the report until connected. -->
-                            <template v-if="connectableDataSources.length > 0">
-                                <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                            <template v-if="filteredConnectable.length > 0">
+                                <div v-if="filteredGroups.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div
-                                    v-for="ds in connectableDataSources"
+                                    v-for="ds in filteredConnectable"
                                     :key="ds.id"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
                                     @click="openCredentialsModal(ds)"
@@ -147,6 +176,7 @@
                             </template>
                         </template>
                     </template>
+                    </div>
                 </div>
             </template>
         </UPopover>
@@ -432,6 +462,27 @@ const sourceGroups = computed(() => {
     }
     return groups
 })
+
+// Search, mirroring ModelPickerPanel: matches on name (and type, so "duckdb"
+// finds every DuckDB agent). Group headers survive only when they still have
+// rows; the Auto row is hidden while a query is active since it isn't an agent.
+const agentQuery = ref('')
+const hasQuery = computed(() => agentQuery.value.trim().length > 0)
+function matchesQuery(ds: DataSource) {
+    const q = agentQuery.value.trim().toLowerCase()
+    if (!q) return true
+    return [ds.name, ds.type].some((v) => String(v || '').toLowerCase().includes(q))
+}
+const filteredGroups = computed(() => {
+    if (!hasQuery.value) return sourceGroups.value
+    return sourceGroups.value
+        .map((g: any) => ({ ...g, items: g.items.filter(matchesQuery) }))
+        .filter((g: any) => g.items.length > 0)
+})
+const filteredConnectable = computed(() => connectableDataSources.value.filter(matchesQuery))
+function focusSearch(vnode: any) {
+    nextTick(() => vnode?.el?.focus?.())
+}
 
 // Auto isn't a selection — it's the absence of one. An external picker has to
 // know, or it would light up every agent the moment an Auto report opens.
