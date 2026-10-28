@@ -1285,6 +1285,7 @@ class BuildService:
         version fields. Only ``is_change`` rows are considered — the handful the
         build modified, never the org-wide carry-over snapshot."""
         from app.models.instruction_version import InstructionVersion as _IV
+        from app.models.instruction import instruction_data_source_association as idsa
         from app.services.field_changes import scope_delta
         from app.services.scope_apply import apply_scope_delta
         rows = (await db.execute(
@@ -1295,6 +1296,20 @@ class BuildService:
         )).all()
         if not rows:
             return
+        # An EXISTING instruction that is live-global (an empty attachment)
+        # already reaches every agent; a build-path scope change against it is
+        # inert, matching the review (field_changes._scope_change returns []).
+        # Applying "add agent X" here would mechanically insert a row and narrow
+        # the global down to X — undoing a global-ification that happened after
+        # this build forked. Such a row is skipped below (live_global). A
+        # brand-NEW instruction also has an empty attachment, but no base, and
+        # its scope is a genuine first attach, so it is NOT skipped: the guard
+        # also requires a base version (an existing instruction).
+        row_iids = [str(i) for i, _b, _d, _r in rows]
+        attached_any = {str(iid) for (iid,) in (await db.execute(
+            select(idsa.c.instruction_id).where(idsa.c.instruction_id.in_(row_iids))
+        )).all()}
+        live_global = {iid for iid in row_iids if iid not in attached_any}
         base_ids = sorted({str(b) for _i, b, _ds, _rf in rows if b})
         base_scope: dict = {}
         if base_ids:
@@ -1313,6 +1328,11 @@ class BuildService:
             select(_DS.id).where(_DS.id.in_(sorted(want_add)), _DS.deleted_at.is_(None))
         )).all()} if want_add else set()
         for iid, base_vid, p_ds, p_refs in rows:
+            # Existing live-global instruction: a build-path scope change is
+            # inert (see live_global above). A new instruction (no base) is not
+            # skipped — its scope is a genuine first attach.
+            if base_vid and str(iid) in live_global:
+                continue
             b_ds, b_refs = base_scope.get(str(base_vid), (None, None)) if base_vid else (None, None)
             added_ds, removed_ds, added_refs, removed_refs = scope_delta(b_ds, b_refs, p_ds, p_refs)
             added_ds = [d for d in added_ds if d in alive_add]

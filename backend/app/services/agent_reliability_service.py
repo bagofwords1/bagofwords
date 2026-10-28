@@ -360,7 +360,9 @@ class AgentReliabilityService:
             try:
                 await bs.submit_build(db, str(build_id), user_id=str(actor.id))
                 await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
-                await bs.promote_build(db, str(build_id), user_id=str(actor.id))
+                # Self Learning can stage a scope change (a share); apply it on
+                # promote, like the user publish and accept paths.
+                await bs.promote_build(db, str(build_id), user_id=str(actor.id), apply_scope_changes=True)
                 # Healthy again.
                 await self._set_reliability_status(db, run.data_source_id, "ok")
                 return await self._finish(
@@ -1014,7 +1016,7 @@ class AgentReliabilityService:
                             await bs.submit_build(db, str(build_id), user_id=str(actor.id))
                         await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
                         # Don't re-fan-out: we just measured this exact build.
-                        await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
+                        await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False, apply_scope_changes=True)
                         status, reason = STATUS_PASSED, "suggestion evals green; auto-promoted"
                     except Exception as e:
                         logger.exception("run_for_suggestion.promote_failed build=%s: %s", build_id, e)
@@ -1072,7 +1074,7 @@ class AgentReliabilityService:
             if build.status == "draft":
                 await bs.submit_build(db, str(build_id), user_id=str(actor.id))
             await bs.approve_build(db, str(build_id), approved_by_user_id=str(actor.id))
-            await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False)
+            await bs.promote_build(db, str(build_id), user_id=str(actor.id), trigger_reliability=False, apply_scope_changes=True)
             status, reason = STATUS_PASSED, "auto-approved without evals (Self Learning)"
         except Exception as e:
             logger.exception("run_for_suggestion.auto_promote_failed build=%s: %s", build_id, e)

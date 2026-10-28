@@ -653,7 +653,10 @@ async def test_approving_and_promoting_a_build_applies_the_share(test_client, wo
     async with async_session_maker() as db:
         await BuildService().submit_build(db, bid)
         await BuildService().approve_build(db, bid, approved_by_user_id=world["admin"]["user_id"])
-        await BuildService().promote_build(db, bid, user_id=world["admin"]["user_id"])
+        # The real auto-promote paths (publish, accept, Self Learning) pass
+        # apply_scope_changes=True so a staged share reaches the live attachment;
+        # system promotes (rollback, git sync, demo) leave scope untouched.
+        await BuildService().promote_build(db, bid, user_id=world["admin"]["user_id"], apply_scope_changes=True)
     assert _live(test_client, world, iid)[0] == {world["a"]["id"], world["b"]["id"]}
     assert not _pending(test_client, world, iid)
 
@@ -737,9 +740,12 @@ async def test_a_share_on_an_instruction_made_global_meanwhile_is_dropped_not_ap
     r = _resolve(test_client, world, iid, stale_review, [(bid, k) for k in change["keys"]], "accept")
     assert r.status_code == 409, r.text
     assert _live(test_client, world, iid)[0] == set()  # still global
-    # And the build publishes: nothing is left unresolved.
+    # And the build publishes: nothing is left unresolved, and the whole-build
+    # publish does NOT silently narrow the now-global instruction back to [a,b]
+    # (promotion skips a live-global instruction, like the review does).
     r = test_client.post(f"/api/builds/{bid}/publish", headers=H)
     assert r.status_code == 200, r.text
+    assert _live(test_client, world, iid)[0] == set()  # still global after publish
 
 
 @pytest.mark.asyncio
@@ -783,21 +789,36 @@ async def test_publishing_a_multi_instruction_build_applies_the_share(test_clien
 
 
 @pytest.mark.asyncio
-async def test_table_names_stages_the_matching_agents_and_their_tables(test_client, world):
-    """table_names matches a table name across the conversation's agents, so
-    table_names=['Invoices'] already stages a AND b with their Invoices;
-    asking to share b on top is then a no-op, and accepting attaches b with
-    its Invoices (not its Orders)."""
+async def test_table_names_changes_tables_not_agents(test_client, world):
+    """table_names sets which TABLES the instruction is about; it never changes
+    which agents it is attached to. On an instruction scoped to a,
+    table_names=['Invoices'] keeps it on a alone (NOT widened to b) and repoints
+    its references at the matching Invoices. Sharing b is a separate, genuine
+    change (add_agents), not something table_names already did."""
     iid = _instruction(test_client, world, ["a"])  # a's Orders
     bid, out = await _edit(world, {"instruction_id": iid, "table_names": ["Invoices"]})
     assert out["success"], out
+    # add_agents is still a real change — table_names did not attach b.
     _b, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]}, build_id=bid)
-    assert out["success"] is False and out["rejected_reason"] == "no_change"
+    assert out["success"], out
     _accept(test_client, world, iid, bid)
     agents, tables = _live(test_client, world, iid)
-    assert agents == {world["a"]["id"], world["b"]["id"]}
-    assert world["b"]["tables"]["Invoices"] in tables
-    assert world["b"]["tables"]["Orders"] not in tables
+    assert agents == {world["a"]["id"], world["b"]["id"]}  # b from add_agents only
+    assert world["a"]["tables"]["Invoices"] in tables
+    assert world["a"]["tables"]["Orders"] not in tables
+
+
+@pytest.mark.asyncio
+async def test_table_names_alone_does_not_widen_agents(test_client, world):
+    """table_names with no add_agents leaves the attachment untouched."""
+    iid = _instruction(test_client, world, ["a"])  # a's Orders
+    bid, out = await _edit(world, {"instruction_id": iid, "table_names": ["Invoices"]})
+    assert out["success"], out
+    _accept(test_client, world, iid, bid)
+    agents, tables = _live(test_client, world, iid)
+    assert agents == {world["a"]["id"]}  # NOT widened
+    assert world["a"]["tables"]["Invoices"] in tables
+    assert world["a"]["tables"]["Orders"] not in tables
 
 
 # --- round-5: the proposal lives with the build that made it --------------------
