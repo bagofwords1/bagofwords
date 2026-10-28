@@ -19,6 +19,7 @@
       "description": "Bundled PostgreSQL (official postgres image). Bitnami subchart keys from chart <= 2.x are rejected rather than silently ignored.",
       "properties": {
         "enabled": { "type": "boolean" },
+        "migrateFromBitnami": { "type": "boolean" },
         "image": {
           "type": "object",
           "additionalProperties": false,

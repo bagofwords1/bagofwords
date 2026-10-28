@@ -24,7 +24,17 @@ pod on the new image against the same volume.
    `architecture`, `primary.resourcesPreset`, `metrics`, `readReplicas`). They
    are now rejected by the values schema instead of being silently ignored. The
    keys this chart still reads are listed under `postgresql.*` in README.md.
-3. If you changed the PVC template in 2.x (e.g. `primary.persistence.storageClass`
+   Remove any `postgresql.image` override pointing at `bitnami`/`bitnamilegacy`
+   too — the chart now refuses it, since a Bitnami image cannot start with this
+   chart's settings.
+3. Upgrade with `--set postgresql.migrateFromBitnami=true`. While the release
+   still runs the Bitnami StatefulSet, `helm upgrade` **fails on purpose**
+   without it, so a pipeline that does not pin `--version` cannot migrate the
+   database unattended. It is a one-time opt-in: after this upgrade the flag is
+   no longer needed (leaving it set is harmless). The check needs cluster access,
+   so it does not run under `helm template` or Argo CD — pin the chart's major
+   version there (`targetRevision: 2.*`) until you are ready.
+4. If you changed the PVC template in 2.x (e.g. `primary.persistence.storageClass`
    or `global.storageClass`), set the same value under
    `postgresql.primary.persistence` — or, if the upgrade fails with
    `updates to statefulset spec for fields other than ... are forbidden`,
@@ -34,6 +44,9 @@ pod on the new image against the same volume.
    ```bash
    kubectl delete statefulset <release>-postgresql -n <namespace> --cascade=orphan
    ```
+
+   Deleting it also removes what the upgrade check looks for, so make sure you
+   took the backup in step 1 first.
 
 ### Other changes in 3.0.0
 

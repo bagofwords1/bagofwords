@@ -67,11 +67,11 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
   - `helm repo add bow https://helm.bagofwords.com`
   - `helm repo update`
 - Install with managed PostgreSQL:
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB>`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB>`
 - Install without TLS and custom hostname:
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set ingress.tls=false`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set ingress.tls=false`
 - Install with TLS and Google OAuth enabled (cert-manager assumed):
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set config.googleOauthEnabled=true --set config.googleClientId=<CLIENT_ID> --set config.googleClientSecret=<CLIENT_SECRET>`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set config.googleOauthEnabled=true --set config.googleClientId=<CLIENT_ID> --set config.googleClientSecret=<CLIENT_SECRET>`
 
 ### Using an existing Secret
 - Create `Secret` with only the keys you want to override; these values take precedence over the chart `ConfigMap` defaults.

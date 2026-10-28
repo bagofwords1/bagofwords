@@ -232,3 +232,82 @@ tests:
       - equal:
           path: metadata.name
           value: my-postgresql
+
+  # Upgrade guard: an unpinned `helm upgrade` from chart 2.x must not move a
+  # live Bitnami database onto the new image without an explicit opt-in.
+  - it: refuses to upgrade a 2.x Bitnami database without the opt-in
+    template: postgresql/statefulset.yaml
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: postgresql-16.3.2
+    asserts:
+      - failedTemplate:
+          errorPattern: "still runs the Bitnami PostgreSQL subchart \\(postgresql-16.3.2\\)"
+
+  - it: upgrades a 2.x Bitnami database once migrateFromBitnami is set
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.migrateFromBitnami: true
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: postgresql-16.3.2
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: needs no opt-in once the release already runs this chart's database
+    template: postgresql/statefulset.yaml
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: bagofwords-3.0.0
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: refuses a Bitnami image override
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.repository: bitnamilegacy/postgresql
+      postgresql.image.tag: 17.6.0-debian-12-r4
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot run a Bitnami one"

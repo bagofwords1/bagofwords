@@ -3,6 +3,35 @@
 {{- $fullname := include "bowapp.postgresql.fullname" . }}
 {{- $secretName := include "bowapp.postgresql.secretName" . }}
 {{- $superuser := ternary $pg.auth.username "postgres" (eq $pg.auth.username "postgres") }}
+{{- /*
+  Upgrading a chart 2.x release swaps the image under a live database, so it
+  must be a deliberate step, not something an unpinned `helm upgrade` in a
+  pipeline does on its next run. The 2.x StatefulSet carries the Bitnami
+  subchart's `helm.sh/chart: postgresql-<version>` label; once an upgrade has
+  run with the flag, it carries ours and this never fires again. `lookup` is
+  empty without cluster access (`helm template`, Argo CD), so there it cannot
+  help — those users must pin the chart's major version.
+*/}}
+{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace $fullname }}
+{{- $liveChart := dig "metadata" "labels" "helm.sh/chart" "" $live }}
+{{- if and (hasPrefix "postgresql-" $liveChart) (not $pg.migrateFromBitnami) }}
+{{- fail (printf `
+
+This release still runs the Bitnami PostgreSQL subchart (%s) from chart 2.x.
+Upgrading to chart 3.x moves the existing database onto the official postgres image.
+  1. Back up the database (pg_dump or a volume snapshot).
+  2. Read the 3.0.0 section of the chart CHANGELOG.
+  3. Re-run the upgrade with --set postgresql.migrateFromBitnami=true
+To stay on 2.x instead, pin the chart: --version "^2.0.0"` $liveChart) }}
+{{- end }}
+{{- /*
+  Pointing the image back at Bitnami (the usual stopgap once docker.io/bitnami
+  disappeared) would run a Bitnami image with this chart's env, args and data
+  path — the upgrade would succeed and the database would not start.
+*/}}
+{{- if contains "bitnami" (printf "%s/%s" $pg.image.registry $pg.image.repository) }}
+{{- fail (printf "postgresql.image is %s/%s, but chart 3.x runs the official postgres image (docker.io/library/postgres) and cannot run a Bitnami one. Remove the postgresql.image override." $pg.image.registry $pg.image.repository) }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:

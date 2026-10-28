@@ -13,10 +13,18 @@ helm repo update
 
 Here are a few examples of how to install or upgrade the Bag of Words Helm chart:
 
+> **Pin the chart's major version** (`--version "^3.0.0"` below, or the
+> `chartVersion` input of an Azure DevOps `HelmDeploy` task, `targetRevision`
+> in Argo CD, `version` in a Flux `HelmRelease`). Without it, `helm upgrade`
+> installs the newest chart in the repo, so a CI pipeline moves to the next
+> major version — and its breaking changes — on its next run. Read
+> [`chart/CHANGELOG.md`](chart/CHANGELOG.md) before raising the pin.
+
 ### Deploy with a bundled PostgreSQL instance
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
  --set postgresql.auth.username=<PG-USER> \
  --set postgresql.auth.password=<PG-PASS> \
  --set postgresql.auth.database=<PG-DB>
@@ -26,6 +34,7 @@ helm upgrade -i --create-namespace \
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
   --set host=<HOST> \
  --set postgresql.auth.username=<PG-USER> \
  --set postgresql.auth.password=<PG-PASS> \
@@ -37,6 +46,7 @@ helm upgrade -i --create-namespace \
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
  --set host=<HOST> \
  --set postgresql.auth.username=<PG-USER> \
  --set postgresql.auth.password=<PG-PASS> \
@@ -59,6 +69,7 @@ When using a managed database like AWS Aurora PostgreSQL, the chart skips the bu
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
  --set host=<HOST> \
  --set database.auth.provider=aws_iam \
  --set database.auth.region=us-east-1 \
@@ -74,6 +85,7 @@ For example, with a real Aurora cluster:
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
  --set host=bow.example.com \
  --set database.auth.provider=aws_iam \
  --set database.auth.region=us-east-1 \
@@ -126,6 +138,7 @@ config:
 ```bash
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
+ --version "^3.0.0" \
  -f aurora-values.yaml
 ```
 
@@ -202,6 +215,7 @@ stringData:
 ```bash
 helm upgrade -i \
   bowapp bow/bagofwords \
+ --version "^3.0.0" \
  -n <namespace> \
  --set postgresql.auth.existingSecret=bowapp-secrets \
  --set config.secretRef=bowapp-secrets
