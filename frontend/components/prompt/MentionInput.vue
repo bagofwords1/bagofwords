@@ -7,11 +7,12 @@
       class="mention-input-field"
       :class="[
         'w-full outline-none resize-none bg-transparent text-gray-900 dark:text-white placeholder-gray-400 text-start',
-        props.compact ? 'text-sm leading-[20px]' : 'text-sm min-h-[40px]'
+        props.compact ? 'text-sm leading-[20px]' : 'text-chat min-h-[40px]'
       ]"
       :style="{ minHeight: minHeight, maxHeight: maxHeight, overflowY: 'auto' }"
       @input="handleInput"
       @keydown="handleKeydown"
+      @keyup="handleKeyup"
       @paste.prevent="handlePaste"
       @click="handleClick"
     ></div>
@@ -45,9 +46,9 @@
         >
           <div class="flex items-center space-x-2 min-w-0">
             <Icon :name="categoryIcon(category.name)" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-            <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ category.label }}</span>
+            <span class="text-xs text-gray-900 dark:text-white truncate">{{ category.label }}</span>
           </div>
-          <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+          <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
         </div>
         <div v-if="categoryList.length === 0" class="px-2 py-4 text-xs text-gray-500 dark:text-gray-400">
           {{ $t('mentionInput.noResults') }}
@@ -59,15 +60,15 @@
         <!-- Back row when a single category was entered (no active query). -->
         <div
           v-if="activeCategory && !hasQuery"
-          class="px-2 py-1 mb-1 cursor-pointer flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+          class="px-2 py-1 mb-1 cursor-pointer flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
           @click="backToCategories"
         >
           <Icon name="heroicons-chevron-left" class="w-3.5 h-3.5 flex-shrink-0" />
           <span>{{ $t('mentionInput.allCategories') }}</span>
         </div>
         <div v-for="(category, categoryIndex) in filteredCategories" :key="category.name">
-          <div class="px-2 py-1 text-[12px] font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
-          <div v-if="category.items.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noResults') }}</div>
+          <div class="px-2 py-1 text-xs font-medium text-gray-500 dark:text-gray-400">{{ category.label }}</div>
+          <div v-if="category.items.length === 0" class="px-2 py-2 text-xs text-ink-muted">{{ $t('mentionInput.noResults') }}</div>
           <div
             v-for="(item, itemIndex) in category.items"
             :key="item.id"
@@ -95,8 +96,8 @@
               <Icon v-else-if="category.name === 'prompts'" name="heroicons-book-open" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
               <div class="flex flex-col min-w-0 flex-1">
-                <span class="text-[12px] text-gray-900 dark:text-white truncate">{{ item.name }}</span>
-                <span v-if="category.name === 'tables' && item.subtitle" class="text-[11px] text-gray-400 truncate">{{ item.subtitle }}</span>
+                <span class="text-xs text-gray-900 dark:text-white truncate">{{ item.name }}</span>
+                <span v-if="category.name === 'tables' && item.subtitle" class="text-2xs text-ink-muted truncate">{{ item.subtitle }}</span>
               </div>
             </div>
 
@@ -105,7 +106,7 @@
               v-if="item.needs_connect"
               type="button"
               :disabled="connectingId === item.id"
-              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               @click.stop="connectAgent(item)"
             >
               <Spinner v-if="connectingId === item.id" class="w-3 h-3" />
@@ -115,7 +116,7 @@
             <button
               v-else-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
-              class="text-gray-400 hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="text-ink-muted hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5" />
             </button>
@@ -137,62 +138,62 @@
             <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" :icon-token="expandedItem?.icon_token" :icon="expandedItem?.icon" class="h-3.5 flex-shrink-0" />
             <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
             <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
-            <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
+            <div class="text-sm font-medium truncate">{{ expandedItem?.name }}</div>
           </div>
           <button @click="selectItem(expandedItem, expandedCategory)" class="text-sm text-blue-600 hover:text-blue-700 font-medium px-1">+</button>
         </div>
 
         <!-- Agent details: description + tables + tools -->
         <div v-if="expandedCategory === 'data_sources'" class="space-y-2">
-          <div v-if="expandedItem?.description" class="text-[12px] text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
+          <div v-if="expandedItem?.description" class="text-xs text-gray-600 dark:text-gray-400 leading-snug line-clamp-4">{{ expandedItem.description }}</div>
           <div>
-            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
-            <div v-if="isLoadingTables" class="px-2 py-2 text-[12px] text-gray-400 flex items-center gap-1">
+            <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('mentionInput.tables') }}</div>
+            <div v-if="isLoadingTables" class="px-2 py-2 text-xs text-ink-muted flex items-center gap-1">
               <Spinner class="w-3 h-3" />
             </div>
             <div v-else class="max-h-40 overflow-auto border rounded">
               <div
                 v-for="t in tablesForExpandedDataSource"
                 :key="t.id"
-                class="px-2 py-1 text-[12px] flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2 py-1 text-xs flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
                 @click="selectItem(t, 'tables')"
               >
                 <DataSourceIcon :type="t.icon_type" class="h-3" />
                 <span class="truncate flex-1">{{ t.name }}</span>
-                <Icon name="heroicons-plus" class="w-3 h-3 flex-shrink-0 text-gray-400" />
+                <Icon name="heroicons-plus" class="w-3 h-3 flex-shrink-0 text-ink-muted" />
               </div>
-              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">{{ $t('mentionInput.noTables') }}</div>
+              <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-xs text-ink-muted">{{ $t('mentionInput.noTables') }}</div>
             </div>
           </div>
         </div>
 
         <!-- Table details: connection/data source info + columns list -->
         <div v-else-if="expandedCategory === 'tables'" class="space-y-1">
-          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-[11px] text-gray-500 dark:text-gray-400">
+          <div v-if="expandedItem?.connection_name || expandedItem?.data_source_name" class="flex flex-wrap gap-1 text-2xs text-gray-500 dark:text-gray-400">
             <span v-if="expandedItem?.connection_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.connection_name }}</span>
             <span v-if="expandedItem?.data_source_name" class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{{ expandedItem.data_source_name }}</span>
           </div>
-          <div class="text-[11px] text-gray-500 dark:text-gray-400">{{ $t('mentionInput.columns') }}</div>
+          <div class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('mentionInput.columns') }}</div>
           <div class="flex flex-wrap gap-1 max-h-40 overflow-auto">
             <span
               v-for="(col, idx) in (expandedItem?.columns || [])"
               :key="idx"
-              class="px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-[11px] text-gray-700 dark:text-gray-300"
+              class="px-1.5 py-0.5 bg-white dark:bg-gray-900 rounded border text-2xs text-gray-700 dark:text-gray-300"
             >
               {{ typeof col === 'string' ? col : (col as any).name }}
-              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ms-1">({{ (col as any).dtype }})</span>
+              <span v-if="typeof col === 'object' && (col as any).dtype" class="text-ink-muted ms-1">({{ (col as any).dtype }})</span>
             </span>
-            <span v-if="!(expandedItem?.columns || []).length" class="text-[12px] text-gray-400">{{ $t('mentionInput.noColumns') }}</span>
+            <span v-if="!(expandedItem?.columns || []).length" class="text-xs text-ink-muted">{{ $t('mentionInput.noColumns') }}</span>
           </div>
         </div>
 
         <!-- Entity details: inline description + data preview inside dropdown -->
         <div v-else-if="expandedCategory === 'entities'" class="space-y-2">
-          <div v-if="entityLoading" class="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
+          <div v-if="entityLoading" class="text-2xs text-gray-500 dark:text-gray-400 flex items-center gap-2"><Spinner class="w-3 h-3" /> {{ $t('mentionInput.loading') }}</div>
           <template v-else>
-            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-[11px] text-gray-600 dark:text-gray-400 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
+            <div v-if="(entityDetails?.description || expandedItem?.description)" class="text-2xs text-gray-600 dark:text-gray-400 leading-snug">{{ entityDetails?.description || expandedItem?.description }}</div>
             <div v-if="entityPreviewColumns.length && entityPreviewRows.length" class="overflow-auto border rounded">
-              <table class="min-w-full text-[11px]">
+              <table class="min-w-full text-2xs">
                 <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0 border-b">
                   <tr>
                     <th v-for="col in entityPreviewColumns" :key="col" class="px-2 py-1 text-start font-medium text-gray-700 dark:text-gray-300">{{ col }}</th>
@@ -205,9 +206,9 @@
                 </tbody>
               </table>
             </div>
-            <div v-else class="text-[12px] text-gray-400">{{ $t('mentionInput.noData') }}</div>
+            <div v-else class="text-xs text-ink-muted">{{ $t('mentionInput.noData') }}</div>
             <div class="pt-1">
-              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">{{ $t('mentionInput.openPage') }}</NuxtLink>
+              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-2xs px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">{{ $t('mentionInput.openPage') }}</NuxtLink>
             </div>
           </template>
         </div>
@@ -242,6 +243,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import { usePermissions, useResourcePermissions } from '~/composables/usePermissions'
 import { usePromptFill } from '~/composables/usePromptFill'
 import { useDataSourceConnect } from '~/composables/useDataSourceConnect'
+import { activeMentionQuery } from '~/utils/mentions'
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
@@ -324,6 +326,10 @@ const textContent = ref('')
 const showDropdown = ref(false)
 const selectedIndex = ref(0)
 const currentMentionStartIndex = ref(-1)
+// Caret offset in the flattened text, as of the last input/selection change.
+// Bounds the @-query so a mention typed mid-line doesn't swallow the rest of
+// the sentence (see activeMentionQuery).
+const currentCaretPosition = ref(0)
 const expandedItem = ref<MentionItem | null>(null)
 const expandedCategory = ref<string>('')
 // The category the user has "entered" from the default category-list view
@@ -382,15 +388,25 @@ const inputDir = computed(() => {
   return RTL_LOCALES.has(String(i18nLocale.value)) ? 'rtl' : 'ltr'
 })
 
-const lineHeightPx = computed(() => props.compact ? 18 : 24)
-const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
-const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
+/*
+ * The field grows in whole lines, so both bounds are multiples of one line
+ * box. The chat line height is a CSS variable (it follows the reader's text
+ * size), hence `calc()` rather than arithmetic here — a px number computed
+ * in JS would freeze the field at the default scale while the text inside it
+ * grew, which is how a two-row box ends up clipping its second row.
+ *
+ * Compact mode (the Excel add-in) keeps its fixed 18px line: that pane is
+ * ~320px wide and does not follow the reader's chat size.
+ */
+const lineHeight = computed(() => props.compact ? '18px' : 'var(--bow-chat-line-height)')
+const minHeight = computed(() => `calc(${lineHeight.value} * ${Math.max(1, props.rows)})`)
+const maxHeight = computed(() => `calc(${lineHeight.value} * 8)`)
 
 // The raw @-query text (after the '@', before the caret). Empty until the user
 // types — drives the "category list vs items" default view.
 const mentionQuery = computed(() => {
   if (currentMentionStartIndex.value === -1) return ''
-  return textContent.value.slice(currentMentionStartIndex.value + 1)
+  return activeMentionQuery(textContent.value, currentMentionStartIndex.value, currentCaretPosition.value)
 })
 const hasQuery = computed(() => mentionQuery.value.trim().length > 0)
 
@@ -557,9 +573,13 @@ function getCaretPosition(element: HTMLElement): number {
   return 0
 }
 
-// Find the last @ character that is NOT inside a .mention span
+// Find the last @ character that is NOT inside a .mention span and starts
+// before `limit` (the caret). Bounding by the caret matters mid-line: with
+// "@sales and @reve|" the caret sits in the second token, but with
+// "@rev| and @sales" it sits in the first — an unbounded scan would hand back
+// the later '@' and the menu would never open for the token being typed.
 // Returns the position in the flattened text (innerText), or -1 if not found
-function findLastAtOutsideMentions(element: HTMLElement): number {
+function findLastAtOutsideMentions(element: HTMLElement, limit = Infinity): number {
   let lastAtIndex = -1
   let currentPos = 0
 
@@ -575,7 +595,7 @@ function findLastAtOutsideMentions(element: HTMLElement): number {
         for (let i = text.length - 1; i >= 0; i--) {
           if (text[i] === '@') {
             const absolutePos = currentPos + i
-            if (absolutePos > lastAtIndex) {
+            if (absolutePos < limit && absolutePos > lastAtIndex) {
               lastAtIndex = absolutePos
             }
           }
@@ -658,12 +678,23 @@ function handleInput(event: Event) {
 
   textContent.value = target.innerText
 
+  updateMentionContext(target)
+
+  emit('update:modelValue', textContent.value)
+  updateMentionsList()
+}
+
+// Decide whether the caret currently sits inside an @-token, and if so where
+// that token starts. Driven by typing *and* by caret moves (click, arrow keys):
+// the query is measured from the '@' to the caret, so the caret has to be part
+// of the state, not read once at insert time.
+function updateMentionContext(target: HTMLDivElement) {
   const cursorPosition = getCaretPosition(target)
+  currentCaretPosition.value = cursorPosition
 
-  // Find the last @ that is NOT inside a mention span
-  const lastAtIndex = findLastAtOutsideMentions(target)
+  // Find the last @ before the caret that is NOT inside a mention span
+  const lastAtIndex = findLastAtOutsideMentions(target, cursorPosition)
 
-  // Only consider @ characters that are before the cursor
   if (lastAtIndex !== -1 && lastAtIndex < cursorPosition) {
     const textAfterAt = textContent.value.slice(lastAtIndex + 1, cursorPosition)
 
@@ -699,9 +730,19 @@ function handleInput(event: Event) {
     currentMentionStartIndex.value = -1
     activeCategory.value = ''
   }
+}
 
-  emit('update:modelValue', textContent.value)
-  updateMentionsList()
+// Caret moves that are not edits (arrows, Home/End) change which token the
+// caret is in, so the menu has to follow them too. Only act when the caret
+// really moved: while the menu is open the arrow keys drive its selection and
+// are preventDefault()-ed in handleKeydown, and re-running the detection there
+// would reset that selection to the first row on every keystroke.
+const CARET_MOVE_KEYS = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'])
+
+function handleKeyup(event: KeyboardEvent) {
+  if (!inputRef.value || !CARET_MOVE_KEYS.has(event.key)) return
+  if (getCaretPosition(inputRef.value) === currentCaretPosition.value) return
+  updateMentionContext(inputRef.value)
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -882,7 +923,11 @@ function handleClick(event: MouseEvent) {
     const selection = window.getSelection()
     selection?.removeAllRanges()
     selection?.addRange(range)
+    return
   }
+  // Clicking elsewhere parks the caret somewhere new — re-read which token it
+  // landed in, so the menu opens on (or closes with) that token.
+  if (inputRef.value) updateMentionContext(inputRef.value)
 }
 
 // Convert HTML to plain text with markdown-style formatting
@@ -993,6 +1038,17 @@ function closeItemCard() {
   expandedCategory.value = ''
 }
 
+// Where the @-token being replaced ends. Normally the live caret — but a click
+// on a menu row can move the selection out of the field, and getCaretPosition()
+// then reads 0, which would splice the text at the wrong place and leave the
+// typed query behind. Fall back to the caret tracked while typing.
+function activeTokenEnd(): number {
+  const start = currentMentionStartIndex.value
+  const measured = inputRef.value ? getCaretPosition(inputRef.value) : 0
+  if (measured > start) return measured
+  return Math.max(currentCaretPosition.value, start)
+}
+
 function selectItem(item: MentionItem, category: string) {
   // Prompts are not inserted as a chip — they are consumed into plain text.
   if (item.type === 'prompt') {
@@ -1054,7 +1110,7 @@ function selectItem(item: MentionItem, category: string) {
     }
 
     // Calculate how much text to delete (the @ and any search text)
-    const currentCursorPos = getCaretPosition(inputRef.value)
+    const currentCursorPos = activeTokenEnd()
     const lengthToDelete = currentCursorPos - currentMentionStartIndex.value
 
     // Split the text node at the @ position
@@ -1070,7 +1126,11 @@ function selectItem(item: MentionItem, category: string) {
     }
 
     fragment.appendChild(mentionNode)
-    fragment.appendChild(document.createTextNode(' '))
+    // A chip is always followed by a space — but mid-line the rest of the
+    // sentence usually starts with one already, and adding a second leaves a
+    // visible gap ("@Music Store  so I can review it").
+    const spacer = /^\s/.test(afterText) ? null : document.createTextNode(' ')
+    if (spacer) fragment.appendChild(spacer)
 
     if (afterText) {
       fragment.appendChild(document.createTextNode(afterText))
@@ -1079,15 +1139,12 @@ function selectItem(item: MentionItem, category: string) {
     // Replace the text node with our fragment
     textNode.parentNode?.replaceChild(fragment, textNode)
 
-    // Set cursor after the mention and space
+    // Set cursor after the mention and its space — before the rest of the line.
     const range = document.createRange()
-    const spaceNode = mentionNode.nextSibling
-    if (spaceNode) {
-      range.setStartAfter(spaceNode)
-      range.collapse(true)
-      selection.removeAllRanges()
-      selection.addRange(range)
-    }
+    range.setStartAfter(spacer || mentionNode)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
 
     // Update state
     textContent.value = inputRef.value.innerText
@@ -1128,7 +1185,7 @@ function insertPromptText(item: MentionItem, plainText: string) {
       }
 
       if (targetNode) {
-        const cursorPos = getCaretPosition(inputRef.value)
+        const cursorPos = activeTokenEnd()
         const lengthToDelete = cursorPos - currentMentionStartIndex.value
         const before = targetNode.textContent?.slice(0, offsetInNode) || ''
         const after = targetNode.textContent?.slice(offsetInNode + lengthToDelete) || ''
@@ -1615,13 +1672,16 @@ function scrollSelectedIntoView() {
 }
 
 /* Mobile Safari auto-zooms the page when a focused editable element has a
- * font-size below 16px. The prompt field is `text-sm` (14px), so tapping it
- * on iOS zooms the report in. Pin it to 16px on small screens to suppress the
- * focus-zoom; desktop keeps the 14px design. The `[contenteditable]` prefix
- * raises specificity above Tailwind's `.text-sm` so this wins. */
+ * font-size below 16px. The field now reads at the chat size (16px at the
+ * default scale), so the common case no longer zooms — but the 0.875x
+ * reading step computes to 14px and would bring it back. `max()` keeps the
+ * floor at 16px on small screens while letting the larger steps through,
+ * instead of pinning every step to 16px and overriding the reader. The
+ * `[contenteditable]` prefix raises specificity above Tailwind's own
+ * font-size utility so this wins. */
 @media (max-width: 640px) {
   [contenteditable].mention-input-field {
-    font-size: 16px;
+    font-size: max(16px, var(--bow-chat-font-size));
   }
 }
 

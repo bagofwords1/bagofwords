@@ -12,16 +12,16 @@
   <div class="px-6 py-4 text-sm">
     <div class="flex items-center gap-2 mb-3">
       <div class="relative flex-1 max-w-xs">
-        <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+        <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
         <input
           v-model="q"
           type="text"
           :placeholder="$t('queries.searchPlaceholder')"
           data-testid="agent-queries-search"
-          class="w-full h-8 ps-8 pe-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+          class="w-full h-8 ps-8 pe-2 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
         />
       </div>
-      <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums ms-auto">{{ visible.length }}</span>
+      <span class="text-xs text-ink-muted tabular-nums ms-auto">{{ visible.length }}</span>
       <button
         type="button"
         data-testid="agent-query-new"
@@ -36,13 +36,13 @@
     <!-- "New query" by hand: the same form as the report's Save Query. -->
     <EntityEditModal v-model="showCreate" :entity-id="null" :detail="null" :ds-id="dsId" @saved="onCreated" />
 
-    <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-gray-400 dark:text-gray-500">
+    <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-ink-muted">
       <Spinner class="w-3.5 h-3.5" /><span>{{ $t('queries.loading') }}</span>
     </div>
 
     <div v-else-if="visible.length === 0" class="flex flex-col items-center justify-center text-center py-14 px-4">
       <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white dark:bg-gray-900 ring-1 ring-gray-200/70 dark:ring-gray-700/70 shadow-sm">
-        <LibraryIcon class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+        <LibraryIcon class="w-5 h-5 text-ink-muted" />
       </div>
       <h3 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">
         {{ q ? $t('queries.noPublished') : $t('agentsPage.noQueries') }}
@@ -63,30 +63,30 @@
       >
         <div class="flex items-center gap-2 min-w-0">
           <span
-            class="shrink-0 text-[10px] px-1.5 py-0.5 rounded border"
+            class="shrink-0 text-2xs px-1.5 py-0.5 rounded border"
             :class="e.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400' : 'text-blue-700 border-blue-200 bg-blue-50 dark:bg-blue-500/10 dark:border-blue-500/30 dark:text-blue-400'"
           >{{ (e.type || 'model').toUpperCase() }}</span>
-          <span class="min-w-0 truncate text-[13px] font-medium text-gray-900 dark:text-white">{{ e.title || e.slug }}</span>
+          <span class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">{{ e.title || e.slug }}</span>
           <span
             v-if="badgeOf(e)"
-            class="shrink-0 inline-flex items-center px-1.5 h-5 rounded text-[10px] font-medium"
+            class="shrink-0 inline-flex items-center px-1.5 h-5 rounded text-2xs font-medium"
             :class="badgeOf(e)!.class"
           >{{ badgeOf(e)!.text }}</span>
           <UIcon v-if="!badgeOf(e)" name="i-heroicons-check-badge" class="shrink-0 w-4 h-4 text-green-600 dark:text-green-500" :title="$t('queries.detail.approvedTitle')" />
-          <span class="ms-auto shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{{ timeAgo(e.updated_at) }}</span>
+          <span class="ms-auto shrink-0 text-2xs text-ink-muted">{{ timeAgo(e.updated_at) }}</span>
         </div>
         <div class="mt-1 flex items-center gap-3 min-w-0">
-          <span class="min-w-0 truncate text-[12px] text-gray-500 dark:text-gray-400">{{ e.description || $t('queries.noDescription') }}</span>
+          <span class="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">{{ e.description || $t('queries.noDescription') }}</span>
           <!-- Attached to more agents than this one: the m:n fact a per-agent
                list would otherwise hide. -->
           <span
             v-if="(e.data_sources?.length || 0) > 1"
-            class="shrink-0 inline-flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500"
+            class="shrink-0 inline-flex items-center gap-1 text-2xs text-ink-muted"
             :title="(e.data_sources || []).map(d => d.name).join(', ')"
           >
             <UIcon name="i-heroicons-cube" class="w-3 h-3" />{{ e.data_sources!.length }}
           </span>
-          <span v-if="e.data?.info?.total_rows !== undefined" class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500" :title="$t('queries.rowsTitle')">
+          <span v-if="e.data?.info?.total_rows !== undefined" class="shrink-0 text-2xs text-ink-muted" :title="$t('queries.rowsTitle')">
             {{ formatCount(e.data.info.total_rows) }}
           </span>
         </div>

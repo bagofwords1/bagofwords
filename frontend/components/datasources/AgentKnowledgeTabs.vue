@@ -1,6 +1,6 @@
 <template>
   <div :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
-    <div v-if="!ready" class="py-10 text-center text-gray-400 text-sm">Loading…</div>
+    <div v-if="!ready" class="py-10 text-center text-ink-muted text-sm">Loading…</div>
     <div v-else :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
       <!-- Category tabs — only the ones this agent has (Files always available). -->
       <div v-if="tabs.length > 1" class="shrink-0 flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">

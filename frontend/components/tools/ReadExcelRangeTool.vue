@@ -8,31 +8,31 @@
       <Icon
         v-if="hasDetail"
         :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-gray-400 rtl-flip"
+        class="w-3 h-3 me-1 text-ink-muted rtl-flip"
       />
       <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500 dark:text-gray-400">
-        <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-ink-muted" />
         Reading {{ rangeLabel }}…
       </span>
       <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
         <span class="align-middle">Read {{ rangeLabel }}</span>
-        <span v-if="truncated" class="ms-1.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700">truncated</span>
+        <span v-if="truncated" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700">truncated</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
         <span class="align-middle">{{ $t('tools.readExcelRange.readFailed') }}</span>
-        <span v-if="errorMessage" class="ms-1.5 text-[11px] text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
+        <span v-if="errorMessage" class="ms-1.5 text-2xs text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
     </div>
 
     <Transition name="fade">
       <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 space-y-2 text-xs text-gray-600 dark:text-gray-400">
         <div v-for="(r, idx) in ranges" :key="idx">
-          <div class="text-[10px] text-gray-400 mb-0.5">
+          <div class="text-2xs text-ink-muted mb-0.5">
             {{ r.address }} <span v-if="r.row_count != null && r.col_count != null">· {{ r.row_count }}×{{ r.col_count }}</span>
           </div>
-          <pre v-if="r.preview" class="code-block text-[11px] text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ r.preview }}</code></pre>
+          <pre v-if="r.preview" class="code-block text-2xs text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ r.preview }}</code></pre>
         </div>
       </div>
     </Transition>

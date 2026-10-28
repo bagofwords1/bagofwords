@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.data_sources.clients.base import Capability
 
 logger = logging.getLogger(__name__)
 
@@ -162,11 +163,48 @@ def nativize_replayed_calls(turns, list_routing: dict, mcp_routing: dict, native
     return n
 
 
+# Capabilities a connector client may declare that gate a tool in the
+# catalog. Browser is excluded: browser tools have their own live eligibility
+# check (_refresh_browser_tool_catalog) and are never capability candidates.
+CONNECTOR_CAPABILITIES = frozenset(
+    c.value for c in Capability if c not in (Capability.QUERY, Capability.BROWSER)
+)
+
+
+def capabilities_for_agents(agents) -> set:
+    """Capability names the agents' connections declare (client class level).
+
+    A connection whose client cannot be resolved contributes nothing; it never
+    hides the capabilities of the others.
+    """
+    from app.schemas.data_source_registry import resolve_client_class
+
+    caps: set = set()
+    for ds in agents or []:
+        try:
+            connections = list(getattr(ds, "connections", None) or [])
+        except Exception:  # unloaded relationship outside a greenlet, detached row
+            logger.warning("capabilities: connections unavailable for agent %r",
+                           getattr(ds, "id", None), exc_info=True)
+            continue
+        for conn in connections:
+            try:
+                cls = resolve_client_class(conn.type)
+            except Exception:
+                logger.warning("capabilities: no client class for connection type %r",
+                               getattr(conn, "type", None), exc_info=True)
+                continue
+            for cap in getattr(cls, "capabilities", set()) or set():
+                caps.add(getattr(cap, "value", str(cap)))
+    return caps
+
+
 def capabilities_for_report_files(has_files: bool) -> set:
     """Capabilities the report's OWN file space contributes to the tool
-    catalog. Session files back read_file (lazy content/pages/vision) and
-    grep_files (line sweep) even with no file connector attached; discovery
-    stays with the <files> index, so list/search remain connector-only."""
+    catalog. Session files (uploads, plus the run agents' library files)
+    back read_file (lazy content/pages/vision) and grep_files (line sweep)
+    even with no file connector attached; discovery stays with the <files>
+    index, so list/search remain connector-only."""
     return {"read_file", "grep_files"} if has_files else set()
 
 
@@ -567,6 +605,13 @@ class AgentV2:
         # Platform context: derive from explicit param or fall back to completion's external_platform
         self.platform = platform or getattr(head_completion, "external_platform", None)
         self.platform_context = platform_context
+        # Teams conversation of the question, for its progress bubble
+        # (services/platform_adapters/teams_stream.py). Read once here: the
+        # completion row can expire later and must not lazy-load mid-run.
+        self._teams_conversation_id = (
+            getattr(head_completion, "external_channel_id", None)
+            if self.platform == "teams" else None
+        )
         self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
@@ -769,11 +814,24 @@ class AgentV2:
                 if not (getattr(f, 'content_type', '') or '').startswith('image/')
                 and not str(getattr(f, 'source_ref', '') or '').endswith('#source')
             ]
+            # Files in the run agents' libraries, resolved live (Auto mode and
+            # files uploaded after the conversation started included). They
+            # join the analyzable roster; images among them stay out of the
+            # vision set — they are agent material, not user attachments.
+            from app.ai.context.agent_files import agent_library_files, merge_files
+            self.agent_files = agent_library_files(
+                self.data_sources, getattr(organization, "id", None)
+            )
+            self.analysis_files = merge_files(self.analysis_files, [
+                f for f in self.agent_files
+                if not (getattr(f, 'content_type', '') or '').startswith('image/')
+            ])
         else:
             self.data_sources = []
             self.clients = {}
             self.image_files = []
             self.analysis_files = []
+            self.agent_files = []
 
         self.sigkill_event = asyncio.Event()
         # Set once the final answer is saved; a non-streaming caller waits on
@@ -901,31 +959,14 @@ class AgentV2:
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
 
-        # Capabilities exposed by the report's attached connections — used to
-        # gate file-source tools (list_files / read_file / search_files) so
-        # they only appear in the catalog when at least one connection
+        # Capabilities exposed by the run's agents' connections — used to gate
+        # file-source tools (list_files / read_file / search_files, mail, notes)
+        # so they only appear in the catalog when at least one connection
         # actually exposes those capabilities. Avoids polluting a SQL-only
-        # agent with file tools that can never resolve.
-        available_capabilities: set[str] = set()
-        try:
-            from app.schemas.data_source_registry import resolve_client_class
-            report = getattr(self, "report", None)
-            for ds in (getattr(report, "data_sources", None) or []):
-                for conn in (getattr(ds, "connections", None) or []):
-                    try:
-                        cls = resolve_client_class(conn.type)
-                        for cap in getattr(cls, "capabilities", set()) or set():
-                            available_capabilities.add(getattr(cap, "value", str(cap)))
-                    except Exception:
-                        continue
-            # The report's OWN file space also backs read_file / grep_files
-            # (session-file resolution) — an agent with uploaded files but no
-            # file connector still needs the readers in its catalog.
-            available_capabilities |= capabilities_for_report_files(
-                bool(getattr(report, "files", None))
-            )
-        except Exception:
-            pass
+        # agent with file tools that can never resolve. The run's agents, not
+        # just report.data_sources: under Auto the report has no attachments
+        # and the run executes against the user's accessible agents.
+        available_capabilities: set[str] = self._run_capabilities()
 
         # Build browser candidates respecting registry mode/platform constraints.
         # Live eligibility is resolved before each planner step below.
@@ -933,13 +974,17 @@ class AgentV2:
             available_capabilities.add("artifact_preview")
 
         # Start with all available tools for the planner to see, filtered by mode and platform
+        # Every connector capability passes here so the tools no run agent
+        # backs yet go through the same filters below; they are split off into
+        # _capability_tool_candidates before the planner sees the catalog.
+        _catalog_capabilities = available_capabilities | CONNECTOR_CAPABILITIES
         all_catalog_dicts = self.registry.get_catalog_for_plan_type(
             "action", self.organization, mode=self.mode, platform=self.platform,
-            available_capabilities=available_capabilities,
+            available_capabilities=_catalog_capabilities,
         )
         all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type(
             "research", self.organization, mode=self.mode, platform=self.platform,
-            available_capabilities=available_capabilities,
+            available_capabilities=_catalog_capabilities,
         ))
 
         # Hide tools that read raw data when the org has disabled LLM data access.
@@ -1043,8 +1088,18 @@ class AgentV2:
 
         self._browser_catalog_candidates = [ToolDescriptor(**tool) for tool in unique_catalog
                                             if tool["name"].startswith("browser_")]
+        # Connector-capability tools no run agent backs yet: held back (already
+        # through every filter above) and added by _refresh_capability_tools
+        # when an agent that backs them joins the run mid-turn.
+        self._capability_tool_candidates = [
+            ToolDescriptor(**tool) for tool in unique_catalog
+            if not tool["name"].startswith("browser_")
+            and self._tool_capability(tool["name"]) not in (None, *available_capabilities)
+        ]
+        _held = {t.name for t in self._capability_tool_candidates}
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog
-                        if not tool["name"].startswith("browser_")]
+                        if not tool["name"].startswith("browser_") and tool["name"] not in _held]
+        self._capability_pool_key = self._run_pool_key()
         # BOW_PLANNER selects the planner implementation. Default v3 (native
         # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
         # envelope planner. Other values fall back to v3 with a warning.
@@ -1728,25 +1783,43 @@ class AgentV2:
             from app.models.query import Query
             from app.models.visualization import Visualization
             _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
-            result = await self.db.execute(
-                select(ArtifactVersion)
-                .options(lazyload("*"))
-                # Mode lives on the parent Artifact — explicit join on this
-                # hot path (runs before every planner turn).
-                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
-                .where(
-                    ArtifactVersion.report_id == str(_report_id),
-                    ArtifactVersion.status == "completed",
-                    # Docs (mode='doc') must never occupy the active-artifact slot:
-                    # dashboard continuity rules and edit_artifact routing bind to it.
-                    Artifact.mode.in_(("page", "slides")),
+
+            def _candidates():
+                return (
+                    select(ArtifactVersion)
+                    .options(lazyload("*"))
+                    # Mode lives on the parent Artifact — explicit join on this
+                    # hot path (runs before every planner turn).
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.report_id == str(_report_id),
+                        ArtifactVersion.status == "completed",
+                        # Docs (mode='doc') must never occupy the active-artifact slot:
+                        # dashboard continuity rules and edit_artifact routing bind to it.
+                        Artifact.mode.in_(("page", "slides")),
+                    )
                 )
-                .order_by(ArtifactVersion.created_at.desc())
-                .limit(1)
-            )
+
+            result = await self.db.execute(_candidates().order_by(ArtifactVersion.created_at.desc()).limit(1))
             artifact = result.scalar_one_or_none()
             if not artifact:
                 return None
+            newest = artifact
+            # The version open in the editor is what the next edit builds on
+            # (collab01) -- until this turn saves one: from then on the
+            # newest is this turn's own work.
+            open_version = self._open_artifact_version_id()
+            if open_version and open_version != str(newest.id) and not self._saved_this_turn(newest):
+                chosen = (await self.db.execute(
+                    _candidates().where(ArtifactVersion.id == open_version).limit(1))).scalar_one_or_none()
+                if chosen is not None:
+                    artifact = chosen
+            newer_version = None
+            if artifact is not newest:
+                from app.ai.tools.implementations.edit_artifact import latest_version_in_conversation
+                latest_same = await latest_version_in_conversation(self.db, artifact)
+                if latest_same and latest_same > artifact.version:
+                    newer_version = latest_same
 
             viz_ids = []
             if isinstance(artifact.content, dict):
@@ -1814,6 +1887,9 @@ class AgentV2:
                 "title": artifact.title,
                 "mode": artifact.mode,
                 "version": artifact.version,
+                # Open in the editor although a newer version exists: build on
+                # this one (edit_artifact allows it).
+                "newer_version": newer_version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
                 # The current source: the planner authors artifact code itself
@@ -1821,10 +1897,40 @@ class AgentV2:
                 # IS the working context. Rendering caps it; oversize falls
                 # back to read_artifact.
                 "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
+                # A dashboard several people edit (collab01): its notes, and
+                # the summary this conversation started from -- structure
+                # and history only, never another person's rows.
+                "collaboration": await self._dashboard_collaboration(str(artifact.artifact_id)),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")
             return None
+
+    def _open_artifact_version_id(self) -> Optional[str]:
+        head = getattr(self, "head_completion", None)
+        prompt = (getattr(head, "prompt", None) or {}) if head else {}
+        value = prompt.get("artifact_version_id") if isinstance(prompt, dict) else None
+        return str(value) if value else None
+
+    def _saved_this_turn(self, version) -> bool:
+        """Whether `version` was saved after this turn's question was asked."""
+        asked = getattr(self.head_completion, "created_at", None) if self.head_completion else None
+        made = getattr(version, "created_at", None)
+        if asked is None or made is None:
+            return False
+        try:
+            return made.replace(tzinfo=None) >= asked.replace(tzinfo=None)
+        except Exception:
+            return False
+
+    async def _dashboard_collaboration(self, artifact_id: str) -> str:
+        try:
+            from app.services.dashboard_collab import agent_context
+
+            return await agent_context(self.db, str(self.report_id), artifact_id)
+        except Exception:
+            logger.debug("dashboard collaboration context unavailable", exc_info=True)
+            return ""
 
     async def _build_scheduled_context(self) -> Optional[dict]:
         """Build scheduled execution context if this completion is from a scheduled prompt."""
@@ -2503,12 +2609,14 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
                         "memory_trace": getattr(self, "_memory_trace", {}),
                         "project_files": await self._get_project_files(),
+                        "agent_files": getattr(self, "agent_files", None) or [],
                         "project_manager": self.project_manager,
                         "model": self.model,
                         "reasoning_effort": getattr(self, "_reasoning_effort", None),
@@ -4687,8 +4795,29 @@ class AgentV2:
             if inv.current_widget is not None:
                 self.current_widget = inv.current_widget
 
+    def _presence(self, started: bool) -> None:
+        """A dashboard this conversation edits shows its other editors that
+        the agent is at work (collab01). Detached: a separate session's
+        write must never wait on this run's own transaction."""
+        try:
+            if not self.report or self._is_sub_agent:
+                return
+            from app.core import fire_and_forget
+            from app.services import dashboard_presence
+
+            completion_id = str(self.system_completion_id) if getattr(self, "system_completion_id", None) else None
+            if started:
+                user_id = str(getattr(self.head_completion, "user_id", "") or "")
+                if user_id:
+                    fire_and_forget.spawn(dashboard_presence.agent_started(str(self.report_id), user_id, completion_id))
+            else:
+                fire_and_forget.spawn(dashboard_presence.agent_finished(str(self.report_id), completion_id))
+        except Exception:
+            pass
+
     async def main_execution(self):
         from app.data_sources.clients.bow_client import install_bow_client
+        self._presence(True)
         from app.models.user import User as BowUser
         bow_user = await self.db.get(BowUser, str(self.head_completion.user_id)) if self.head_completion and self.head_completion.user_id else None
         await install_bow_client(self.db, self.organization, bow_user, self.report, self.clients, mode=self.mode, allow_saved=False, writer_lock=self._tool_db_lock)
@@ -5354,6 +5483,17 @@ class AgentV2:
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
                         await _browser_catalog_task
+                        # An agent attached mid-run (create_agent,
+                        # set_report_agents) brings its file / mail / note
+                        # tools into this step's catalog.
+                        try:
+                            # Project files load async, so the catalog built in
+                            # __init__ can't see them; load them before the
+                            # refresh so read_file / grep_files get offered.
+                            await self._get_project_files()
+                            self._refresh_capability_tools()
+                        except Exception:
+                            logger.exception("capability tool refresh failed")
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -6510,7 +6650,7 @@ class AgentV2:
                                 # succeeded.
                                 if not artifact_refinement_budget.allow(tool_name, tool_input or {}):
                                     return await _refuse_before_dispatch({
-                                        "summary": "The optional visual refinement was already used. Finish with the saved artifact; requested changes and functional repairs remain available.",
+                                        "summary": "The optional visual refinement was already used (it saved a version). Finish with the saved artifact; requested changes and functional repairs remain available.",
                                         "error": {"code": "visual_refinement_exhausted", "message": "One automatic visual refinement is allowed per request."},
                                     })
 
@@ -6632,7 +6772,13 @@ class AgentV2:
                                             "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
                                         }
                                     ))
-                        
+                                    if self._teams_conversation_id:
+                                        from app.services.platform_adapters import teams_stream
+                                        teams_stream.notify_tool_started(
+                                            self._teams_conversation_id, str(self.system_completion_id), tool_name,
+                                            tool_input.get("title") if isinstance(tool_input, dict) else None,
+                                        )
+
                                     # Refresh warm context to include the latest planner decision blocks in messages,
                                     # for tools that read it. Tools that never touch the context view or hub
                                     # (MCP calls, file reads, web fetch) keep the loop's view: rebuilding it
@@ -6667,6 +6813,7 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                                        "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
@@ -6679,6 +6826,7 @@ class AgentV2:
                                         "current_step": _inv.current_step,
                                         "current_step_id": _inv.current_step_id,
                                         "project_files": await self._get_project_files(),
+                                        "agent_files": getattr(self, "agent_files", None) or [],
                                         "project_manager": self.project_manager,
                                         "model": self.model,
                                         "reasoning_effort": getattr(self, "_reasoning_effort", None),
@@ -7240,6 +7388,12 @@ class AgentV2:
                                     # breaker, the step limit, and the budget cap.
                                     if _tn in ("create_artifact", "edit_artifact"):
                                         total_artifact_calls += 1
+                                        # The optional visual refinement is spent
+                                        # only when it saved a version.
+                                        artifact_refinement_budget.record(
+                                            _tn, _ti_args if isinstance(_ti_args, dict) else {},
+                                            saved=isinstance(_obs, dict) and _obs.get("success") is not False
+                                            and _obs.get("version") is not None)
                                         # Remember what actually landed: a budget
                                         # refusal must be able to name the saved
                                         # state ("v8 is saved") instead of
@@ -7855,6 +8009,7 @@ class AgentV2:
                 pass
             raise
         finally:
+            self._presence(False)
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.
@@ -8633,6 +8788,93 @@ class AgentV2:
             rewritten["title"] = title
         logger.info("[agent] native mcp call %s -> execute_mcp(%s)", tool_name, route["tool_name"])
         return "execute_mcp", rewritten
+
+    def _run_capability_agents(self) -> list:
+        """The run's working set plus the report's attachments (a mid-run
+        set_report_agents / create_agent attaches there), de-duplicated."""
+        out, seen = [], set()
+        pool = list(getattr(self, "data_sources", None) or [])
+        try:
+            pool += list(getattr(self.report, "data_sources", None) or []) if self.report is not None else []
+        except Exception:
+            logger.warning("[agent] report agents unavailable for capability gating", exc_info=True)
+        for ds in pool:
+            key = str(getattr(ds, "id", "") or id(ds))
+            if key not in seen:
+                seen.add(key)
+                out.append(ds)
+        return out
+
+    def _run_capabilities(self) -> set:
+        """Capabilities that gate the catalog: the run's agents' connectors
+        plus the conversation's file space (uploads, project files and agent
+        library files back read_file / grep_files with no file connector
+        attached)."""
+        caps = capabilities_for_agents(self._run_capability_agents())
+        try:
+            caps |= capabilities_for_report_files(self._has_session_files())
+        except Exception:
+            logger.warning("[agent] report files unavailable for capability gating", exc_info=True)
+        return caps
+
+    def _has_session_files(self) -> bool:
+        # Project files count once loaded (_get_project_files caches them);
+        # before that only uploads and agent library files are known.
+        return (
+            bool(getattr(self.report, "files", None))
+            or bool(getattr(self, "agent_files", None))
+            or bool(getattr(self, "_project_files_cache", None))
+        )
+
+    def _run_pool_key(self) -> tuple:
+        # The file-space flag is part of the key so project files loaded after
+        # __init__ re-open the held-back read_file / grep_files.
+        agents = tuple(sorted(str(getattr(ds, "id", "")) for ds in self._run_capability_agents()))
+        try:
+            has_files = self._has_session_files()
+        except Exception:
+            has_files = False
+        return agents + (("files",) if has_files else ())
+
+    def _tool_capability(self, tool_name: str):
+        metadata = self.registry.get_metadata(tool_name)
+        return getattr(metadata, "requires_capability", None) if metadata else None
+
+    def _refresh_capability_tools(self) -> None:
+        """Offer held-back capability tools once a run agent backs them.
+
+        The catalog is built once per turn; an agent attached mid-run (e.g. a
+        file source created with create_agent) would otherwise leave its
+        read_file / list_files out until the next turn. Only grows the
+        catalog, and only with tools that already passed every catalog filter
+        (and the sub-agent profile, when this run is a child).
+        """
+        candidates = getattr(self, "_capability_tool_candidates", None)
+        if not candidates:
+            return
+        key = self._run_pool_key()
+        if key == getattr(self, "_capability_pool_key", None):
+            return
+        self._capability_pool_key = key
+        caps = self._run_capabilities()
+        allowed = getattr(self, "_sub_agent_allowed_tools", None) if self._is_sub_agent else None
+        existing = {t.name for t in (self.planner.tool_catalog or [])}
+        added = [
+            t for t in candidates
+            if self._tool_capability(t.name) in caps
+            and t.name not in existing
+            and (allowed is None or t.name in allowed)
+        ]
+        if not added:
+            return
+        names = {t.name for t in added}
+        self._capability_tool_candidates = [t for t in candidates if t.name not in names]
+        self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+        cats = getattr(self.planner, "_tool_category", None)
+        if isinstance(cats, dict):
+            for t in added:
+                cats.setdefault(t.name, t.category)
+        logger.info("[agent] capability tools added mid-run: %s", ", ".join(sorted(names)))
 
     def _run_agent_ids(self) -> list:
         """Ids of the agents this run executes against (its working set).

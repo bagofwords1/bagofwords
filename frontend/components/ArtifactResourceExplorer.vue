@@ -1,9 +1,10 @@
 <template>
-  <UModal :model-value="true" :ui="{ width: 'sm:max-w-4xl' }" @update:model-value="$emit('close')">
-    <section class="p-4 sm:p-5 space-y-4 rounded-lg bg-white dark:bg-gray-900 max-h-[85vh] overflow-y-auto" aria-labelledby="artifact-data-title">
-      <header class="flex items-center justify-between gap-4">
+  <!-- A modal of its own, or (embedded) a tab of the dashboard's settings. -->
+  <component :is="embedded ? 'div' : UModal" v-bind="embedded ? {} : { modelValue: true, ui: { width: 'sm:max-w-4xl' } }" @update:model-value="$emit('close')">
+    <section :class="embedded ? 'space-y-4' : 'p-4 sm:p-5 space-y-4 rounded-lg bg-white dark:bg-gray-900 max-h-[85vh] overflow-y-auto'" aria-labelledby="artifact-data-title">
+      <header v-if="!embedded" class="flex items-center justify-between gap-4">
         <div><h2 id="artifact-data-title" class="text-base font-semibold">{{ t(view === 'analytics' ? 'artifactResources.analytics' : 'artifactResources.inspect') }}</h2>
-          <p class="text-xs text-gray-400 mt-0.5">{{ t(view === 'resources' ? 'artifactResources.readOnlyLabel' : 'artifactResources.readOnly') }}</p></div>
+          <p class="text-xs text-ink-muted mt-0.5">{{ t(view === 'resources' ? 'artifactResources.readOnlyLabel' : 'artifactResources.readOnly') }}</p></div>
         <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" :aria-label="t('common.close')" @click="$emit('close')" />
       </header>
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
@@ -26,7 +27,7 @@
         <form v-if="filterOpen && indexed.length" class="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 dark:bg-gray-800/50 p-2" @submit.prevent="applyFilter">
           <USelectMenu v-model="filterField" :options="indexed" size="xs" class="w-36" :placeholder="t('artifactResources.filterField')"
             :aria-label="t('artifactResources.filterField')" :popper="{ placement: 'bottom-start' }" />
-          <span class="text-xs text-gray-400">{{ t('artifactResources.filterValue') }}</span>
+          <span class="text-xs text-ink-muted">{{ t('artifactResources.filterValue') }}</span>
           <USelectMenu v-if="filterOptions.length" v-model="filterValue" :options="filterOptions" option-attribute="label" value-attribute="value"
             size="xs" class="flex-1 min-w-32" :aria-label="t('artifactResources.filterValue')" :popper="{ placement: 'bottom-start' }" />
           <UInput v-else v-model="filterValue" size="xs" class="flex-1 min-w-32" :type="filterType === 'number' ? 'number' : 'text'" step="any"
@@ -39,17 +40,17 @@
         </div>
         <div v-if="schemaOpen && schema" class="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
           <h3 class="text-xs font-medium text-gray-500 mb-2">{{ t('artifactResources.schema') }}</h3>
-          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-xs"><div v-for="(field, name) in schema.fields" :key="name" class="flex justify-between gap-2 min-w-0"><dt class="font-mono truncate">{{ name }}</dt><dd class="text-gray-400">{{ field.type }}</dd></div></dl>
+          <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-xs"><div v-for="(field, name) in schema.fields" :key="name" class="flex justify-between gap-2 min-w-0"><dt class="font-mono truncate">{{ name }}</dt><dd class="text-ink-muted">{{ field.type }}</dd></div></dl>
         </div>
         <div class="overflow-auto max-h-80 border border-gray-200 dark:border-gray-700 rounded-lg" :aria-busy="loading">
           <table class="w-full text-xs text-start">
             <thead class="sticky top-0 bg-gray-50 dark:bg-gray-800"><tr><th v-for="field in columns" :key="field" class="px-3 py-2 text-start font-medium text-gray-500 whitespace-nowrap">{{ field }}</th></tr></thead>
             <tbody><tr v-for="row in rows" :key="row.id" class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
               <td v-for="field in columns" :key="field" class="px-3 py-2 max-w-56 truncate"><button dir="auto" class="text-start w-full truncate" @click="selected = row">{{ display(row.data[field]) }}</button></td>
-            </tr><tr v-if="!rows.length"><td :colspan="Math.max(1, columns.length)" class="py-8 px-3 text-center text-gray-400">{{ loading ? t('common.loading') : t('artifactResources.empty') }}</td></tr></tbody>
+            </tr><tr v-if="!rows.length"><td :colspan="Math.max(1, columns.length)" class="py-8 px-3 text-center text-ink-muted">{{ loading ? t('common.loading') : t('artifactResources.empty') }}</td></tr></tbody>
           </table>
         </div>
-        <div class="flex items-center justify-between gap-2"><span class="text-[11px] text-gray-400">{{ t('artifactResources.pageRows', { count: rows.length }) }}</span><UButton v-if="nextCursor" size="xs" color="gray" variant="ghost" trailing-icon="i-heroicons-arrow-small-right" :loading="loading" @click="loadRows(nextCursor)">{{ t('artifactResources.next') }}</UButton></div>
+        <div class="flex items-center justify-between gap-2"><span class="text-2xs text-ink-muted">{{ t('artifactResources.pageRows', { count: rows.length }) }}</span><UButton v-if="nextCursor" size="xs" color="gray" variant="ghost" trailing-icon="i-heroicons-arrow-small-right" :loading="loading" @click="loadRows(nextCursor)">{{ t('artifactResources.next') }}</UButton></div>
         <div v-if="selected" class="rounded-lg bg-gray-50 dark:bg-gray-800 p-3"><div class="flex items-center justify-between"><h3 class="text-xs font-medium">{{ t('artifactResources.details') }}</h3><UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-x-mark" :aria-label="t('common.close')" @click="selected = null" /></div><pre class="text-xs whitespace-pre-wrap break-words mt-2 max-h-48 overflow-auto">{{ JSON.stringify(selected.data, null, 2) }}</pre></div>
       </div>
       <div v-else class="space-y-5">
@@ -61,10 +62,11 @@
         <dl v-if="analytics" class="flex gap-6 text-sm"><div v-for="surface in ['embedded','standalone']" :key="surface"><dt class="text-gray-500">{{ t(`artifactResources.${surface}`) }}</dt><dd>{{ analytics.surfaces[surface] || 0 }}</dd></div></dl>
       </div>
     </section>
-  </UModal>
+  </component>
 </template>
 <script setup lang="ts">
-const props = withDefaults(defineProps<{artifactId: string; view?: 'resources' | 'analytics'}>(), {view: 'resources'})
+const props = withDefaults(defineProps<{artifactId: string; view?: 'resources' | 'analytics'; embedded?: boolean}>(), {view: 'resources', embedded: false})
+const UModal = resolveComponent('UModal')
 defineEmits(['close'])
 const {t} = useI18n()
 const {token} = useAuth()

@@ -59,7 +59,7 @@ class Entity(BaseSchema):
     reviewed_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
 
     # Provenance: link back to originating step (if created from a step)
-    source_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True)
+    source_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
     
     # AI provenance metadata
     trigger_reason = Column(String(255), nullable=True)

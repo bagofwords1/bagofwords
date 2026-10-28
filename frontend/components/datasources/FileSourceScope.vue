@@ -11,20 +11,20 @@
         <div class="flex items-center gap-2">
           <DataSourceIcon :type="conn.type" class="w-4 h-4" />
           <span class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ conn.name }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ conn.type }}</span>
+          <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ conn.type }}</span>
         </div>
         <span :class="indexBadgeClass(indexModeOf(conn))"
-              class="text-[10px] px-2 py-0.5 rounded-full font-medium">
+              class="text-2xs px-2 py-0.5 rounded-full font-medium">
           {{ indexLabel(indexModeOf(conn)) }}
         </span>
       </div>
 
       <!-- Base (path / bucket+prefix) -->
       <div class="mt-3 grid grid-cols-[90px_1fr] gap-x-3 gap-y-1.5 text-xs">
-        <span class="text-gray-400 dark:text-gray-500">Base</span>
+        <span class="text-ink-muted">Base</span>
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) || '—' }}</span>
 
-        <span class="text-gray-400 dark:text-gray-500">Scope</span>
+        <span class="text-ink-muted">Scope</span>
         <div>
           <template v-if="globsOf(conn).length">
             <code v-for="g in globsOf(conn)" :key="g"
@@ -34,7 +34,7 @@
         </div>
       </div>
 
-      <p class="mt-3 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+      <p class="mt-3 text-2xs text-ink-muted leading-relaxed">
         The agent can list, search and read <strong>only</strong> files matching these patterns —
         access to anything else is denied and audited. Edit the path, patterns or indexing on the
         connection itself.

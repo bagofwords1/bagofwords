@@ -15,7 +15,7 @@
       <button
         v-else
         type="button"
-        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-gray-400 hover:text-gray-600"
+        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-ink-muted hover:text-gray-600"
       >
         <Icon name="heroicons:funnel" class="w-3.5 h-3.5" />
       </button>
@@ -62,7 +62,7 @@
               <!-- OR Divider -->
               <div v-if="groupIndex > 0" class="flex items-center gap-2 py-1">
                 <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
-                <span class="text-[10px] font-semibold text-orange-500">OR</span>
+                <span class="text-2xs font-semibold text-orange-500">OR</span>
                 <div class="flex-1 h-px bg-gray-300 dark:bg-gray-600"></div>
               </div>
 
@@ -74,7 +74,7 @@
                   :key="condition.id"
                   class="mb-2 last:mb-0"
                 >
-                  <div v-if="condIndex > 0" class="text-[10px] font-semibold text-blue-500 mb-1">AND</div>
+                  <div v-if="condIndex > 0" class="text-2xs font-semibold text-blue-500 mb-1">AND</div>
 
                   <div class="flex items-center gap-1.5">
                     <!-- Column Select -->
@@ -116,7 +116,7 @@
                           size="xs"
                           class="w-[70px]"
                         />
-                        <span class="text-[10px] text-gray-400">-</span>
+                        <span class="text-2xs text-ink-muted">-</span>
                         <UInput
                           v-model="condition.value2"
                           :type="getColumnType(condition.column) === 'date' ? 'date' : 'number'"

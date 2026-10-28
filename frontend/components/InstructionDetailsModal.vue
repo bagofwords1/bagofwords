@@ -4,7 +4,7 @@
             <!-- Header -->
             <div class="flex items-center justify-between mb-4">
                 <h2 class="text-lg font-medium text-gray-900 dark:text-white">Instruction Details</h2>
-                <button @click="close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <button @click="close" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
             </div>
@@ -49,7 +49,7 @@
                 </div>
                 <div v-else>
                     <h3 class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">References</h3>
-                    <div class="text-xs text-gray-400">
+                    <div class="text-xs text-ink-muted">
                         No references defined
                     </div>
                 </div>
@@ -260,6 +260,7 @@ const formatCategory = (category: string) => {
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
+    if (type === 'instruction') return 'i-heroicons-cube'
     return 'i-heroicons-circle'
 }
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.ai.tools.artifact_read_budget import budget_artifact_read
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -30,6 +31,12 @@ from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
+from app.ai.tools.implementations._text_window import (
+    GREP_LINE_CLIP,
+    GREP_WINDOW_MIN_AFTER,  # noqa: F401 — re-exported for tests
+    grep_lines as grep_code,
+    outline_from_patterns,
+)
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_OBSERVATION,
     ANON_PREVIEW_NOTE,
@@ -44,7 +51,6 @@ logger = logging.getLogger(__name__)
 # is expected to follow up with range/grep reads.
 FULL_READ_MAX_CHARS = 50_000
 DEFAULT_RANGE_LIMIT = 400
-GREP_LINE_CLIP = 500
 OUTLINE_MAX_ENTRIES = 300
 
 
@@ -75,29 +81,7 @@ def build_outline(code: str, mode: str) -> str:
     Returns lines like `  123: function RevenueChart()` so the planner can
     navigate a long artifact and follow up with targeted range/grep reads.
     """
-    patterns = _outline_patterns(mode)
-    lines = code.split("\n")
-    entries: List[str] = []
-    for i, line in enumerate(lines):
-        if any(p.search(line) for p in patterns):
-            text = line.strip()
-            if len(text) > 160:
-                text = text[:160] + "…"
-            entries.append(f"{i + 1:>6}: {text}")
-            if len(entries) >= OUTLINE_MAX_ENTRIES:
-                entries.append(f"     … outline truncated at {OUTLINE_MAX_ENTRIES} entries ({len(lines)} lines total)")
-                break
-    if not entries:
-        # Nothing structural matched — show evenly spaced sample lines so the
-        # planner still gets landmarks to range-read around.
-        step = max(1, len(lines) // 40)
-        for i in range(0, len(lines), step):
-            text = lines[i].strip()
-            if text:
-                entries.append(f"{i + 1:>6}: {text[:160]}")
-            if len(entries) >= 40:
-                break
-    return "\n".join(entries)
+    return outline_from_patterns(code, _outline_patterns(mode), max_entries=OUTLINE_MAX_ENTRIES)
 
 
 def slice_range(code: str, offset: int, limit: Optional[int]) -> Tuple[str, int, int, int, bool]:
@@ -113,43 +97,6 @@ def slice_range(code: str, offset: int, limit: Optional[int]) -> Tuple[str, int,
     end = min(total_lines, start + limit - 1)
     text = "\n".join(lines[start - 1:end])
     return text, start, end, total_lines, end < total_lines
-
-
-def grep_code(
-    code: str,
-    pattern: str,
-    ignore_case: bool = False,
-    before: int = 0,
-    after: int = 0,
-    max_matches: int = 50,
-) -> Tuple[List[Dict[str, Any]], int, bool]:
-    """Grep the artifact code line-by-line.
-
-    Returns (matches, total_matches, truncated). Each match carries the verbatim
-    matching line plus verbatim before/after context and 1-based line numbers.
-    Raises re.error for an invalid pattern — callers surface that to the planner.
-    """
-    flags = re.IGNORECASE if ignore_case else 0
-    rx = re.compile(pattern, flags)
-    lines = code.split("\n")
-    matches: List[Dict[str, Any]] = []
-    total = 0
-    for i, line in enumerate(lines):
-        if not rx.search(line):
-            continue
-        total += 1
-        if len(matches) >= max_matches:
-            continue
-        ctx_start = max(0, i - before)
-        clipped = line if len(line) <= GREP_LINE_CLIP else line[:GREP_LINE_CLIP]
-        matches.append({
-            "line_no": i + 1,
-            "line": clipped,
-            "before": lines[ctx_start:i],
-            "after": lines[i + 1:i + 1 + after],
-            "context_start_line": ctx_start + 1,
-        })
-    return matches, total, total > len(matches)
 
 
 class ReadArtifactTool(Tool):
@@ -170,6 +117,7 @@ class ReadArtifactTool(Tool):
                 "LONG ARTIFACTS: when the code is too large to return in full, a plain read returns a structural OUTLINE with line numbers instead of code. "
                 "Then use `offset`/`limit` to read a specific line range, or `grep_pattern` (with `before`/`after` context lines) to find the exact region to edit. "
                 "Both return VERBATIM code you can quote in edit_artifact SEARCH blocks or edit_doc find strings. "
+                "If next_read is present, use those exact arguments to continue; even a single long line can require character-offset paging. "
                 "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
                 "The screenshot is a STATIC capture at page load with nothing clicked: closed dropdowns/menus/modals and invisible hover states are EXPECTED there and prove nothing about whether a control works — diagnose interactive elements from the code, never from the image. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
@@ -325,7 +273,7 @@ class ReadArtifactTool(Tool):
                     ignore_case=data.ignore_case,
                     before=data.before,
                     after=data.after,
-                    max_matches=data.max_matches,
+                    max_matches=data.max_matches + data.match_offset,
                 )
             except re.error as e:
                 yield ToolEndEvent(
@@ -350,6 +298,7 @@ class ReadArtifactTool(Tool):
                     },
                 )
                 return
+            matches = matches[data.match_offset:]
             if grep_total == 0:
                 # No matches — return the outline as a navigation aid so the
                 # planner's next read is informed instead of another guess.
@@ -362,15 +311,54 @@ class ReadArtifactTool(Tool):
                 shown = len(matches)
                 window_note = f"{grep_total} match(es) for pattern {data.grep_pattern!r}"
                 if grep_truncated:
-                    window_note += f", showing first {shown} (max_matches={data.max_matches}) — narrow the pattern for the rest"
+                    position = f"matches {data.match_offset + 1}-{data.match_offset + shown}" if data.match_offset else f"first {shown}"
+                    window_note += f", showing {position} (max_matches={data.max_matches}) — narrow the pattern for the rest"
                 window_note += ". Matched lines and before/after context are verbatim — safe to quote in SEARCH blocks."
+                if any("col_start" in m for m in matches):
+                    window_note += (
+                        f" Lines over {GREP_LINE_CLIP} chars come back as a window around each occurrence"
+                        " (col_start/col_end within line_length); read a whole line with offset=<line_no>, limit=1."
+                    )
 
-        elif data.offset is not None or data.limit is not None:
+        elif data.offset is not None or data.limit is not None or data.character_offset:
             read_mode = "range"
             offset = data.offset or 1
             code_view, start_line, end_line, total_lines, range_truncated = slice_range(
                 code, offset, data.limit
             )
+            first_line = code_view.split("\n", 1)[0]
+            if data.character_offset > len(first_line):
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": ReadArtifactOutput(
+                            artifact_id=str(artifact.id),
+                            title=artifact.title,
+                            mode=artifact.mode,
+                            code="",
+                            visualization_ids=content.get("visualization_ids", []),
+                            version=artifact.version,
+                            read_mode="range",
+                            total_lines=total_lines,
+                            total_chars=total_chars,
+                            start_line=start_line,
+                        ).model_dump(),
+                        "observation": {
+                            "summary": (
+                                f"character_offset {data.character_offset} exceeds line {start_line}, which is "
+                                f"{len(first_line)} chars. Re-read the line with character_offset=0."
+                            ),
+                            "artifact_id": str(artifact.id),
+                            "success": False,
+                            "error": {
+                                "type": "invalid_character_offset",
+                                "message": "character_offset exceeds the first line length.",
+                            },
+                        },
+                    },
+                )
+                return
+            code_view = code_view[data.character_offset:]
             if not code_view and start_line > total_lines:
                 window_note = (
                     f"offset {start_line} is beyond the end of the code ({total_lines} lines total). "
@@ -406,7 +394,10 @@ class ReadArtifactTool(Tool):
 
         # Fetch associated visualizations and build profiles
         viz_profiles: List[Dict[str, Any]] = []
-        if visualization_ids:
+        include_profiles = data.include_visualization_profiles
+        if include_profiles is None:
+            include_profiles = read_mode not in ("range", "grep")
+        if visualization_ids and include_profiles:
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_visualizations"})
             try:
                 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
@@ -577,6 +568,24 @@ class ReadArtifactTool(Tool):
             # Include render errors if stored (useful even without screenshot)
             if artifact.render_errors:
                 observation["render_errors"] = artifact.render_errors
+
+        if not include_profiles:
+            observation.pop("visualization_profiles", None)
+        observation = budget_artifact_read(observation, data)
+        # The UI/audit output must describe the same source window the model saw.
+        for key in ("code", "read_mode", "start_line", "end_line", "start_character",
+                    "truncated", "next_read", "matches", "grep_truncated", "outline"):
+            if key in observation:
+                output[key] = observation[key]
+        if observation.get("success") is False:
+            # A budgeted-away read returns an error; the audit row must not
+            # still show the source the model never received.
+            for key in ("code", "matches", "outline"):
+                output[key] = None if key != "code" else ""
+        output["code_preview"]["code"] = observation.get("code", observation.get("outline", "")) or ""
+        if observation.get("matches"):
+            output["code_preview"]["code"] = "\n\n".join(m["line"] for m in observation["matches"])
+        output["artifact_preview"]["read_mode"] = observation.get("read_mode", read_mode)
 
         yield ToolEndEvent(
             type="tool.end",

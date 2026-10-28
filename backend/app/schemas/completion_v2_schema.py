@@ -69,6 +69,10 @@ class PromptSchema(BaseModel):
     widget_id: Optional[str] = None
     step_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    # The dashboard version open in the conversation's editor (collab01):
+    # the next edit builds on it, even when the conversation holds a newer
+    # one. None: the newest, as before.
+    artifact_version_id: Optional[str] = None
     mode: Optional[str] = 'chat'
     model_id: Optional[str] = None
     platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web

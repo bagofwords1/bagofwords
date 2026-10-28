@@ -65,7 +65,7 @@ class ToolExecution(BaseSchema):
     artifact_refs_json = Column(JSON, nullable=True)
 
     created_widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True)
-    created_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True)
+    created_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
 
     # Post-tool context snapshot for replay/audit
     context_snapshot_id = Column(String(36), ForeignKey('context_snapshots.id'), nullable=True)

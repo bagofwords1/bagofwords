@@ -10,7 +10,7 @@
                     <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                 </UTooltip>
                 <UTooltip v-if="locked" :text="$t('settings.aiSettingsPage.locked')">
-                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
                 </UTooltip>
             </div>
             <UToggle

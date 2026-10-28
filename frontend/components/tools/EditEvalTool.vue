@@ -1,8 +1,8 @@
 <template>
   <div class="mt-1">
-    <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+    <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1 text-ink-muted" />
         {{ t('tools.editEval.editing') }}
       </span>
       <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
@@ -10,7 +10,7 @@
         <span class="align-middle">{{ t('tools.editEval.edited') }}</span>
       </span>
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-gray-400" />
+        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">{{ message || t('tools.editEval.failed') }}</span>
       </span>
     </div>
@@ -21,12 +21,12 @@
         <NuxtLink :to="`/agents`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600">
           {{ caseName || t('tools.editEval.unnamed') }}
         </NuxtLink>
-        <span v-if="suiteName" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ suiteName }}</span>
-        <span v-if="caseStatus === 'draft'" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-800 flex-shrink-0">{{ t('tools.editEval.statusDraft') }}</span>
-        <span v-else-if="caseStatus === 'active'" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800 flex-shrink-0">{{ t('tools.editEval.statusActive') }}</span>
-        <span v-else-if="caseStatus === 'archived'" class="ms-1 text-[9px] px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">{{ t('tools.editEval.statusArchived') }}</span>
+        <span v-if="suiteName" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ suiteName }}</span>
+        <span v-if="caseStatus === 'draft'" class="ms-1 text-2xs px-1 py-0.5 rounded bg-amber-100 text-amber-800 flex-shrink-0">{{ t('tools.editEval.statusDraft') }}</span>
+        <span v-else-if="caseStatus === 'active'" class="ms-1 text-2xs px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800 flex-shrink-0">{{ t('tools.editEval.statusActive') }}</span>
+        <span v-else-if="caseStatus === 'archived'" class="ms-1 text-2xs px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">{{ t('tools.editEval.statusArchived') }}</span>
       </div>
-      <div v-if="changedFields.length" class="ms-1 mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+      <div v-if="changedFields.length" class="ms-1 mt-0.5 text-2xs text-gray-500 dark:text-gray-400">
         {{ t('tools.editEval.changed', { fields: changedFields.join(', ') }) }}
       </div>
     </div>

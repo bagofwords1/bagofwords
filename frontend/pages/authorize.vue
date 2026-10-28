@@ -36,7 +36,7 @@
         </div>
 
         <div class="px-6 py-5">
-          <div class="text-xs font-medium uppercase tracking-wide text-gray-400">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-muted">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
           <div class="mt-3 space-y-3">
             <div v-for="requestedScope in requestedScopes" :key="requestedScope" class="flex gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950/60">
               <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
@@ -59,7 +59,7 @@
           </div>
         </div>
 
-        <p class="border-t border-gray-100 px-6 py-3 text-center text-xs text-gray-400 dark:border-gray-800">
+        <p class="border-t border-gray-100 px-6 py-3 text-center text-xs text-ink-muted dark:border-gray-800">
           {{ $t('settings.integrations.channels.oauth.redirectNotice', { name: clientName }) }}
         </p>
       </div>

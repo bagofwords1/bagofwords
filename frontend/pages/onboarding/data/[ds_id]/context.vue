@@ -33,18 +33,18 @@
                       <img :src="getResourceTypeIcon(instruction) ?? undefined" :alt="getResourceTypeTooltip(instruction)" class="h-3 opacity-60" />
                     </UTooltip>
                     <UTooltip v-else-if="getResourceType(instruction)" :text="getResourceTypeTooltip(instruction)">
-                      <UIcon :name="getResourceTypeFallbackIcon(instruction)" class="w-3 h-3 text-gray-400 dark:text-gray-600" />
+                      <UIcon :name="getResourceTypeFallbackIcon(instruction)" class="w-3 h-3 text-ink-muted" />
                     </UTooltip>
                   </div>
                   
-                  <div class="text-[12px] text-gray-800 dark:text-gray-200 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
+                  <div class="text-xs text-gray-800 dark:text-gray-200 leading-relaxed pe-24 whitespace-normal break-words max-w-full">
                     {{ truncateText(instruction.text, 100) }}
                   </div>
                   
                   <div class="absolute top-2 end-2 flex items-center gap-2">
                     <template v-if="instructionAction[instruction.id]">
                       <span 
-                        class="px-2 py-0.5 text-[11px] rounded-full border"
+                        class="px-2 py-0.5 text-2xs rounded-full border"
                         :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 dark:bg-green-950 text-green-700 border-green-100 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 text-red-700 border-red-100 dark:border-red-800'"
                       >
                         {{ instructionAction[instruction.id] === 'approved' ? $t('onboarding.context.approved') : $t('onboarding.context.removed') }}
@@ -74,7 +74,7 @@
                     :key="page"
                     @click="currentPage = page"
                     class="w-6 h-6 text-xs rounded-full transition-colors"
-                    :class="currentPage === page ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                    :class="currentPage === page ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
                   >
                     {{ page }}
                   </button>
@@ -155,7 +155,7 @@
               <button 
                 @click="handleSave" 
                 :disabled="saving"
-                class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+                class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
               >
                 <span v-if="saving">{{ $t('onboarding.context.saving') }}</span>
                 <span v-else>{{ $t('onboarding.context.save') }}</span>

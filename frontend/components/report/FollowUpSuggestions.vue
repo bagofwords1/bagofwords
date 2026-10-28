@@ -1,5 +1,5 @@
 <template>
-  <div v-if="items.length > 0" class="mt-4 max-w-2xl" :dir="contentDir">
+  <div v-if="items.length > 0" class="mt-4 max-w-chat" :dir="contentDir">
     <!-- Header -->
     <div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
       {{ heading }}
@@ -13,7 +13,7 @@
           dir="auto"
           :disabled="disabled"
           @click="select(q)"
-          class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-[13px] leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-sm leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <span class="truncate">{{ q }}</span>
           <Icon

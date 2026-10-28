@@ -117,6 +117,29 @@ def test_gate_flags_payload_viz_never_referenced():
     assert any(IDS[2] in e and "Churn" in e for e in errors)
 
 
+def test_gate_does_not_require_filter_option_sources_in_the_code():
+    # The Music Store case: "Country options" and "Genre options" only feed
+    # the filters' choices (another query's parameter names them as
+    # options_source); the page reads them through useParamOptions(), never
+    # vizById(). They are not "dropped charts", and an unrelated edit must
+    # not be rejected over them.
+    sales, country, genre = IDS
+    payload = {"visualizations": [
+        {"id": sales, "title": "Sales", "query_id": "q-sales", "parameters": [
+            {"name": "country", "options_source": {"query_id": "q-country", "value_column": "Country"}},
+            {"name": "genre_id", "options_source": {"query_id": "q-genre", "value_column": "GenreId"}},
+        ]},
+        {"id": country, "title": "Country options", "query_id": "q-country", "parameters": []},
+        {"id": genre, "title": "Genre options", "query_id": "q-genre", "parameters": []},
+    ]}
+    code = f'const s = vizById("{sales}"); const c = useParamOptions("country"); const g = useParamOptions("genre_id");'
+    assert viz_reference_errors(code, payload) == []
+    # A chart that is no one's option source is still required.
+    payload["visualizations"][0]["parameters"] = []
+    errors = viz_reference_errors(code, payload)
+    assert any("Country options" in e for e in errors)
+
+
 def test_gate_flags_chartless_page():
     # Reviewer counterexample: a page that references NONE of its payload
     # vizs renders no data and must fail the gate.

@@ -4,7 +4,7 @@
       <div class="flex items-center gap-2 mb-4 shrink-0">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
-        <button :aria-label="$t('common.close')" class="ms-auto text-gray-400 hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
+        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
       <div class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
         <div class="min-w-0 px-6 py-6 md:px-8 md:max-h-[70vh] md:overflow-y-auto">
@@ -19,12 +19,12 @@
           <div class="mt-2 mb-5" data-testid="management-account">
             <p class="status-meta font-medium text-gray-700 dark:text-gray-300">{{ $t(personalManagement ? 'data.yourAccount' : 'data.organizationAccount') }}</p>
             <p class="status-meta text-gray-500 mt-1">{{ $t(personalManagement ? 'data.managementPersonalHint' : 'data.managementOrganizationHint') }}</p>
-            <button v-if="needsPersonalSignIn" :disabled="signingIn" class="mt-2 inline-flex items-center gap-1.5 rounded bg-blue-500 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" @click="signIn"><Spinner v-if="signingIn" class="h-3 w-3" />{{ $t('data.signIn') }}</button>
+            <button v-if="needsPersonalSignIn" :disabled="signingIn" class="mt-2 inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" @click="signIn"><Spinner v-if="signingIn" class="h-3 w-3" />{{ $t('data.signIn') }}</button>
           </div>
           <div v-if="!needsPersonalSignIn" class="space-y-1 mb-6">
             <div class="flex items-start gap-2 status-body text-gray-800 dark:text-gray-200">
-              <Spinner v-if="state.busy" class="w-4 h-4 shrink-0 mt-0.5 text-gray-400" data-testid="connection-testing-spinner" />
-              <UIcon v-else :name="testIsError ? 'heroicons-exclamation-circle' : testWarning ? 'heroicons-exclamation-triangle' : lastResult?.success ? 'heroicons-check-circle' : 'heroicons-minus-circle'" class="w-4 h-4 shrink-0 mt-0.5" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-600' : lastResult?.success ? 'text-green-600' : 'text-gray-400'" />
+              <Spinner v-if="state.busy" class="w-4 h-4 shrink-0 mt-0.5 text-ink-muted" data-testid="connection-testing-spinner" />
+              <UIcon v-else :name="testIsError ? 'heroicons-exclamation-circle' : testWarning ? 'heroicons-exclamation-triangle' : lastResult?.success ? 'heroicons-check-circle' : 'heroicons-minus-circle'" class="w-4 h-4 shrink-0 mt-0.5" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-600' : lastResult?.success ? 'text-green-600' : 'text-ink-muted'" />
               <p role="status" class="whitespace-pre-wrap break-words" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-700 dark:text-amber-400' : ''">{{ state.busy ? $t('data.testing') : state.error || state.warning || (lastResult?.success && !testWarning ? $t('data.lastConnectionTestPassed') : state.message || lastResult?.message || $t('data.never')) }}</p>
             </div>
             <p class="status-meta text-gray-500 ps-6">{{ $t('data.lastChecked') }} · {{ checkedAt ? new Date(checkedAt).toLocaleString(locale) : $t('data.never') }}</p>
@@ -44,8 +44,8 @@
         </aside>
       </div>
       <div class="flex shrink-0 justify-end gap-3 border-t border-gray-100 dark:border-gray-800 pt-4">
-        <template v-if="editing"><button :disabled="state.busy" class="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-300" @click="cancelEdit">{{ $t('data.cancel') }}</button><button :disabled="loading || state.busy" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50" @click="form?.connect()">{{ state.busy ? $t('data.saving') : $t('common.saveChanges') }}</button></template>
-        <button v-else class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded" @click="open = false">{{ $t('data.setupDone') }}</button>
+        <template v-if="editing"><button :disabled="state.busy" class="text-xs px-3 py-1.5 text-gray-600 dark:text-gray-300" @click="cancelEdit">{{ $t('data.cancel') }}</button><button :disabled="loading || state.busy" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50" @click="form?.connect()">{{ state.busy ? $t('data.saving') : $t('common.saveChanges') }}</button></template>
+        <button v-else class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded" @click="open = false">{{ $t('data.setupDone') }}</button>
       </div>
     </div>
   </UModal>

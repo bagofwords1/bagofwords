@@ -34,7 +34,7 @@
         </div>
 
         <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
-            <div v-if="loading" class="p-4 text-sm text-gray-400">{{ $t('common.loading') }}</div>
+            <div v-if="loading" class="p-4 text-sm text-ink-muted">{{ $t('common.loading') }}</div>
             <div v-else-if="rows.length === 0" class="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">
                 {{ $t('settings.llms.groupDefaults.empty') }}
             </div>
@@ -49,7 +49,7 @@
                                 <UTooltip :text="$t('settings.llms.groupDefaults.priorityTooltip')">
                                     <span class="inline-flex items-center gap-1">
                                         {{ $t('settings.llms.groupDefaults.colPriority') }}
-                                        <UIcon name="i-heroicons-question-mark-circle" class="w-3.5 h-3.5 text-gray-400" />
+                                        <UIcon name="i-heroicons-question-mark-circle" class="w-3.5 h-3.5 text-ink-muted" />
                                     </span>
                                 </UTooltip>
                             </th>
@@ -59,7 +59,7 @@
                         <tr v-for="row in rows" :key="row.group_id" data-testid="llm-group-default-row">
                             <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                 <span class="inline-flex items-center gap-1.5">
-                                    <UIcon name="i-heroicons-user-group" class="w-4 h-4 text-gray-400" />
+                                    <UIcon name="i-heroicons-user-group" class="w-4 h-4 text-ink-muted" />
                                     {{ row.group_name }}
                                 </span>
                             </td>

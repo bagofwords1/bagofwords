@@ -4,11 +4,11 @@
       <!-- Header -->
       <div class="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-gray-100 dark:border-gray-800">
         <div class="min-w-0">
-          <h2 class="text-[15px] font-semibold text-gray-900 dark:text-gray-100">{{ $t('changelog.title') }}</h2>
-          <p class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('changelog.subtitle') }}</p>
+          <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('changelog.title') }}</h2>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('changelog.subtitle') }}</p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
-          <span v-if="currentVersion" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-[11px] font-medium text-gray-500 dark:text-gray-400 font-mono">
+          <span v-if="currentVersion" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-2xs font-medium text-gray-500 dark:text-gray-400 font-mono">
             v{{ currentVersion }}
           </span>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
@@ -19,7 +19,7 @@
       <div class="flex-1 overflow-y-auto px-5 py-4 min-h-[240px]">
         <!-- Loading -->
         <div v-if="loading" class="py-16 flex justify-center">
-          <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
+          <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
         </div>
 
         <!-- Error -->
@@ -28,8 +28,8 @@
             <UIcon name="i-heroicons-exclamation-triangle" class="w-6 h-6 text-red-400 dark:text-red-500" />
           </div>
           <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('changelog.errorTitle') }}</p>
-          <p class="text-xs text-gray-400 dark:text-gray-500">{{ $t('changelog.errorBody') }}</p>
-          <button @click="fetchChangelog()" class="mt-1 text-[12px] text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md">
+          <p class="text-xs text-ink-muted">{{ $t('changelog.errorBody') }}</p>
+          <button @click="fetchChangelog()" class="mt-1 text-xs text-blue-600 dark:text-blue-400 hover:underline px-2 py-1 rounded-md">
             {{ $t('changelog.retry') }}
           </button>
         </div>
@@ -64,15 +64,15 @@
               @click="toggleVersion(i)"
             >
               <span
-                class="text-[13px] font-semibold font-mono"
+                class="text-sm font-semibold font-mono"
                 :class="i === 0 ? 'text-gray-900 dark:text-gray-100' : 'text-gray-700 dark:text-gray-300'"
               >v{{ v.version }}</span>
               <span
                 v-if="i === 0"
-                class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+                class="inline-flex items-center px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/15 text-2xs font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
               >{{ $t('changelog.latest') }}</span>
-              <span v-if="v.date" class="text-[11px] text-gray-400 dark:text-gray-500">· {{ v.date }}</span>
-              <span v-if="!isExpanded(i)" class="text-[11px] text-gray-400 dark:text-gray-500">
+              <span v-if="v.date" class="text-2xs text-ink-muted">· {{ v.date }}</span>
+              <span v-if="!isExpanded(i)" class="text-2xs text-ink-muted">
                 · {{ $t('changelog.changeCount', { count: v.entries.length }, v.entries.length) }}
               </span>
               <UIcon
@@ -86,7 +86,7 @@
               <li
                 v-for="(entry, j) in v.entries"
                 :key="j"
-                class="flex gap-2 text-[13px] leading-relaxed text-gray-600 dark:text-gray-300"
+                class="flex gap-2 text-sm leading-relaxed text-gray-600 dark:text-gray-300"
               >
                 <span class="mt-[7px] w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
                 <span class="changelog-entry min-w-0" v-html="renderEntry(entry)" />
@@ -102,14 +102,14 @@
           href="https://github.com/bagofwords1/bagofwords/releases"
           target="_blank"
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-1 text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+          class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
         >
           <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5" />
           {{ $t('changelog.viewOnGithub') }}
         </a>
         <button
           @click="isOpen = false"
-          class="text-[12px] px-3 py-1.5 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+          class="text-xs px-3 py-1.5 rounded-md text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
         >{{ $t('common.close') }}</button>
       </div>
     </div>

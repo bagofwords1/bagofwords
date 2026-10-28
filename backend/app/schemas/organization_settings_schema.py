@@ -352,6 +352,11 @@ class OrganizationSettingsConfig(BaseModel):
     top_k_schema: FeatureConfig = FeatureConfig(value=10, name="Top K schema", description="The number of schema to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     agent_roster_top_k: FeatureConfig = FeatureConfig(value=10, name="Agent roster top K", description="When a report has many agents, how many appear as full roster lines in the AI context (ranked by the asker's recent usage; the rest are listed by name only in a more_agents tail). Clamped to 1-100.", is_lab=False, editable=True)
+    # Off = no new "anyone with the link" shares (dashboards or conversations),
+    # and existing public links only open for members of this organization.
+    # Stored visibility is left alone, so turning it back on restores the links.
+    # Enforced in app/services/public_sharing_policy.py.
+    allow_public_sharing: FeatureConfig = FeatureConfig(value=True, name="Public link sharing", description="Allow dashboards and conversations to be shared with anyone who has the link, including people outside the organization. When off, links that are already public only open for signed-in members of this organization; turning it back on restores them.", is_lab=False, editable=True)
     allow_forks: FeatureConfig = FeatureConfig(value=True, name="Allow Forks", description="Allow users to fork published reports into their own workspace", is_lab=False, editable=True)
     mcp_enabled: FeatureConfig = FeatureConfig(value=True, name="MCP", description="Enable Model Context Protocol (MCP) endpoint for integration with AI assistants like Cursor, Claude, or others", is_lab=False, editable=True)
     enable_mcp_tools: FeatureConfig = FeatureConfig(value=True, name="MCP & Custom API Tools", description="Allow connecting external MCP servers and custom API endpoints to data sources as tool providers", is_lab=True, editable=True)

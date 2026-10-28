@@ -271,13 +271,18 @@ class ProjectService:
                 Report.deleted_at.is_(None),
             )
         )).scalars().all()
+        from app.services.dashboard_lifecycle import settle_dashboards
         archived_ids = []
         for r in contained:
             r.status = "archived"
             archived_ids.append(str(r.id))
         if archived_ids:
             from app.services.report_service import ReportService
+            # Published dashboards stay live and leave the deleted project (phase 7).
+            await settle_dashboards(db, archived_ids)
             await ReportService()._delete_scheduled_prompts_for_reports(db, archived_ids)
+        from app.services.dashboard_lifecycle import leave_project
+        await leave_project(db, str(project.id))
         # Revoke grants so re-used ids can never resurrect access.
         await db.execute(
             sa_update(ResourceGrant)
@@ -667,6 +672,20 @@ class ProjectService:
         )
         return list(rows.scalars().all())
 
+    @staticmethod
+    def _scheduled_dashboards(project):
+        """Conditions: the project's live dashboards with a schedule -- by the
+        dashboard's own project: a published one keeps running after its
+        conversation is deleted (phase 7)."""
+        from app.models.artifact import Artifact
+        return (
+            Artifact.project_id == str(project.id),
+            Artifact.deleted_at.is_(None),
+            Artifact.cron_schedule.isnot(None),
+            Artifact.cron_schedule != "",
+            Artifact.mode != "slides",  # a deck never refreshes (dashboard_refresh.register_all_jobs)
+        )
+
     async def list_automations(
         self, db: AsyncSession, project_id: str, current_user: User, organization: Organization
     ) -> list[dict]:
@@ -698,11 +717,16 @@ class ProjectService:
                 "run_once_at": sp.run_once_at,
                 "is_active": bool(sp.is_active),
             })
+        # Dashboard schedules (phase 6, moved there by the data migration in
+        # phase 9); a conversation without dashboards keeps its own.
+        from app.models.artifact import Artifact
+        from app.services import dashboard_legacy
         rf_rows = await db.execute(
             select(Report.id, Report.title, Report.cron_schedule)
             .where(
                 Report.project_id == str(project.id),
                 Report.cron_schedule.isnot(None),
+                dashboard_legacy.speaks_for_itself(),
                 Report.status != "archived",
                 Report.deleted_at.is_(None),
             )
@@ -714,6 +738,27 @@ class ProjectService:
                 "report_id": str(report_id),
                 "report_title": report_title or "untitled",
                 "label": report_title or "untitled",
+                "cron_schedule": cron,
+                "is_active": True,
+            })
+        dash_rows = await db.execute(
+            select(Artifact.id, Artifact.title, Artifact.cron_schedule, Report.id, Report.title,
+                   Artifact.legacy_report_id, Report.status, Report.deleted_at)
+            .outerjoin(Report, Report.id == Artifact.report_id)
+            .where(*self._scheduled_dashboards(project))
+        )
+        for artifact_id, title, cron, report_id, report_title, legacy_report_id, status, gone_at in dash_rows.all():
+            # The dashboard an old link leads to keeps its conversation's
+            # name, as main listed it (as on the dashboards list).
+            label = report_title if legacy_report_id and report_title else title
+            live = report_id is not None and status != "archived" and gone_at is None
+            items.append({
+                "id": f"refresh-{artifact_id}",
+                "kind": "refresh",
+                "report_id": str(report_id) if live else None,
+                "dashboard_id": str(artifact_id),
+                "report_title": report_title or "untitled",
+                "label": label or report_title or "untitled",
                 "cron_schedule": cron,
                 "is_active": True,
             })
@@ -776,6 +821,8 @@ class ProjectService:
 
         for r in reports:
             r.project_id = str(project.id) if project else None
+        from app.services.artifact_service import follow_conversation_project
+        await follow_conversation_project(db, list(found_ids), str(project.id) if project else None)
         await db.commit()
         return len(reports)
 
@@ -826,20 +873,26 @@ class ProjectService:
                 ScheduledPrompt.deleted_at.is_(None),
             )
         )
+        from app.services import dashboard_legacy
         ac_refresh = await db.execute(
             select(func.count(Report.id)).where(
                 Report.project_id == str(project.id),
                 Report.cron_schedule.isnot(None),
+                dashboard_legacy.speaks_for_itself(),
                 Report.status != "archived",
                 Report.deleted_at.is_(None),
             )
+        )
+        ac_dashboards = await db.execute(
+            select(func.count(Artifact.id)).where(*self._scheduled_dashboards(project))
         )
         schema = ProjectSchema.model_validate(project)
         schema.user = UserSchema.from_orm(project.user) if project.user else None
         schema.report_count = rc.scalar() or 0
         schema.member_count = mc.scalar() or 0
         schema.dashboard_count = dc.scalar() or 0
-        schema.automation_count = (ac_tasks.scalar() or 0) + (ac_refresh.scalar() or 0)
+        schema.automation_count = ((ac_tasks.scalar() or 0) + (ac_refresh.scalar() or 0)
+                                   + (ac_dashboards.scalar() or 0))
         schema.is_owner = str(project.user_id) == str(current_user.id)
         schema.can_manage = schema.is_owner or await self.user_can_manage_project(db, current_user, project)
 

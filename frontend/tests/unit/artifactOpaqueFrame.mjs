@@ -30,7 +30,7 @@ try{
   await frame.waitForFunction(()=>typeof bow!=='undefined' && typeof __setArtifactData==='function');
   assert.match(await frame.evaluate(()=>crypto.randomUUID()),/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   // Use the real shared-page sender, not a mock of postMessage's origin rules.
-  const shared=fs.readFileSync(new URL('pages/r/[id]/index.vue',root),'utf8');
+  const shared=fs.readFileSync(new URL('components/dashboard/SharedDashboardView.vue',root),'utf8'); // the /r and /d pages render it
   const script=shared.match(/<script setup[^>]*>([\s\S]*?)<\/script>/)[1];
   const ast=ts.createSourceFile('shared.ts',script,ts.ScriptTarget.Latest,true);
   const node=ast.statements.find(s=>ts.isFunctionDeclaration(s)&&s.name?.text==='postToArtifactIframe');

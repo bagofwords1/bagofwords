@@ -1,6 +1,6 @@
 <template>
   <div class="inline-flex items-center gap-1" role="group" :aria-label="label">
-    <span v-if="label" class="text-[11px] text-gray-400 dark:text-gray-500 me-0.5">{{ label }}</span>
+    <span v-if="label" class="text-2xs text-ink-muted me-0.5">{{ label }}</span>
     <button
       v-for="o in options" :key="o.value"
       type="button"

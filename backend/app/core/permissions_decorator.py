@@ -180,6 +180,12 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                             pass  # Org admin / project collaborator viewing: skip the ownership gate
                         elif allow_public and vis_obj is not None and hasattr(vis_obj, 'artifact_visibility'):
                             vis = getattr(vis_obj, 'artifact_visibility', 'none') or 'none'
+                            if vis != 'none':
+                                # Phase 9: a dashboard took over the link; its own
+                                # sharing decides, on /d.
+                                from app.services.dashboard_legacy import is_link_taken_over
+                                if await is_link_taken_over(db, vis_obj.id):
+                                    vis = 'none'
                             if vis in ('public', 'internal'):
                                 pass  # Allow org members to access
                             elif vis == 'shared':

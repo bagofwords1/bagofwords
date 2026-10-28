@@ -23,6 +23,7 @@ from app.data_sources.clients._office_convert import (
     CONVERTIBLE_EXTS,
     office_to_pdf_bytes,
 )
+from .agent_focus_common import run_scope_agents
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def resolve_file_data_source(
     # frequently addresses a source by the label it sees (e.g. the connection
     # name "Employees SharePoint") rather than the internal UUID.
     file_choices = []  # (name, id) for the error message
-    for ds in (report.data_sources or []):
+    for ds in run_scope_agents(runtime_ctx):
         for conn in (ds.connections or []):
             if conn.type in FILE_SOURCE_TYPES:
                 file_choices.append(((getattr(conn, "name", "") or "").strip(), conn.id))
@@ -233,14 +234,12 @@ def attached_file_connections(runtime_ctx: Dict[str, Any]) -> list:
     connection on the current report's ACTIVE data sources.
 
     This is the allow-list every file tool resolves against: a disabled agent
-    or connection is never a valid target, and nothing outside the report the
-    caller is running in can appear here. Empty when there's no report scope.
+    or connection is never a valid target, and nothing outside the run's scope
+    (its working set — Auto's accessible agents — plus the report's own
+    attachments) can appear here. Empty when there's no report scope.
     """
-    report = runtime_ctx.get("report")
-    if not report:
-        return []
     out: list = []
-    for ds in (report.data_sources or []):
+    for ds in run_scope_agents(runtime_ctx):
         if not getattr(ds, "is_active", True):
             continue
         for conn in (ds.connections or []):
@@ -408,7 +407,8 @@ async def resolve_file_client(
 
 def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     """Resolve a file id against the report's OWN file space (uploads,
-    attach_file results). The report.files list is the allow-list — a session
+    attach_file results, project files, the run agents' library files). That
+    list is the allow-list — a session
     id from another report resolves to None here, exactly like an unattached
     connection in resolve_file_client. Org membership is double-checked so a
     stale association can't cross tenants."""
@@ -417,10 +417,12 @@ def resolve_session_file(runtime_ctx: Dict[str, Any], file_id: str):
     sid = str(file_id or "").strip()
     if not (report and sid):
         return None
-    # Report uploads + files inherited live from the report's project (the
-    # agent loop stages the latter in runtime_ctx as "project_files").
+    # Report uploads + files inherited live from the report's project and
+    # from the run agents' libraries (the agent loop stages those in
+    # runtime_ctx as "project_files" / "agent_files").
     candidates = list(getattr(report, "files", None) or [])
     candidates += list(runtime_ctx.get("project_files") or [])
+    candidates += list(runtime_ctx.get("agent_files") or [])
     for f in candidates:
         if str(getattr(f, "id", "")) != sid:
             continue

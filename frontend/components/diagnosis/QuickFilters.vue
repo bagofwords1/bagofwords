@@ -1,6 +1,6 @@
 <template>
     <div class="flex items-center gap-2 mt-2.5 flex-wrap">
-        <span class="text-xs text-gray-400 me-0.5">{{ $t('monitoring.diagnosis.quickFilters') }}</span>
+        <span class="text-xs text-ink-muted me-0.5">{{ $t('monitoring.diagnosis.quickFilters') }}</span>
         <button
             v-for="chip in chips"
             :key="chip.id"

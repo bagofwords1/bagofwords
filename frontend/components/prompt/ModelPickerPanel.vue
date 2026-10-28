@@ -3,7 +3,7 @@
     <!-- Search -->
     <div class="p-2 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-800/60">
-        <Icon name="heroicons-magnifying-glass" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+        <Icon name="heroicons-magnifying-glass" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
         <input
           ref="searchRef"
           v-model="query"
@@ -20,10 +20,10 @@
     <div ref="listRef" class="max-h-72 overflow-y-auto p-1">
       <template v-if="showAuto && !query">
         <button type="button" class="picker-row" :class="rowClass(false, props.modelValue === AUTO)" @click="pick(AUTO)">
-          <Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400 me-2 flex-shrink-0" />
+          <Icon name="heroicons-sparkles" class="w-4 h-4 text-ink-muted me-2 flex-shrink-0" />
           <span class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
-            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompt.modelAutoHint') }}</span>
+            <span class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ $t('prompt.modelAutoHint') }}</span>
           </span>
           <Icon v-if="props.modelValue === AUTO" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
         </button>
@@ -31,17 +31,17 @@
       </template>
       <template v-if="showDefault && !query">
         <button type="button" class="picker-row" :class="rowClass(false, !props.modelValue)" @click="pick(null)">
-          <Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400 me-2 flex-shrink-0" />
+          <Icon name="heroicons-sparkles" class="w-4 h-4 text-ink-muted me-2 flex-shrink-0" />
           <span class="flex flex-col flex-1 text-start min-w-0">
             <span class="font-medium">{{ defaultLabel || $t('prompts.modelDefault') }}</span>
-            <span v-if="defaultHint" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ defaultHint }}</span>
+            <span v-if="defaultHint" class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ defaultHint }}</span>
           </span>
           <Icon v-if="!props.modelValue" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
         </button>
         <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
       </template>
 
-      <div v-if="!flat.length" class="px-3 py-4 text-center text-gray-400">{{ $t('prompt.effort.noMatches') }}</div>
+      <div v-if="!flat.length" class="px-3 py-4 text-center text-ink-muted">{{ $t('prompt.effort.noMatches') }}</div>
 
       <div
         v-for="m in flat"
@@ -58,7 +58,7 @@
         <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4 me-2 flex-shrink-0" />
         <span class="flex flex-col flex-1 min-w-0 text-start">
           <span class="font-medium truncate" :title="m.model_id">{{ m.name }}</span>
-          <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
+          <span class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ m.provider?.name }}</span>
         </span>
         <Icon v-if="props.modelValue === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
       </div>
@@ -71,9 +71,9 @@
           <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.effort.title') }}</span>
           <span class="font-medium text-gray-900 dark:text-white" data-testid="effort-current">{{ currentLabel }}</span>
         </span>
-        <span v-if="effortHint" class="text-[10px] text-gray-400 truncate" data-testid="effort-hint">{{ effortHint }}</span>
+        <span v-if="effortHint" class="text-2xs text-ink-muted truncate" data-testid="effort-hint">{{ effortHint }}</span>
       </div>
-      <div class="flex justify-between mt-2 mb-1 text-[10px] text-gray-400 dark:text-gray-500">
+      <div class="flex justify-between mt-2 mb-1 text-2xs text-ink-muted">
         <span>{{ $t('prompt.effort.faster') }}</span>
         <span>{{ $t('prompt.effort.smarter') }}</span>
       </div>

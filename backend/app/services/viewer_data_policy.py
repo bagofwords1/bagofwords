@@ -65,10 +65,17 @@ async def resolve_step_data(
       as themselves.
 
     `report` may be None (report-level renders with no report loaded) — then
-    only the owner/snapshot vs. withheld decision is made via report_id on
-    the step's query, falling back to serving the snapshot.
+    the decision is made against the conversation the step belongs to
+    (app/services/row_owner.py). A step that belongs to no conversation — a
+    published dashboard's copy, or an orphan — is withheld.
     """
     from app.services.bow_source_access import step_access, can_read
+    step_report_id = None
+    if report is None:
+        from app.services.row_owner import step_report_id as _owner_report_id
+        step_report_id = await _owner_report_id(db, step)
+        if step_report_id is None:
+            return StepDataResolution(data={}, withheld=True)
     bow_access = await step_access(db, step)
     if bow_access and not await can_read(db, bow_access, requesting_user):
         return StepDataResolution(data={}, withheld=True)
@@ -100,17 +107,13 @@ async def resolve_step_data(
             stmt.order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
         if row is not None:
-            from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+            from app.services.access_errors import viewer_error_code
             viewer_result = {
                 "status": row.status,
                 "status_reason": row.status_reason,
                 # Machine-readable, so the dashboard can tell "you may not see
                 # this chart" from a query that broke — see access_errors.
-                "error_code": (
-                    NO_ACCESS_CODE
-                    if row.status == "error" and row.status_reason == NO_ACCESS_REASON
-                    else None
-                ),
+                "error_code": viewer_error_code(row.status, row.status_reason),
                 "executed_as": row.executed_as,
                 "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             }
@@ -143,14 +146,9 @@ async def resolve_step_data(
             )
         )
     else:
-        # Caller had no report in hand — resolve the policy from the step's
-        # own report_id.
-        report_id = getattr(step, "report_id", None) or (
-            getattr(step.query, "report_id", None) if getattr(step, "query", None) else None
-        )
-        withheld = report_id is not None and await report_snapshot_withheld(
-            db, str(report_id), code=step_code
-        )
+        # Caller had no report in hand — resolve the policy from the
+        # conversation the step belongs to.
+        withheld = await report_snapshot_withheld(db, str(step_report_id), code=step_code)
 
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
