@@ -155,7 +155,7 @@ class AuditStreamService:
 
     async def create(self, db: AsyncSession, organization_id: str, user_id: str, data: StreamCreate, request=None) -> StreamResponse:
         config, secrets = normalize(data.destination, data.config, data.secrets)
-        if data.destination == "s3" and config.get("role_arn") and not config.get("external_id"):
+        if data.destination in ("s3", "cloudwatch") and config.get("role_arn") and not config.get("external_id"):
             config["external_id"] = uuid.uuid4().hex
         st = AuditLogStream(
             organization_id=organization_id, name=data.name.strip(), destination=data.destination,
@@ -187,7 +187,7 @@ class AuditStreamService:
         if data.config is not None or data.secrets is not None:
             merged_secrets = _merge_secrets(st.get_secrets(), data.secrets)
             config, secrets = normalize(st.destination, data.config if data.config is not None else (st.config or {}), merged_secrets)
-            if st.destination == "s3" and config.get("role_arn") and not config.get("external_id"):
+            if st.destination in ("s3", "cloudwatch") and config.get("role_arn") and not config.get("external_id"):
                 config["external_id"] = (st.config or {}).get("external_id") or uuid.uuid4().hex
             if config != (st.config or {}):
                 changed["config"] = sorted(config.keys())

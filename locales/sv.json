@@ -2778,6 +2778,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "HTTPS-webhook",
           "syslog": "Syslog över TLS"
         },
@@ -2787,6 +2788,7 @@
           "sentinel": "Logs Ingestion-API (DCR)",
           "s3": "NDJSON-objekt per batch",
           "gcs": "NDJSON-objekt via HMAC-nycklar",
+          "cloudwatch": "PutLogEvents till en logggrupp",
           "https": "Signerad JSON-POST",
           "syslog": "RFC 5424, JSON eller CEF"
         },
@@ -2814,6 +2816,8 @@
           "stream_name": "Strömnamn",
           "authority_url": "Authority-URL",
           "bucket": "Bucket",
+          "log_group": "Logggrupp",
+          "log_stream": "Loggström",
           "region": "Region",
           "prefix": "Nyckelprefix",
           "role_arn": "Roll-ARN",
@@ -2821,6 +2825,7 @@
           "access_key_id": "Åtkomstnyckel-ID",
           "secret_access_key": "Hemlig åtkomstnyckel",
           "gzip": "Komprimera objekt med gzip",
+          "create_log_group": "Skapa logggruppen om den saknas",
           "endpoint_url": "Anpassad slutpunkts-URL",
           "sts_endpoint_url": "Anpassad STS-slutpunkt",
           "host": "Värd",

@@ -5,6 +5,7 @@
 from typing import Dict, Type
 
 from app.ee.audit.streams.destinations.base import Destination, SendResult  # noqa: F401
+from app.ee.audit.streams.destinations.cloudwatch import CloudWatchDestination
 from app.ee.audit.streams.destinations.http import (
     DatadogDestination,
     HttpsDestination,
@@ -22,6 +23,7 @@ REGISTRY: Dict[str, Type[Destination]] = {
         SentinelDestination,
         S3Destination,
         GcsDestination,
+        CloudWatchDestination,
         HttpsDestination,
         SyslogDestination,
     )

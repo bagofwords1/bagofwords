@@ -2778,6 +2778,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook عبر HTTPS",
           "syslog": "Syslog عبر TLS"
         },
@@ -2787,6 +2788,7 @@
           "sentinel": "Logs Ingestion API ‏(DCR)",
           "s3": "كائنات NDJSON لكل دفعة",
           "gcs": "كائنات NDJSON عبر مفاتيح HMAC",
+          "cloudwatch": "PutLogEvents إلى مجموعة سجلات",
           "https": "طلب POST بصيغة JSON موقّع",
           "syslog": "RFC 5424، ‏JSON أو CEF"
         },
@@ -2814,6 +2816,8 @@
           "stream_name": "اسم التدفق",
           "authority_url": "عنوان جهة المصادقة",
           "bucket": "الحاوية (Bucket)",
+          "log_group": "مجموعة السجلات",
+          "log_stream": "تدفق السجلات",
           "region": "المنطقة",
           "prefix": "بادئة المفتاح",
           "role_arn": "ARN الدور",
@@ -2821,6 +2825,7 @@
           "access_key_id": "معرّف مفتاح الوصول",
           "secret_access_key": "مفتاح الوصول السري",
           "gzip": "ضغط الكائنات بـ gzip",
+          "create_log_group": "إنشاء مجموعة السجلات إذا لم تكن موجودة",
           "endpoint_url": "عنوان نقطة نهاية مخصص",
           "sts_endpoint_url": "نقطة نهاية STS مخصصة",
           "host": "المضيف",

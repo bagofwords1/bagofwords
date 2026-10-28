@@ -1,7 +1,7 @@
 // Audit Log Streams Composable
 // Licensed under the BOW Enterprise License
 
-export type StreamDestination = 'datadog' | 'splunk' | 'sentinel' | 's3' | 'gcs' | 'https' | 'syslog'
+export type StreamDestination = 'datadog' | 'splunk' | 'sentinel' | 's3' | 'gcs' | 'cloudwatch' | 'https' | 'syslog'
 export type StreamState = 'active' | 'inactive' | 'error' | 'invalid'
 
 export type DestinationField = {
