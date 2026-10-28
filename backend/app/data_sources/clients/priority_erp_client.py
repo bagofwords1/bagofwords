@@ -270,11 +270,10 @@ class PriorityErpClient(DataSourceClient):
                 f"Priority returned HTTP 501 (not implemented) for '{path}': "
                 f"{self._error_detail(resp)}. This Priority server does not implement part of "
                 "the request, most often a function in $filter such as contains, startswith or "
-                "endswith. Do not retry the same function and do not change the aggregation. "
-                "For text at the start of a value, compare instead: COL ge 'abc' and COL lt 'abd'. "
-                "For text anywhere in it, read a bounded set of rows (a date range, $select of "
-                "the few columns needed), match the text in pandas to find the exact value, "
-                "then filter on it with eq."
+                "endswith. Do not retry the same function, do not change the aggregation, and do "
+                "not swap it for ge/lt on the text column (not a reliable prefix match on Priority): "
+                "read a bounded set of rows (a date range, $select of the few columns needed), "
+                "match the text in pandas to find the exact value, then filter on it with eq."
             )
         if resp.status_code >= 400:
             # Priority puts the real reason (missing form privilege, unknown
@@ -1108,16 +1107,13 @@ in code. Keep `$top` tight: every row crosses the network.
   `substringof` is **not** supported (HTTP 400).
 - **Matching part of a name.** Not every Priority server implements the string
   functions; an unimplemented one answers HTTP 501. A 501 on a filter is not
-  an aggregation problem — change the filter, not the pandas code:
-  - *Text at the start* — compare instead of calling a function:
-    `CDES ge 'INTER' and CDES lt 'INTES'` (the prefix, then the prefix with its
-    last character raised by one) keeps every value starting with `INTER`,
-    filtered on the server.
-  - *Text anywhere* — no comparison does it. Find the exact value first: read a
-    bounded set of rows with only the columns needed
-    (`ORDERS?$filter=CURDATE ge 2026-01-01T00:00:00Z&$select=CUSTNAME,CDES`),
-    match the text in pandas (`df["CDES"].str.contains("abc", case=False, na=False)`),
-    then query with `CUSTNAME eq '<the value found>'`.
+  an aggregation problem — change the filter, not the pandas code. Find the
+  exact value first: read a bounded set of rows with only the columns needed
+  (`ORDERS?$filter=CURDATE ge 2026-01-01T00:00:00Z&$select=CUSTNAME,CDES`),
+  match the text in pandas (`df["CDES"].str.contains("abc", case=False, na=False)`),
+  then query with `CUSTNAME eq '<the value found>'`. Do **not** emulate a prefix
+  match with `ge`/`lt` on a text column (`CDES ge 'abc' and CDES lt 'abd'`): on
+  a real tenant it returned rows that do not start with the prefix.
 - **Calculated columns are not stored** and cannot be used in `$filter` or
   `$orderby` — read them from the returned rows instead.
 - A table carrying `<priority_erp subform_of=...>` is a subform; see below.

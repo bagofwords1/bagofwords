@@ -276,20 +276,9 @@ def test_unimplemented_filter_function_is_not_reported_as_apply(client, mock_mod
     assert "$apply" not in msg
     assert "501" in msg and "The function 'contains' is not implemented" in msg
     assert "eq" in msg and "aggregation" in msg
-    assert "ge 'abc' and COL lt 'abd'" in msg
-
-
-def test_prefix_range_replaces_startswith_on_a_server_without_it(client, mock_module, monkeypatch):
-    """The prefix range the prompt and the 501 error offer must keep exactly
-    the rows `startswith` keeps — and still work once the functions are gone,
-    as on the customer server that answered 501 to every string function."""
-    want = client.execute_query("ORDERS?$filter=startswith(CDES,'Glo')&$select=ORDNAME")
-    monkeypatch.setattr(mock_module, "UNIMPLEMENTED_FUNCTIONS", {"contains", "startswith", "endswith"})
-    with pytest.raises(RuntimeError):
-        client.execute_query("ORDERS?$filter=startswith(CDES,'Glo')&$select=ORDNAME")
-    got = client.execute_query("ORDERS?$filter=CDES ge 'Glo' and CDES lt 'Glp'&$select=ORDNAME")
-    assert len(want) > 0
-    assert sorted(got["ORDNAME"]) == sorted(want["ORDNAME"])
+    # ge/lt on text looks like a prefix match but returned unrelated rows on a
+    # real tenant; the error must steer away from it, not toward it.
+    assert "not swap it for ge/lt" in msg
 
 
 def test_unknown_form_query_names_the_likely_cause(client):
@@ -379,7 +368,7 @@ def test_system_prompt_covers_string_functions_and_their_fallback(client):
     prompt = client.system_prompt()
     assert "contains(" in prompt and "substringof" in prompt
     assert "501" in prompt and "eq '<the value found>'" in prompt
-    assert "CDES ge 'INTER' and CDES lt 'INTES'" in prompt
+    assert "Do **not** emulate a prefix" in prompt
 
 
 def test_description_names_the_company(client):
