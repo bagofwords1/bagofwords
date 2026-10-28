@@ -258,6 +258,40 @@ def test_apply_aggregation_gives_an_actionable_error(client):
     assert "$apply" in msg and "aggregate in code" in msg
 
 
+@pytest.mark.parametrize("query", [
+    "ORDERS?$filter=contains(CDES,'Glob')&$select=ORDNAME,CDES&$top=5",
+    # A subform table: the filter goes out on the parent form's request.
+    "ORDERITEMS?$filter=contains(CDES,'Glob') and CURDATE ge 2026-01-01T00:00:00Z"
+    "&$select=ORDNAME,KLINE,CDES&$top=5",
+])
+def test_unimplemented_filter_function_is_not_reported_as_apply(client, mock_module, monkeypatch, query):
+    """A server that parses `contains` but does not implement it answers 501.
+    Reporting every 501 as "no $apply" had the agent rewrite its pandas
+    aggregation while the function stayed in $filter; the error must carry the
+    server's own reason and point at the filter instead."""
+    monkeypatch.setattr(mock_module, "UNIMPLEMENTED_FUNCTIONS", {"contains"})
+    with pytest.raises(RuntimeError) as exc:
+        client.execute_query(query)
+    msg = str(exc.value)
+    assert "$apply" not in msg
+    assert "501" in msg and "The function 'contains' is not implemented" in msg
+    assert "eq" in msg and "aggregation" in msg
+    assert "ge 'abc' and COL lt 'abd'" in msg
+
+
+def test_prefix_range_replaces_startswith_on_a_server_without_it(client, mock_module, monkeypatch):
+    """The prefix range the prompt and the 501 error offer must keep exactly
+    the rows `startswith` keeps — and still work once the functions are gone,
+    as on the customer server that answered 501 to every string function."""
+    want = client.execute_query("ORDERS?$filter=startswith(CDES,'Glo')&$select=ORDNAME")
+    monkeypatch.setattr(mock_module, "UNIMPLEMENTED_FUNCTIONS", {"contains", "startswith", "endswith"})
+    with pytest.raises(RuntimeError):
+        client.execute_query("ORDERS?$filter=startswith(CDES,'Glo')&$select=ORDNAME")
+    got = client.execute_query("ORDERS?$filter=CDES ge 'Glo' and CDES lt 'Glp'&$select=ORDNAME")
+    assert len(want) > 0
+    assert sorted(got["ORDNAME"]) == sorted(want["ORDNAME"])
+
+
 def test_unknown_form_query_names_the_likely_cause(client):
     with pytest.raises(RuntimeError) as exc:
         client.execute_query("NOSUCHFORM")
@@ -337,6 +371,15 @@ def test_system_prompt_states_the_aggregation_limitation(client):
     prompt = client.system_prompt()
     assert "$apply" in prompt
     assert "$filter" in prompt and "$expand" in prompt
+
+
+def test_system_prompt_covers_string_functions_and_their_fallback(client):
+    """Without this the agent guesses: it tried `substringof` (a 400 on
+    Priority) and, after a 501, kept the same `contains`."""
+    prompt = client.system_prompt()
+    assert "contains(" in prompt and "substringof" in prompt
+    assert "501" in prompt and "eq '<the value found>'" in prompt
+    assert "CDES ge 'INTER' and CDES lt 'INTES'" in prompt
 
 
 def test_description_names_the_company(client):
