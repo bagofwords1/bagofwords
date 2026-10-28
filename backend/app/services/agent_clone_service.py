@@ -105,16 +105,25 @@ class CloneContext:
 
 # ── mentions ───────────────────────────────────────────────────────────────
 
-def remap_mentions(value: Any, ctx: CloneContext) -> Any:
+# Prompts store mentions grouped by display name with untyped items
+# (MentionInput.buildMentionGroups); eval cases keep typed MentionItems.
+_GROUP_KINDS = {"DATA SOURCES": "data_source", "TABLES": "datasource_table", "ENTITIES": "entity"}
+
+
+def remap_mentions(value: Any, ctx: CloneContext, kind: Optional[str] = None) -> Any:
     """Point mention objects (prompt and eval mentions) at the clone: the
     source agent becomes the clone, its tables and copied saved queries their
-    copies. Anything else is returned unchanged."""
+    copies. Anything else is returned unchanged. An item's kind is its
+    ``type``, else the group it sits in."""
     if isinstance(value, list):
-        return [remap_mentions(v, ctx) for v in value]
+        return [remap_mentions(v, ctx, kind) for v in value]
     if not isinstance(value, dict):
         return value
+    group_kind = _GROUP_KINDS.get(value.get("name")) if isinstance(value.get("items"), list) else None
+    if group_kind:
+        return {**value, "items": remap_mentions(value["items"], ctx, group_kind)}
     out = {k: remap_mentions(v, ctx) for k, v in value.items()}
-    kind = out.get("type")
+    kind = out.get("type") or kind
     src, dst = ctx.source_id, ctx.clone_id
     if kind == "data_source" and str(out.get("id")) == src:
         out["id"] = dst
@@ -123,8 +132,10 @@ def remap_mentions(value: Any, ctx: CloneContext) -> Any:
         # A table the clone doesn't have (a user-discovered one) stays on the
         # source: pointing it at the clone would name a table that isn't there.
         out["id"] = ctx.table_map[str(out["id"])]
-        if str(out.get("datasource_id")) == src:
-            out["datasource_id"] = dst
+        # Typed items say data_source_id, grouped ones datasource_id.
+        key = "data_source_id" if "data_source_id" in out else "datasource_id"
+        if str(out.get(key)) == src:
+            out[key] = dst
             out["data_source_name"] = ctx.clone.name
     elif kind == "entity":
         if str(out.get("id")) in ctx.entity_map:
@@ -139,11 +150,16 @@ def remap_mentions(value: Any, ctx: CloneContext) -> Any:
 async def load_mention_matcher(ctx: CloneContext) -> None:
     """The names an ``@`` in the source's text can resolve to: the org's agents
     and the source's tables. Parsing against them (longest match wins, as when
-    the text is used) is what tells ``@Sales`` from ``@Sales Orders``."""
+    the text is used) is what tells ``@Sales`` from ``@Sales Orders``. The
+    clone and deleted agents are left out: the text was written without them,
+    and as longer names they would shadow the source."""
     from app.utils.mentions import MentionMatcher
 
     agents = (await ctx.db.execute(
-        select(DataSource.name).where(DataSource.organization_id == str(ctx.organization.id))
+        select(DataSource.name).where(
+            DataSource.organization_id == str(ctx.organization.id),
+            DataSource.id != ctx.clone_id, DataSource.deleted_at.is_(None),
+        )
     )).scalars().all()
     tables = (await ctx.db.execute(
         select(DataSourceTable.name).where(
@@ -225,9 +241,10 @@ async def _create_agent(ctx: CloneContext) -> None:
         channel_availability=s.channel_availability,
         automation_settings=s.automation_settings,
         is_active=s.is_active,
-        # Like a newly created agent: live in Training for whoever has access
-        # (with access=default that is the cloner alone).
-        publish_status="published",
+        # In Training, and never more visible than the source: a live source
+        # gives a live clone (with access=default, for the cloner alone); a
+        # draft or disabled one stays so.
+        publish_status=s.publish_status,
         reliability_status="training",
         # Its description and starters came with it; an LLM sync would
         # overwrite what the user just named it.
@@ -277,11 +294,14 @@ async def _copy_tool_policies(ctx: CloneContext) -> None:
 async def _copy_prompts(ctx: CloneContext) -> None:
     """Agent prompts (conversation starters included) are copied, never
     linked: a prompt is shown only to members of ALL its agents, so linking
-    would hide it from people who can use the source alone."""
+    would hide it from people who can use the source alone. A private or
+    global prompt that names the source isn't the agent's: copying it would
+    show its owner, or the whole org, the same prompt twice."""
     rows = (await ctx.db.execute(
         select(Prompt)
         .join(prompt_data_source_association, prompt_data_source_association.c.prompt_id == Prompt.id)
-        .where(prompt_data_source_association.c.data_source_id == ctx.source_id, Prompt.deleted_at.is_(None))
+        .where(prompt_data_source_association.c.data_source_id == ctx.source_id,
+               Prompt.scope == "agent", Prompt.deleted_at.is_(None))
     )).scalars().unique().all()
     if not rows:
         return

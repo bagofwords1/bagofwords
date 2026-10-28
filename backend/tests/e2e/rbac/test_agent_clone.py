@@ -3,7 +3,8 @@
 Contracts:
 - The clone is a new agent on the SAME connections, with the source's
   settings, table selection (hidden columns included), tool policies and
-  prompts. Like a new agent it starts in Training, managed by the cloner.
+  agent prompts. Like a new agent it starts in Training, managed by the
+  cloner, and it is live, draft or disabled as the source is.
 - Files follow the choice: shared (the same file on both agents) or left out.
 - Access follows the choice: the source's user/group members and their
   permissions, or only the cloner (as for a new agent).
@@ -231,6 +232,84 @@ def test_agent_prompts_are_copied_onto_the_clone(test_client, world, sqlite_data
     # The source keeps its own prompt, and the other agent has it once.
     assert source_prompt["id"] in {p["id"] for p in _prompts(world["agent"]["id"])}
     assert [p["id"] for p in _prompts(other["id"]) if p["text"] == "Weekly revenue by region"] == [source_prompt["id"]]
+
+
+def test_prompt_mentions_as_the_editor_saves_them_point_at_the_clone(test_client, world):
+    """The prompt editor stores mentions grouped by display name, items with
+    no "type" (MentionInput.buildMentionGroups); running a prompt picks its
+    agent from the DATA SOURCES group, so that group must name the clone."""
+    h = _h(world["admin"]["token"], world["org_id"])
+    agent = world["agent"]
+    table = _tables(test_client, world, agent["id"])[world["target"]]
+    mentions = [
+        {"name": "DATA SOURCES", "items": [{"id": agent["id"], "name": agent["name"]}]},
+        {"name": "TABLES", "items": [{"id": table["id"], "name": table["name"],
+                                      "datasource_id": agent["id"], "data_source_name": agent["name"]}]},
+    ]
+    r = test_client.post("/api/prompts", json={
+        "title": "Weekly", "text": f'@"{agent["name"]}" weekly revenue', "scope": "agent",
+        "data_source_ids": [agent["id"]], "mentions": mentions,
+    }, headers=h)
+    assert r.status_code == 200, r.text
+    clone = _clone(test_client, world).json()["data_source"]
+    clone_table = _tables(test_client, world, clone["id"])[world["target"]]
+
+    res = test_client.get("/api/prompts", params={"data_source_id": clone["id"]}, headers=h)
+    [copy] = [p for p in res.json()["prompts"] if p["title"] == "Weekly"]
+    assert copy["text"] == f'@"{clone["name"]}" weekly revenue'
+    assert copy["mentions"] == [
+        {"name": "DATA SOURCES", "items": [{"id": clone["id"], "name": clone["name"]}]},
+        {"name": "TABLES", "items": [{"id": clone_table["id"], "name": table["name"],
+                                      "datasource_id": clone["id"], "data_source_name": clone["name"]}]},
+    ]
+
+
+def test_private_and_global_prompts_that_name_the_source_stay_behind(test_client, world):
+    """Only the agent's own prompts come along: a user's private prompt or an
+    org-wide one that names the source would show up twice."""
+    admin_h = _h(world["admin"]["token"], world["org_id"])
+    viewer_h = _h(world["viewer"]["token"], world["org_id"])
+    agent_id = world["agent"]["id"]
+    for scope, h in (("private", viewer_h), ("global", admin_h), ("agent", admin_h)):
+        r = test_client.post("/api/prompts", json={
+            "title": f"{scope} prompt", "text": f"{scope} revenue", "scope": scope, "data_source_ids": [agent_id],
+        }, headers=h)
+        assert r.status_code == 200, r.text
+
+    body = _clone(test_client, world, {"access": "copy"}).json()
+    assert body["summary"]["prompts"]["copied"] == 1
+
+    def _count(h, text):
+        res = test_client.get("/api/prompts", headers=h)
+        assert res.status_code == 200, res.text
+        return sum(p["text"] == text for p in res.json()["prompts"])
+    assert _count(viewer_h, "private revenue") == 1
+    assert _count(admin_h, "global revenue") == 1
+    assert _count(admin_h, "agent revenue") == 2
+
+
+@pytest.mark.parametrize("status", ["published", "draft", "disabled"])
+def test_the_clone_is_never_more_visible_than_its_source(test_client, world, status):
+    h = _h(world["admin"]["token"], world["org_id"])
+    r = test_client.put(f"/api/data_sources/{world['agent']['id']}", json={"publish_status": status}, headers=h)
+    assert r.status_code == 200, r.text
+    clone = _clone(test_client, world, {"access": "copy"}).json()["data_source"]
+    assert clone["publish_status"] == status and clone["reliability_status"] == "training"
+
+
+def test_the_clone_name_does_not_shadow_a_mention_of_the_source(test_client, world):
+    """Named "<source> EU", the clone is a longer name that @<source> EU would
+    match first; the text was written before it existed, so @<source> wins."""
+    h = _h(world["admin"]["token"], world["org_id"])
+    name = world["agent"]["name"]
+    r = test_client.post("/api/prompts", json={
+        "title": "EU", "text": f"@{name} EU revenue", "scope": "agent", "data_source_ids": [world["agent"]["id"]],
+    }, headers=h)
+    assert r.status_code == 200, r.text
+    clone = _clone(test_client, world, {"name": f"{name} EU"}).json()["data_source"]
+    res = test_client.get("/api/prompts", params={"data_source_id": clone["id"]}, headers=h)
+    [copy] = [p for p in res.json()["prompts"] if p["title"] == "EU"]
+    assert copy["text"] == f'@"{name} EU" EU revenue'
 
 
 def test_a_clone_that_fails_part_way_leaves_nothing_behind(test_client, world, monkeypatch):

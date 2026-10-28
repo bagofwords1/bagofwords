@@ -280,7 +280,9 @@ def test_evals_homed_on_the_source_come_along_re_pointed_at_the_clone(test_clien
         }, headers=h)
         assert r.status_code == 200, r.text
         return r.json()
-    _case("Pinned", [w["agent"]["id"]], content=f'@"{w["agent"]["name"]}" how many artists?', mentions=[mention])
+    # As TestCaseEditor saves them: typed items inside display-name groups.
+    _case("Pinned", [w["agent"]["id"]], content=f'@"{w["agent"]["name"]}" how many artists?',
+          mentions=[{"name": "DATA SOURCES", "items": [mention]}, {"name": "TABLES", "items": []}])
     _case("Everywhere", [])
     old = _case("Old", [w["agent"]["id"]])
     assert test_client.patch(f"/api/tests/cases/{old['id']}/status", json={"status": "archived"}, headers=h).status_code == 200
@@ -294,7 +296,7 @@ def test_evals_homed_on_the_source_come_along_re_pointed_at_the_clone(test_clien
     assert [c["name"] for c in cases] == ["Pinned"]
     pinned = cases[0]
     assert pinned["data_source_ids_json"] == [clone["id"]]
-    assert pinned["prompt_json"]["mentions"][0]["id"] == clone["id"]
+    assert pinned["prompt_json"]["mentions"][0]["items"][0]["id"] == clone["id"]
     assert clone["name"] in pinned["prompt_json"]["content"]
     assert {s["name"] for s in body["summary"]["evals"]["skipped"]} == {"Everywhere", "Old"}
     # The source keeps its suite and all three cases.
@@ -355,8 +357,37 @@ def test_a_mention_of_a_table_the_clone_doesnt_have_stays_on_the_source():
     from app.services.agent_clone_service import remap_mentions
     ctx = SimpleNamespace(source_id="src", clone_id="dst", clone=SimpleNamespace(name="Sales copy"),
                           table_map={"t1": "t1-copy"}, entity_map={})
-    copied = {"type": "datasource_table", "id": "t1", "datasource_id": "src", "data_source_name": "Sales"}
-    users = {"type": "datasource_table", "id": "t-user", "datasource_id": "src", "data_source_name": "Sales"}
-    assert remap_mentions(copied, ctx) == {**copied, "id": "t1-copy", "datasource_id": "dst",
+    copied = {"type": "datasource_table", "id": "t1", "data_source_id": "src", "data_source_name": "Sales"}
+    users = {"type": "datasource_table", "id": "t-user", "data_source_id": "src", "data_source_name": "Sales"}
+    assert remap_mentions(copied, ctx) == {**copied, "id": "t1-copy", "data_source_id": "dst",
                                            "data_source_name": "Sales copy"}
     assert remap_mentions(users, ctx) == users
+
+
+def test_mentions_are_re_pointed_in_both_stored_shapes():
+    """Eval cases keep typed items (data_source_id) inside the groups; the
+    prompt editor's groups hold untyped items (datasource_id)."""
+    from types import SimpleNamespace
+
+    from app.services.agent_clone_service import remap_mentions
+    ctx = SimpleNamespace(source_id="src", clone_id="dst", clone=SimpleNamespace(name="Sales copy"),
+                          table_map={"t1": "t1-copy"}, entity_map={"e1": "e1-copy"})
+    typed = [{"name": "DATA SOURCES", "items": [{"type": "data_source", "id": "src", "name": "Sales"}]},
+             {"name": "TABLES", "items": [{"type": "datasource_table", "id": "t1", "data_source_id": "src",
+                                           "data_source_name": "Sales"}]}]
+    grouped = [{"name": "DATA SOURCES", "items": [{"id": "src", "name": "Sales"}, {"id": "other", "name": "Legal"}]},
+               {"name": "TABLES", "items": [{"id": "t1", "name": "orders", "datasource_id": "src",
+                                             "data_source_name": "Sales"}]},
+               {"name": "ENTITIES", "items": [{"id": "e1", "title": "Top rows", "entity_type": "query"}]},
+               {"name": "FILES", "items": [{"id": "src", "filename": "src.csv"}]}]
+    assert remap_mentions(typed, ctx) == [
+        {"name": "DATA SOURCES", "items": [{"type": "data_source", "id": "dst", "name": "Sales copy"}]},
+        {"name": "TABLES", "items": [{"type": "datasource_table", "id": "t1-copy", "data_source_id": "dst",
+                                      "data_source_name": "Sales copy"}]}]
+    assert remap_mentions(grouped, ctx) == [
+        {"name": "DATA SOURCES", "items": [{"id": "dst", "name": "Sales copy"}, {"id": "other", "name": "Legal"}]},
+        {"name": "TABLES", "items": [{"id": "t1-copy", "name": "orders", "datasource_id": "dst",
+                                      "data_source_name": "Sales copy"}]},
+        {"name": "ENTITIES", "items": [{"id": "e1-copy", "title": "Top rows", "entity_type": "query"}]},
+        # A file whose id happens to match is not an agent.
+        {"name": "FILES", "items": [{"id": "src", "filename": "src.csv"}]}]
