@@ -389,12 +389,12 @@ def test_timeout_triggers_retry_and_recovers_on_smaller_query():
     retry_stages = [p for p in progress if p["payload"].get("stage") == "retry"]
     assert retry_stages, "expected a retry progress event after timeout"
 
-    # The done event carries query_timings; the *successful* second attempt
-    # cleared the per-attempt list so we expect a clean run there.
+    # A successful run reports no errors; the failed attempts that preceded
+    # it are kept under attempt_errors for the caller/audit trail.
     payload = done[-1]["payload"]
     assert payload["df"] is not None and not payload["df"].empty
-    # The errors list captures both the timeout and retry's outcome.
-    assert payload["errors"], "expected the failed attempt to be recorded"
+    assert payload["errors"] == []
+    assert payload["attempt_errors"], "expected the failed attempt to be recorded"
 
 
 def test_timeout_failure_payload_carries_db_message_and_failed_sql():

@@ -37,6 +37,8 @@ def _chunk(tool_calls=None, content=None, finish_reason=None):
 def _client_with_stream(chunks):
     """An OpenAi client whose completions.create replays `chunks`."""
     client = OpenAi.__new__(OpenAi)  # skip __init__ (builds a real SDK client)
+    # __init__ sets this and the streaming path reads it; mirror its default.
+    client.prompt_cache_markers = False
 
     async def _acreate(**kwargs):
         async def _gen():
