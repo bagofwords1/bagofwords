@@ -127,52 +127,63 @@ async def _load_pending_version(db, build_id: Optional[str], instruction_id: str
     return result.scalars().first()
 
 
-async def _resolve_add_agents(db, instruction, pending_version, pending_share, build, report,
+async def _resolve_add_agents(db, instruction, pending_version, build, report,
                               requested, is_live: bool = True) -> dict:
-    """The explicit scope change ``add_agents`` proposes, recorded on the
-    staged version for a reviewer to accept: ``{"add": [agent ids], "refs":
-    [the same-named tables in each new agent, tagged with their agent]}``.
-    Returns ``{"reject": (code, message)}`` when the request cannot be
-    honoured as asked — never a partial share.
+    """The NEW scope an ``add_agents`` share stages on the version — the data
+    sources and table references the instruction should carry once the named
+    agents are added, with each new agent's same-named tables brought in:
+    ``{"data_source_ids": [...], "references": [...], "added": [names]}``.
+    Returns ``{"reject": (code, message)}`` when it cannot be honoured as
+    asked — never a partial share.
 
     Only agents attached to the conversation can be added, so a name never
     reaches an agent nobody mentioned (unlike ``table_names``, which matches
-    tables org-wide). The instruction's current agents are the LIVE attachment,
-    plus whatever an earlier add_agents in this same session already proposed
-    (``pending_share``, the build row's scope_change), so two shares in one
-    session accumulate — refs included. An agent a reviewer already REJECTED in this
-    build is refused, not re-proposed: the rejection is the only channel that
-    carries "do not suggest this again".
+    tables org-wide). The base scope is the LIVE attachment with whatever THIS
+    build already staged (its base->pending delta) applied on top — so two
+    edits in one session accumulate, while a carry-over snapshot of main (which
+    may be stale) contributes nothing. A scope a reviewer already rejected in
+    this build is not re-proposed.
     """
     from sqlalchemy import select, func
     from app.models.data_source import DataSource
     from app.models.datasource_table import DataSourceTable
     from app.models.report_data_source_association import report_data_source_association as rdsa
-    from app.services.field_changes import scope_add_ids, scope_change_key
+    from app.services.field_changes import scope_change_key, scope_delta, merge_refs, _clean_refs, _ref_ident
 
+    # Start from the live attachment, then apply what this build already staged
+    # for the instruction (its base->pending scope delta). A carry-over row
+    # (no real edit) has a zero delta, so a stale main snapshot never leaks in.
     current_ds = {str(ds.id) for ds in (instruction.data_sources or [])}
-    # The tables to mirror in the new agent: the ones this session already
-    # staged (a table_names edit earlier in the build) when there are any,
-    # else the live ones — the same carry-over rule the snapshot follows.
-    if pending_version is not None and pending_version.references_json:
-        current_refs = [r for r in pending_version.references_json if isinstance(r, dict)]
-    else:
-        current_refs = [{"object_type": r.object_type, "object_id": str(r.object_id)}
-                        for r in (instruction.references or [])]
-    prior = pending_share or {}
-    already = set(scope_add_ids(prior))
-    prior_refs = [r for r in (prior.get("refs") or []) if isinstance(r, dict)]
-    rejected_keys = {
-        r.get("key") for r in (getattr(build, "rejected_hunks", None) or [])
-        if r.get("instruction_id") == str(instruction.id) and r.get("action") == "reject"
-    }
+    current_refs = _clean_refs([
+        {"object_type": r.object_type, "object_id": str(r.object_id),
+         "column_name": r.column_name, "relation_type": getattr(r, "relation_type", None),
+         "display_text": r.display_text}
+        for r in (instruction.references or [])
+    ])
+    if pending_version is not None and build is not None:
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+        row = (await db.execute(
+            select(BuildContent.base_version_id, BuildContent.is_change).where(
+                BuildContent.build_id == str(build.id),
+                BuildContent.instruction_id == str(instruction.id))
+        )).first()
+        if row and row[1] and row[0]:  # a real staged change with a base
+            bver = await db.get(_IV, str(row[0]))
+            base_ds = bver.data_source_ids if bver is not None else None
+            base_refs = bver.references_json if bver is not None else None
+            a_ds, r_ds, a_refs, r_refs = scope_delta(
+                base_ds, base_refs, pending_version.data_source_ids, pending_version.references_json)
+            current_ds = (current_ds | set(a_ds)) - set(r_ds)
+            rem = {_ref_ident(r) for r in r_refs}
+            current_refs = [r for r in merge_refs(current_refs, a_refs) if _ref_ident(r) not in rem]
     if not current_ds:
         return {"reject": ("global_instruction",
                            "This instruction is global — every agent already uses it.")}
     if not is_live:
         # A share is reviewed against the instruction's live agents; an
         # instruction nobody accepted yet has none, so the share could never
-        # be shown — and a build carrying it could never be published.
+        # be shown.
         return {"reject": ("not_live",
                            "This instruction is not published yet. Share it with another "
                            "agent after a reviewer accepts it.")}
@@ -211,12 +222,7 @@ async def _resolve_add_agents(db, instruction, pending_version, pending_share, b
         return {"reject": ("agent_not_in_conversation",
                            f"Not attached to this conversation: {', '.join(unknown)}. "
                            f"Agents in this conversation: {here}.")}
-    refused = sorted(n for d, n in picked.items() if scope_change_key(d) in rejected_keys)
-    if refused:
-        return {"reject": ("share_rejected",
-                           f"A reviewer already rejected sharing this instruction with "
-                           f"{', '.join(refused)}. Do not propose it again.")}
-    new = {d: n for d, n in picked.items() if d not in current_ds and d not in already}
+    new = {d: n for d, n in picked.items() if d not in current_ds}
     if not new:
         return {"reject": ("no_change",
                            f"The instruction is already shared with {', '.join(sorted(picked.values()))}.")}
@@ -246,31 +252,26 @@ async def _resolve_add_agents(db, instruction, pending_version, pending_share, b
                 missing.append(dname)
                 continue
             brought += [{"object_type": "datasource_table", "object_id": str(t.id),
-                         "column_name": None, "relation_type": None, "display_text": t.name,
-                         "data_source_id": did}
+                         "column_name": None, "relation_type": None, "display_text": t.name}
                         for t in found[did]]
     if missing:
         return {"reject": ("no_matching_tables",
                            f"{', '.join(missing)} has none of this instruction's tables "
                            f"({', '.join(sorted(names))}), so it was not shared.")}
-    return {"scope_change": {"add": sorted(already | set(new)), "refs": prior_refs + brought},
-            "added": sorted(new.values())}
 
-
-async def _load_pending_share(db, build_id: Optional[str], instruction_id: str) -> Optional[dict]:
-    """The share this build already proposes for ``instruction_id``
-    (BuildContent.scope_change), if any — so shares in one session accumulate
-    and a plain edit does not lose one staged earlier."""
-    if not build_id:
-        return None
-    from sqlalchemy import select
-    from app.models.build_content import BuildContent
-    return (await db.execute(
-        select(BuildContent.scope_change).where(
-            BuildContent.build_id == str(build_id),
-            BuildContent.instruction_id == str(instruction_id),
-        )
-    )).scalar_one_or_none()
+    new_ds = sorted(current_ds | set(new))
+    new_refs = current_refs + brought
+    # A scope a reviewer already rejected in this build is not re-proposed —
+    # the review key binds the exact proposed scope (agents + tables).
+    rejected_keys = {
+        r.get("key") for r in (getattr(build, "rejected_hunks", None) or [])
+        if r.get("instruction_id") == str(instruction.id) and r.get("action") == "reject"
+    }
+    if scope_change_key(new_ds, new_refs) in rejected_keys:
+        return {"reject": ("share_rejected",
+                           f"A reviewer already rejected sharing this instruction with "
+                           f"{', '.join(sorted(new.values()))}. Do not propose it again.")}
+    return {"data_source_ids": new_ds, "references": new_refs, "added": sorted(new.values())}
 
 
 def _apply_anchor_edit(
@@ -1028,9 +1029,8 @@ class EditInstructionTool(Tool):
                         not await build_service.get_main_build(db, str(organization.id))
                         and instruction.status == "published"
                     )
-                    pending_share = await _load_pending_share(db, training_build_id, str(instruction.id))
                     shared = await _resolve_add_agents(
-                        db, instruction, pending_version, pending_share, build, report,
+                        db, instruction, pending_version, build, report,
                         data.add_agents, is_live=is_live,
                     )
                 if "reject" in shared:
@@ -1053,16 +1053,16 @@ class EditInstructionTool(Tool):
                     )
                     return
 
-            # A share is the explicit `scope_change` on the BUILD ROW — agents
-            # AND their tables (see BuildContent.scope_change). The version's
-            # data_source_ids/references_json stay what they always were: a
-            # snapshot (the pending version's when this build already staged
-            # one, else the live row's), never a proposal. Nothing reads a
-            # proposal out of a snapshot, and no path that rebuilds the
-            # snapshot — or copies the version anywhere — can carry the share.
-
+            # Scope (agents + their tables) is an ordinary version field: an
+            # add_agents share and a table_names edit both write the version's
+            # data_source_ids/references_json, which the review diffs against
+            # the live attachment and promotion applies. add_agents and
+            # table_names are mutually exclusive (conflicting_scope above).
             matched_table_names = []
-            if data.table_names is not None:
+            if shared is not None and "data_source_ids" in shared:
+                new_data_source_ids = shared["data_source_ids"] or None
+                new_references_json = shared["references"] or None
+            elif data.table_names is not None:
                 # Resolve the requested table list to ds_ids + references.
                 resolved_ds_ids = set()
                 resolved_refs = []
@@ -1169,20 +1169,33 @@ class EditInstructionTool(Tool):
                     await build_service.add_to_build(
                         db, build.id, str(instruction.id), version.id
                     )
-                    if shared is not None:
-                        # The share rides on this build's row for the
-                        # instruction; a later edit in the same build keeps
-                        # the row (add_to_build only repoints its version).
-                        await build_service.set_scope_change(
-                            db, build.id, str(instruction.id), shared["scope_change"],
-                        )
 
                 await db.commit()
                 logger.info(
                     f"Staged edit as version {version.id} (v{version_number}) for instruction {instruction.id} in build {training_build_id}"
                 )
             except Exception as e:
+                # Staging is the whole point of the edit — if it fails, say so
+                # rather than reporting success (and, for a share, telling the
+                # user it is waiting for review when nothing was staged).
                 logger.warning(f"Failed to stage edit for instruction {instruction.id}: {e}")
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": EditInstructionOutput(
+                            success=False,
+                            instruction_id=str(instruction.id),
+                            title=getattr(instruction, "title", None),
+                            message="Edit could not be staged. Please try again.",
+                            rejected_reason="stage_failed",
+                        ).model_dump(),
+                        "observation": {
+                            "summary": "Edit rejected (stage_failed): could not stage the edit",
+                            "artifacts": [],
+                        },
+                    }
+                )
+                return
 
             # Build summary of changes
             changes = []

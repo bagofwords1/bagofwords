@@ -64,49 +64,79 @@ def test_null_columns_read_as_their_defaults():
     assert field_changes_against_main(field_meta(None, None), meta(), meta()) == []
 
 
-# --- scope: sharing with more agents, one decision per agent -----------------
+# --- scope: agents + tables, reviewed as one version field -------------------
 
-def _meta(**kw):
-    from app.services.field_changes import field_meta, with_scope
-    return with_scope(field_meta(kw.get("status"), kw.get("load_mode")), kw.get("scope_change"))
+def _vmeta(ds=None, refs=None, status=None, load_mode=None):
+    """A proposed or base version's reviewable metadata — scope is carried on
+    the version's data_source_ids / references_json."""
+    return field_meta(status, load_mode, ds, refs)
 
 
-def test_scope_change_is_one_row_per_agent_main_is_missing():
-    from app.services.field_changes import field_changes_against_main, scope_change_key
-    proposed = _meta(scope_change={"add": ["b", "c"]})
-    main = {**_meta(), "scope_live": ("a", "c")}
-    rows = field_changes_against_main(_meta(), proposed, main)
-    assert [r["added"] for r in rows] == [["b"]]  # c is already attached
-    assert rows[0]["key"] == scope_change_key("b")
+def _main(live_ds=(), live_refs=None, status=None, load_mode=None):
+    """Main metadata with the live attachment, as InstructionService builds it."""
+    return {**field_meta(status, load_mode), "scope_live": tuple(live_ds),
+            "scope_live_refs": list(live_refs or [])}
+
+
+_TA = {"object_type": "datasource_table", "object_id": "t_a", "column_name": None}
+_TB = {"object_type": "datasource_table", "object_id": "t_b", "column_name": None}
+
+
+def test_scope_change_is_one_row_against_live():
+    from app.services.field_changes import field_changes_against_main, scope_change_key, SCOPE_FIELD
+    base = _vmeta(ds=["a", "c"])
+    proposed = _vmeta(ds=["a", "b", "c"])
+    rows = field_changes_against_main(base, proposed, _main(live_ds=("a", "c")))
+    assert len(rows) == 1 and rows[0]["field"] == SCOPE_FIELD
+    assert rows[0]["added"] == ["b"]
     assert rows[0]["from"] == ["a", "c"] and rows[0]["to"] == ["a", "b", "c"]
+    assert rows[0]["key"] == scope_change_key(["a", "b", "c"])
 
 
-def test_scope_keys_bind_the_agent_not_the_set():
-    """Rejecting B must stay a rejection when the session later adds D."""
+def test_scope_key_binds_the_proposed_scope_not_the_order():
+    from app.services.field_changes import scope_change_key
+    assert scope_change_key(["a", "b"]) == scope_change_key(["b", "a"])
+    assert scope_change_key(["a", "b"]) != scope_change_key(["a", "c"])
+
+
+def test_resolved_scope_change_is_not_live():
     from app.services.field_changes import field_changes_against_main, scope_change_key
-    assert scope_change_key("b") == scope_change_key("b")
-    assert scope_change_key("b") != scope_change_key("d")
-    main = {**_meta(), "scope_live": ("a",)}
-    rows = field_changes_against_main(
-        _meta(), _meta(scope_change={"add": ["b", "d"]}), main,
-        resolved_keys={scope_change_key("b")},
-    )
-    assert [r["added"] for r in rows] == [["d"]]
+    base, proposed = _vmeta(ds=["a"]), _vmeta(ds=["a", "b"])
+    key = scope_change_key(["a", "b"])
+    assert field_changes_against_main(base, proposed, _main(live_ds=("a",)), {key}) == []
 
 
-def test_no_scope_change_is_ever_inferred_from_snapshots():
-    """Versions whose data_source_ids disagree with main propose nothing
-    unless they carry an explicit scope_change."""
+def test_scope_not_inferred_without_base_intent():
+    """A version whose scope matches its base proposes nothing, even when it
+    disagrees with the live attachment (a stale snapshot is not a proposal)."""
     from app.services.field_changes import field_changes_against_main
-    main = {**_meta(), "scope_live": ("a",)}
-    assert field_changes_against_main(_meta(), _meta(), main) == []
+    base = proposed = _vmeta(ds=["a", "b"])
+    assert field_changes_against_main(base, proposed, _main(live_ds=("a",))) == []
 
 
-def test_scope_refs_are_filtered_by_agent():
-    from app.services.field_changes import scope_refs_for
-    sc = {"add": ["b", "d"], "refs": [
-        {"object_type": "datasource_table", "object_id": "t1", "data_source_id": "b"},
-        {"object_type": "datasource_table", "object_id": "t2", "data_source_id": "d"},
-    ]}
-    assert [r["object_id"] for r in scope_refs_for(sc, ["b"])] == ["t1"]
-    assert scope_refs_for(None, ["b"]) == []
+def test_global_instruction_has_no_scope_change():
+    """Empty live attachment = global; attaching an agent would narrow it, so
+    nothing is proposed."""
+    from app.services.field_changes import field_changes_against_main
+    assert field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=["b"]), _main(live_ds=())) == []
+
+
+def test_scope_change_carries_added_table_refs():
+    from app.services.field_changes import field_changes_against_main, SCOPE_FIELD
+    base = _vmeta(ds=["a"], refs=[_TA])
+    proposed = _vmeta(ds=["a", "b"], refs=[_TA, _TB])
+    rows = field_changes_against_main(base, proposed, _main(live_ds=("a",), live_refs=[_TA]))
+    assert len(rows) == 1 and rows[0]["field"] == SCOPE_FIELD
+    assert rows[0]["added"] == ["b"]
+    assert [r["object_id"] for r in rows[0]["added_refs"]] == ["t_b"]
+
+
+def test_table_only_scope_change_adds_no_agent():
+    """table_names can change tables without changing agents — still one scope
+    row, with the ref delta and no agent added."""
+    from app.services.field_changes import field_changes_against_main
+    base = _vmeta(ds=["a"], refs=[_TA])
+    proposed = _vmeta(ds=["a"], refs=[_TA, _TB])
+    rows = field_changes_against_main(base, proposed, _main(live_ds=("a",), live_refs=[_TA]))
+    assert len(rows) == 1
+    assert rows[0]["added"] == [] and [r["object_id"] for r in rows[0]["added_refs"]] == ["t_b"]

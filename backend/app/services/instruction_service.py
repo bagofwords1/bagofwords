@@ -1475,17 +1475,18 @@ class InstructionService:
         if not instruction:
             return None
 
-        # This path resolves TEXT only. A share the suggestion also proposes
-        # has its own accept/reject in the per-hunk review; dropping the
-        # instruction from the build below would discard it unseen.
+        # This path resolves TEXT only. A scope change the suggestion also
+        # proposes (agents/tables) has its own accept/reject in the per-hunk
+        # review; dropping the instruction from the build below would discard
+        # it unseen, so refuse until the reviewer has resolved it there.
         if build_id:
             src_build = await self.build_service.get_build(db, build_id)
-            if src_build and await self.build_service.unresolved_shares(db, src_build, [str(instruction.id)]):
+            if src_build and await self._build_proposes_scope_change(db, src_build, instruction):
                 from app.errors import AppError, ErrorCode
                 raise AppError.bad_request(
                     ErrorCode.BUILD_SHARE_PENDING_REVIEW,
-                    "This suggestion also shares the instruction with another agent. "
-                    "Accept or reject that share in the instruction's review first.",
+                    "This suggestion also changes which agents or tables the instruction "
+                    "uses. Accept or reject that change in the instruction's review first.",
                     instruction_ids=[str(instruction.id)],
                 )
 
@@ -1689,39 +1690,61 @@ class InstructionService:
 
     async def _version_field_metas(self, db: AsyncSession, version_ids) -> dict:
         """{version_id: reviewable field metadata} for the given versions, in
-        one query (see app.services.field_changes)."""
+        one query (see app.services.field_changes). The metadata carries the
+        version's SCOPE — its data sources and table references — so a scope
+        change (add_agents, table_names) is reviewed like any other field."""
         from app.models.instruction_version import InstructionVersion as _IV
         from app.services.field_changes import field_meta
         ids = sorted({str(v) for v in (version_ids or ()) if v})
         out: dict = {}
         # Chunked: the org-wide pending sweep passes one id per open proposal.
         for i in range(0, len(ids), 500):
-            for vid, st, lm in (await db.execute(
-                select(_IV.id, _IV.status, _IV.load_mode).where(_IV.id.in_(ids[i:i + 500]))
+            for vid, st, lm, dsids, refs in (await db.execute(
+                select(_IV.id, _IV.status, _IV.load_mode, _IV.data_source_ids, _IV.references_json)
+                .where(_IV.id.in_(ids[i:i + 500]))
             )).all():
-                out[str(vid)] = field_meta(st, lm)
+                out[str(vid)] = field_meta(st, lm, dsids, refs)
         return out
 
     async def _live_scopes(self, db: AsyncSession, instruction_ids, needed: bool = True) -> dict:
-        """{instruction_id: live agent ids} — what a proposed scope change is
-        measured against. The association table is the only thing that decides
-        which agents load an instruction; a version's ``data_source_ids`` is a
-        snapshot and never consulted for this (see app.services.field_changes).
-
-        ``needed=False`` (no row under review proposes a share — the common
-        case on every review, settle and badge sweep) skips the query."""
+        """{instruction_id: live agent ids} — the association rows that decide
+        which agents load an instruction now, which a proposed scope change is
+        measured against. A version's ``data_source_ids`` is a snapshot and is
+        never consulted for this (see app.services.field_changes)."""
         if not needed:
             return {}
         scopes = await self.build_service.get_instruction_scopes(db, instruction_ids)
         return {iid: tuple(sorted(ds)) for iid, ds in scopes.items()}
 
+    async def _live_scope_refs(self, db: AsyncSession, instruction_ids, needed: bool = True) -> dict:
+        """{instruction_id: live table references} — the reference rows a scope
+        change (table_names, or an agent's same-named tables) is measured
+        against, in one batched query over the given instructions."""
+        if not needed:
+            return {}
+        from app.models.instruction_reference import InstructionReference
+        ids = sorted({str(i) for i in (instruction_ids or ()) if i})
+        out: dict = {}
+        if not ids:
+            return out
+        for r in (await db.execute(
+            select(InstructionReference).where(InstructionReference.instruction_id.in_(ids))
+        )).scalars().all():
+            out.setdefault(str(r.instruction_id), []).append({
+                "object_type": r.object_type, "object_id": str(r.object_id),
+                "column_name": r.column_name, "relation_type": r.relation_type,
+                "display_text": r.display_text,
+            })
+        return out
+
     @staticmethod
-    def _with_live_scope(meta: Optional[dict], scope) -> Optional[dict]:
-        """Main's metadata with the live attachment attached as ``scope_live``.
-        A None main (a create suggestion) stays None."""
+    def _with_live_scope(meta: Optional[dict], scope, scope_refs=None) -> Optional[dict]:
+        """Main's metadata with the live attachment (agents + table references)
+        attached as ``scope_live`` / ``scope_live_refs``. A None main (a create
+        suggestion) stays None."""
         if meta is None:
             return None
-        return {**meta, "scope_live": tuple(scope or ())}
+        return {**meta, "scope_live": tuple(scope or ()), "scope_live_refs": list(scope_refs or [])}
 
     async def _name_scope_changes(self, db: AsyncSession, change_lists) -> None:
         """Attach agent names to scope changes in place, for the review row and
@@ -1749,65 +1772,128 @@ class InstructionService:
             select(DataSource.id).where(and_(DataSource.id.in_(wanted), DataSource.deleted_at.is_(None)))
         )).all()}
 
-    async def _apply_scope_change(self, db: AsyncSession, instruction_id: str,
-                                  added, table_refs: list) -> None:
-        """Share the live instruction with ``added``: attach the agents and
-        bring in ``table_refs``, the share's table references for them
-        (carried on the version's ``scope_change``, see
-        field_changes.scope_refs_for). Nothing is removed and nothing else is
-        touched. Writes only — the caller commits. ``added`` is expected to
-        hold existing agents only."""
+    async def _apply_scope_delta(self, db: AsyncSession, instruction_id: str,
+                                 added_ds, removed_ds, added_refs: list, removed_refs: list) -> None:
+        """Apply a scope delta to the LIVE attachment: attach ``added_ds``,
+        detach ``removed_ds``, add ``added_refs`` and drop ``removed_refs``.
+
+        Additions are idempotent (an agent or ref already live is left alone)
+        and removals only touch rows that are actually present, so a delta
+        computed against a possibly-stale base can never clobber scope the
+        delta did not name. Writes only — the caller commits. ``added_ds``
+        holds existing agents only."""
         from app.models.instruction import instruction_data_source_association as idsa
         from app.models.instruction_reference import InstructionReference
+        from sqlalchemy import delete as sql_delete
         iid = str(instruction_id)
-        wanted = {str(d) for d in added}
-        if not wanted:
-            return
+        add_ds = {str(d) for d in (added_ds or [])}
+        rem_ds = {str(d) for d in (removed_ds or [])} - add_ds
         attached = {str(d) for (d,) in (await db.execute(
             select(idsa.c.data_source_id).where(idsa.c.instruction_id == iid)
         )).all()}
-        new = sorted(wanted - attached)
+        new = sorted(add_ds - attached)
         if new:
             await db.execute(idsa.insert(), [{"instruction_id": iid, "data_source_id": d} for d in new])
-        if not table_refs:
+        gone = sorted(rem_ds & attached)
+        if gone:
+            await db.execute(sql_delete(idsa).where(
+                idsa.c.instruction_id == iid, idsa.c.data_source_id.in_(gone)))
+        if not (added_refs or removed_refs):
             await db.flush()
             return
-        have = {(r.object_type, str(r.object_id), r.column_name) for r in (await db.execute(
+        have = {(r.object_type, str(r.object_id), r.column_name): r for r in (await db.execute(
             select(InstructionReference).where(InstructionReference.instruction_id == iid)
         )).scalars().all()}
-        for r in table_refs:
-            ident = ("datasource_table", str(r.get("object_id")), r.get("column_name"))
+        for r in (added_refs or []):
+            ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
             if not r.get("object_id") or ident in have:
                 continue
-            have.add(ident)
-            db.add(InstructionReference(
-                instruction_id=iid, object_type="datasource_table", object_id=str(r["object_id"]),
+            row = InstructionReference(
+                instruction_id=iid, object_type=ident[0], object_id=str(r["object_id"]),
                 column_name=r.get("column_name"), relation_type=r.get("relation_type"),
                 display_text=r.get("display_text"),
-            ))
+            )
+            db.add(row)
+            have[ident] = row
+        for r in (removed_refs or []):
+            ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
+            row = have.pop(ident, None)
+            if row is not None:
+                await db.delete(row)
         await db.flush()
+
+    async def _build_proposes_scope_change(self, db: AsyncSession, build, instruction) -> bool:
+        """Whether ``build``'s staged version for ``instruction`` still proposes
+        an unresolved scope change (agents or tables) against the live
+        attachment. The legacy text-only resolve path cannot represent one, so
+        it refuses rather than dropping it unseen."""
+        from app.models.build_content import BuildContent
+        from app.services.field_changes import field_changes_against_main, SCOPE_FIELD
+        iid = str(instruction.id)
+        pv = (await db.execute(
+            select(BuildContent.instruction_version_id).where(
+                BuildContent.build_id == str(build.id), BuildContent.instruction_id == iid)
+        )).scalar_one_or_none()
+        if not pv:
+            return False
+        bv = await self._build_base_version_id(db, build, iid)
+        _mt, main_vid, _m = await self._main_text_of(db, instruction)
+        metas = await self._version_field_metas(db, [pv, bv, main_vid])
+        live = (await self._live_scopes(db, [iid])).get(iid)
+        live_refs = (await self._live_scope_refs(db, [iid])).get(iid)
+        return any(
+            c.get("field") == SCOPE_FIELD for c in field_changes_against_main(
+                metas.get(str(bv)) if bv else None,
+                metas.get(str(pv)),
+                self._with_live_scope(metas.get(str(main_vid)) if main_vid else None, live, live_refs),
+                self._rejected_keys(build, iid),
+            )
+        )
+
+    async def _restage_base_scope(self, db: AsyncSession, build, instruction_id: str) -> None:
+        """Rewrite ``build``'s staged version for the instruction so its scope
+        (data sources + table references) equals the base version's, keeping
+        its text. Undoes a scope change a reviewer rejected, so promoting the
+        build whole applies nothing. Writes only — the caller commits."""
+        from app.models.build_content import BuildContent
+        from app.models.instruction_version import InstructionVersion as _IV
+        from sqlalchemy.orm.attributes import flag_modified
+        iid = str(instruction_id)
+        pv = (await db.execute(select(BuildContent.instruction_version_id).where(
+            BuildContent.build_id == str(build.id), BuildContent.instruction_id == iid))).scalar_one_or_none()
+        if not pv:
+            return
+        base_ds, base_refs = None, None
+        bv = await self._build_base_version_id(db, build, iid)
+        if bv:
+            bver = await db.get(_IV, str(bv))
+            if bver is not None:
+                base_ds, base_refs = bver.data_source_ids, bver.references_json
+        pver = await db.get(_IV, str(pv))
+        if pver is not None:
+            pver.data_source_ids = base_ds
+            pver.references_json = base_refs
+            flag_modified(pver, "data_source_ids")
+            flag_modified(pver, "references_json")
 
     async def _live_field_changes_by_row(self, db: AsyncSession, rows, instruction_id: str, main_vid) -> list:
         """Unresolved field changes per `_pending_suggestion_builds` row, in row
         order — the field counterpart of the per-row rebased hunks the accept
         and reject paths validate a selection against."""
         from app.services.field_changes import field_changes_against_main
-        from app.services.field_changes import with_scope
         base_vids = [await self._build_base_version_id(db, b, instruction_id) for b, _t, _v in rows]
         metas = await self._version_field_metas(
             db, [v for _b, _t, v in rows] + base_vids + [main_vid],
         )
-        shares = await self.build_service.get_scope_changes(
-            db, [b.id for b, _t, _v in rows], [instruction_id],
-        )
-        live_scope = (await self._live_scopes(db, [instruction_id], bool(shares))).get(str(instruction_id))
+        live_scope = (await self._live_scopes(db, [instruction_id])).get(str(instruction_id))
+        live_refs = (await self._live_scope_refs(db, [instruction_id])).get(str(instruction_id))
         main_meta = self._with_live_scope(
-            metas.get(str(main_vid)) if main_vid else None, live_scope,
+            metas.get(str(main_vid)) if main_vid else None, live_scope, live_refs,
         )
         out = [
             field_changes_against_main(
                 metas.get(str(bv)) if bv else None,
-                with_scope(metas.get(str(pv)), shares.get((str(build.id), str(instruction_id)))),
+                metas.get(str(pv)),
                 main_meta,
                 self._rejected_keys(build, instruction_id),
             )
@@ -1997,13 +2083,10 @@ class InstructionService:
             + list(base_vid_of_build.values())
             + [main_vid],
         )
-        from app.services.field_changes import with_scope
-        shares = await self.build_service.get_scope_changes(
-            db, [b.id for b, _t, _v, _bt in live_rows], [instruction_id],
-        )
-        live_scope = (await self._live_scopes(db, [instruction_id], bool(shares))).get(str(instruction_id))
+        live_scope = (await self._live_scopes(db, [instruction_id])).get(str(instruction_id))
+        live_refs = (await self._live_scope_refs(db, [instruction_id])).get(str(instruction_id))
         main_meta = self._with_live_scope(
-            metas.get(str(main_vid)) if main_vid else None, live_scope,
+            metas.get(str(main_vid)) if main_vid else None, live_scope, live_refs,
         )
 
         suggestions = []
@@ -2011,7 +2094,7 @@ class InstructionService:
             base_vid = base_vid_of_build.get(str(build.id))
             fields = field_changes_against_main(
                 metas.get(str(base_vid)) if base_vid else None,
-                with_scope(metas.get(str(proposed_vid)), shares.get((str(build.id), str(instruction_id)))),
+                metas.get(str(proposed_vid)),
                 main_meta,
                 self._rejected_keys(build, instruction_id),
             )
@@ -2283,19 +2366,17 @@ class InstructionService:
             + list(base_vid_of.values())
             + list(main_vid.values()),
         )
-        from app.services.field_changes import with_scope
-        shares = await self.build_service.get_scope_changes(
-            db, {str(b.id) for _i, b, _t, _v in sug_rows}, cand_ids,
-        )
-        live_scopes = await self._live_scopes(db, cand_ids, bool(shares))
+        live_scopes = await self._live_scopes(db, cand_ids)
+        live_scope_refs = await self._live_scope_refs(db, cand_ids)
 
         def _has_live_field_change(build, iid: str, proposed_vid) -> bool:
             mv = main_vid.get(iid)
             bv = base_vid_of.get((str(build.id), iid))
             return bool(field_changes_against_main(
                 metas.get(str(bv)) if bv else None,
-                with_scope(metas.get(str(proposed_vid)), shares.get((str(build.id), iid))),
-                self._with_live_scope(metas.get(str(mv)) if mv else None, live_scopes.get(iid)),
+                metas.get(str(proposed_vid)),
+                self._with_live_scope(metas.get(str(mv)) if mv else None,
+                                      live_scopes.get(iid), live_scope_refs.get(iid)),
                 self._rejected_keys(build, iid),
             ))
 
@@ -2632,7 +2713,8 @@ class InstructionService:
         iid = str(instruction.id)
         main_text, main_vid, _meta = await self._main_text_of(db, instruction)
         mv = str(main_vid) if main_vid else None
-        live_scope = None  # fetched once, only if a row under review proposes a share
+        live_scope = (await self._live_scopes(db, [iid])).get(iid, ())
+        live_refs = (await self._live_scope_refs(db, [iid])).get(iid, [])
         cache = RebasedHunkCache()
         changed = False
         for build, proposed_text, proposed_vid in await self._pending_suggestion_builds(db, iid, organization):
@@ -2643,11 +2725,7 @@ class InstructionService:
             base_vid = await self._build_base_version_id(db, build, iid)
             metas = await self._version_field_metas(db, [proposed_vid, base_vid, main_vid])
             base_meta = metas.get(str(base_vid)) if base_vid else None
-            share = (await self.build_service.get_scope_changes(db, [build.id], [iid])).get((str(build.id), iid))
-            from app.services.field_changes import with_scope
-            proposed_meta = with_scope(metas.get(str(proposed_vid)), share)
-            if live_scope is None and (proposed_meta or {}).get("scope_add"):
-                live_scope = (await self._live_scopes(db, [iid])).get(iid, ())
+            proposed_meta = metas.get(str(proposed_vid))
             if pt == (base_text or "") and not has_field_intent(base_meta, proposed_meta):
                 continue  # carry-over: no intended change to settle
             pv = str(proposed_vid) if proposed_vid else None
@@ -2655,7 +2733,7 @@ class InstructionService:
                 continue  # already stamped for this exact state
             if field_changes_against_main(
                 base_meta, proposed_meta,
-                self._with_live_scope(metas.get(mv) if mv else None, live_scope),
+                self._with_live_scope(metas.get(mv) if mv else None, live_scope, live_refs),
                 self._rejected_keys(build, iid),
             ):
                 continue  # a field change (e.g. status) is still up for review
@@ -2808,38 +2886,47 @@ class InstructionService:
              field_change_summary(h) if is_field_key(h["key"]) else h.get("after"))
             for idx, h in picked
         ]
-        # Accepted scope changes share the instruction with more agents — one
-        # pick per agent, possibly from several suggestions. Placing a rule on
-        # an agent needs the same authority as anywhere else
-        # (instruction_authority) — checked here, before anything is written,
-        # on top of the route's check over the agents it is attached to now.
-        # An agent deleted since the suggestion was written is dropped from
-        # the share rather than attached (or refused on).
+        # An accepted scope change moves which agents and tables the
+        # instruction uses, as one review row (agents + their tables), applied
+        # as a delta against the LIVE attachment. Placing a rule on an agent
+        # needs the same authority as anywhere else (instruction_authority) —
+        # checked here, before anything is written, over the agents it is
+        # attached to now plus the ones being added. Agents (and tables)
+        # deleted since the suggestion was written are dropped from the change
+        # rather than attached.
         scope_picks = [(idx, h) for idx, h in picked if h.get("field") == SCOPE_FIELD]
         scope_added = await self._existing_agents(
             db, [d for _idx, h in scope_picks for d in h.get("added", [])],
         )
-        scope_refs: list = []
+        scope_removed = sorted({str(d) for _idx, h in scope_picks for d in h.get("removed", [])})
+        scope_added_refs: list = [r for _idx, h in scope_picks for r in h.get("added_refs", [])]
+        scope_removed_refs: list = [r for _idx, h in scope_picks for r in h.get("removed_refs", [])]
+        live_now: set = set()
+        live_refs_now: list = []
         if scope_picks:
-            from app.services.field_changes import scope_refs_for
             from app.services.instruction_authority import require_scope_authority
             live_now = set((await self._live_scopes(db, [instruction_id])).get(str(instruction_id), ()))
+            live_refs_now = (await self._live_scope_refs(db, [instruction_id])).get(str(instruction_id), [])
             await require_scope_authority(
                 db, current_user, organization, sorted(live_now | scope_added),
             )
-            shares = await self.build_service.get_scope_changes(
-                db, {str(rows[idx][0].id) for idx, _h in scope_picks}, [instruction_id],
-            )
-            for idx, h in scope_picks:
-                scope_refs += scope_refs_for(
-                    shares.get((str(rows[idx][0].id), str(instruction_id))),
-                    set(h.get("added", [])) & scope_added,
-                )
-            if not scope_added and not any(not is_field_key(h["key"]) for _i, h in picked) \
+            if scope_added_refs:
+                # Drop references to tables whose agent was deleted since the
+                # suggestion was written — their datasource_tables are gone.
+                from app.models.datasource_table import DataSourceTable
+                ref_ids = sorted({str(r.get("object_id")) for r in scope_added_refs if r.get("object_id")})
+                alive = {str(tid) for (tid,) in (await db.execute(
+                    select(DataSourceTable.id).join(
+                        DataSource, DataSource.id == DataSourceTable.datasource_id)
+                    .where(DataSourceTable.id.in_(ref_ids), DataSource.deleted_at.is_(None))
+                )).all()} if ref_ids else set()
+                scope_added_refs = [r for r in scope_added_refs if str(r.get("object_id")) in alive]
+            scope_touches = bool(scope_added or scope_removed or scope_added_refs or scope_removed_refs)
+            if not scope_touches and not any(not is_field_key(h["key"]) for _i, h in picked) \
                     and not {k for k in accepted_fields if k != SCOPE_FIELD}:
-                # Every agent of the share is gone: nothing to attach and
-                # nothing else picked. Record the verdicts so the rows stop
-                # showing, without minting an empty version and build.
+                # Nothing of the scope change survives (agents gone, or already
+                # live) and nothing else picked. Record the verdicts so the
+                # rows stop showing, without minting an empty version and build.
                 for build, key, _snippet in accepted:
                     await self._record_resolved_hunk(db, build, instruction_id, key, "accept", commit=False)
                 await db.commit()
@@ -2849,17 +2936,25 @@ class InstructionService:
                 return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
         # Metadata comes from MAIN (the reviewer accepts hunks onto the live
         # instruction, not the suggestion's whole snapshot), except for the
-        # field changes the reviewer explicitly accepted. Scope is applied to
-        # the live attachment after the promotion below; the version records
-        # the attachment as it will then be, tables of the new agents included
-        # (intelligent loading reads a version's references_json).
+        # field changes the reviewer explicitly accepted. The new version's
+        # scope is the LIVE attachment with the accepted delta applied, so the
+        # snapshot a rollback or intelligent loading reads matches the agents
+        # actually attached below.
         new_status = accepted_fields.get(
             "status", (meta_src.status if meta_src else "published") or "published"
         )
         from app.services.field_changes import merge_refs
-        src_refs = merge_refs((meta_src.references_json if meta_src else None), scope_refs)
-        src_ds = [str(d) for d in ((meta_src.data_source_ids if meta_src else None) or [])]
-        new_ds = sorted(set(src_ds) | scope_added) if scope_picks else (src_ds or None)
+        if scope_picks:
+            new_ds = sorted((live_now | set(scope_added)) - set(scope_removed)) or None
+            src_refs = merge_refs(live_refs_now, scope_added_refs)
+            if scope_removed_refs:
+                rem = {(r.get("object_type"), str(r.get("object_id")), r.get("column_name"))
+                       for r in scope_removed_refs}
+                src_refs = [r for r in src_refs
+                            if (r.get("object_type"), str(r.get("object_id")), r.get("column_name")) not in rem]
+        else:
+            new_ds = ([str(d) for d in (meta_src.data_source_ids or [])] or None) if meta_src else None
+            src_refs = (meta_src.references_json if meta_src else None)
         new_version = await self.version_service.create_version_from_data(
             db, instruction_id=instruction.id, text=new_text,
             title=(meta_src.title if meta_src else getattr(instruction, "title", None)),
@@ -2918,13 +3013,16 @@ class InstructionService:
             )
             await db.commit()
 
-        # Same for scope: promotion never touches the attachment, so an
-        # accepted share is applied to the live row here, after the
-        # compare-and-swap succeeded — never for a lost race. The raw writes
-        # bypass the instruction already loaded in this session; refresh it so
-        # the response shows the new agents.
-        if scope_picks:
-            await self._apply_scope_change(db, str(instruction.id), scope_added, scope_refs)
+        # Scope: promotion already applied the version's base→proposed delta to
+        # the live attachment, but apply it here too (idempotent) so an accepted
+        # share lands even on any path that does not route through promotion,
+        # and only after the compare-and-swap succeeded — never for a lost race.
+        # The raw writes bypass the instruction already loaded in this session;
+        # refresh it so the response shows the new agents.
+        if scope_picks and (scope_added or scope_removed or scope_added_refs or scope_removed_refs):
+            await self._apply_scope_delta(
+                db, str(instruction.id), scope_added, scope_removed, scope_added_refs, scope_removed_refs,
+            )
             await db.commit()
             from sqlalchemy.orm.util import identity_key
             loaded = db.identity_map.get(identity_key(Instruction, str(instruction.id)))
@@ -3137,7 +3235,7 @@ class InstructionService:
             hunk_is_resolved,
             rebased_hunks_against_main,
         )
-        from app.services.field_changes import field_change_summary, is_field_key
+        from app.services.field_changes import field_change_summary, is_field_key, SCOPE_FIELD
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
         if not instruction:
             return None, "not_found"
@@ -3209,6 +3307,12 @@ class InstructionService:
             await self._record_resolved_hunk(
                 db, build, instruction_id, h["key"], "reject", commit=False
             )
+            if h.get("field") == SCOPE_FIELD:
+                # Rejecting a scope change must also undo it on the staged
+                # version, or promoting the build whole would still apply it
+                # (promotion syncs the version's scope to the live attachment).
+                # Re-stage the base scope so the version proposes nothing.
+                await self._restage_base_scope(db, build, instruction_id)
             snippet = field_change_summary(h) if is_field_key(h["key"]) else h.get("after")
             verdicts.append((build, "reject", snippet, h["key"]))
         await db.commit()

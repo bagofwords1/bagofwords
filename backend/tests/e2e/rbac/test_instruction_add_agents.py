@@ -10,11 +10,12 @@ The contract:
 - a global instruction, an agent with none of the instruction's tables, an
   unknown or ambiguous agent, a mix with table_names, or knowledge mode is
   refused and stages nothing;
-- the share is a suggestion: it shows as a `scope` field change, nothing moves
-  until a reviewer with authority over the new agents accepts exactly that
-  change, and neither a text-only accept nor a whole-build publish applies it;
-- a proposal is never inferred from version snapshots: an edit that does not
-  ask to share proposes no scope change, whatever older versions recorded.
+- the share is an ordinary version field: it shows as a `scope` field change,
+  nothing moves until a reviewer with authority over the new agents accepts it
+  (a text-only accept leaves it pending) OR the whole build is published, which
+  applies it like every other staged change;
+- a proposal follows the 3-way rule: an edit that does not change scope relative
+  to its base proposes nothing, even against a stale version snapshot.
 """
 import sqlite3
 import tempfile
@@ -268,29 +269,39 @@ async def test_accepting_only_the_text_keeps_the_agents_and_leaves_the_share_pen
 
 
 @pytest.mark.asyncio
-async def test_publishing_a_build_with_an_unresolved_share_is_refused(test_client, world):
-    """Sharing is applied only by a reviewer accepting it, and promotion never
-    attaches agents — so a whole-build publish (builds page, Self Learning)
-    of a build still carrying a share is refused rather than silently
-    dropping it. Once the share is accepted or rejected, the publish goes."""
+async def test_publishing_a_build_applies_the_staged_share(test_client, world):
+    """Scope is an ordinary staged field, so a whole-build publish applies it
+    with the text: the new agent and its tables reach the live attachment
+    (promotion syncs the version's scope). Publishing the build is approval of
+    everything it stages; the per-hunk review is only for granular verdicts."""
+    H = _hdr(world["admin"]["token"], world["org_id"])
     iid = _instruction(test_client, world, ["a"])
     bid, out = await _edit(world, {"instruction_id": iid, "old_text": "net of tax", "text": "net of VAT",
                                    "add_agents": [world["b"]["name"]]})
     assert out["success"], out
-    r = test_client.post(f"/api/builds/{bid}/publish",
-                         headers=_hdr(world["admin"]["token"], world["org_id"]))
-    assert r.status_code == 400, r.text
-    assert r.json()["error_code"] == "build.share_pending_review"
-    assert _live(test_client, world, iid) == ({world["a"]["id"]}, {world["a"]["tables"]["Orders"]})
-    assert "net of VAT" not in _live_text(test_client, world, iid)
-    assert _scope_change(_review(test_client, world, iid), bid) is not None
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=H)
+    assert r.status_code == 200, r.text
+    assert "net of VAT" in _live_text(test_client, world, iid)
+    agents, tables = _live(test_client, world, iid)
+    assert agents == {world["a"]["id"], world["b"]["id"]}
+    assert tables == {world["a"]["tables"]["Orders"], world["b"]["tables"]["Orders"]}
 
+
+@pytest.mark.asyncio
+async def test_rejecting_the_share_then_publishing_keeps_the_agents(test_client, world):
+    """A rejected share is undone on the staged version (its base scope is
+    re-staged), so publishing the rest of the build applies the text and leaves
+    the agents unchanged."""
+    H = _hdr(world["admin"]["token"], world["org_id"])
+    iid = _instruction(test_client, world, ["a"])
+    bid, out = await _edit(world, {"instruction_id": iid, "old_text": "net of tax", "text": "net of VAT",
+                                   "add_agents": [world["b"]["name"]]})
+    assert out["success"], out
     review = _review(test_client, world, iid)
     change = _scope_change(review, bid)
     r = _resolve(test_client, world, iid, review, [(bid, k) for k in change["keys"]], "reject")
     assert r.status_code == 200, r.text
-    r = test_client.post(f"/api/builds/{bid}/publish",
-                         headers=_hdr(world["admin"]["token"], world["org_id"]))
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=H)
     assert r.status_code == 200, r.text
     assert "net of VAT" in _live_text(test_client, world, iid)
     assert _live(test_client, world, iid)[0] == {world["a"]["id"]}
@@ -478,34 +489,17 @@ async def test_a_share_main_already_carries_is_not_pending(test_client, world):
 
 
 @pytest.mark.asyncio
-async def test_accepting_brings_only_the_new_agents_tables(test_client, world):
-    """The suggestion snapshot carries b's Orders AND, from a later table_names
-    edit staged in the same session, a's Invoices. Accepting the share alone
-    must attach b with its Orders and nothing of a's."""
-    iid = _instruction(test_client, world, ["a"])
+async def test_accepting_applies_exactly_the_versions_scope(test_client, world):
+    """The accepted scope IS the agent and its same-named table: b with its
+    Orders, not b's Invoices (never referenced) nor a's."""
+    iid = _instruction(test_client, world, ["a"])  # a's Orders only
     bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
     assert out["success"], out
-    # Stage a's Invoices on the same version through the raw snapshot: the
-    # tool refuses add_agents + table_names together, and this is the only
-    # way a foreign table reaches a share's snapshot.
-    from sqlalchemy import select, update
-    from app.dependencies import async_session_maker
-    from app.models.build_content import BuildContent
-    from app.models.instruction_version import InstructionVersion
-    async with async_session_maker() as db:
-        vid = (await db.execute(select(BuildContent.instruction_version_id).where(
-            BuildContent.build_id == bid, BuildContent.instruction_id == iid))).scalar()
-        v = await db.get(InstructionVersion, vid)
-        refs = list(v.references_json or []) + [{"object_type": "datasource_table",
-                                                "object_id": world["a"]["tables"]["Invoices"],
-                                                "column_name": None, "display_text": "Invoices"}]
-        await db.execute(update(InstructionVersion).where(InstructionVersion.id == vid)
-                         .values(references_json=refs))
-        await db.commit()
     _accept(test_client, world, iid, bid)
     agents, tables = _live(test_client, world, iid)
     assert agents == {world["a"]["id"], world["b"]["id"]}
     assert tables == {world["a"]["tables"]["Orders"], world["b"]["tables"]["Orders"]}
+    assert world["b"]["tables"]["Invoices"] not in tables
 
 
 @pytest.mark.asyncio
@@ -532,7 +526,10 @@ async def test_two_shares_in_one_session_keep_both_agents_tables(test_client, wo
 
 
 @pytest.mark.asyncio
-async def test_a_rejected_agent_stays_rejected_when_the_session_shares_with_another(test_client, world):
+async def test_a_rejected_share_is_not_re_proposed_and_does_not_linger(test_client, world):
+    """Rejecting a share undoes it on the staged version. Proposing the exact
+    same scope again is refused; a different share is a fresh proposal, and the
+    rejected agent is not silently carried back into it."""
     iid = _instruction(test_client, world, ["a"], tables=())
     bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
     assert out["success"], out
@@ -541,13 +538,14 @@ async def test_a_rejected_agent_stays_rejected_when_the_session_shares_with_anot
     r = _resolve(test_client, world, iid, review, [(bid, k) for k in change["keys"]], "reject")
     assert r.status_code == 200, r.text
 
+    # The identical share is refused, not humoured.
+    _bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]}, build_id=bid)
+    assert out["success"] is False and out["rejected_reason"] == "share_rejected"
+    # A different agent is a fresh proposal, and b does not come back with it.
     _bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["d"]["name"]]}, build_id=bid)
     assert out["success"], out
     change = _scope_change(_review(test_client, world, iid), bid)
     assert set(change["to"]) == {world["a"]["id"], world["d"]["id"]}, "b must not come back"
-    # And the AI is told, not humoured, if it tries b again.
-    _bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]}, build_id=bid)
-    assert out["success"] is False and out["rejected_reason"] == "share_rejected"
 
 
 @pytest.mark.asyncio
@@ -572,8 +570,12 @@ async def test_table_names_staged_earlier_in_the_session_survive_a_text_edit(tes
 
 
 @pytest.mark.asyncio
-async def test_table_names_after_a_share_keeps_the_shares_tables(test_client, world):
-    iid = _instruction(test_client, world, ["a"])
+async def test_table_names_after_a_share_sets_the_tables_wholesale(test_client, world):
+    """Scope is one field: a table_names edit after a share sets the table
+    scope by its org-wide name match (here Invoices, which a and b share), so
+    the later tables replace the share's Orders. Accepting attaches the matched
+    agents with those tables."""
+    iid = _instruction(test_client, world, ["a"])  # a's Orders
     bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
     assert out["success"], out
     _bid, out = await _edit(world, {"instruction_id": iid, "table_names": ["Invoices"]}, build_id=bid)
@@ -581,7 +583,7 @@ async def test_table_names_after_a_share_keeps_the_shares_tables(test_client, wo
     _accept(test_client, world, iid, bid)
     agents, tables = _live(test_client, world, iid)
     assert agents == {world["a"]["id"], world["b"]["id"]}
-    assert world["b"]["tables"]["Orders"] in tables
+    assert tables == {world["a"]["tables"]["Invoices"], world["b"]["tables"]["Invoices"]}
 
 
 @pytest.mark.asyncio
@@ -616,22 +618,21 @@ async def test_a_scoped_manager_can_accept_when_a_deleted_agent_is_in_the_share(
 
 
 @pytest.mark.asyncio
-async def test_approving_a_build_with_an_unresolved_share_is_refused_and_it_stays_pending(test_client, world):
+async def test_approving_and_promoting_a_build_applies_the_share(test_client, world):
     """Every auto-promote (Self Learning included) approves before promoting;
-    the share must survive that step as a pending suggestion."""
+    the staged share is applied along the way, not dropped — promotion syncs
+    the version's scope onto the live attachment."""
     iid = _instruction(test_client, world, ["a"], tables=())
     bid, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
     assert out["success"], out
     from app.dependencies import async_session_maker
-    from app.errors import AppError
     from app.services.build_service import BuildService
     async with async_session_maker() as db:
         await BuildService().submit_build(db, bid)
-        with pytest.raises(AppError) as exc:
-            await BuildService().approve_build(db, bid, approved_by_user_id=world["admin"]["user_id"])
-        assert exc.value.error_code == "build.share_pending_review"
-    assert _scope_change(_review(test_client, world, iid), bid) is not None
-    assert _pending(test_client, world, iid)
+        await BuildService().approve_build(db, bid, approved_by_user_id=world["admin"]["user_id"])
+        await BuildService().promote_build(db, bid, user_id=world["admin"]["user_id"])
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"], world["b"]["id"]}
+    assert not _pending(test_client, world, iid)
 
 
 # --- round-4 review findings --------------------------------------------------
@@ -740,7 +741,10 @@ async def test_publishing_the_rest_of_the_build_after_accepting_the_share_keeps_
 
 
 @pytest.mark.asyncio
-async def test_a_refused_partial_publish_does_not_delete_the_instructions_it_left_out(test_client, world):
+async def test_publishing_a_multi_instruction_build_applies_the_share(test_client, world):
+    """A build that stages a share on one instruction and a text edit on
+    another publishes both: the share is applied with everything else, not
+    singled out for a refusal."""
     H = _hdr(world["admin"]["token"], world["org_id"])
     shared = _instruction(test_client, world, ["a"], tables=())
     other = _instruction(test_client, world, ["a"], tables=())
@@ -749,64 +753,26 @@ async def test_a_refused_partial_publish_does_not_delete_the_instructions_it_lef
     _b, out = await _edit(world, {"instruction_id": other, "old_text": "net of tax", "text": "net of fees"},
                           build_id=bid)
     assert out["success"], out
-    # ...and a brand-new instruction, the kind a partial publish prunes.
-    from types import SimpleNamespace
-    from app.ai.tools.implementations.create_instruction import CreateInstructionTool
-    from app.dependencies import async_session_maker
-    new_id = None
-    async with async_session_maker() as db:
-        ctx = {"db": db, "user": SimpleNamespace(id=world["admin"]["user_id"]),
-               "organization": SimpleNamespace(id=world["org_id"]), "mode": "training",
-               "report": SimpleNamespace(id=world["report_id"], data_sources=[
-                   SimpleNamespace(id=d) for d in world["report_agents"]]),
-               "training_build_id": bid}
-        async for evt in CreateInstructionTool().run_stream(
-                {"text": "Ledger postings are always in the booking currency.", "title": "Ledger rule",
-                 "category": "general", "confidence": 0.9, "load_mode": "always",
-                 "table_names": ["Ledger"], "evidence": "test"}, ctx):
-            if evt.type == "tool.end":
-                assert evt.payload["output"]["success"], evt.payload
-                new_id = evt.payload["output"]["instruction_id"]
-    assert new_id
-    r = test_client.post(f"/api/builds/{bid}/publish", headers=H, json={"instruction_ids": [shared]})
-    assert r.status_code == 400, r.text
-    # `other` is still staged in the build, and still reviewable.
-    review = _review(test_client, world, other)
-    assert next((s for s in review["suggestions"] if s["build_id"] == bid), None) is not None
-    # The new instruction the selection left out was NOT pruned by the refused publish.
-    from sqlalchemy import select
-    from app.models.build_content import BuildContent
-    async with async_session_maker() as db:
-        still_staged = (await db.execute(select(BuildContent.id).where(
-            BuildContent.build_id == bid, BuildContent.instruction_id == new_id))).scalar()
-    assert still_staged is not None
-    # A partial publish prunes only NEW instructions; a modified existing one
-    # like `shared` is published regardless of the selection — so selecting
-    # `other` alone is refused too, and nothing is lost.
-    r = test_client.post(f"/api/builds/{bid}/publish", headers=H, json={"instruction_ids": [other]})
-    assert r.status_code == 400, r.text
-    assert _scope_change(_review(test_client, world, shared), bid) is not None
-    # Once the share is resolved, the build publishes.
-    review = _review(test_client, world, shared)
-    change = _scope_change(review, bid)
-    assert _resolve(test_client, world, shared, review, [(bid, k) for k in change["keys"]], "reject").status_code == 200
-    r = test_client.post(f"/api/builds/{bid}/publish", headers=H, json={"instruction_ids": [other]})
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=H)
     assert r.status_code == 200, r.text
+    assert _live(test_client, world, shared)[0] == {world["a"]["id"], world["b"]["id"]}
     assert "net of fees" in _live_text(test_client, world, other)
 
 
 @pytest.mark.asyncio
-async def test_share_mirrors_the_tables_staged_earlier_in_the_session(test_client, world):
-    """table_names=['Invoices'] then add_agents=['b']: b gets its Invoices
-    (the staged scope), not its Orders (the live one)."""
-    iid = _instruction(test_client, world, ["a"])
+async def test_table_names_stages_the_matching_agents_and_their_tables(test_client, world):
+    """table_names matches a table name across the conversation's agents, so
+    table_names=['Invoices'] already stages a AND b with their Invoices;
+    asking to share b on top is then a no-op, and accepting attaches b with
+    its Invoices (not its Orders)."""
+    iid = _instruction(test_client, world, ["a"])  # a's Orders
     bid, out = await _edit(world, {"instruction_id": iid, "table_names": ["Invoices"]})
     assert out["success"], out
     _b, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]}, build_id=bid)
-    assert out["success"], out
+    assert out["success"] is False and out["rejected_reason"] == "no_change"
     _accept(test_client, world, iid, bid)
     agents, tables = _live(test_client, world, iid)
-    assert world["b"]["id"] in agents
+    assert agents == {world["a"]["id"], world["b"]["id"]}
     assert world["b"]["tables"]["Invoices"] in tables
     assert world["b"]["tables"]["Orders"] not in tables
 

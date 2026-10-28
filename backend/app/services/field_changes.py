@@ -16,14 +16,17 @@ no reviewer has resolved it. Keys share the build's ``rejected_hunks`` ledger
 with text hunks; the ``field:`` prefix keeps them disjoint from the 16-char hex
 text-hunk keys and the ``__settled__``/``__voided__`` markers.
 
-``scope`` — sharing the instruction with more agents — is reviewed here too,
-but it is never inferred: a version's ``data_source_ids`` is a snapshot of the
-live attachment at write time, and comparing two snapshots reads the leftovers
-of older publishes as proposals. Only a BUILD ROW that carries an explicit
-``scope_change`` (BuildContent.scope_change, written by edit_instruction's
-add_agents) proposes one, and what it proposes is the agents it names that
-main is still missing. It sits on the build row, not the version, so that it
-lives and dies with the suggestion that made it (see BuildContent).
+``scope`` — the agents the instruction is attached to and the table references
+it carries — is reviewed here too, as an ordinary version field. A version's
+``data_source_ids`` and ``references_json`` ARE the proposed scope (the AI
+``add_agents`` and ``table_names`` edits write them there, like every other
+staged field), and they are diffed against the LIVE attachment
+(``main['scope_live']`` / ``['scope_live_refs']`` — the association rows that
+decide which agents load the instruction now). The 3-way rule keeps a stale
+snapshot honest: a difference counts only when it is also a change from the
+suggestion's own base, so a version that merely carries the live scope forward
+proposes nothing. Accepting (or promoting the build) applies the base→proposed
+delta to the live attachment; rejecting re-stages the base scope.
 """
 import hashlib
 from typing import Dict, Iterable, List, Optional
@@ -43,44 +46,55 @@ REVIEWED_FIELDS: Dict[str, tuple] = {
 _DEFAULTS = {"status": "published", "load_mode": "always"}
 
 
-def scope_add_ids(scope_change: Optional[dict]) -> tuple:
-    """The agent ids a version's ``scope_change`` asks to add, normalized."""
-    if not isinstance(scope_change, dict):
-        return ()
-    add = scope_change.get("add") or []
-    return tuple(sorted({str(d) for d in add if d}))
+def scope_ds(data_source_ids) -> tuple:
+    """Normalized agent-id set of a version's (or the live row's) data sources."""
+    return tuple(sorted({str(d) for d in (data_source_ids or []) if d}))
 
 
-def scope_refs_for(scope_change: Optional[dict], agent_ids: Iterable[str]) -> List[dict]:
-    """The table references a ``scope_change`` carries for ``agent_ids``.
-
-    Refs are stored on the change itself ({"add": [...], "refs": [{...,
-    "data_source_id": ...}]}), on the build row, never in a version's
-    snapshot: a snapshot travels into main and into other builds, and the
-    tables of a share — accepted or rejected — must not."""
-    if not isinstance(scope_change, dict):
-        return []
-    wanted = {str(d) for d in agent_ids}
-    return [r for r in (scope_change.get("refs") or [])
-            if isinstance(r, dict) and str(r.get("data_source_id")) in wanted]
+def _ref_ident(r: dict) -> tuple:
+    return (r.get("object_type"), str(r.get("object_id")), r.get("column_name"))
 
 
-def field_meta(status: Optional[str], load_mode: Optional[str]) -> Dict[str, object]:
-    """Normalized reviewable metadata of one version."""
+def _clean_refs(references) -> List[dict]:
+    """References normalized to the fields a snapshot carries, dropping blanks
+    and the share-only ``data_source_id`` tag."""
+    out = []
+    for r in (references or []):
+        if isinstance(r, dict) and r.get("object_id"):
+            out.append({
+                "object_type": r.get("object_type"),
+                "object_id": str(r.get("object_id")),
+                "column_name": r.get("column_name"),
+                "relation_type": r.get("relation_type"),
+                "display_text": r.get("display_text"),
+            })
+    return out
+
+
+def scope_delta(from_ds, from_refs, to_ds, to_refs):
+    """What changed from one scope to another:
+    ``(added_ds, removed_ds, added_refs, removed_refs)``. Reference identity is
+    (object_type, object_id, column_name)."""
+    fds, tds = set(scope_ds(from_ds)), set(scope_ds(to_ds))
+    added_ds = sorted(tds - fds)
+    removed_ds = sorted(fds - tds)
+    f_ident = {_ref_ident(r) for r in _clean_refs(from_refs)}
+    t_ident = {_ref_ident(r) for r in _clean_refs(to_refs)}
+    added_refs = [r for r in _clean_refs(to_refs) if _ref_ident(r) not in f_ident]
+    removed_refs = [r for r in _clean_refs(from_refs) if _ref_ident(r) not in t_ident]
+    return added_ds, removed_ds, added_refs, removed_refs
+
+
+def field_meta(status: Optional[str], load_mode: Optional[str],
+               data_source_ids=None, references=None) -> Dict[str, object]:
+    """Normalized reviewable metadata of one version — the scalar fields plus
+    the scope the version snapshots (its agents and table references)."""
     return {
         "status": status or _DEFAULTS["status"],
         "load_mode": load_mode or _DEFAULTS["load_mode"],
-        "scope_add": (),
+        "scope_ds": scope_ds(data_source_ids),
+        "scope_refs": _clean_refs(references),
     }
-
-
-def with_scope(meta: Optional[dict], scope_change: Optional[dict]) -> Optional[dict]:
-    """``meta`` of a proposed version plus the share its BUILD ROW proposes
-    (BuildContent.scope_change). The share is a property of the suggestion,
-    not of the version, so it is overlaid here rather than read from one."""
-    if meta is None:
-        return None
-    return {**meta, "scope_add": scope_add_ids(scope_change)}
 
 
 def merge_refs(base: Optional[List[dict]], extra: Iterable[dict]) -> List[dict]:
@@ -119,6 +133,16 @@ def field_change_summary(change: dict) -> str:
     return f"{change['field']}: {change['from']} -> {change['to']}"
 
 
+def scope_change_key(to_ds, to_refs=()) -> str:
+    """Stable review key for a scope change, binding the proposed agents AND
+    tables: a later proposal of a different scope is a new decision, and the
+    same proposal keeps the same key across reloads."""
+    parts = list(scope_ds(to_ds)) + sorted(
+        str(r.get("object_id")) for r in (to_refs or [])
+        if isinstance(r, dict) and r.get("object_id"))
+    return field_change_key(SCOPE_FIELD, hashlib.sha1("|".join(parts).encode()).hexdigest()[:16])
+
+
 def has_field_intent(base: Optional[dict], proposed: Optional[dict]) -> bool:
     """Whether the suggestion changes any reviewed field relative to its base,
     regardless of main or recorded resolutions."""
@@ -126,45 +150,42 @@ def has_field_intent(base: Optional[dict], proposed: Optional[dict]) -> bool:
         return False
     if any(base.get(f) != proposed.get(f) for f in REVIEWED_FIELDS):
         return True
-    return bool(proposed.get("scope_add"))
+    a, b, c, d = scope_delta(base.get("scope_ds"), base.get("scope_refs"),
+                             proposed.get("scope_ds"), proposed.get("scope_refs"))
+    return bool(a or b or c or d)
 
 
-def scope_change_key(agent_id: str) -> str:
-    """Review key of sharing with ONE agent. Each agent is its own decision:
-    rejecting B stays rejected when the session later adds D, and accepting
-    D never drags B along."""
-    return field_change_key(SCOPE_FIELD, hashlib.sha1(str(agent_id).encode()).hexdigest()[:16])
+def _scope_change(base: Optional[dict], proposed: dict, main: dict, resolved: set) -> List[dict]:
+    """The scope change this suggestion still proposes against the LIVE
+    attachment, as one review row (agents + their table references), or [].
 
-
-def unresolved_scope_adds(add: Iterable[str], live: Iterable[str],
-                          resolved_keys: Iterable[str] = ()) -> List[str]:
-    """The agents of a share still waiting on a reviewer: proposed, not yet
-    attached, and not rejected. The ONE rule behind the review row, the
-    pending badge and every publish guard, so they can never disagree.
-
-    An empty ``live`` is a global instruction — it already reaches every
-    agent, so nothing is left to share and nothing is pending. (Attaching an
-    agent to a global instruction would NARROW it to that agent alone.)"""
-    live = {str(d) for d in live}
-    if not live:
+    An empty live attachment is a global instruction: it already reaches every
+    agent, so attaching one would NARROW it — nothing to propose here."""
+    live_ds = tuple(main.get("scope_live") or ())
+    if not live_ds:
         return []
-    resolved = set(resolved_keys or ())
-    return sorted(
-        str(a) for a in add
-        if str(a) not in live and scope_change_key(a) not in resolved
-    )
-
-
-def _scope_changes(proposed: dict, main: dict, resolved: set) -> List[dict]:
-    add = proposed.get("scope_add") or ()
-    if not add:
+    live_refs = main.get("scope_live_refs") or []
+    p_ds = proposed.get("scope_ds") or ()
+    p_refs = proposed.get("scope_refs") or []
+    # Intent is base -> proposed: a version that merely carries the live scope
+    # forward (same as its base) proposes nothing, even if main looks different.
+    if base is not None:
+        ba, br, bar, brr = scope_delta(base.get("scope_ds"), base.get("scope_refs"), p_ds, p_refs)
+        if not (ba or br or bar or brr):
+            return []
+    added_ds, removed_ds, added_refs, removed_refs = scope_delta(live_ds, live_refs, p_ds, p_refs)
+    if not (added_ds or removed_ds or added_refs or removed_refs):
+        return []  # main already carries it
+    key = scope_change_key(p_ds, p_refs)
+    if key in resolved:
         return []
-    live = tuple(main.get("scope_live") or ())
-    return [
-        {"key": scope_change_key(agent_id), "field": SCOPE_FIELD, "from": list(live),
-         "to": sorted(set(live) | {agent_id}), "added": [agent_id]}
-        for agent_id in unresolved_scope_adds(add, live, resolved)
-    ]
+    to = sorted((set(live_ds) | set(added_ds)) - set(removed_ds))
+    return [{
+        "key": key, "field": SCOPE_FIELD,
+        "from": list(live_ds), "to": to,
+        "added": added_ds, "removed": removed_ds,
+        "added_refs": added_refs, "removed_refs": removed_refs,
+    }]
 
 
 def field_changes_against_main(
@@ -179,13 +200,14 @@ def field_changes_against_main(
     suggestion): there is no field to change, the whole instruction is the
     proposal and is reviewed as text. ``base`` may be None when the
     suggestion's baseline is unknown; then every difference from main counts.
-    ``main["scope_live"]`` is the live attachment (the agents that load the
-    instruction now), which a scope change is measured against.
+    ``main["scope_live"]`` / ``["scope_live_refs"]`` are the live attachment
+    (the agents and tables that load the instruction now), which a scope change
+    is measured against.
     """
     if proposed is None or main is None:
         return []
     resolved = set(resolved_keys or ())
-    out: List[dict] = list(_scope_changes(proposed, main, resolved))
+    out: List[dict] = list(_scope_change(base, proposed, main, resolved))
     for field, allowed in REVIEWED_FIELDS.items():
         to = proposed.get(field)
         if to not in allowed:

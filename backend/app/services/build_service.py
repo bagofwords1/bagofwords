@@ -1093,10 +1093,6 @@ class BuildService:
                 detail=f"Build cannot be approved (current status: {build.status})"
             )
 
-        # An approved build is no longer a pending suggestion, so a share it
-        # still carries would leave the review unseen (see promote_build).
-        await self._refuse_unresolved_shares(db, build)
-
         build.status = 'approved'
         build.approved_by_user_id = approved_by_user_id
         build.approved_at = datetime.utcnow()
@@ -1250,74 +1246,83 @@ class BuildService:
                     org_id, build_id, attempt + 2, attempts,
                 )
 
-    async def get_scope_changes(
-        self, db: AsyncSession, build_ids, instruction_ids=None,
-    ) -> dict:
-        """{(build_id, instruction_id): scope_change} for the rows that propose
-        a share (BuildContent.scope_change), in one query."""
-        bids = sorted({str(b) for b in build_ids if b})
-        if not bids:
-            return {}
-        conds = [BuildContent.build_id.in_(bids), BuildContent.scope_change.isnot(None)]
-        if instruction_ids is not None:
-            conds.append(BuildContent.instruction_id.in_(sorted({str(i) for i in instruction_ids})))
-        return {
-            (str(b), str(i)): sc
-            for b, i, sc in (await db.execute(
-                select(BuildContent.build_id, BuildContent.instruction_id, BuildContent.scope_change)
-                .where(and_(*conds))
-            )).all()
-        }
-
-    async def set_scope_change(
-        self, db: AsyncSession, build_id: str, instruction_id: str, scope_change,
-    ) -> None:
-        """Record (or clear, with None) the share this build proposes for the
-        instruction. The row must already exist (add_to_build). Writes only —
-        the caller commits."""
-        await db.execute(
-            sql_update(BuildContent)
-            .where(and_(BuildContent.build_id == str(build_id),
-                        BuildContent.instruction_id == str(instruction_id)))
-            .values(scope_change=scope_change)
-        )
-
-    async def unresolved_shares(self, db: AsyncSession, build: InstructionBuild,
-                                instruction_ids=None) -> List[str]:
-        """Instructions this build still proposes to share with an agent they
-        are not attached to, with no reviewer rejection — the same rule the
-        review row follows (field_changes.unresolved_scope_adds)."""
-        from app.services.field_changes import scope_add_ids, unresolved_scope_adds
-        proposals = await self.get_scope_changes(db, [build.id], instruction_ids)
-        shares = {iid: scope_add_ids(sc) for (_b, iid), sc in proposals.items() if scope_add_ids(sc)}
-        if not shares:
-            return []
-        live = await self.get_instruction_scopes(db, sorted(shares))
-        rejected_by_iid: dict = {}
-        for r in (getattr(build, "rejected_hunks", None) or []):
-            rejected_by_iid.setdefault(str(r.get("instruction_id")), set()).add(r.get("key"))
-        return [
-            iid for iid, add in shares.items()
-            if unresolved_scope_adds(add, live.get(iid, ()), rejected_by_iid.get(iid, ()))
-        ]
-
-    async def _refuse_unresolved_shares(self, db: AsyncSession, build: InstructionBuild) -> None:
-        """Raise when this build still proposes sharing an instruction with an
-        agent it is not attached to and no reviewer has rejected that share.
-        The whole build is checked: a partial publish prunes only NEW
-        instructions, and a share is always on an existing one, so every share
-        the build carries will be published."""
-        from app.errors import AppError, ErrorCode
-        unresolved = await self.unresolved_shares(db, build)
-        if not unresolved:
+    async def _apply_scope_on_promote(self, db: AsyncSession, build_id: str) -> None:
+        """Sync each promoted instruction's version SCOPE (data sources + table
+        references) onto the LIVE attachment, applying only the base→version
+        delta — what THIS build actually changed. Carry-over rows (version
+        scope == base scope) touch nothing, so a stale snapshot can never
+        detach an agent the build did not mean to, and additions are idempotent.
+        This is the single place a published build's scope edits (add_agents,
+        table_names) reach the live row; promotion already syncs the scalar
+        version fields. Only ``is_change`` rows are considered — the handful the
+        build modified, never the org-wide carry-over snapshot."""
+        from app.models.instruction_version import InstructionVersion as _IV
+        from app.models.instruction import instruction_data_source_association as idsa
+        from app.models.instruction_reference import InstructionReference
+        from app.services.field_changes import scope_delta
+        from sqlalchemy import delete as sql_delete
+        rows = (await db.execute(
+            select(BuildContent.instruction_id, BuildContent.base_version_id,
+                   _IV.data_source_ids, _IV.references_json)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == str(build_id), BuildContent.is_change.is_(True))
+        )).all()
+        if not rows:
             return
-        if unresolved:
-            raise AppError.bad_request(
-                ErrorCode.BUILD_SHARE_PENDING_REVIEW,
-                "This build shares an instruction with another agent. Accept or reject "
-                "that share in the instruction's review before publishing.",
-                instruction_ids=unresolved,
-            )
+        base_ids = sorted({str(b) for _i, b, _ds, _rf in rows if b})
+        base_scope: dict = {}
+        if base_ids:
+            for vid, ds, rf in (await db.execute(
+                select(_IV.id, _IV.data_source_ids, _IV.references_json).where(_IV.id.in_(base_ids))
+            )).all():
+                base_scope[str(vid)] = (ds, rf)
+        # Agents deleted since the version was staged are dropped from the add
+        # (their datasource row — and FK target — may be gone); a hard-deleted
+        # agent must never be re-attached by a stale snapshot.
+        from app.models.data_source import DataSource as _DS
+        want_add = {str(d) for _i, bvid, p_ds, _rf in rows
+                    for d in scope_delta(
+                        (base_scope.get(str(bvid), (None, None))[0] if bvid else None), None, p_ds, None)[0]}
+        alive_add = {str(d) for (d,) in (await db.execute(
+            select(_DS.id).where(_DS.id.in_(sorted(want_add)), _DS.deleted_at.is_(None))
+        )).all()} if want_add else set()
+        for iid, base_vid, p_ds, p_refs in rows:
+            b_ds, b_refs = base_scope.get(str(base_vid), (None, None)) if base_vid else (None, None)
+            added_ds, removed_ds, added_refs, removed_refs = scope_delta(b_ds, b_refs, p_ds, p_refs)
+            added_ds = [d for d in added_ds if d in alive_add]
+            if not (added_ds or removed_ds or added_refs or removed_refs):
+                continue
+            iid = str(iid)
+            attached = {str(d) for (d,) in (await db.execute(
+                select(idsa.c.data_source_id).where(idsa.c.instruction_id == iid))).all()}
+            new = [d for d in added_ds if d not in attached]
+            if new:
+                await db.execute(idsa.insert(), [{"instruction_id": iid, "data_source_id": d} for d in new])
+            gone = [d for d in removed_ds if d in attached]
+            if gone:
+                await db.execute(sql_delete(idsa).where(
+                    idsa.c.instruction_id == iid, idsa.c.data_source_id.in_(gone)))
+            if not (added_refs or removed_refs):
+                continue
+            have = {(r.object_type, str(r.object_id), r.column_name): r for r in (await db.execute(
+                select(InstructionReference).where(InstructionReference.instruction_id == iid)
+            )).scalars().all()}
+            for r in added_refs:
+                ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
+                if not r.get("object_id") or ident in have:
+                    continue
+                row = InstructionReference(
+                    instruction_id=iid, object_type=ident[0], object_id=str(r["object_id"]),
+                    column_name=r.get("column_name"), relation_type=r.get("relation_type"),
+                    display_text=r.get("display_text"))
+                db.add(row)
+                have[ident] = row
+            for r in removed_refs:
+                ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
+                row = have.pop(ident, None)
+                if row is not None:
+                    await db.delete(row)
+        await db.flush()
 
     async def promote_build(
         self,
@@ -1349,15 +1354,6 @@ class BuildService:
                 status_code=400,
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
-
-        # A share with another agent (edit_instruction add_agents) is applied
-        # only by a reviewer accepting it in the per-hunk review; promotion
-        # never attaches agents. Promoting a build that still carries an
-        # unresolved share would publish its text and silently drop the share
-        # — the build becomes main and stops being a pending suggestion — so
-        # refuse until the share is accepted or rejected. Every publish path
-        # (builds page, chat card, Self Learning, auto-merge) lands here.
-        await self._refuse_unresolved_shares(db, build)
 
         await self._claim_main(
             db,
@@ -1470,6 +1466,12 @@ class BuildService:
                 .values(**values)
             )
 
+        # Sync the SCOPE (agents + table references) of the instructions this
+        # build changed onto the live attachment — the version fields above do
+        # not include data_source_ids/references_json. Delta-only, so carry-over
+        # rows and stale snapshots touch nothing.
+        await self._apply_scope_on_promote(db, build_id)
+
         await db.commit()
 
         # Audit log
@@ -1531,12 +1533,6 @@ class BuildService:
 
         if build.status == 'approved':
             raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
-
-        # Before anything is written: the filter below DELETES the
-        # instructions a partial publish leaves out, and the auto-approve
-        # after it takes the build out of the pending set — a refusal after
-        # either would lose work (promote_build refuses too, as the backstop).
-        await self._refuse_unresolved_shares(db, build)
 
         # Filter build contents if instruction_ids provided
         if instruction_ids is not None:
