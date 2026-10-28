@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import base64
 import json
 
@@ -70,8 +71,40 @@ def _http_config(**overrides) -> Config:
     return Config(
         read_timeout=_READ_TIMEOUT_S,
         connect_timeout=_CONNECT_TIMEOUT_S,
+        # One session (connection pool) serves every Bedrock client in the
+        # process (_share_http_session), so allow concurrent runs to keep
+        # their connections instead of discarding them.
+        max_pool_connections=50,
         **overrides,
     )
+
+
+_shared_http_session = None
+_shared_http_session_lock = threading.Lock()
+
+
+def _share_http_session(client) -> None:
+    """Point ``client`` at the process-wide botocore HTTP session.
+
+    A boto3 client is built per message; each brought its own urllib3 pool,
+    so every message opened a new TLS connection to Bedrock. The session is
+    only the connection pool: signing, the Bearer key and custom headers are
+    per-client event hooks and stay with each client. Thread-safe (urllib3).
+    """
+    global _shared_http_session
+    try:
+        endpoint = client._endpoint
+    except AttributeError:
+        return
+    with _shared_http_session_lock:
+        if _shared_http_session is None:
+            _shared_http_session = endpoint.http_session
+            return
+        own, endpoint.http_session = endpoint.http_session, _shared_http_session
+    try:
+        own.close()
+    except Exception:
+        pass
 
 
 # Map MIME types to Bedrock image format strings
@@ -221,6 +254,7 @@ class BedrockClient(LLMClient):
                 "request-created.bedrock-runtime.*", _add_extra_headers
             )
 
+        _share_http_session(self.client)
         self._region = region
         self._auth_mode = auth_mode
 
@@ -393,8 +427,21 @@ class BedrockClient(LLMClient):
             )
         )
 
-    @staticmethod
-    def _translate_messages(messages: list[Message]) -> list[dict]:
+    @classmethod
+    def _source_image_block(cls, block: dict) -> dict | None:
+        """A transcript ``{"type": "image", "source": {...}}`` block as a
+        Converse image block; None when it cannot be sent (URL source)."""
+        src = block.get("source") or {}
+        if src.get("type") == "url" or not src.get("data"):
+            return None
+        return cls._image_block(ImageInput(
+            data=src["data"],
+            media_type=src.get("media_type") or "image/png",
+            source_type="base64",
+        ))
+
+    @classmethod
+    def _translate_messages(cls, messages: list[Message]) -> list[dict]:
         out: list[dict] = []
         for msg in messages:
             role = "assistant" if msg.role == "assistant" else "user"
@@ -406,6 +453,14 @@ class BedrockClient(LLMClient):
             text_blocks = [b for b in blocks if b.get("type") == "text"]
             tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
+            # Tool images ride the transcript as image blocks hoisted into the
+            # tool-result turn (they are not on the side channel then), so
+            # dropping them here meant the model never saw a read_file page.
+            image_blocks = [
+                ib for ib in (cls._source_image_block(b) for b in blocks if b.get("type") == "image")
+                if ib is not None
+            ]
+            text = " ".join(b.get("text", "") for b in text_blocks if b.get("text"))
 
             if tool_results:
                 content = []
@@ -419,6 +474,12 @@ class BedrockClient(LLMClient):
                             "content": [{"text": tr_content}],
                         }
                     })
+                # toolResult blocks lead the turn (Anthropic models reject any
+                # block before them); images, then the turn's own text
+                # (clock, steering, nudges) follow.
+                content.extend(image_blocks)
+                if text.strip():
+                    content.append({"text": text})
                 out.append({"role": "user", "content": content})
             elif tool_uses:
                 content = []
@@ -431,12 +492,13 @@ class BedrockClient(LLMClient):
                         }
                     })
                 if text_blocks:
-                    text = " ".join(b.get("text", "") for b in text_blocks)
-                    content.insert(0, {"text": text})
+                    content.insert(0, {"text": " ".join(b.get("text", "") for b in text_blocks)})
                 out.append({"role": "assistant", "content": content})
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"role": role, "content": [{"text": text}]})
+                content = list(image_blocks)
+                if text.strip() or not content:
+                    content.append({"text": text})
+                out.append({"role": role, "content": content})
         return out
 
     @staticmethod

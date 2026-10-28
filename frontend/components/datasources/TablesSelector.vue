@@ -19,23 +19,23 @@
           <button v-for="view in ['table', 'erd'] as const" :key="view" type="button"
             :aria-pressed="tableView === view" @click="setTableView(view)"
             class="py-1.5 text-xs border-b-2 transition-colors"
-            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'">
+            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-ink-muted hover:text-gray-700 dark:hover:text-gray-200'">
             {{ t(`tableErd.${view}`) }}
           </button>
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
+        <span v-if="hasPendingChanges" class="text-2xs text-ink-muted">{{ t('tableErd.unsaved') }}</span>
         <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
-          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+          class="inline-flex items-center gap-1 text-2xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
           <UIcon name="i-heroicons-plus" class="w-3 h-3" />{{ t('tableErd.customQuery') }}
         </button>
         <NuxtLink v-else-if="!customQueriesEnabled && canAuthorCustomQueries" data-testid="custom-queries-disabled-hint"
           to="/settings/ai_settings" :title="t('tableErd.enableCustomQueries')"
-          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
+          class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <div v-if="showRefresh" class="relative inline-flex rounded-md border border-gray-200 text-[11px] text-gray-600 dark:border-gray-700 dark:text-gray-300">
+        <div v-if="showRefresh" class="relative inline-flex rounded-md border border-gray-200 text-2xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
           <button type="button" :disabled="loading || refreshing || hasPendingChanges" @click="onRefresh"
             class="inline-flex items-center gap-1.5 rounded-s-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-50 dark:hover:bg-gray-800">
             <Spinner v-if="refreshing" class="h-3 w-3" />
@@ -52,7 +52,7 @@
           </button>
           <div v-if="refreshMenuOpen && refreshActions.length" ref="refreshMenuRef" role="menu"
             class="absolute end-0 top-full z-30 mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
-            <div class="px-3 py-1.5 text-[10px] font-medium text-gray-400">{{ t('schemaIdentity.refresh') }}</div>
+            <div class="px-3 py-1.5 text-2xs font-medium text-ink-muted">{{ t('schemaIdentity.refresh') }}</div>
             <button v-for="(action, index) in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
               :aria-label="t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name })"
               :disabled="busyConnectionIds.has(action.connection.id)"
@@ -62,7 +62,7 @@
               <DataSourceIcon :type="action.connection.type" class="h-4 w-4 shrink-0" />
               <span class="min-w-0 flex-1">
                 <span class="block truncate font-medium">{{ action.connection.name }}</span>
-                <span class="block text-[10px]" :class="action.scope === 'user' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'">
+                <span class="block text-2xs" :class="action.scope === 'user' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'">
                   {{ t(action.scope === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema') }}
                 </span>
               </span>
@@ -132,7 +132,7 @@
                is served the selected tables and nothing else, so filtering by
                selection would offer one no-op and one guaranteed-empty view. -->
           <div v-if="canUpdate" class="py-1 border-b border-gray-100 dark:border-gray-800">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</div>
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider">Status</div>
             <button
               type="button"
               class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 flex items-center justify-between"
@@ -153,21 +153,21 @@
           
           <!-- Schema filter section -->
           <div class="py-1">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider flex items-center justify-between">
               <span>Schema</span>
               <button
                 v-if="selectedSchemas.length > 0"
                 type="button"
                 @click.stop="clearSchemaFilter"
-                class="text-[9px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+                class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
             </div>
-            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-gray-400 dark:text-gray-500">No schemas</div>
+            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-ink-muted">No schemas</div>
             <div v-else class="max-h-40 overflow-y-auto">
               <template v-for="(group, connName) in groupedSchemas" :key="connName">
-                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-[9px] font-medium text-gray-400 dark:text-gray-500 truncate">{{ connName }}</div>
+                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-2xs font-medium text-ink-muted truncate">{{ connName }}</div>
                 <label
                   v-for="item in group"
                   :key="item.value"
@@ -188,13 +188,13 @@
 
           <!-- Connection filter section -->
           <div v-if="availableConnections.length >= 1" class="py-1 border-t border-gray-100 dark:border-gray-800">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider flex items-center justify-between">
               <span>Connection</span>
               <button
                 v-if="selectedConnections.length > 0"
                 type="button"
                 @click.stop="clearConnectionFilter"
-                class="text-[9px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+                class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
@@ -212,7 +212,7 @@
                   class="me-1.5 h-3 w-3 rounded border-gray-300 dark:border-gray-700 text-blue-600 focus:ring-blue-500"
                 />
                 <span class="truncate">{{ conn.name }}</span>
-                <span class="ms-1 text-[9px] text-gray-400 dark:text-gray-500">({{ conn.type }})</span>
+                <span class="ms-1 text-2xs text-ink-muted">({{ conn.type }})</span>
               </label>
             </div>
           </div>
@@ -222,7 +222,7 @@
             <button
               type="button"
               @click="clearAllFilters"
-              class="w-full text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
+              class="w-full text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
             >
               Clear all filters
             </button>
@@ -267,7 +267,7 @@
       </div>
       
       <!-- Stats row -->
-      <div class="mt-1 text-[10px] text-gray-500 dark:text-gray-400 flex items-center justify-between">
+      <div class="mt-1 text-2xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
         <span v-if="isPaginated && hasActiveFilters">
           {{ totalMatching }} matching · Showing {{ paginationStart }}-{{ paginationEnd }}
         </span>
@@ -281,7 +281,7 @@
           <button
             @click="selectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            class="px-2 py-0.5 text-2xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Select all ({{ totalMatching }})</span>
@@ -290,7 +290,7 @@
           <button
             @click="deselectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            class="px-2 py-0.5 text-2xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Deselect all ({{ totalMatching }})</span>
@@ -301,7 +301,7 @@
       
       <!-- Active count row. A reader only ever sees active tables, so the
            ratio is always N/N — it reads as a stat but carries no information. -->
-      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-[10px] text-gray-500 dark:text-gray-400">
+      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-2xs text-gray-500 dark:text-gray-400">
         {{ draftSelectedCount }}/{{ totalTables }} active
       </div>
     </div>
@@ -309,7 +309,7 @@
     <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''" :aria-busy="!diagramReady && !catalogError">
       <div v-if="!catalogLoaded && !catalogError" :class="fill ? 'flex-1 min-h-[240px]' : 'h-[460px]'" />
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
-        <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
+        <Spinner class="w-6 h-6 text-ink-muted" aria-hidden="true" />
       </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :hidden-fks="canvasHiddenFks" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
@@ -331,12 +331,12 @@
       <div v-if="tables.length === 0 && connectRequiredConn" class="py-8 flex flex-col items-center gap-1.5 text-center">
         <UIcon name="i-heroicons-key" class="w-5 h-5 text-blue-500" />
         <p class="text-sm text-gray-700 dark:text-gray-200">This connection runs with your own {{ connectRequiredConn.name }} credentials.</p>
-        <p class="text-xs text-gray-400 dark:text-gray-500">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
+        <p class="text-xs text-ink-muted">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
         <button
           type="button"
           @click="onConnectAccount"
           :disabled="signingIn"
-          class="mt-2 inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+          class="mt-2 inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
         >
           <Spinner v-if="signingIn" class="w-3.5 h-3.5" />
           Connect your account
@@ -349,7 +349,7 @@
       <div v-else-if="tables.length === 0 && catalogSyncing" class="py-8 flex flex-col items-center gap-1.5 text-center">
         <Spinner class="w-4 h-4" />
         <p class="text-sm text-gray-700 dark:text-gray-200">Building your {{ props.itemNoun.plural }} list…</p>
-        <p class="text-xs text-gray-400 dark:text-gray-500">
+        <p class="text-xs text-ink-muted">
           {{ catalogSyncPhase || 'This runs in the background — it can take a moment on large drives.' }}
         </p>
       </div>
@@ -390,18 +390,18 @@
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 dark:text-gray-400 rtl-flip" />
                     <template v-if="availableConnections.length > 1">
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
-                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                      <span class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
-                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-gray-400" :title="t('tableErd.customQuery')" />
+                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-ink-muted" :title="t('tableErd.customQuery')" />
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
-                    <span v-if="table.rls_enabled" class="ms-2 text-[10px] text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
-                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
-                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
+                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
+                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
                     <UTooltip v-if="hiddenColumnCount(table)" :text="t('tableErd.columnsHiddenTooltip')">
                       <span
                         :data-testid="`cols-hidden-badge-${table.name}`"
-                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
                       >
                         <UIcon name="heroicons-eye-slash" class="w-3 h-3" />
                         {{ t('tableErd.columnsInContext', { visible: (table.columns?.length || 0) - hiddenColumnCount(table), total: table.columns?.length || 0 }) }}
@@ -414,7 +414,7 @@
                     <UTooltip v-if="hiddenFkCount(table)" :text="t('tableErd.relationshipsHiddenTooltip')">
                       <span
                         :data-testid="`rels-hidden-badge-${table.name}`"
-                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
                       >
                         <UIcon name="heroicons-eye-slash" class="w-3 h-3" />
                         {{ t('tableErd.relationshipsHiddenBadge', { count: hiddenFkCount(table) }) }}
@@ -423,14 +423,14 @@
                     <UTooltip v-if="relatedTableCount(table)" :text="relationshipSummary(table)">
                       <span
                         :data-testid="`rel-badge-${table.name}`"
-                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
                       >
                         <UIcon name="heroicons-link" class="w-3 h-3" />
                         {{ relatedTableCount(table) }}
                       </span>
                     </UTooltip>
                   </div>
-                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
+                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-2xs text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
                     <UTooltip text="Successful executed queries">
                       <span class="inline-flex items-center gap-1">
@@ -459,14 +459,14 @@
                   </span>
                 </button>
                 <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
-                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
                   <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
                 <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`columns-panel-${table.name}`">
-                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
                     <span class="flex items-center gap-1">
                       <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
                       {{ t('tableErd.columnsContextHint') }}
@@ -492,10 +492,10 @@
                         :aria-label="t('tableErd.includeColumn', { name: col.name })"
                         @update:model-value="(val: boolean) => onColumnToggle(table, col.name, val)" />
                       <div class="flex items-center gap-1.5 min-w-0">
-                        <span class="truncate" :class="isColumnVisible(table, col.name) ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 line-through'">{{ col.name }}</span>
-                        <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
+                        <span class="truncate" :class="isColumnVisible(table, col.name) ? 'text-gray-700 dark:text-gray-300' : 'text-ink-muted line-through'">{{ col.name }}</span>
+                        <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
                       </div>
-                      <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-400 dark:text-gray-600'">{{ col.dtype || col.type }}</div>
+                      <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-ink-muted'">{{ col.dtype || col.type }}</div>
                     </label>
                   </div>
                 </div>
@@ -503,7 +503,7 @@
                 <!-- Relationships -->
                 <div v-if="table.fks?.length" class="mt-2 border border-gray-100 dark:border-gray-800 rounded" :data-testid="`rels-panel-${table.name}`">
                   <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">{{ t('tableErd.relationships') }}</div>
-                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-[11px] text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
                     <span class="flex items-center gap-1">
                       <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
                       {{ t('tableErd.relationshipsContextHint') }}
@@ -525,13 +525,13 @@
                         @update:model-value="(val: boolean) => onFkToggle(table, fk, val)" />
                       <span class="min-w-0 truncate" dir="ltr" :class="visible ? '' : 'line-through opacity-60'">
                         <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
-                        <span class="text-gray-400 dark:text-gray-500 mx-1">→</span>
+                        <span class="text-ink-muted mx-1">→</span>
                         <span class="text-blue-600">{{ fk.references_name }}</span>
-                        <span class="text-gray-400 dark:text-gray-500">.</span>
+                        <span class="text-ink-muted">.</span>
                         <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
                       </span>
-                      <span v-if="!visible" class="shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.relationshipHidden') }}</span>
-                      <span v-else-if="reason" class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500 truncate"
+                      <span v-if="!visible" class="shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.relationshipHidden') }}</span>
+                      <span v-else-if="reason" class="shrink-0 text-2xs text-ink-muted truncate"
                         :data-testid="`rel-reason-${table.name}-${fk.column?.name}`">{{ reason }}</span>
                     </label>
                   </div>
@@ -540,13 +540,13 @@
                 <!-- Power BI Metadata -->
                 <div v-if="table.metadata_json?.powerbi" class="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                   <div v-if="table.metadata_json.powerbi.datasetName">
-                    <span class="text-gray-400 dark:text-gray-500">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
+                    <span class="text-ink-muted">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.workspaceName">
-                    <span class="text-gray-400 dark:text-gray-500">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
+                    <span class="text-ink-muted">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.reports?.length">
-                    <span class="text-gray-400 dark:text-gray-500">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
+                    <span class="text-ink-muted">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
                   </div>
                 </div>
 
@@ -556,19 +556,19 @@
                     <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Report details</div>
                     <div class="text-xs text-gray-600 dark:text-gray-400 px-2 py-1 space-y-0.5">
                       <div v-if="table.metadata_json.powerbi_report_server.report_type">
-                        <span class="text-gray-400 dark:text-gray-500">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
+                        <span class="text-ink-muted">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.path">
-                        <span class="text-gray-400 dark:text-gray-500">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
+                        <span class="text-ink-muted">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_by">
-                        <span class="text-gray-400 dark:text-gray-500">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
+                        <span class="text-ink-muted">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_date">
-                        <span class="text-gray-400 dark:text-gray-500">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
+                        <span class="text-ink-muted">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
                       </div>
                       <div>
-                        <span class="text-gray-400 dark:text-gray-500">Queryable:</span>
+                        <span class="text-ink-muted">Queryable:</span>
                         <span :class="table.metadata_json.powerbi_report_server.queryable ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'">
                           {{ table.metadata_json.powerbi_report_server.queryable ? 'yes' : 'no (metadata only)' }}
                         </span>
@@ -603,7 +603,7 @@
                   </div>
 
                   <div v-if="table.metadata_json.powerbi_report_server.parameters?.length" class="text-xs text-gray-600 dark:text-gray-400">
-                    <span class="text-gray-400 dark:text-gray-500">Parameters:</span>
+                    <span class="text-ink-muted">Parameters:</span>
                     <span
                       v-for="(p, idx) in table.metadata_json.powerbi_report_server.parameters"
                       :key="idx"
@@ -669,7 +669,7 @@
       <button 
         @click="onSave" 
         :disabled="saving || bulkUpdating || catalogLoading"
-        class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+        class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>

@@ -526,8 +526,9 @@ class GrepFilesInput(BaseModel):
         description=(
             "For files on a FILE SOURCE: the connection UUID from the `id=` "
             "attribute of the `<connection>` tag (Connection ID or "
-            "DataSource/agent ID). LEAVE EMPTY to grep the files attached to "
-            "this conversation (the <files> block) instead."
+            "DataSource/agent ID). LEAVE EMPTY to grep the files in this "
+            "conversation's <files> block instead — uploads and the agent's "
+            "library files (those carry source=\"agent\")."
         ),
     )
     pattern: str = Field(
@@ -546,7 +547,8 @@ class GrepFilesInput(BaseModel):
     file_ids: Optional[List[str]] = Field(
         None,
         description=(
-            "Explicit files to scan (ids from list_files / search_files). "
+            "Explicit files to scan (ids from the <files> block, list_files or "
+            "search_files). "
             "Mutually exclusive with name_pattern/folder_id — use this to grep "
             "a known set, or name_pattern to sweep a corpus."
         ),

@@ -16,8 +16,8 @@
     <div v-if="embedded" class="shrink-0 px-5 pt-5 pb-4" data-testid="list-pane-header">
       <div class="flex items-start gap-3">
         <div class="min-w-0 flex-1">
-          <h2 dir="auto" class="text-[15px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate" data-testid="list-title">{{ list.name }}</h2>
-          <div class="mt-1 flex items-center gap-2 text-[12px] text-gray-500 dark:text-gray-400">
+          <h2 dir="auto" class="text-base font-semibold tracking-tight text-gray-900 dark:text-gray-100 truncate" data-testid="list-title">{{ list.name }}</h2>
+          <div class="mt-1 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             <span class="tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
             <Transition name="fade">
               <span v-if="writing" class="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-300" data-testid="list-writing">
@@ -26,7 +26,7 @@
               </span>
             </Transition>
           </div>
-          <p v-if="list.description" dir="auto" class="mt-2 text-[13px] leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2">{{ list.description }}</p>
+          <p v-if="list.description" dir="auto" class="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2">{{ list.description }}</p>
         </div>
         <div class="shrink-0 flex items-center gap-0.5 -me-1.5">
           <button type="button" data-testid="list-export-csv" :disabled="exporting" :title="$t('lists.exportCsv')" :aria-label="$t('lists.exportCsv')" class="h-8 w-8 rounded-full inline-flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white transition-colors disabled:opacity-50" @click="exportCsv(false)">
@@ -47,8 +47,8 @@
     <div v-else class="shrink-0 px-6 pt-3 pb-3 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-2">
         <button type="button" data-testid="list-back" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('back')">
-          <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
-          <span class="text-[13px] text-gray-500 dark:text-gray-400">{{ $t('lists.back') }}</span>
+          <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-ink-muted shrink-0 rtl:rotate-180" />
+          <span class="text-sm text-gray-500 dark:text-gray-400">{{ $t('lists.back') }}</span>
         </button>
         <div v-if="checked.length" class="ms-auto flex items-center gap-2" data-testid="list-selection-bar">
           <span class="text-xs text-gray-600 dark:text-gray-300 tabular-nums" data-testid="list-selected-count">{{ $t('lists.selectedCount', { n: checked.length }) }}</span>
@@ -58,7 +58,7 @@
           </button>
         </div>
         <div v-else class="ms-auto flex items-center gap-2">
-          <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
+          <span class="text-xs text-ink-muted tabular-nums" data-testid="list-row-total">{{ $t('lists.rowsCount', { n: total }, total) }}</span>
           <button
             type="button"
             data-testid="list-export-csv"
@@ -79,7 +79,7 @@
       </div>
       <h2 dir="auto" class="mt-2 text-base font-semibold text-gray-900 dark:text-white" data-testid="list-title">{{ list.name }}</h2>
       <p v-if="list.description" dir="auto" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ list.description }}</p>
-      <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <p class="mt-1.5 text-2xs text-ink-muted flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span>{{ $t('lists.saveHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.tool_name }}</code>
         <span>·</span>
         <span>{{ $t('lists.queryHint') }}</span><code class="font-mono text-gray-500 dark:text-gray-400">{{ list.table_name }}</code>
@@ -87,28 +87,28 @@
     </div>
 
     <div class="flex-1 min-h-0 overflow-auto">
-      <div v-if="loading && !rows.length" class="flex items-center gap-2 py-8 justify-center text-xs text-gray-400 dark:text-gray-500">
+      <div v-if="loading && !rows.length" class="flex items-center gap-2 py-8 justify-center text-xs text-ink-muted">
         <Spinner class="w-3.5 h-3.5" /><span>{{ $t('lists.loading') }}</span>
       </div>
 
       <div v-else-if="!rows.length" class="flex flex-col items-center justify-center text-center py-14 px-4" data-testid="list-rows-empty">
         <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white dark:bg-gray-900 ring-1 ring-gray-200/70 dark:ring-gray-700/70 shadow-sm">
-          <UIcon name="i-heroicons-table-cells" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+          <UIcon name="i-heroicons-table-cells" class="w-5 h-5 text-ink-muted" />
         </div>
         <h3 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">{{ $t('lists.noRows') }}</h3>
         <p dir="auto" class="mt-1.5 max-w-sm text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('lists.noRowsHint', { name: list.name }) }}</p>
         <div class="mt-4 flex flex-wrap justify-center gap-1.5 max-w-md">
-          <span v-for="f in list.fields" :key="f.id" class="px-2 h-6 inline-flex items-center rounded-md bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-[11px] font-mono text-gray-500 dark:text-gray-400">{{ f.name }}</span>
+          <span v-for="f in list.fields" :key="f.id" class="px-2 h-6 inline-flex items-center rounded-md bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 text-2xs font-mono text-gray-500 dark:text-gray-400">{{ f.name }}</span>
         </div>
       </div>
 
       <!-- Side-pane grid: readable column labels, no selection or timestamp
            columns, hairline separators. Row actions stay in the row panel. -->
       <div v-else-if="embedded" class="px-3 pb-4">
-        <table class="w-full text-[13px]" data-testid="list-rows-table">
+        <table class="w-full text-sm" data-testid="list-rows-table">
           <thead class="sticky top-0 z-10 bg-white dark:bg-gray-900">
             <tr>
-              <th v-for="f in list.fields" :key="f.id" class="px-2 pt-1 pb-2 text-[12px] font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-200/70 dark:border-gray-800" :class="numeric(f) ? 'text-end' : 'text-start'">{{ label(f) }}</th>
+              <th v-for="f in list.fields" :key="f.id" class="px-2 pt-1 pb-2 text-xs font-medium text-gray-500 dark:text-gray-400 whitespace-nowrap border-b border-gray-200/70 dark:border-gray-800" :class="numeric(f) ? 'text-end' : 'text-start'">{{ label(f) }}</th>
             </tr>
           </thead>
           <TransitionGroup tag="tbody" name="list-row">
@@ -131,7 +131,7 @@
                 <span v-if="cell(r, f).empty" class="text-gray-300 dark:text-gray-600">—</span>
                 <span v-else class="inline-flex items-center gap-1 max-w-full">
                   <bdi class="truncate" :class="i === 0 ? 'font-medium text-gray-900 dark:text-gray-100' : 'text-gray-600 dark:text-gray-300'">{{ cell(r, f).text }}</bdi>
-                  <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-gray-400" :title="$t('lists.row.edited')" />
+                  <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-ink-muted" :title="$t('lists.row.edited')" />
                 </span>
               </td>
             </tr>
@@ -141,13 +141,13 @@
 
       <table v-else class="min-w-full text-xs" data-testid="list-rows-table">
         <thead class="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur">
-          <tr class="text-start text-[11px] text-gray-500 dark:text-gray-400">
+          <tr class="text-start text-2xs text-gray-500 dark:text-gray-400">
             <th v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 border-b border-gray-100 dark:border-gray-800">
               <input type="checkbox" data-testid="list-select-all" class="rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500/30" :aria-label="$t('lists.selectAll')" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" @change="toggleAll" />
             </th>
             <th v-for="f in list.fields" :key="f.id" class="px-3 py-2 font-medium text-start whitespace-nowrap border-b border-gray-100 dark:border-gray-800">
               <span class="font-mono">{{ f.name }}</span>
-              <UIcon v-if="f.id === list.key_field_id" name="i-heroicons-key" class="w-3 h-3 ms-1 align-[-2px] text-gray-400" />
+              <UIcon v-if="f.id === list.key_field_id" name="i-heroicons-key" class="w-3 h-3 ms-1 align-[-2px] text-ink-muted" />
             </th>
             <th class="px-3 py-2 font-medium text-end whitespace-nowrap border-b border-gray-100 dark:border-gray-800">{{ $t('lists.updated') }}</th>
           </tr>
@@ -170,10 +170,10 @@
               <div class="flex items-center gap-1 min-w-0">
                 <span v-if="cell(r, f).empty" class="text-gray-300 dark:text-gray-600">—</span>
                 <span v-else class="truncate text-gray-800 dark:text-gray-200" :class="numeric(f) ? 'tabular-nums' : ''"><bdi>{{ cell(r, f).text }}</bdi></span>
-                <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-gray-400" :title="$t('lists.row.edited')" />
+                <UIcon v-if="r.locked_fields.includes(f.id!)" name="i-heroicons-lock-closed" class="w-3 h-3 shrink-0 text-ink-muted" :title="$t('lists.row.edited')" />
               </div>
             </td>
-            <td class="px-3 py-2 text-end whitespace-nowrap text-gray-400 dark:text-gray-500">
+            <td class="px-3 py-2 text-end whitespace-nowrap text-ink-muted">
               <UIcon v-if="r.stale" name="i-heroicons-exclamation-triangle" class="w-3 h-3 me-1 align-[-2px] text-amber-500" :title="$t('lists.row.stale')" />
               {{ timeAgo(r.updated_at) }}
             </td>

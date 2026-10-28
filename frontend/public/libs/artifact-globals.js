@@ -981,8 +981,13 @@
       : h('div', { className: 'text-xs text-ink-3 py-4 text-center' }, 'No query available for this visualization.'));
   }
 
+  // The ⓘ's geometry is pinned inline: dashboards often style `button`/`svg`
+  // generically (e.g. `#root button { padding; border }`), which would squeeze
+  // the glyph to nothing inside a padded box. Inline styles outrank those rules.
+  var INFO_BTN_BOX = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 0, margin: 0, minWidth: 0, minHeight: 0, width: 20, height: 20, borderRadius: 9999, boxSizing: 'border-box', lineHeight: 0 };
   function _infoGlyph(size) {
-    return h('svg', { width: size || 15, height: size || 15, viewBox: '0 0 16 16', fill: 'none' }, [
+    var px = size || 15;
+    return h('svg', { width: px, height: px, viewBox: '0 0 16 16', fill: 'none', style: { width: px, height: px, minWidth: px, flexShrink: 0, display: 'block' } }, [
       h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
       h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
       h('path', { key: 'b', d: 'M8 7.4v4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' })
@@ -1061,6 +1066,7 @@
     return h('span', { className: 'inline-flex align-middle', 'data-bow-info': '1' }, [
       h('button', {
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
+        style: Object.assign({ border: 0 }, INFO_BTN_BOX),
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors ' + (open ? POP.btnOn : POP.btnOff)
       }, _infoGlyph(15)),
@@ -1891,6 +1897,57 @@
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // Whether laid-out content in `node` overlaps `box`: when `deep`, every text
+  // node inside it plus text-less visuals (images, icons, controls); else only
+  // its own direct text (an ancestor's words around the owner, which
+  // elementsFromPoint cannot see). Text nodes, not the node's contents as one
+  // range: a range over a wrapper also returns the wrapper's whole box.
+  var _INFO_VISUALS = 'img,svg,canvas,video,input,select,textarea,button';
+  function _overlapsText(node, box, deep) {
+    var hit = function(r) { return r.width && r.height && r.left < box.right && box.left < r.right && r.top < box.bottom && box.top < r.bottom; };
+    var texts = [];
+    if (deep) {
+      var walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      for (var n = walker.nextNode(); n; n = walker.nextNode()) if (/\S/.test(n.nodeValue)) texts.push(n);
+      var visuals = node.querySelectorAll(_INFO_VISUALS);
+      for (var v = 0; v < visuals.length; v++) if (hit(visuals[v].getBoundingClientRect())) return true;
+    } else {
+      texts = Array.prototype.filter.call(node.childNodes, function(c) { return c.nodeType === 3 && /\S/.test(c.nodeValue); });
+    }
+    var range = document.createRange();
+    for (var i = 0; i < texts.length; i++) {
+      range.selectNodeContents(texts[i]);
+      var rects = range.getClientRects();
+      for (var j = 0; j < rects.length; j++) if (hit(rects[j])) return true;
+    }
+    return false;
+  }
+
+  // True when a 20px marker at (x, y) would cover only background: at each probe
+  // point the topmost element (ignoring the overlay itself) must be an ancestor
+  // of the owner, never the owner's own content or an unrelated element, and
+  // that ancestor's own text must not reach into the spot.
+  function _markerSpotFree(x, y, owner) {
+    if (x < 4 || y < 2 || x + 24 > window.innerWidth || y + 22 > window.innerHeight) return false;
+    var box = { left: x, top: y, right: x + 20, bottom: y + 20 };
+    var checked = [];
+    var pts = [[x + 1, y + 1], [x + 19, y + 1], [x + 1, y + 19], [x + 19, y + 19], [x + 10, y + 10]];
+    for (var k = 0; k < pts.length; k++) {
+      var hits = document.elementsFromPoint(pts[k][0], pts[k][1]);
+      for (var j = 0; j < hits.length; j++) {
+        var e = hits[j];
+        if (e.closest && e.closest('[data-bow-ibtn], [data-bow-panel]')) continue;
+        if (e === owner || !e.contains(owner)) return false;
+        if (checked.indexOf(e) === -1) {
+          checked.push(e);
+          if (_overlapsText(e, box, false)) return false;
+        }
+        break;
+      }
+    }
+    return true;
+  }
+
   window.InfoOverlay = function() {
     var _tick = React.useState(0), setTick = _tick[1];
     var _open = React.useState(null), openT = _open[0], setOpenT = _open[1];
@@ -1928,12 +1985,27 @@
       var raw = el.getAttribute('data-bow-viz');
       var byId = null;
       if (raw && !/^\d+$/.test(raw)) byId = window.vizById(raw);
-      targets.push({ ownerIndex: i, rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
+      targets.push({ ownerIndex: i, el: el, rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
     }
     var markerPositions = [];
     var markers = targets.map(function(t, i) {
       var top = Math.max(2, t.rect.top + 6);
       var left = rtl ? t.rect.left + 4 : t.rect.right - 24;
+      // An owner too short to host the marker (a label, a chip) can have it
+      // sitting on its text. Only then: use free space just beside its end
+      // edge, else above or below its end corner; keep the inner corner when
+      // none is free. A short owner whose corner is empty keeps it.
+      if (t.rect.height < 32 && _overlapsText(t.el, { left: left, top: top, right: left + 20, bottom: top + 20 }, true)) {
+        var endX = rtl ? t.rect.left : t.rect.right - 20;
+        var spots = [
+          { left: rtl ? t.rect.left - 24 : t.rect.right + 4, top: t.rect.top + (t.rect.height - 20) / 2 },
+          { left: endX, top: t.rect.top - 22 },
+          { left: endX, top: t.rect.bottom + 2 }
+        ];
+        for (var s = 0; s < spots.length; s++) {
+          if (_markerSpotFree(spots[s].left, spots[s].top, t.el)) { left = spots[s].left; top = spots[s].top; break; }
+        }
+      }
       if (!LEGACY) {
         // Nested source-backed elements can share a corner. Keep each detail
         // control reachable instead of placing one button over another.
@@ -1945,11 +2017,14 @@
         }
         markerPositions.push({ left: left, top: top });
       }
+      // Where the marker really sits (it may have moved off the owner's
+      // corner), so the open panel never covers it.
+      t.markerTop = top;
       // data-bow-info-for: index of the marked element in document order, so
       // the polish picker can resolve this detached marker to its owner.
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'data-bow-info-for': String(t.ownerIndex), 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
-        style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
+        style: Object.assign({ position: 'fixed', top: top, left: left, zIndex: 99998 }, INFO_BTN_BOX),
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));
     });
     var panel = null;
@@ -1962,7 +2037,7 @@
       var vizForPanel = Object.assign({}, viz, { title: openT.title || viz.title });
       panel = _popoverPanel(vizForPanel, tab, setTab, function() { setOpenT(null); },
         tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc }),
-        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? (openT.rect.top + 28) : undefined, bottom: below ? undefined : (window.innerHeight - openT.rect.top + 6), display: 'flex', flexDirection: 'column' },
+        { position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh', top: below ? Math.max(openT.rect.top + 28, openT.markerTop + 22) : undefined, bottom: below ? undefined : (window.innerHeight - Math.min(openT.rect.top, openT.markerTop) + 6), display: 'flex', flexDirection: 'column' },
         { ref: panelRef, 'data-bow-panel': '1' });
     }
     if (!markers.length && !panel) return null;
@@ -1991,8 +2066,55 @@
         return _origReact(api, Object.assign({}, opts, { runtime: 'classic' }), dir);
       };
     }
+    // Artifact code runs as a classic script, where `import` is a syntax
+    // error, so import statements are removed before it runs. Most imports
+    // only name things that already exist as sandbox globals (React,
+    // useState, echarts, …) and removing them is enough. An import that
+    // introduces a NEW local name — `{ useState as useLocal }`,
+    // `import R from 'react'`, `import * as E from 'echarts'` — is replaced
+    // with a declaration bound to the matching global instead; removing it
+    // left that name undefined. Plain imports keep being removed (declaring
+    // them could clash with code that defines the same name itself).
+    var IMPORT_GLOBALS = { 'react': 'React', 'react-dom': 'ReactDOM', 'react-dom/client': 'ReactDOM', 'echarts': 'echarts', 'lucide': 'lucide' };
+    window.__bowResolveImport = function(mod, name) {
+      var g = IMPORT_GLOBALS[mod];
+      var ns = g ? window[g] : undefined;
+      if (name === 'default' || name === '*') return ns;
+      if (ns && ns[name] !== undefined) return ns[name];
+      return window[name];
+    };
+    function importBindings(clause, mod) {
+      var canonical = IMPORT_GLOBALS[mod];
+      var decls = [];
+      var c = clause;
+      function bind(local, name) {
+        decls.push(local + ' = window.__bowResolveImport(' + JSON.stringify(mod) + ', ' + JSON.stringify(name) + ')');
+      }
+      var braces = c.match(/\{([\s\S]*)\}/);
+      if (braces) {
+        braces[1].split(',').forEach(function(part) {
+          var m = part.trim().match(/^([\w$]+)(?:\s+as\s+([\w$]+))?$/);
+          if (!m) return;
+          var imported = m[1], local = m[2] || m[1];
+          if (imported === 'default') { if (canonical && local !== canonical) bind(local, 'default'); }
+          else if (local !== imported) bind(local, imported);
+        });
+        c = c.replace(braces[0], '');
+      }
+      var ns = c.match(/\*\s*as\s+([\w$]+)/);
+      if (ns) {
+        if (canonical && ns[1] !== canonical) bind(ns[1], '*');
+        c = c.replace(ns[0], '');
+      }
+      var def = c.replace(/,/g, ' ').trim();
+      if (/^[\w$]+$/.test(def) && canonical && def !== canonical) bind(def, 'default');
+      return decls.length ? 'var ' + decls.join(', ') + ';' : '';
+    }
     function stripImports(code) {
-      var s = code.replace(/import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '');
+      var s = code.replace(/^[ \t]*import\s+([^'";]+?)\s+from\s*(['"])([^'"]+)\2[ \t]*;?/gm, function(_, clause, _q, mod) {
+        return importBindings(clause, mod);
+      });
+      s = s.replace(/import\s*\{[^}]*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '');
       return s.replace(/^[ \t]*import\b(?!\s*\().*$/gm, '');
     }
     var _origAppendChild = Node.prototype.appendChild;

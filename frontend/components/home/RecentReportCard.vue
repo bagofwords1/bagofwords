@@ -29,7 +29,7 @@
       <div
         v-if="isOwner"
         class="absolute top-2 end-2 opacity-0 group-hover:opacity-100 transition-opacity"
-        @click.prevent="navigateTo(`/reports/${report.id}`)"
+        @click.prevent="onEdit"
       >
         <div class="p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm">
           <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-600 dark:text-gray-400" />
@@ -56,7 +56,7 @@
         <span class="truncate">{{ report.title || 'Untitled' }}</span>
         <ReportStatusDot :report-id="report.id" />
       </h3>
-      <p class="text-xs text-gray-400 mt-1 truncate">
+      <p class="text-xs text-ink-muted mt-1 truncate">
         {{ report.user?.name ? `by ${report.user.name}` : '' }}
       </p>
     </div>
@@ -82,7 +82,18 @@ const props = defineProps<{
   report: Report
   viewMode: 'org' | 'my'
   isOwner?: boolean
+  // A dashboard's card (phase 8): its /d page, and its editing conversation
+  // for the pencil (none: the parent opens one -- 'edit').
+  to?: string
+  editTo?: string | null
 }>()
+const emit = defineEmits<{ (e: 'edit'): void }>()
+
+const onEdit = () => {
+  if (props.to === undefined) return navigateTo(`/reports/${props.report.id}`)
+  if (props.editTo) return navigateTo(props.editTo)
+  emit('edit')
+}
 
 const config = useRuntimeConfig()
 const imageError = ref(false)
@@ -102,6 +113,7 @@ const onImageError = () => {
 }
 
 const reportLink = computed(() => {
+  if (props.to) return props.to
   if (props.viewMode === 'my') {
     return `/reports/${props.report.id}`
   }

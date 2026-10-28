@@ -3,22 +3,22 @@
     <!-- Status header (click to expand) -->
     <Transition name="fade" appear>
       <div
-        class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
         <span v-if="status === 'running'" class="flex items-center min-w-0">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer truncate">{{ runningLabel }}</span>
         </span>
         <span v-else class="flex items-center min-w-0" :class="isError ? 'text-gray-600 dark:text-gray-400' : 'text-gray-600 dark:text-gray-400'">
           <Icon :name="headerIcon" class="w-3 h-3 me-1.5 shrink-0" :class="iconColor" />
           <span class="truncate">{{ doneLabel }}</span>
-          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-gray-400">{{ $t('tools.browser.updateStates.pending') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-gray-400 dark:text-gray-500">{{ displayUrl }}</span>
-          <span v-if="blockedReason" class="ms-1.5 text-[10px] text-amber-500 shrink-0">{{ blockedReason }}</span>
+          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ $t('tools.browser.updateStates.pending') }}</span>
+          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-ink-muted">{{ displayUrl }}</span>
+          <span v-if="blockedReason" class="ms-1.5 text-2xs text-amber-500 shrink-0">{{ blockedReason }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-gray-400 dark:text-gray-500 rtl-flip shrink-0"
+            class="w-3 h-3 ms-1 text-ink-muted rtl-flip shrink-0"
           />
         </span>
       </div>
@@ -27,7 +27,7 @@
     <!-- Expanded content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
-        <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
 
@@ -45,28 +45,28 @@
 
         <!-- Downloads -->
         <div v-if="downloads.length" class="flex flex-col gap-0.5">
-          <div v-for="d in downloads" :key="d.file_id" class="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
-            <Icon name="heroicons-arrow-down-tray" class="w-3 h-3 text-gray-400" />
+          <div v-for="d in downloads" :key="d.file_id" class="flex items-center gap-1 text-2xs text-gray-600 dark:text-gray-300">
+            <Icon name="heroicons-arrow-down-tray" class="w-3 h-3 text-ink-muted" />
             <span class="truncate">{{ d.filename }}</span>
           </div>
         </div>
 
         <!-- Extracted text -->
         <div v-if="text" class="max-h-40 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-          <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ text }}</pre>
+          <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ text }}</pre>
         </div>
 
         <!-- Accessibility snapshot -->
         <div v-if="snapshot" class="group">
           <div
-            class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click.stop="showSnapshot = !showSnapshot"
           >
-            <Icon :name="showSnapshot ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-2.5 h-2.5 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
+            <Icon :name="showSnapshot ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip" />
             <span>{{ $t('tools.browser.snapshot') }}</span>
           </div>
           <div v-if="showSnapshot" class="max-h-48 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-            <pre class="text-[10px] leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ snapshot }}</pre>
+            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ snapshot }}</pre>
           </div>
         </div>
       </div>
@@ -129,7 +129,7 @@ const iconColor = computed(() => {
   if (rj.value?.evidence?.errors?.length || rj.value?.evidence?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
   if (isError.value) return 'text-orange-500'
   if (blockedReason.value) return 'text-amber-500'
-  if (rj.value?.evidence?.update_status === 'pending') return 'text-gray-400'
+  if (rj.value?.evidence?.update_status === 'pending') return 'text-ink-muted'
   return 'text-green-500'
 })
 

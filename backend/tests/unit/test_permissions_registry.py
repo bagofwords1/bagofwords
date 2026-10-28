@@ -16,7 +16,7 @@ from app.core.permissions_registry import (
 EXPECTED_ORG_PERMS = {
     "view_reports", "create_reports", "update_reports", "delete_reports", "publish_reports",
     "manage_files",
-    "create_data_source", "manage_connections",
+    "create_data_source", "create_connections", "manage_connections",
     "manage_instructions",
     "manage_entities",
     "manage_evals",
@@ -29,7 +29,7 @@ EXPECTED_ORG_PERMS = {
 
 def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 20
+    assert len(ALL_PERMISSIONS) == 21
 
 
 def test_full_admin_access_is_not_in_all_permissions():

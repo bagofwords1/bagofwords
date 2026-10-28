@@ -65,9 +65,10 @@ def _looks_like_session_file_id(file_id: str) -> bool:
 # rationally concludes the read returned nothing (then re-reads in a loop).
 # Past observations are compacted to "N chars" by ObservationContextBuilder,
 # so only the latest read pays this context cost in full.
-_OBS_DETAILS_MAX_CHARS = 4000
-# Windowed reads exist for sequential consumption — give them a bigger budget
-# and tell the model how to page losslessly (pass length <= this budget).
+# Same as the windowed budget: at 4,000 the model read a large catalogue in
+# a few small pieces and guessed the rest instead of paging or grepping.
+_OBS_DETAILS_MAX_CHARS = 8000
+# Windowed reads: tell the model how to page losslessly (pass length <= this).
 _OBS_WINDOW_DETAILS_MAX_CHARS = 8000
 
 # Default page for a windowed read when the model omits `length`. The same
@@ -198,7 +199,24 @@ def _parse_page_range(value: str) -> "Optional[tuple]":
         return None
 
 
-def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
+def _grep_hint(file_id: str | None, connection_id: str | None) -> str:
+    """How to look things up in a file too long to read whole: grep it."""
+    target = f'file_ids=["{file_id}"]' if file_id else "file_ids=[<this file>]"
+    if connection_id:
+        target += f', connection_id="{connection_id}"'
+    return (
+        f"to FIND specific entries (names, keys, definitions) grep instead of paging: "
+        f"grep_files({target}, pattern=\"keyword1|keyword2\", ignore_case=true, after=3)"
+    )
+
+
+def _content_details(
+    output: Dict[str, Any],
+    *,
+    max_chars: int,
+    file_id: str | None = None,
+    connection_id: str | None = None,
+) -> str:
     """Bounded, model-facing excerpt of a read's content with an honest
     trailer: what's shown, where the full content lives, how to get the rest."""
     body = output.get("text") if output.get("text") is not None else output.get("csv")
@@ -207,19 +225,27 @@ def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
     shown = body[:max_chars]
     if len(body) <= max_chars and not output.get("truncated"):
         return shown
-    bits = [f"showing first {len(shown):,} of {len(body):,} chars retrieved"]
+    bits = [
+        f"PARTIAL: showing first {len(shown):,} of {len(body):,} chars retrieved — "
+        "do not treat this as the whole file"
+    ]
     if output.get("truncated"):
         bits.append("the retrieved content itself was truncated at max_chars/max_rows")
     sfid = output.get("session_file_id")
     if sfid:
         bits.append(f"full file is attached as session_file_id={sfid} (use inspect_data to analyze it)")
+    if output.get("text") is not None:
+        bits.append(_grep_hint(file_id, connection_id))
     # Name the id to page with. The line above advertises session_file_id,
     # and in the feedback loop the model paged with THAT id plus the
-    # connection_id — a provider 404 — before correcting itself.
+    # connection_id — a provider 404 — before correcting itself. A file in
+    # this conversation's <files> block has no connection_id to repeat.
+    same = "the same file_id and connection_id" if connection_id else "the same file_id (no connection_id)"
     bits.append(
-        f"page the rest with windowed reads: re-issue THIS read with the same "
-        f"file_id and connection_id plus offset={len(shown)}, length<=8000 "
-        f"(not the session_file_id) — do NOT re-run the same read"
+        f"to read it ALL, page with windowed reads: re-issue THIS read with "
+        f"{same} plus offset={len(shown)}, length<=8000"
+        + (" (not the session_file_id)" if sfid else "")
+        + " — do NOT re-run the same read"
     )
     return shown + "\n[" + "; ".join(bits) + "]"
 
@@ -546,7 +572,10 @@ class ReadFileTool(Tool):
                         f"length<={_OBS_WINDOW_DETAILS_MAX_CHARS} to page without loss]"
                     )
                 elif not window.get("eof"):
-                    details += f"\n[continue from offset={window.get('next_cursor')}]"
+                    details += (
+                        f"\n[continue from offset={window.get('next_cursor')}; "
+                        f"{_grep_hint(data.file_id, data.connection_id)}]"
+                    )
                 observation["details"] = details
             yield ToolEndEvent(type="tool.end", payload={
                 "output": output,
@@ -1175,7 +1204,10 @@ class ReadFileTool(Tool):
         # The content itself, bounded — without this the model receives only
         # the summary line above and re-reads the file forever.
         if ct in ("text", "json", "tabular") and allow_llm_see_data(runtime_ctx):
-            details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
+            details = _content_details(
+                output, max_chars=_OBS_DETAILS_MAX_CHARS,
+                file_id=data.file_id, connection_id=data.connection_id,
+            )
             if output.get("garbled"):
                 details = (
                     "[warning: this document's text layer is garbled (broken "

@@ -8,7 +8,7 @@
       <!-- Header -->
       <div v-show="!expanded" class="flex items-center justify-between mb-1">
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Create Data Agent</h3>
-        <button class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" @click="isOpen = false">
+        <button class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300" @click="isOpen = false">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
@@ -34,7 +34,7 @@
       <div v-if="step === 'connect'">
         <!-- Loading connections -->
         <div v-if="loadingConnections" class="flex flex-col items-center justify-center py-16">
-          <Spinner class="h-4 w-4 text-gray-400 dark:text-gray-500" />
+          <Spinner class="h-4 w-4 text-ink-muted" />
           <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">Loading connections...</p>
         </div>
 
@@ -79,14 +79,14 @@
                     </div>
                   </template>
                 </div>
-                <span v-else class="text-gray-400 dark:text-gray-500">Select connections</span>
+                <span v-else class="text-ink-muted">Select connections</span>
               </template>
               <template #option="{ option }">
                 <div class="flex items-center gap-2 w-full">
                   <DataSourceIcon :type="option.type" :connector-key="option.connector_key" class="h-4 flex-shrink-0" />
                   <div class="flex-1 min-w-0">
                     <div class="font-medium truncate">{{ option.name }}</div>
-                    <div class="text-[10px] text-gray-400 dark:text-gray-500">
+                    <div class="text-2xs text-ink-muted">
                       {{ connectionCountLabel(option) }} · {{ option.agent_count || 0 }} agents
                     </div>
                   </div>
@@ -96,6 +96,7 @@
             <button
               type="button"
               class="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
+              v-if="canCreateConnection"
               :disabled="creatingFromConnection"
               @click="showAddConnectionModal = true"
             >
@@ -159,7 +160,7 @@
 
             <div class="border border-gray-200 dark:border-gray-800 rounded-md px-3 py-2 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
               <!-- Loading overlay -->
-              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-gray-400 dark:text-gray-500">
+              <div v-if="loadingDraft" class="flex items-center justify-center gap-2 py-10 text-xs text-ink-muted">
                 <Spinner class="w-4 h-4" />
                 <span>Generating overview instruction…</span>
               </div>
@@ -176,14 +177,14 @@
           </div>
 
           <!-- Git integration — only shown when no repo is connected -->
-          <div v-if="!integration?.git_repository" class="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+          <div v-if="!integration?.git_repository" class="flex items-center gap-1.5 text-xs text-ink-muted">
             <GitBranchIcon class="w-3.5 h-3.5" />
             <span>Connect a git repository for Tableau, dbt, and markdown context —</span>
             <button class="text-blue-500 hover:text-blue-600 underline-offset-2 hover:underline" @click="showGitModal = true">integrate</button>
           </div>
 
           <div class="flex items-center gap-3 justify-start rtl:flex-row-reverse pt-4">
-            <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+            <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
               <span v-if="saving">Saving...</span>
               <span v-else>Finish</span>
             </button>
@@ -309,7 +310,14 @@ async function loadConnections() {
   }
 }
 
+// Creating a connection needs `create_connections` (POST /connections); without
+// it the button would only lead to a 403.
+const canCreateConnection = computed(() => useCan('create_connections'))
+
 async function handleNewConnectionCreated(connectionData: any) {
+  // The creator owns the new connection — refresh the session so its
+  // per-connection permissions reach the permission store.
+  try { await useAuth().getSession() } catch {}
   await loadConnections()
   if (connectionData?.id) {
     const newConn = connections.value.find(c => c.id === connectionData.id)

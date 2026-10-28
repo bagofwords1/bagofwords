@@ -5,7 +5,7 @@
             <div class="flex items-center justify-between mb-3">
                 <h1 class="text-base font-semibold text-gray-900 dark:text-white">Instructions</h1>
                 <button @click="instructionsListModal = false"
-                    class="text-gray-400 hover:text-gray-600 outline-none">
+                    class="text-ink-muted hover:text-gray-600 outline-none">
                     <Icon name="heroicons:x-mark" class="w-5 h-5" />
                 </button>
             </div>

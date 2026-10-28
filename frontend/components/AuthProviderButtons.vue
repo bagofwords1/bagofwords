@@ -14,7 +14,7 @@
       <template v-else>
         <img v-if="iconSrc(p)" :src="iconSrc(p)!" alt="" aria-hidden="true" :class="iconClass" />
         <UIcon v-else name="i-heroicons-lock-closed" aria-hidden="true"
-               :class="[iconClass, 'text-gray-400 dark:text-gray-500']" />
+               :class="[iconClass, 'text-ink-muted']" />
         <span>{{ mode === 'sign-up'
           ? $t('auth.continueWithProvider', { provider: label(p) })
           : $t('auth.signInWithProvider', { provider: label(p) }) }}</span>

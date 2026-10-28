@@ -288,10 +288,11 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    # JSON-RPC tools/list additionally filters out tools whose
-    # required_ds_permission the caller lacks (see routes/mcp.py), so the count
-    # here is one lower than the unfiltered REST endpoint.
-    assert len(tools) == 14
+    # JSON-RPC tools/list additionally filters out tools the caller can't use
+    # (required_ds_permission, send_email without outbound mail; see
+    # routes/mcp.py), so the count here is one lower than the unfiltered REST
+    # endpoint. The caller is the org admin, so every builder tool is listed.
+    assert len(tools) == 20
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -303,6 +304,10 @@ def test_mcp_tools_list(
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    assert "read_instruction" in tool_names
+    assert "edit_instruction" in tool_names
+    assert "describe_tables" in tool_names
+    assert "edit_schema" in tool_names
     assert "list_agent_tools" in tool_names
     assert "execute_mcp" in tool_names
     # App-only tools (hidden from LLM, used by MCP App UIs)
@@ -474,7 +479,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 15
+    assert len(tools) == 21
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -486,6 +491,10 @@ def test_mcp_rest_tools_endpoint(
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    assert "read_instruction" in tool_names
+    assert "edit_instruction" in tool_names
+    assert "describe_tables" in tool_names
+    assert "edit_schema" in tool_names
     assert "edit_artifact" in tool_names
     assert "list_agent_tools" in tool_names
     assert "execute_mcp" in tool_names

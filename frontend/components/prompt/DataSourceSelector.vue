@@ -9,7 +9,7 @@
                     :data-auto="isAutoMode ? 'true' : 'false'"
                 >
                     <span v-if="isLoading" class="flex items-center">
-                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                        <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                     </span>
                     <!-- Auto with nothing to resolve to isn't Auto, it's an
                          empty workspace — fall through to the bare icon. -->
@@ -40,7 +40,7 @@
                             <span v-if="internalSelectedDataSources.length === 1 && internalSelectedDataSources[0].name" class="ms-1.5 text-xs max-w-[140px] truncate">
                                 {{ internalSelectedDataSources[0].name }}
                             </span>
-                            <span v-else-if="internalSelectedDataSources.length > 3" class="ms-1 text-[10px] text-gray-400">
+                            <span v-else-if="internalSelectedDataSources.length > 3" class="ms-1 text-2xs text-ink-muted">
                                 +{{ internalSelectedDataSources.length - 3 }}
                             </span>
                         </template>
@@ -51,18 +51,47 @@
                 </button>
             </UTooltip>
             <template #panel>
-                <div class="p-2 text-xs max-h-64 overflow-y-auto w-max min-w-[260px] max-w-[420px] rounded-xl">
+                <div class="text-xs w-max min-w-[260px] max-w-[420px] rounded-xl" data-testid="agent-scope-panel">
+                    <!-- Search — same affordance as the model picker. Mounts with
+                         the panel, so focus on mount == focus on open; the query
+                         is reset when the panel closes so it never carries over. -->
+                    <div
+                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0)"
+                        class="p-2 border-b border-gray-100 dark:border-gray-800"
+                    >
+                        <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-800/60">
+                            <Icon name="heroicons-magnifying-glass" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
+                            <input
+                                v-model="agentQuery"
+                                type="text"
+                                data-testid="agent-scope-search"
+                                class="flex-1 min-w-0 bg-transparent outline-none text-xs text-gray-800 dark:text-gray-100 placeholder-gray-400"
+                                :placeholder="$t('prompt.searchAgents')"
+                                @vue:mounted="focusSearch"
+                                @vue:unmounted="agentQuery = ''"
+                            />
+                        </div>
+                    </div>
+                    <div class="p-2 max-h-64 overflow-y-auto">
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
-                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                        <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
                     </div>
                     <template v-else>
                         <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
                             {{ $t('prompt.noDataSources') }}
                         </div>
+                        <div
+                            v-else-if="hasQuery && filteredGroups.length === 0 && filteredConnectable.length === 0"
+                            class="text-center text-gray-500 dark:text-gray-400 py-4"
+                            data-testid="agent-scope-no-match"
+                        >
+                            {{ $t('prompt.noAgentsMatch') }}
+                        </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
                                 <div
+                                    v-if="!hasQuery"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                                     @click="toggleAutoMode"
                                     data-testid="agent-scope-auto"
@@ -71,18 +100,18 @@
                                     <div class="flex items-center">
                                         <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
                                         <div class="flex flex-col text-start">
-                                            <span class="text-[13px]">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-[10px] text-gray-400 dark:text-gray-500">
+                                            <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
+                                            <span class="text-2xs text-ink-muted">
                                                 {{ $t('prompt.autoAgentsHint') }}
                                             </span>
                                         </div>
                                     </div>
                                     <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <template v-for="group in sourceGroups" :key="group.key">
+                                <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                                <template v-for="group in filteredGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                     {{ group.label }}
                                 </div>
                                 <div
@@ -98,19 +127,19 @@
                                 >
                                     <div class="flex items-center min-w-0">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
                                         <!-- Non-production agents only reach here for managers; flag
                                              the lifecycle stage so it's clear they aren't live for
                                              consumers yet. Mirrors the agent page (Development /
                                              Training / Disabled), not the raw publish_status. -->
                                         <span
                                             v-if="stageOf(ds) !== 'production'"
-                                            :class="['ms-2 flex-shrink-0 text-[10px] rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
+                                            :class="['ms-2 flex-shrink-0 text-2xs rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
                                         >{{ $t('agentsPage.stage.' + stageOf(ds)) }}</span>
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
-                                            class="ms-2 flex-shrink-0 text-[10px] text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
+                                            class="ms-2 flex-shrink-0 text-2xs text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
                                         >{{ $t('data.serviceAccount') }}</span>
                                     </div>
                                     <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -121,22 +150,22 @@
                             <!-- Not-yet-connected (user_required) data sources: grayed out
                                  with a Connect action. These are NOT selectable and are
                                  never persisted to the report until connected. -->
-                            <template v-if="connectableDataSources.length > 0">
-                                <div v-if="visibleDataSources.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                            <template v-if="filteredConnectable.length > 0">
+                                <div v-if="filteredGroups.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <div
-                                    v-for="ds in connectableDataSources"
+                                    v-for="ds in filteredConnectable"
                                     :key="ds.id"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
                                     @click="openCredentialsModal(ds)"
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-[13px] truncate">{{ ds.name }}</span>
+                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
                                     </div>
                                     <button
                                         type="button"
                                         :disabled="connectingId === ds.id"
-                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         @click.stop="openCredentialsModal(ds)"
                                     >
                                         <Spinner v-if="connectingId === ds.id" class="w-3 h-3" />
@@ -147,6 +176,7 @@
                             </template>
                         </template>
                     </template>
+                    </div>
                 </div>
             </template>
         </UPopover>
@@ -208,7 +238,15 @@ const isAutoMode = computed(() => autoState.value.isAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
-const flyout = reactive({ visible: false, bottom: 0, left: 0, maxHeight: 0 })
+const flyout = reactive<{
+    visible: boolean
+    top?: number
+    bottom?: number
+    left?: number
+    right?: number
+    maxHeight?: number
+    maxWidth?: number
+}>({ visible: false, left: 0, maxHeight: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
 
 // On touch/coarse-pointer devices there is no hover. Tapping a row would
@@ -277,36 +315,44 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
     const el = evt.currentTarget as HTMLElement | null
     if (!el) return
 
-    // Find the dropdown panel to align with it
     const panel = el.closest('.rounded-xl') as HTMLElement | null
-    const panelRect = panel?.getBoundingClientRect()
-    const rect = el.getBoundingClientRect()
-
-    // Matches AgentFlyout's max width (it grows to fit long names) so a
-    // left-placed flyout reserves enough room and never overlaps the dropdown.
-    const flyoutWidth = 520
+    const rowRect = el.getBoundingClientRect()
+    const panelRect = panel?.getBoundingClientRect() ?? rowRect
+    const vw = window.innerWidth
+    const vh = window.innerHeight
     const gap = 8
+    const edge = 12
+    // AgentFlyout's width range (min-w-[320px] / max-w-[440px]).
+    const minWidth = 320
+    const maxWidth = 440
 
-    // Position to the right of the dropdown panel
-    let left = (panelRect?.right ?? rect.right) + gap
-
-    // If not enough space on right, position to the left
-    if (left + flyoutWidth > window.innerWidth - 12) {
-        left = (panelRect?.left ?? rect.left) - flyoutWidth - gap
+    // Horizontal: sit beside the dropdown. Prefer the right side; otherwise
+    // anchor the flyout's RIGHT edge to the dropdown's left edge, so it hugs
+    // the dropdown whatever width the card ends up rendering at.
+    const roomRight = vw - panelRect.right - gap - edge
+    const roomLeft = panelRect.left - gap - edge
+    flyout.left = undefined
+    flyout.right = undefined
+    if (roomRight >= minWidth || roomRight >= roomLeft) {
+        flyout.left = panelRect.right + gap
+        flyout.maxWidth = Math.min(maxWidth, Math.max(roomRight, minWidth))
+    } else {
+        flyout.right = vw - panelRect.left + gap
+        flyout.maxWidth = Math.min(maxWidth, Math.max(roomLeft, minWidth))
     }
 
-    // Clamp left to viewport
-    left = Math.max(12, Math.min(left, window.innerWidth - flyoutWidth - 12))
-
-    // Align bottom of flyout with bottom of dropdown panel (use CSS bottom)
-    const panelBottom = panelRect?.bottom ?? rect.bottom
-    const bottom = window.innerHeight - panelBottom
-
-    flyout.left = left
-    flyout.bottom = Math.max(12, bottom) // Clamp to viewport
-    // Cap height to the room available above the bottom anchor so the flyout
-    // never grows off the top of the screen — it scrolls internally instead.
-    flyout.maxHeight = Math.max(160, window.innerHeight - flyout.bottom - 12)
+    // Vertical: line up with the hovered row. Near the bottom of the screen,
+    // grow upward from the row instead so the card stays on screen.
+    flyout.top = undefined
+    flyout.bottom = undefined
+    const roomBelow = vh - rowRect.top - edge
+    if (roomBelow >= 240) {
+        flyout.top = Math.max(edge, rowRect.top - gap)
+        flyout.maxHeight = vh - flyout.top - edge
+    } else {
+        flyout.bottom = Math.max(edge, vh - rowRect.bottom - gap)
+        flyout.maxHeight = vh - flyout.bottom - edge
+    }
     flyout.visible = true
 }
 
@@ -432,6 +478,27 @@ const sourceGroups = computed(() => {
     }
     return groups
 })
+
+// Search, mirroring ModelPickerPanel: matches on name (and type, so "duckdb"
+// finds every DuckDB agent). Group headers survive only when they still have
+// rows; the Auto row is hidden while a query is active since it isn't an agent.
+const agentQuery = ref('')
+const hasQuery = computed(() => agentQuery.value.trim().length > 0)
+function matchesQuery(ds: DataSource) {
+    const q = agentQuery.value.trim().toLowerCase()
+    if (!q) return true
+    return [ds.name, ds.type].some((v) => String(v || '').toLowerCase().includes(q))
+}
+const filteredGroups = computed(() => {
+    if (!hasQuery.value) return sourceGroups.value
+    return sourceGroups.value
+        .map((g: any) => ({ ...g, items: g.items.filter(matchesQuery) }))
+        .filter((g: any) => g.items.length > 0)
+})
+const filteredConnectable = computed(() => connectableDataSources.value.filter(matchesQuery))
+function focusSearch(vnode: any) {
+    nextTick(() => vnode?.el?.focus?.())
+}
 
 // Auto isn't a selection — it's the absence of one. An external picker has to
 // know, or it would light up every agent the moment an Auto report opens.

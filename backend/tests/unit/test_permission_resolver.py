@@ -209,3 +209,12 @@ def test_org_perm_implies_resource_map_targets_are_valid_resource_perms():
                 assert p in RESOURCE_PERMISSIONS[resource_type], (
                     f"{org_perm} implies {p} which is not a valid {resource_type} grant"
                 )
+
+
+def test_manage_connections_implies_create_connections():
+    """The org connection admin can create connections; holding only
+    create_connections confers nothing more at the org level."""
+    from app.core.permission_resolver import expand_org_permissions
+
+    assert "create_connections" in expand_org_permissions({"manage_connections"})
+    assert expand_org_permissions({"create_connections"}) == {"create_connections"}

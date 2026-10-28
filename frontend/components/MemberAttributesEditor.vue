@@ -12,7 +12,7 @@
           :data-testid="`attr-key-${idx}`"
           @update:model-value="emitValue"
         />
-        <p v-if="keyError(row)" class="text-[11px] text-red-500 mt-0.5">{{ keyError(row) }}</p>
+        <p v-if="keyError(row)" class="text-2xs text-red-500 mt-0.5">{{ keyError(row) }}</p>
       </div>
       <div class="flex-1 min-w-0">
         <UInput
@@ -27,7 +27,7 @@
       </div>
       <button
         type="button"
-        class="mt-1.5 text-gray-400 hover:text-red-500"
+        class="mt-1.5 text-ink-muted hover:text-red-500"
         :aria-label="$t('settings.members.attributeRemove')"
         @click="removeRow(idx)"
       >

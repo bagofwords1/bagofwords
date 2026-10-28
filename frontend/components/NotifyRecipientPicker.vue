@@ -28,7 +28,7 @@
                         class="w-full text-start px-2.5 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 flex flex-col"
                         @mousedown.prevent="addMember(member)">
                         <span class="text-gray-900 dark:text-white">{{ member.name || member.email }}</span>
-                        <span v-if="member.name" class="text-[11px] text-gray-400">{{ member.email }}</span>
+                        <span v-if="member.name" class="text-2xs text-ink-muted">{{ member.email }}</span>
                     </button>
                 </div>
             </div>
@@ -40,12 +40,12 @@
 
         <!-- Send button -->
         <div class="flex items-center justify-between mt-3">
-            <span v-if="sendStatus" class="text-[11px]" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
+            <span v-if="sendStatus" class="text-2xs" :class="sendStatus === 'sent' ? 'text-green-600' : 'text-red-500'">
                 {{ sendStatus === 'sent' ? 'Sent!' : 'Failed to send' }}
             </span>
             <span v-else></span>
             <button @click="send" :disabled="recipients.length === 0 || isSending"
-                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed">
+                class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Spinner v-if="isSending" class="w-3 h-3" />
                 <Icon v-else name="heroicons:paper-airplane" class="w-3 h-3" />
                 Send
@@ -61,6 +61,8 @@ const props = defineProps<{
     reportId: string
     notificationType: 'share_dashboard' | 'share_conversation' | 'schedule_report'
     shareUrl: string
+    // A dashboard's own notify route (phase 8), which builds its link itself
+    notifyPath?: string
 }>()
 
 const emit = defineEmits<{
@@ -167,7 +169,7 @@ const send = async () => {
     isSending.value = true
     sendStatus.value = null
     try {
-        const res = await useMyFetch(`/reports/${props.reportId}/notify`, {
+        const res = await useMyFetch(props.notifyPath || `/reports/${props.reportId}/notify`, {
             method: 'POST',
             body: {
                 type: props.notificationType,

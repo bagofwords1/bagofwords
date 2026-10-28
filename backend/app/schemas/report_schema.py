@@ -174,6 +174,10 @@ class ReportSchema(ReportBase):
     # share dialog only shows the run-identity toggle then — on system-only
     # credentials creator vs viewer identity resolves to the same credentials.
     has_user_scoped: bool = False
+    # Org setting allow_public_sharing. False = the share dialog hides
+    # "anyone with the link", and a 'public' share here only opens for org
+    # members (see app/services/public_sharing_policy.py).
+    public_sharing_allowed: bool = True
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     artifact_shared_group_ids: List[str] = []
@@ -201,6 +205,7 @@ class ReportSchema(ReportBase):
     scheduled_prompt_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
+    forked_from_artifact_id: Optional[str] = None  # a fork from /d (phase 8)
     forked_from_title: Optional[str] = None
     forked_from_user_name: Optional[str] = None
     # Project (folder) membership; project carries name/icon for the chip.

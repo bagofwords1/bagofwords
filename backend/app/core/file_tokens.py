@@ -39,6 +39,8 @@ def mint_file_token(
     *,
     organization_id: str,
     report_id: Optional[str] = None,
+    release_id: Optional[str] = None,
+    via_public_link: bool = False,
 ) -> str:
     """Mint a signed capability token for a single file id.
 
@@ -56,6 +58,15 @@ def mint_file_token(
     }
     if report_id:
         payload["rid"] = str(report_id)
+    if release_id:
+        # A published dashboard's embed: bound to its release, which outlives
+        # the conversation it came from.
+        payload["rel"] = str(release_id)
+    if via_public_link and (report_id or release_id):
+        # Minted for someone outside the org, so only the public link let them
+        # in. /embed re-checks that grant on every request, so turning public
+        # sharing off (or unsharing) revokes the token before it expires.
+        payload["pub"] = True
     return jwt.encode(payload, _secret(), algorithm=_ALGO)
 
 

@@ -233,10 +233,16 @@ def test_list_by_principal_member_denied(enterprise_license, test_client, cast, 
 
 
 @pytest.mark.e2e
-def test_cannot_restrict_default_model(enterprise_license, test_client, cast):
+def test_restricted_default_model_is_restricted(enterprise_license, test_client, cast):
+    """The org default can be restricted (so some groups can be kept off it);
+    members without access no longer see it, admins still do."""
     default = next(m for m in cast["models"] if m["is_default"])
     r = _restrict(test_client, cast["admin"]["token"], cast["org_id"], default["id"], True)
-    assert r.status_code == 400
+    assert r.status_code == 200, r.json()
+    member_ids = {m["id"] for m in _list_models(test_client, cast["member"]["token"], cast["org_id"])}
+    assert default["id"] not in member_ids
+    admin_ids = {m["id"] for m in _list_models(test_client, cast["admin"]["token"], cast["org_id"])}
+    assert default["id"] in admin_ids
 
 
 @pytest.mark.e2e
@@ -294,7 +300,7 @@ def test_get_model_by_id_enforces_access(enterprise_license, test_client, cast):
             # Admin allowed (full_admin_access bypass).
             assert await svc.get_model_by_id(db, organization, admin, mid) is not None
 
-            # Member still allowed on the default model (defaults always open).
+            # Member still allowed on the (unrestricted) default model.
             assert await svc.get_model_by_id(db, organization, member, default_id) is not None
 
     _run(_check())
@@ -333,3 +339,118 @@ def test_fail_open_when_feature_absent(enterprise_license, test_client, cast, mo
             assert await svc.get_model_by_id(db, organization, member, mid) is not None
 
     _run(_check())
+
+
+# ── no-default fallback must respect access control ──────────────────────
+
+
+def _clear_org_defaults(org_id):
+    """Drop the default/small-default flags on every model in the org.
+
+    Direct DB write: the API refuses to leave an org without a default, but
+    orgs can still reach this state (e.g. custom providers that never set
+    one), and it's the state the fallback exists for.
+    """
+    from sqlalchemy import update
+    from app.models.llm_model import LLMModel
+
+    async def _clear():
+        async with async_session_maker() as db:
+            await db.execute(
+                update(LLMModel)
+                .where(LLMModel.organization_id == str(org_id))
+                .values(is_default=False, is_small_default=False)
+            )
+            await db.commit()
+
+    _run(_clear())
+
+
+def _fallback_default_id(org_id, user_id, is_small=False):
+    from app.services.llm_service import LLMService
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async def _get():
+        async with async_session_maker() as db:
+            organization = await db.get(Organization, org_id)
+            user = await db.get(User, user_id) if user_id else None
+            model = await LLMService().get_default_model(db, organization, user, is_small=is_small)
+            return str(model.id) if model else None
+
+    return _run(_get())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("is_small", [False, True])
+def test_no_default_fallback_skips_restricted_models(enterprise_license, test_client, cast, is_small):
+    """With no org default, the fallback model must be one the caller can use:
+    a member never gets a restricted model they have no grant for, whichever
+    models are restricted."""
+    admin_t, org = cast["admin"]["token"], cast["org_id"]
+    ids = [m["id"] for m in cast["models"]]
+    _clear_org_defaults(org)
+
+    # Restrict every model but one, varying which one stays open.
+    for open_id in ids:
+        for mid in ids:
+            r = _restrict(test_client, admin_t, org, mid, mid != open_id)
+            assert r.status_code == 200, r.json()
+        assert _fallback_default_id(org, cast["member"]["user_id"], is_small) == open_id
+        # System jobs (no user) also only get an unrestricted model.
+        assert _fallback_default_id(org, None, is_small) == open_id
+
+
+@pytest.mark.e2e
+def test_no_default_fallback_all_restricted(enterprise_license, test_client, cast, create_group, add_user_to_group):
+    """All models restricted and no default: a member without grants gets no
+    model, a member with a group grant gets the granted one, an admin gets one."""
+    admin_t, org = cast["admin"]["token"], cast["org_id"]
+    member_uid = cast["member"]["user_id"]
+    ids = [m["id"] for m in cast["models"]]
+    _clear_org_defaults(org)
+    for mid in ids:
+        assert _restrict(test_client, admin_t, org, mid, True).status_code == 200
+
+    assert _fallback_default_id(org, member_uid) is None
+    assert _fallback_default_id(org, None) is None
+    assert _fallback_default_id(org, cast["admin"]["user_id"]) in ids
+
+    granted = ids[-1]
+    grp = create_group(name=f"grp-{uuid.uuid4().hex[:6]}", user_token=admin_t, org_id=org)
+    group_id = grp.json()["id"] if hasattr(grp, "json") else grp["id"]
+    add_user_to_group(group_id=group_id, user_id=member_uid, user_token=admin_t, org_id=org)
+    assert _add_access(test_client, admin_t, org, granted, "group", group_id).status_code == 200
+
+    assert _fallback_default_id(org, member_uid) == granted
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("flag", ["is_default", "is_small_default"])
+def test_cannot_mark_default_as_image_model(test_client, cast, flag):
+    """Marking the default (or small default) as an image model is refused and
+    the org keeps its default — it used to silently clear the flag instead."""
+    admin_t, org = cast["admin"]["token"], cast["org_id"]
+    target = next((m for m in cast["models"] if m[flag]), None)
+    if target is None:
+        pytest.skip(f"provider seeded no {flag} model")
+
+    r = test_client.post(
+        f"/api/llm/models/{target['id']}/toggle_image_generation",
+        params={"enabled": True},
+        headers=_headers(admin_t, org),
+    )
+    assert r.status_code == 400
+
+    after = {m["id"]: m for m in _list_models(test_client, admin_t, org)}
+    assert after[target["id"]][flag] is True
+    assert after[target["id"]]["supports_image_generation"] is False
+
+    # A non-default model can still be marked.
+    other = cast["restrictable_id"]
+    r = test_client.post(
+        f"/api/llm/models/{other}/toggle_image_generation",
+        params={"enabled": True},
+        headers=_headers(admin_t, org),
+    )
+    assert r.status_code == 200

@@ -5,14 +5,14 @@
     </div>
     <details v-else class="group">
       <summary class="flex w-fit max-w-full cursor-pointer list-none items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500">
-        <Icon :name="failed ? 'heroicons-exclamation-circle' : 'heroicons-chat-bubble-left-right'" class="h-3 w-3 me-1 shrink-0" :class="failed ? 'text-amber-600' : 'text-gray-400 dark:text-gray-500'" />
+        <Icon :name="failed ? 'heroicons-exclamation-circle' : 'heroicons-chat-bubble-left-right'" class="h-3 w-3 me-1 shrink-0" :class="failed ? 'text-amber-600' : 'text-ink-muted'" />
         <span class="min-w-0 break-words">{{ t(failed ? 'tools.messageSubAgent.failed' : 'tools.messageSubAgent.sent', { title }) }}</span>
-        <Icon name="heroicons-chevron-right" class="ms-1 h-3 w-3 shrink-0 text-gray-400 dark:text-gray-500 transition-transform group-open:rotate-90 rtl:rotate-180 rtl:group-open:rotate-90" />
+        <Icon name="heroicons-chevron-right" class="ms-1 h-3 w-3 shrink-0 text-ink-muted transition-transform group-open:rotate-90 rtl:rotate-180 rtl:group-open:rotate-90" />
       </summary>
       <div class="mt-1.5 ms-5 space-y-2">
         <p class="whitespace-pre-wrap break-words text-gray-700 dark:text-gray-300" dir="auto">{{ body }}</p>
         <p v-if="failed" class="text-amber-700 dark:text-amber-400">{{ error || t('tools.messageSubAgent.failedHint') }}</p>
-        <p v-else class="text-[11px] text-gray-500">{{ t('tools.messageSubAgent.sentHint') }}</p>
+        <p v-else class="text-2xs text-gray-500">{{ t('tools.messageSubAgent.sentHint') }}</p>
       </div>
     </details>
   </div>

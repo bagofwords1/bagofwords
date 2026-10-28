@@ -5,14 +5,14 @@
       @click="open = !open"
       :aria-expanded="open"
     >
-      <Icon :name="open ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 me-1 rtl-flip" />
+      <Icon :name="open ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
       <span class="text-gray-500 dark:text-gray-400">Parameters</span>
-      <span class="ms-2 text-[10px] text-gray-400 dark:text-gray-500">({{ entries.length }})</span>
+      <span class="ms-2 text-2xs text-ink-muted">({{ entries.length }})</span>
     </div>
     <Transition name="fade">
       <div v-if="open" class="ps-6 pe-1 pb-1 space-y-0.5">
-        <div v-for="[k, v] in entries" :key="k" class="text-[11px] leading-snug">
-          <span class="text-gray-400 dark:text-gray-500">{{ k }}:</span>
+        <div v-for="[k, v] in entries" :key="k" class="text-2xs leading-snug">
+          <span class="text-ink-muted">{{ k }}:</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all">{{ fmt(v) }}</code>
         </div>
       </div>

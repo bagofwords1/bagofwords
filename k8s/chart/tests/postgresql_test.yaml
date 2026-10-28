@@ -1,0 +1,417 @@
+suite: test bundled postgresql
+templates:
+  - postgresql/statefulset.yaml
+  - postgresql/svc.yaml
+  - postgresql/secret.yaml
+  - postgresql/configmap.yaml
+release:
+  name: test-release
+  namespace: test-ns
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: uses the official postgres image
+    template: postgresql/statefulset.yaml
+    asserts:
+      - isKind:
+          of: StatefulSet
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: docker.io/library/postgres:17-bookworm
+
+  # Everything below that is immutable on a StatefulSet, or bound to the data
+  # on disk, must match what the Bitnami subchart rendered in chart <= 2.x —
+  # otherwise `helm upgrade` from 2.x fails or starts on an empty database.
+  - it: keeps the Bitnami-compatible identity so 2.x upgrades adopt the database
+    template: postgresql/statefulset.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-release-postgresql
+      - equal:
+          path: spec.serviceName
+          value: test-release-postgresql-hl
+      - equal:
+          path: spec.selector.matchLabels
+          value:
+            app.kubernetes.io/name: postgresql
+            app.kubernetes.io/instance: test-release
+            app.kubernetes.io/component: primary
+      - equal:
+          path: spec.volumeClaimTemplates
+          value:
+            - apiVersion: v1
+              kind: PersistentVolumeClaim
+              metadata:
+                name: data
+              spec:
+                accessModes:
+                  - ReadWriteOnce
+                resources:
+                  requests:
+                    storage: 20Gi
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PGDATA
+            value: /var/lib/postgresql/data/data
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: data
+            mountPath: /var/lib/postgresql/data
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1001
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1001
+
+  - it: keeps postgres as superuser and creates the app user as a plain owner
+    template: postgresql/statefulset.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_USER
+            value: postgres
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: test-release-postgresql
+                key: postgres-password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DB
+            value: testdb
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOW_APP_USER
+            value: test
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOW_APP_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: test-release-postgresql
+                key: password
+
+  - it: uses the app password for the superuser when the app user is postgres
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.username: postgres
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: test-release-postgresql
+                key: password
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOW_APP_USER
+            value: postgres
+
+  - it: reads passwords from an existing secret
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.password: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: BOW_APP_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: my-db-secret
+                key: password
+
+  - it: does not create a secret when an existing one is used
+    template: postgresql/secret.yaml
+    set:
+      postgresql.auth.password: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: stores both passwords under the Bitnami key names
+    template: postgresql/secret.yaml
+    set:
+      postgresql.auth.postgresPassword: supersecret
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: test-release-postgresql
+      - equal:
+          path: data.password
+          value: dGVzdA==
+      - equal:
+          path: data["postgres-password"]
+          value: c3VwZXJzZWNyZXQ=
+
+  - it: fails fast when the bundled database has no credentials
+    template: postgresql/secret.yaml
+    set:
+      postgresql.auth.password: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "postgresql.auth.username, postgresql.auth.password and postgresql.auth.database are required"
+
+  - it: exposes the service name the app connects to
+    template: postgresql/svc.yaml
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-release-postgresql
+      - equal:
+          path: spec.ports[0].port
+          value: 5432
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: primary
+
+  - it: renders extendedConfiguration and password-only remote access
+    template: postgresql/configmap.yaml
+    asserts:
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "listen_addresses = '\\*'"
+      - matchRegex:
+          path: data["postgresql.conf"]
+          pattern: "max_connections = 300"
+      # md5 accepts SCRAM- and MD5-stored passwords (adopted Bitnami volumes).
+      - matchRegex:
+          path: data["pg_hba.conf"]
+          pattern: "host  all all 0.0.0.0/0    md5"
+      - notMatchRegex:
+          path: data["pg_hba.conf"]
+          pattern: "host .* trust"
+
+  - it: uses an emptyDir and no claim template when persistence is off
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.primary.persistence.enabled: false
+    asserts:
+      - notExists:
+          path: spec.volumeClaimTemplates
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: data
+            emptyDir: {}
+
+  - it: renders nothing when disabled
+    set:
+      postgresql.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: drops the -postgresql suffix when the release name already has it
+    template: postgresql/statefulset.yaml
+    release:
+      name: my-postgresql
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-postgresql
+
+  # Upgrade guard: an unpinned `helm upgrade` from chart 2.x must not move a
+  # live Bitnami database onto the new image without an explicit opt-in.
+  - it: refuses to upgrade a 2.x Bitnami database without the opt-in
+    template: postgresql/statefulset.yaml
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: postgresql-16.3.2
+    asserts:
+      - failedTemplate:
+          errorPattern: "still runs the Bitnami PostgreSQL subchart \\(postgresql-16.3.2\\)"
+
+  - it: upgrades a 2.x Bitnami database once migrateFromBitnami is set
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.migrateFromBitnami: true
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: postgresql-16.3.2
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: needs no opt-in once the release already runs this chart's database
+    template: postgresql/statefulset.yaml
+    kubernetesProvider:
+      scheme:
+        "apps/v1/StatefulSet":
+          gvr:
+            group: apps
+            version: v1
+            resource: statefulsets
+          namespaced: true
+      objects:
+        - apiVersion: apps/v1
+          kind: StatefulSet
+          metadata:
+            name: test-release-postgresql
+            namespace: test-ns
+            labels:
+              helm.sh/chart: bagofwords-3.0.0
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: refuses a Bitnami image override
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.repository: bitnamilegacy/postgresql
+      postgresql.image.tag: 17.6.0-debian-12-r4
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot run a Bitnami one"
+
+  # Review fixes.
+  - it: does not deploy the bundled database for an IAM-authenticated external one
+    set:
+      postgresql.auth.username: ""
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      database.auth.provider: aws_iam
+      database.host: db.example.com
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires a database name for an app user even with an existing secret
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      - failedTemplate:
+          errorPattern: "postgresql.auth.database is required when postgresql.auth.username is set"
+
+  - it: runs superuser-only with an existing secret and no app user
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.username: ""
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      # No `optional`: a missing key must stop the pod with a clear error.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: my-db-secret
+                key: postgres-password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DB
+            value: postgres
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: BOW_APP_USER
+
+  - it: keeps liveness alive through crash recovery, readiness gates traffic
+    template: postgresql/statefulset.yaml
+    asserts:
+      # pg_isready exit 1 = "rejecting connections" (startup/recovery).
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.exec.command[2]
+          value: 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]'
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.exec.command[2]
+          value: 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]'
+      - matchRegex:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[2]
+          pattern: "^exec pg_isready "
+
+  - it: sanitises the image tag into a valid version label
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.tag: "17-bookworm@sha256:0123abcd"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/version"]
+          value: 17-bookworm_sha256_0123abcd
+
+  - it: refuses a mirrored Bitnami image too
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.registry: harbor.corp
+      postgresql.image.repository: mirror/bitnamilegacy/postgresql
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot run a Bitnami one"
+
+  - it: accepts a non-Bitnami mirror whose path mentions bitnami
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.registry: bitnami-mirror.corp
+      postgresql.image.repository: bitnami-replacement/postgres
+    asserts:
+      - isKind:
+          of: StatefulSet
+
+  - it: shuts PostgreSQL down fast on stop instead of waiting out the grace period
+    template: postgresql/statefulset.yaml
+    asserts:
+      # SIGINT = fast shutdown; SIGTERM (Kubernetes' default) waits for the
+      # app's pooled connections, which never close.
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
+          value:
+            - sh
+            - -c
+            - 'pid=$(head -n1 "$PGDATA/postmaster.pid" 2>/dev/null) && kill -INT "$pid"; exit 0'

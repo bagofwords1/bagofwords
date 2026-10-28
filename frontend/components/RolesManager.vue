@@ -12,7 +12,7 @@
                     />
                     <UIcon
                         name="i-heroicons-magnifying-glass"
-                        class="absolute start-3 top-2.5 h-4 w-4 text-gray-400"
+                        class="absolute start-3 top-2.5 h-4 w-4 text-ink-muted"
                     />
                 </div>
             </div>
@@ -40,7 +40,7 @@
             </div>
             <div v-else-if="filteredRoles.length === 0" class="px-6 py-12 text-center">
                 <div class="flex flex-col items-center">
-                    <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-gray-400" />
+                    <Icon name="heroicons:shield-check" class="mx-auto h-12 w-12 text-ink-muted" />
                     <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('rolesManager.noRolesFound') }}</h3>
                     <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ $t('rolesManager.noRolesHint') }}</p>
                 </div>
@@ -91,7 +91,7 @@
                                 >
                                     {{ policy.name }}
                                 </UBadge>
-                                <span v-if="getRoleQuotaPolicies(role).length === 0" class="text-gray-400 text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
+                                <span v-if="getRoleQuotaPolicies(role).length === 0" class="text-ink-muted text-sm italic">{{ $t('quotaPolicies.unlimited') }}</span>
                             </span>
                         </template>
                         <template #option="{ option }">
@@ -157,7 +157,7 @@
                                 <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                                 <span class="text-sm font-medium">{{ $t('rolesManager.allResources') }}</span>
                             </div>
-                            <span class="text-xs text-gray-400">{{ $t('rolesManager.orgWidePermissions') }}</span>
+                            <span class="text-xs text-ink-muted">{{ $t('rolesManager.orgWidePermissions') }}</span>
                         </div>
                         <div class="p-3">
                             <div class="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -276,10 +276,10 @@
                                 <UIcon name="i-heroicons-cpu-chip" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                                 <span class="text-sm font-medium">{{ $t('rolesManager.modelAccess') }}</span>
                             </div>
-                            <span class="text-xs text-gray-400">{{ $t('rolesManager.modelAccessHint') }}</span>
+                            <span class="text-xs text-ink-muted">{{ $t('rolesManager.modelAccessHint') }}</span>
                         </div>
                         <div class="p-3">
-                            <div v-if="restrictedModels.length === 0" class="text-xs text-gray-400 py-0.5">
+                            <div v-if="restrictedModels.length === 0" class="text-xs text-ink-muted py-0.5">
                                 {{ $t('rolesManager.noRestrictedModels') }}
                             </div>
                             <div v-else class="grid grid-cols-2 gap-x-4 gap-y-1.5">
@@ -690,6 +690,7 @@ const KNOWN_PERMISSION_KEYS = new Set([
     'view_code',
     'run_custom_code',
     'create_data_source',
+    'create_connections',
     'manage_connections',
     'manage_instructions',
     'manage_entities',

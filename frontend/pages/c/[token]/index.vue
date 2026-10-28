@@ -9,7 +9,7 @@
         <!-- Access error state -->
         <div v-else-if="accessError" class="flex-1 flex items-center justify-center">
             <div class="text-center max-w-md mx-auto px-6">
-                <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 text-ink-muted mx-auto mb-4" />
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                     {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
                 </h2>
@@ -34,7 +34,7 @@
             <div class="text-center">
                 <Icon name="heroicons:exclamation-circle" class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
                 <h1 class="text-lg font-medium text-gray-700 dark:text-gray-300">Conversation not found</h1>
-                <p class="text-sm text-gray-400 mt-1">This conversation may have been unshared or doesn't exist.</p>
+                <p class="text-sm text-ink-muted mt-1">This conversation may have been unshared or doesn't exist.</p>
             </div>
         </div>
 
@@ -42,17 +42,17 @@
         <template v-else>
             <!-- Minimal header -->
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
-                <div class="max-w-2xl mx-auto flex items-start justify-between">
+                <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
                         <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
-                        <p class="text-xs text-gray-400 mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
+                        <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->
                     <button
                         v-if="forkEligibility?.can_fork"
                         @click="handleFork"
                         :disabled="isForking"
-                        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50 mt-1"
+                        class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50 mt-1"
                     >
                         <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
                         <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
@@ -68,25 +68,25 @@
             >
                 <!-- Loading more indicator -->
                 <div v-if="isLoadingMore" class="flex justify-center py-3 mb-4">
-                    <Spinner class="w-4 h-4 text-gray-400" />
-                    <span class="text-xs text-gray-400 ms-2">Loading older messages…</span>
+                    <Spinner class="w-4 h-4 text-ink-muted" />
+                    <span class="text-xs text-ink-muted ms-2">Loading older messages…</span>
                 </div>
 
                 <!-- Load more button (shown when there's more to load) -->
                 <div v-else-if="hasMore" class="flex justify-center py-3 mb-4">
                     <button
                         @click="loadPreviousCompletions"
-                        class="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                        class="text-xs text-ink-muted hover:text-gray-600 transition-colors"
                     >
                         ↑ Load older messages
                     </button>
                 </div>
 
-                <ul class="max-w-2xl mx-auto space-y-4">
-                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-sm">
+                <ul class="max-w-chat mx-auto space-y-4">
+                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-chat">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
-                            <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
+                            <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
                                 <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
                                 <span class="font-medium text-gray-500 dark:text-gray-400">Scheduled run</span>
                                 <span class="text-gray-300 dark:text-gray-600">{{ formatDateTime(m.created_at) }}</span>
@@ -124,7 +124,7 @@
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full md:ms-4 max-w-2xl">
+                                <div class="w-full md:ms-4 max-w-chat">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in timelineBlocks(m)" :key="block.id">
@@ -145,7 +145,7 @@
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
-                                                    <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400 rtl-flip" />
+                                                    <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
                                                     <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
                                                         {{ getThoughtProcessLabel(block) }}
                                                     </span>
@@ -165,7 +165,7 @@
                                                             />
                                                         </template>
                                                         <template v-else-if="block.status === 'stopped'">
-                                                            <div class="text-gray-400 italic">Generation was stopped before completion.</div>
+                                                            <div class="text-ink-muted italic">Generation was stopped before completion.</div>
                                                         </template>
                                                     </div>
                                                 </Transition>
@@ -202,7 +202,7 @@
                                                         <span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)">
                                                             {{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
                                                         </span>
-                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
+                                                        <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-ink-muted bg-gray-50 dark:bg-gray-900 p-2 rounded">
                                                             <div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
                                                             <div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
                                                         </div>
@@ -258,7 +258,7 @@
 
             <!-- Footer -->
             <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
-                <a href="https://bagofwords.com" target="_blank" class="text-[10px] text-gray-300 dark:text-gray-600 hover:text-gray-400 transition-colors">
+                <a href="https://bagofwords.com" target="_blank" class="text-2xs text-gray-300 dark:text-gray-600 hover:text-ink-muted transition-colors">
                     Powered by Bag of Words
                 </a>
             </footer>
@@ -273,6 +273,7 @@ import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
+import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -579,6 +580,9 @@ function getToolComponent(toolName: string) {
     // Native per-list tools (submit_<list>) stream under their own name
     // before the gateway rewrite to submit_list.
     if (toolName?.startsWith('submit_')) return SubmitListTool
+    // Native MCP tools (mcp__<connection>__<tool>) and call_tool stream under
+    // their own name before the rewrite to execute_mcp.
+    if (toolName?.startsWith('mcp__')) return MCPTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -640,6 +644,8 @@ function getToolComponent(toolName: string) {
         case 'write_officejs_code':
             return WriteOfficeJsCodeTool
         case 'search_mcps':
+        case 'search_tools':
+        case 'call_tool':
         case 'execute_mcp':
             return MCPTool
         case 'search_reports':
@@ -747,6 +753,8 @@ function getToolComponent(toolName: string) {
         case 'create_list':
         case 'edit_list':
             return ListSchemaTool
+        case 'delete_list_rows':
+            return DeleteListRowsTool
         // Deliberately NOT mapped here — these two stay owner-view-only, and
         // not merely for effort. suggest_instructions is a review queue over
         // UNREVIEWED draft instructions, and create_agent builds its body by
@@ -1003,7 +1011,11 @@ onUnmounted(() => {
 /* Block content - assistant messages */
 .block-content {
     margin-bottom: 4px;
-    font-size: 13px;
+    /* The chat reading size, same token as the report view — a shared link
+       that renders two sizes smaller than the conversation it came from is
+       the divergence the comment below warns about. */
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
 }
 
 /* Markdown styling — kept in step with the same block in the report view, since
@@ -1016,8 +1028,8 @@ onUnmounted(() => {
    scrollHeight to anchor scroll position when prepending older pages, and
    estimated offscreen sizes would make that jump.) */
 .markdown-wrapper :deep(.markdown-content) {
-    @apply leading-relaxed;
-    font-size: 13px;
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
 
     p {
         margin-bottom: 1em;
@@ -1056,7 +1068,7 @@ onUnmounted(() => {
         background: none;
         padding: 0;
         border-radius: 0;
-        font-size: 13px;
+        font-size: var(--bow-chat-font-size-2);
         line-height: 1.5;
         display: block;
         white-space: pre-wrap;

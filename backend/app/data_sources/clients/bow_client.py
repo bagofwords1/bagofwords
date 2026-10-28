@@ -43,9 +43,13 @@ If asked for all history without a time window, request 366d and disclose that s
 Permissions are enforced by the service and cannot be supplied or changed by code. Results are saved as normal data tables.'''
 
     def __init__(self, session_factory, loop, organization_id, user_id, report_id, writer_db, writer_lock=None,
-                 allow_history=True):
+                 allow_history=True, release_id=None):
         self._factory, self._loop = session_factory, loop
         self._organization_id, self._user_id, self._report_id = organization_id, user_id, report_id
+        # A published dashboard's release: its access is checked and extended
+        # instead of a conversation's; report_id is then the dashboard's source
+        # conversation, kept out of the results as a conversation keeps itself out.
+        self._release_id = release_id
         self._bow_client_key = "bow"
         self._bow_source_id = SOURCE_ID
         self._bow_data_source_name = "BOW"
@@ -75,7 +79,10 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
         from app.models.organization import Organization
         from app.models.user import User
         from app.services.bow_source_service import BowSourceService
-        from app.services.bow_source_access import protect_report, assert_read, report_access, merge_access
+        from app.services.bow_source_access import (assert_read, merge_access, protect_release, protect_report,
+                                                    report_access)
+        from app.models.artifact_release import ArtifactRelease
+        from sqlalchemy import select
         from sqlalchemy.exc import OperationalError
         task = asyncio.current_task()
         self._tasks.add(task)
@@ -95,13 +102,20 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
                         return await query_list(db, org, user, request)
                     if not self._allow_history:
                         raise PermissionError("BOW run history (runs/tool_calls) is only available in training mode")
-                    await assert_read(db, await report_access(db, self._report_id), user)
+                    saved = (await db.scalar(select(ArtifactRelease.bow_source_access)
+                                             .where(ArtifactRelease.id == self._release_id))
+                             if self._release_id else await report_access(db, self._report_id))
+                    await assert_read(db, saved, user)
                     df = await BowSourceService().query(db, org, user, request, exclude_report_id=self._report_id)
                     access = dict(df.attrs["bow_source"])
                 # Persist before returning rows (including generated-code stdout).
                 # The same lock/session used by agent tool events is the only writer.
                 async with _writer_guard(self._writer_lock):
-                    await protect_report(self._writer_db, self._report_id, access)
+                    if self._release_id:
+                        release = await self._writer_db.get(ArtifactRelease, self._release_id)
+                        await protect_release(self._writer_db, release, access)
+                    else:
+                        await protect_report(self._writer_db, self._report_id, access)
                 self._bow_access = merge_access(self._bow_access, access)
                 return df
         except TimeoutError as exc:
@@ -112,12 +126,18 @@ Permissions are enforced by the service and cannot be supplied or changed by cod
             self._tasks.discard(task)
 
 
-async def install_bow_client(db, organization, user, report, clients, *, mode=None, allow_saved=True, writer_lock=None):
-    """Used by initial execution and every saved-query runner; no cached grants."""
+async def install_bow_client(db, organization, user, report, clients, *, mode=None, allow_saved=True, writer_lock=None,
+                             release=None):
+    """Used by initial execution and every saved-query runner; no cached grants.
+    `release`: a published dashboard's run, scoped to its release instead of a
+    conversation."""
     from app.core.console_access import resolve_console_scope
     from app.services.bow_source_access import report_access
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    saved = await report_access(db, getattr(report, "id", None))
+    if release is not None:
+        saved = release.bow_source_access
+    else:
+        saved = await report_access(db, getattr(report, "id", None))
     if user is None or organization is None:
         return
     history = (mode or getattr(report, "mode", None)) == "training" or bool(saved and allow_saved)
@@ -128,10 +148,18 @@ async def install_bow_client(db, organization, user, report, clients, *, mode=No
             history = False
     has_lists = False
     try:
-        from app.services.agent_lists.bow_lists import report_has_lists
-        has_lists = await report_has_lists(db, report, user, organization)
+        from app.services.agent_lists.bow_lists import release_has_lists, report_has_lists
+        has_lists = await (release_has_lists(db, release, user, organization) if release is not None
+                           else report_has_lists(db, report, user, organization))
     except Exception:
         has_lists = False
     if not history and not has_lists:
         return
-    clients["bow"] = BowClient(async_sessionmaker(db.bind, expire_on_commit=False), asyncio.get_running_loop(), str(organization.id), str(user.id), str(report.id), db, writer_lock, allow_history=history)
+    if release is not None:
+        from app.models.artifact import Artifact
+        artifact = await db.get(Artifact, str(release.artifact_id))
+        report_id = str(artifact.report_id) if artifact is not None and artifact.report_id else None
+    else:
+        report_id = str(report.id)
+    clients["bow"] = BowClient(async_sessionmaker(db.bind, expire_on_commit=False), asyncio.get_running_loop(), str(organization.id), str(user.id), report_id, db, writer_lock, allow_history=history,
+                               release_id=str(release.id) if release is not None else None)

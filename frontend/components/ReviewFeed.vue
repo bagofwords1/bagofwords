@@ -6,46 +6,46 @@
         <div class="min-w-0">
           <h2 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             Review
-            <span v-if="unread" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-gray-900 text-white text-[10px] font-semibold tabular-nums">{{ unread }}</span>
+            <span v-if="unread" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-gray-900 text-white text-2xs font-semibold tabular-nums">{{ unread }}</span>
           </h2>
           <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Suggestions, schema changes and quality signals that need a decision.</p>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           <button v-if="unread" class="h-7 px-2.5 rounded-md text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="markAllRead">Mark all read</button>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Automation settings" @click="openSettings"><UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" /></button>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Refresh" @click="refresh"><UIcon name="i-heroicons-arrow-path" :class="['w-4 h-4', { 'animate-spin': loading }]" /></button>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="$emit('close')"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Automation settings" @click="openSettings"><UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4" /></button>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Refresh" @click="refresh"><UIcon name="i-heroicons-arrow-path" :class="['w-4 h-4', { 'animate-spin': loading }]" /></button>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800/70" title="Close" @click="$emit('close')"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
       </div>
       <!-- Filters (compact) -->
       <div class="mt-2.5 flex items-center gap-1.5 flex-wrap">
         <div class="relative">
-          <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-gray-500" />
-          <input v-model="search" type="text" placeholder="Search…" class="h-7 w-40 pl-7 pr-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
+          <UIcon name="i-heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-ink-muted" />
+          <input v-model="search" type="text" placeholder="Search…" class="h-7 w-40 pl-7 pr-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-ink-subtle dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
         </div>
         <!-- Agent filter -->
         <UPopover :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
           <button type="button" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-gray-200 dark:border-gray-800 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50">
             <DataSourceIcon v-if="agentFilter" :icon-token="agentIconTokenOf(agentFilter)" class="w-3 h-3" />
-            <UIcon v-else name="i-heroicons-cube" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <UIcon v-else name="i-heroicons-cube" class="w-3 h-3 text-ink-muted" />
             {{ agentFilter ? agentNameOf(agentFilter) : 'All agents' }}
             <UIcon name="i-heroicons-chevron-down" class="w-2.5 h-2.5 opacity-60" />
           </button>
           <template #panel="{ close }">
             <div class="p-1 w-56 max-h-72 overflow-auto">
-              <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-[13px]" @click="agentFilter = null; close()"><UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-400 dark:text-gray-500" />All agents<UIcon v-if="!agentFilter" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white" /></button>
-              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-[13px]" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
+              <button class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = null; close()"><UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted" />All agents<UIcon v-if="!agentFilter" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white" /></button>
+              <button v-for="a in agents" :key="a.id" class="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 text-left text-sm" @click="agentFilter = a.id; close()"><DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4" /><span class="truncate">{{ a.name }}</span><UIcon v-if="agentFilter === a.id" name="i-heroicons-check" class="w-3.5 h-3.5 ml-auto text-gray-900 dark:text-white shrink-0" /></button>
             </div>
           </template>
         </UPopover>
         <!-- Type filter chips -->
-        <button v-for="t in typeChips" :key="t.value" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border text-[11px] font-medium transition-colors"
+        <button v-for="t in typeChips" :key="t.value" class="inline-flex items-center gap-1 h-7 px-2 rounded-md border text-2xs font-medium transition-colors"
                 :class="typeFilter === t.value ? 'border-gray-900 bg-gray-900 text-white' : 'border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                 @click="typeFilter = (typeFilter === t.value ? null : t.value)">
           <UIcon :name="t.icon" class="w-3 h-3" />{{ t.label }}
         </button>
         <span class="flex-1"></span>
-        <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium transition-colors" :class="showResolved ? 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800' : 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50'" @click="showResolved = !showResolved">
+        <button class="inline-flex items-center gap-1 h-7 px-2 rounded-md text-2xs font-medium transition-colors" :class="showResolved ? 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800' : 'text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800/50'" @click="showResolved = !showResolved">
           <UIcon name="i-heroicons-check-circle" class="w-3 h-3" />Resolved
         </button>
       </div>
@@ -53,12 +53,12 @@
 
     <!-- List -->
     <div class="flex-1 min-h-0 overflow-y-auto">
-      <div v-if="loading && !items.length" class="flex items-center justify-center py-20 text-gray-400 dark:text-gray-500"><UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin" /></div>
+      <div v-if="loading && !items.length" class="flex items-center justify-center py-20 text-ink-muted"><UIcon name="i-heroicons-arrow-path" class="w-5 h-5 animate-spin" /></div>
       <div v-else-if="!filtered.length" class="flex-1 flex items-center justify-center px-6">
         <div class="relative w-full max-w-md h-64 overflow-hidden">
           <img src="/assets/empty-states/review-empty.png" alt="" class="absolute inset-x-0 bottom-6 w-full opacity-80 select-none pointer-events-none" />
           <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
-            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-gray-400 dark:text-gray-500" /></div>
+            <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 dark:bg-gray-900/70 backdrop-blur-sm ring-1 ring-gray-200/70 dark:ring-gray-700 shadow-sm"><UIcon name="i-heroicons-check-circle" class="w-5 h-5 text-ink-muted" /></div>
             <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">You're all caught up</h3>
             <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">Nothing needs review{{ agentFilter ? ' for this agent' : '' }}. New suggestions, schema changes and quality signals will land here.</p>
           </div>
@@ -77,13 +77,13 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 min-w-0">
                 <span v-if="!row.read && row.status !== 'resolved'" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                <span class="text-[13px] font-medium text-gray-900 dark:text-white truncate">{{ row.title }}</span>
-                <span v-if="row.count > 1" class="text-[10px] font-semibold px-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">{{ row.count }} changes</span>
-                <span v-if="row.status === 'in_progress'" class="inline-flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 shrink-0"><UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />Running</span>
-                <span v-else-if="row.status === 'resolved'" class="inline-flex items-center gap-0.5 text-[10px] text-green-600 dark:text-green-400 shrink-0"><UIcon name="i-heroicons-check" class="w-3 h-3" />Resolved</span>
+                <span class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ row.title }}</span>
+                <span v-if="row.count > 1" class="text-2xs font-semibold px-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">{{ row.count }} changes</span>
+                <span v-if="row.status === 'in_progress'" class="inline-flex items-center gap-1 text-2xs text-blue-600 dark:text-blue-400 shrink-0"><UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />Running</span>
+                <span v-else-if="row.status === 'resolved'" class="inline-flex items-center gap-0.5 text-2xs text-green-600 dark:text-green-400 shrink-0"><UIcon name="i-heroicons-check" class="w-3 h-3" />Resolved</span>
               </div>
-              <p v-if="row.why" class="mt-0.5 text-[12px] text-gray-500 dark:text-gray-400 line-clamp-2">{{ row.why }}</p>
-              <div class="mt-1.5 flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
+              <p v-if="row.why" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{{ row.why }}</p>
+              <div class="mt-1.5 flex items-center gap-2 text-2xs text-ink-muted">
                 <span class="inline-flex items-center gap-1">
                   <DataSourceIcon v-if="row.singleAgentId" :icon-token="agentIconTokenOf(row.singleAgentId)" class="w-3 h-3" />
                   <UIcon v-else name="i-heroicons-globe-alt" class="w-3 h-3" />
@@ -99,14 +99,14 @@
             <div class="flex items-center gap-1 shrink-0 self-center" @click.stop>
               <template v-if="row.status === 'open' || row.status === 'snoozed'">
                 <button v-for="a in rowActions(row)" :key="a.id"
-                        class="h-7 px-2.5 rounded-md text-[12px] font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                        class="h-7 px-2.5 rounded-md text-xs font-medium inline-flex items-center gap-1 transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-gray-50 dark:bg-gray-800/40 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-gray-700 dark:text-gray-300"
                         :disabled="busy === row.key || !!actionUnavailable(row, a)"
                         :title="actionUnavailable(row, a) || a.label"
                         @click="runAction(row, a)">
-                  <UIcon v-if="busy === row.key" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-gray-400 dark:text-gray-500" />
-                  <UIcon v-else-if="a.id === 'run_eval'" name="i-heroicons-beaker" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-                  <UIcon v-else-if="a.id === 'run_training'" name="i-heroicons-academic-cap" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-                  <UIcon v-else-if="a.id === 'review'" name="i-heroicons-arrow-right" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                  <UIcon v-if="busy === row.key" name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin text-ink-muted" />
+                  <UIcon v-else-if="a.id === 'run_eval'" name="i-heroicons-beaker" class="w-3.5 h-3.5 text-ink-muted" />
+                  <UIcon v-else-if="a.id === 'run_training'" name="i-heroicons-academic-cap" class="w-3.5 h-3.5 text-ink-muted" />
+                  <UIcon v-else-if="a.id === 'review'" name="i-heroicons-arrow-right" class="w-3.5 h-3.5 text-ink-muted" />
                   {{ a.label }}
                 </button>
               </template>
@@ -126,20 +126,20 @@
             <div class="text-sm font-semibold text-gray-900 dark:text-white">Automation</div>
             <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Per agent: when Review should run evals, train and promote on its own.</div>
           </div>
-          <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="showSettings = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
+          <button class="h-7 w-7 rounded-md flex items-center justify-center text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="showSettings = false"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </div>
         <div class="mb-4">
-          <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Agent</label>
+          <label class="text-2xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Agent</label>
           <div class="relative mt-1">
             <DataSourceIcon v-if="settingsAgentId" :icon-token="agentIconTokenOf(settingsAgentId)" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4" />
-            <select v-model="settingsAgentId" class="w-full h-9 pl-9 pr-2 text-[13px] bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white appearance-none dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500">
+            <select v-model="settingsAgentId" class="w-full h-9 pl-9 pr-2 text-sm bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white appearance-none dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500">
               <option v-for="a in agents" :key="a.id" :value="a.id">{{ a.name }}</option>
             </select>
-            <UIcon name="i-heroicons-chevron-down" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 pointer-events-none" />
+            <UIcon name="i-heroicons-chevron-down" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
           </div>
         </div>
         <AgentAutomationSettings v-if="settingsAgentId" :key="settingsAgentId" :agent-id="settingsAgentId" />
-        <p v-else class="text-xs text-gray-400 dark:text-gray-500">No agents available.</p>
+        <p v-else class="text-xs text-ink-muted">No agents available.</p>
       </div>
     </UModal>
   </div>

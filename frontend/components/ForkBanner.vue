@@ -4,8 +4,8 @@
         <span>
             Forked from
             <a
-                v-if="forkedFromId"
-                :href="`/r/${forkedFromId}`"
+                v-if="forkedFromId || forkedFromDashboardId"
+                :href="forkedFromDashboardId && !forkedFromId ? `/d/${forkedFromDashboardId}` : `/r/${forkedFromId}`"
                 class="font-medium underline hover:text-amber-900 transition-colors"
                 target="_blank"
             >{{ forkedFromTitle || 'Untitled' }}</a>
@@ -16,7 +16,9 @@
 
 <script setup lang="ts">
 defineProps<{
-    forkedFromId: string
+    forkedFromId?: string | null
+    // A fork from a published dashboard's page (phase 8): links to its /d page
+    forkedFromDashboardId?: string | null
     forkedFromTitle?: string | null
     forkedFromUserName?: string | null
 }>()

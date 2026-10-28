@@ -490,7 +490,7 @@ class EmailSendService:
         title = None
         if spec.ref_type == "visualization":
             viz = await db.get(Visualization, spec.ref_id)
-            if not viz:
+            if not viz or viz.artifact_release_id:  # a published dashboard's copy is not attachable here
                 res.error = "Visualization not found"
                 return res, None, None
             if report_id and str(viz.report_id) != report_id:
@@ -500,11 +500,12 @@ class EmailSendService:
             query = await db.get(Query, viz.query_id) if viz.query_id else None
         else:  # query
             query = await db.get(Query, spec.ref_id)
-            if not query:
+            if not query or query.artifact_release_id:  # a published dashboard's copy is not attachable here
                 res.error = "Query not found"
                 return res, None, None
             # Queries may be report-scoped or global-to-org; require one to match.
-            q_report = str(query.report_id) if query.report_id else None
+            from app.services.row_owner import query_report_id
+            q_report = await query_report_id(db, query)
             q_org = str(query.organization_id) if query.organization_id else None
             if report_id and q_report and q_report != report_id and (not org_id or q_org != org_id):
                 res.error = "Query does not belong to this report or organization"

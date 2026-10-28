@@ -107,8 +107,9 @@ class McpClient(ToolProviderClient):
     def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a tool on the MCP server."""
         import asyncio
+        # A one-off loop: a pooled session would outlive it, so open a fresh one.
         return asyncio.get_event_loop().run_until_complete(
-            self._acall_tool(tool_name, arguments)
+            self._acall_tool(tool_name, arguments, pooled=False)
         )
 
     # ------------------------------------------------------------------
@@ -235,12 +236,12 @@ class McpClient(ToolProviderClient):
             logger.error(f"MCP read_resource failed: {uri}: {msg}")
             return {"success": False, "contents": [], "error": msg}
 
-    async def _acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _acall_tool(self, tool_name: str, arguments: Dict[str, Any], pooled: bool = True) -> Dict[str, Any]:
         """Async implementation of call_tool using the MCP SDK."""
         from mcp import ClientSession
 
         try:
-            async with self._connect() as session:
+            async with (self._call_session() if pooled else self._connect()) as session:
                 result = await session.call_tool(tool_name, arguments)
 
                 # Determine content type from result
@@ -442,6 +443,20 @@ class McpClient(ToolProviderClient):
                 )
 
         return _session()
+
+    def _call_session(self):
+        """A session for a tool call: pooled and reused when possible.
+
+        See ``mcp_session_pool``: reuse skips the initialize handshake and the
+        SDK's tools/list after each call on a fresh session. Pooling is off
+        when ``BOW_MCP_POOL_SIZE=0``; then every call opens its own session.
+        """
+        from app.data_sources.clients.mcp_session_pool import POOL, pool_size, session_key
+
+        if pool_size() <= 0:
+            return self._connect()
+        key = session_key(self.transport, self.server_url, self._build_headers())
+        return POOL.session(key, self._connect)
 
     def test_connection(self) -> Dict[str, Any]:
         """Test connectivity by attempting to initialize and list tools."""

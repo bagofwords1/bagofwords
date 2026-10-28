@@ -3,7 +3,7 @@
         <button
             type="button"
             @click.stop="toggle"
-            :class="quiet ? 'text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100' : 'text-[10px] text-blue-600 hover:underline'"
+            :class="quiet ? 'text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100' : 'text-2xs text-blue-600 hover:underline'"
         >
             {{ label }}
         </button>
@@ -17,7 +17,7 @@
             <!-- Search -->
             <div class="p-2 border-b border-gray-100 dark:border-gray-800">
                 <div class="relative">
-                    <UIcon name="heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                    <UIcon name="heroicons-magnifying-glass" class="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
                     <input
                         ref="searchRef"
                         v-model="search"
@@ -32,10 +32,10 @@
 
             <!-- List -->
             <div class="max-h-72 overflow-y-auto py-1">
-                <div v-if="loading" class="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-600">
+                <div v-if="loading" class="px-3 py-4 text-center text-xs text-ink-muted">
                     Loading…
                 </div>
-                <div v-else-if="items.length === 0" class="px-3 py-4 text-center text-xs text-gray-400 dark:text-gray-600">
+                <div v-else-if="items.length === 0" class="px-3 py-4 text-center text-xs text-ink-muted">
                     No instructions found
                 </div>
                 <button
@@ -51,18 +51,18 @@
                         <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                             {{ inst.title || 'Untitled instruction' }}
                         </span>
-                        <span v-if="inst.id === currentInstructionId" class="text-[9px] px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">
+                        <span v-if="inst.id === currentInstructionId" class="text-2xs px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">
                             Current
                         </span>
                     </div>
-                    <div class="text-[11px] text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                    <div class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
                         {{ inst.preview ?? inst.text }}
                     </div>
                 </button>
             </div>
 
             <!-- Footer hint -->
-            <div class="px-3 py-2 border-t border-gray-100 dark:border-gray-800 text-[10px] text-gray-400 dark:text-gray-600">
+            <div class="px-3 py-2 border-t border-gray-100 dark:border-gray-800 text-2xs text-ink-muted">
                 The previous primary stays in your library — it's only unlinked.
             </div>
         </div>

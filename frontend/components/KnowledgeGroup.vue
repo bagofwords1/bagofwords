@@ -6,7 +6,7 @@
       @click="toggleExpanded"
     >
       <span v-if="isLoading" class="flex items-center flex-wrap gap-1">
-        <Spinner class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 shrink-0" />
+        <Spinner class="w-3 h-3 me-1 text-ink-muted shrink-0" />
         <span class="knowledge-shimmer">Reviewing Knowledge</span>
         <template v-if="currentActivity">
           <span class="text-gray-300 dark:text-gray-600">·</span>
@@ -18,15 +18,15 @@
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center flex-wrap gap-1">
         <Icon
           :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip"
+          class="w-3 h-3 me-1 text-ink-muted rtl-flip"
         />
         <span>Knowledge</span>
         <span class="text-gray-300 dark:text-gray-600">·</span>
         <span>{{ changes.length }} {{ changes.length === 1 ? 'change' : 'changes' }}</span>
-        <span v-if="stepCount > 0" class="text-gray-400 dark:text-gray-500">in {{ stepCount }} {{ stepCount === 1 ? 'step' : 'steps' }}</span>
-        <span v-if="totalAdded > 0" class="text-[10px] font-mono text-green-600">+{{ totalAdded }}</span>
-        <span v-if="totalRemoved > 0" class="text-[10px] font-mono text-red-500">−{{ totalRemoved }}</span>
-        <span v-if="isBuildPublished" class="text-[10px] text-green-600 flex items-center">
+        <span v-if="stepCount > 0" class="text-ink-muted">in {{ stepCount }} {{ stepCount === 1 ? 'step' : 'steps' }}</span>
+        <span v-if="totalAdded > 0" class="text-2xs font-mono text-green-600">+{{ totalAdded }}</span>
+        <span v-if="totalRemoved > 0" class="text-2xs font-mono text-red-500">−{{ totalRemoved }}</span>
+        <span v-if="isBuildPublished" class="text-2xs text-green-600 flex items-center">
           <Icon name="heroicons:check-circle-solid" class="w-3 h-3 me-0.5" />Published
         </span>
       </span>
@@ -39,14 +39,14 @@
           <div
             v-for="s in steps"
             :key="s.id"
-            class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400"
+            class="flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400"
           >
             <span class="w-1 h-1 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0 mx-1"></span>
             <span class="truncate">{{ s.label }}</span>
           </div>
         </div>
 
-        <div v-if="changes.length === 0" class="text-[11px] text-gray-400 dark:text-gray-500 italic">
+        <div v-if="changes.length === 0" class="text-2xs text-ink-muted italic">
           No changes captured from this session.
         </div>
 
@@ -75,31 +75,31 @@
             />
             <Icon
               :name="expandedChangeIds.has(ch.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-              class="w-3 h-3 mt-1 text-gray-400 dark:text-gray-500 shrink-0 rtl-flip"
+              class="w-3 h-3 mt-1 text-ink-muted shrink-0 rtl-flip"
             />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <span
                   :class="[
-                    'text-[9px] font-mono font-semibold uppercase tracking-wide',
+                    'text-2xs font-mono font-semibold uppercase tracking-wide',
                     ch.type === 'create' ? 'text-green-600' : 'text-blue-600'
                   ]"
                 >
                   {{ ch.type === 'create' ? 'new' : 'edit' }}
                 </span>
-                <span class="text-[12px] text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">
+                <span class="text-xs text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">
                   {{ ch.title }}
                 </span>
-                <span v-if="ch.added > 0" class="text-[10px] font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
-                <span v-if="ch.removed > 0" class="text-[10px] font-mono text-red-500 shrink-0">−{{ ch.removed }}</span>
-                <span v-if="resolutionFor(ch) === 'accepted'" class="inline-flex items-center gap-0.5 text-[10px] text-green-600 shrink-0">
+                <span v-if="ch.added > 0" class="text-2xs font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
+                <span v-if="ch.removed > 0" class="text-2xs font-mono text-red-500 shrink-0">−{{ ch.removed }}</span>
+                <span v-if="resolutionFor(ch) === 'accepted'" class="inline-flex items-center gap-0.5 text-2xs text-green-600 shrink-0">
                   <Icon name="heroicons:check-circle" class="w-3 h-3" />Accepted
                 </span>
-                <span v-else-if="resolutionFor(ch) === 'rejected'" class="inline-flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                <span v-else-if="resolutionFor(ch) === 'rejected'" class="inline-flex items-center gap-0.5 text-2xs text-ink-muted shrink-0">
                   <Icon name="heroicons:x-circle" class="w-3 h-3" />Rejected
                 </span>
               </div>
-              <div v-if="!expandedChangeIds.has(ch.id)" class="text-[11px] text-gray-400 dark:text-gray-500 line-clamp-1 mt-0.5">
+              <div v-if="!expandedChangeIds.has(ch.id)" class="text-2xs text-ink-muted line-clamp-1 mt-0.5">
                 {{ ch.preview }}
               </div>
             </div>
@@ -109,7 +109,7 @@
             <div v-if="expandedChangeIds.has(ch.id)" class="px-2 pb-2">
               <div class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden bg-white dark:bg-gray-900">
                 <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center justify-between">
-                  <span class="text-[10px] text-gray-600 dark:text-gray-400 font-medium">
+                  <span class="text-2xs text-gray-600 dark:text-gray-400 font-medium">
                     {{ ch.type === 'create' ? 'New instruction' : 'Text changes' }}
                   </span>
                   <!-- Hidden once rejected: rejecting a create DELETES the
@@ -117,7 +117,7 @@
                        Open would fetch a 404 and land on an empty form. -->
                   <button
                     v-if="!readonly && ch.instructionId && resolutionFor(ch) !== 'rejected'"
-                    class="text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1"
+                    class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 flex items-center gap-1"
                     @click.stop="handleEdit(ch)"
                   >
                     <Icon name="heroicons-pencil-square" class="w-3 h-3" />
@@ -159,7 +159,7 @@
         <!-- Publish button -->
         <div v-if="!readonly && hasUnresolvedChanges && !isBuildPublished && selectedIds.size > 0" class="pt-1">
           <button
-            class="flex items-center px-2 py-1 text-[10px] font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800/70 rounded transition-colors disabled:opacity-50"
+            class="flex items-center px-2 py-1 text-2xs font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800/70 rounded transition-colors disabled:opacity-50"
             :disabled="isPublishingBuild || selectedIds.size === 0"
             @click="handlePublishBuild"
           >

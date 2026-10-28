@@ -15,8 +15,68 @@
     "host": { "type": "string" },
     "postgresql": {
       "type": "object",
-      "additionalProperties": true,
-      "description": "Bitnami PostgreSQL subchart values — all keys permitted"
+      "additionalProperties": false,
+      "description": "Bundled PostgreSQL (official postgres image). Bitnami subchart keys from chart <= 2.x are rejected rather than silently ignored.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "migrateFromBitnami": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string" },
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "imagePullSecrets": { "type": "array" },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "username": { "type": "string" },
+            "password": { "type": "string" },
+            "database": { "type": "string" },
+            "postgresPassword": { "type": "string" },
+            "existingSecret": { "type": "string" },
+            "secretKeys": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "userPasswordKey": { "type": "string", "minLength": 1 },
+                "adminPasswordKey": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        },
+        "primary": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "size": { "type": "string" },
+                "storageClass": { "type": "string" },
+                "accessModes": { "type": "array", "items": { "type": "string" } },
+                "existingClaim": { "type": "string" }
+              }
+            },
+            "resources": { "type": "object", "additionalProperties": true },
+            "nodeSelector": { "type": "object", "additionalProperties": true },
+            "tolerations": { "type": "array" },
+            "affinity": { "type": "object", "additionalProperties": true },
+            "podAnnotations": { "type": "object", "additionalProperties": true },
+            "podSecurityContext": { "type": "object", "additionalProperties": true },
+            "containerSecurityContext": { "type": "object", "additionalProperties": true },
+            "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+            "extendedConfiguration": { "type": "string" }
+          }
+        }
+      }
     },
     "database": {
       "type": "object",

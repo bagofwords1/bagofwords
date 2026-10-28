@@ -1,4 +1,26 @@
 import { defineNuxtConfig } from "nuxt/config"
+import { createHash } from "node:crypto"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
+
+// Content hash per vendored /libs file, baked into the bundle as
+// __BOW_LIB_HASHES__ (utils/artifactIframe.ts libUrl). The libs are
+// downloaded before `nuxt generate` (Dockerfile, boot_stack.sh), so a hashed
+// URL changes exactly when the file does — which is what lets the backend
+// serve hashed /libs URLs with an immutable Cache-Control (app/core/spa.py).
+function artifactLibHashes(): Record<string, string> {
+  const root = typeof __dirname !== "undefined" ? __dirname : process.cwd()
+  const dir = join(root, "public", "libs")
+  const out: Record<string, string> = {}
+  if (!existsSync(dir)) return out
+  for (const name of readdirSync(dir)) {
+    if (!/\.(js|css)$/.test(name)) continue
+    const file = join(dir, name)
+    if (!statSync(file).isFile()) continue
+    out[name] = createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 16)
+  }
+  return out
+}
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -69,6 +91,11 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    // tokens.css first: it defines the CSS variables (and the global
+    // baseline) that the sheets below, and tailwind.config.ts, resolve
+    // against. Order matters — anything that overrides a token must load
+    // after it.
+    '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
@@ -92,6 +119,25 @@ export default defineNuxtConfig({
     },
     fallbackToApi: false,
   },
+
+  // NOTE: no `app.pageTransition` / `app.layoutTransition` here, deliberately.
+  //
+  // They were added in 710c22b and reverted in the same PR after they blanked
+  // the home route. Vue's <Transition> can only animate a component whose
+  // template has a SINGLE ELEMENT root; anything else renders a Fragment and
+  // Vue bails with "node that cannot be animated". A leading HTML comment
+  // counts as a root node, so `<!-- … --> <div>` is already a fragment.
+  //
+  // 15 of this app's 68 pages are fragments today, among them the ones that
+  // matter most: index.vue, reports/[id]/index.vue, r/[id]/index.vue and all
+  // four users/* auth pages. Enabling route transitions would mean giving
+  // every one of them a single wrapper element — restructuring the DOM of the
+  // app's most important routes for a 160ms fade — and any new page that
+  // starts with a comment would silently break again.
+  //
+  // If you want this back, the prerequisite is a lint rule or test that
+  // enforces a single element root on every page component. Until then the
+  // trade is not worth it.
 
   colorMode: {
     preference: 'system'
@@ -140,12 +186,19 @@ export default defineNuxtConfig({
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive',
-                // changeOrigin rewrites Host to the upstream, so the backend
-                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
-                // NGINX sets these in production; mirror that in dev.
-                'X-Forwarded-Host': 'localhost:3000',
-                'X-Forwarded-Proto': 'http'
+                'Connection': 'keep-alive'
+            },
+            // changeOrigin rewrites Host to the upstream, so the backend would
+            // otherwise derive OAuth redirect_uri from 127.0.0.1:8000. Pass the
+            // X-Forwarded-Host/Proto of a proxy in front of us (ingress, tunnel)
+            // through unchanged, and only default to localhost:3000 over http
+            // for direct local dev. Set on proxyReq because static `headers`
+            // would overwrite the incoming values.
+            configure: (proxy) => {
+                proxy.on('proxyReq', (proxyReq, req) => {
+                    proxyReq.setHeader('X-Forwarded-Host', req.headers['x-forwarded-host'] || 'localhost:3000')
+                    proxyReq.setHeader('X-Forwarded-Proto', req.headers['x-forwarded-proto'] || 'http')
+                })
             }
         }
     }
@@ -206,6 +259,9 @@ export default defineNuxtConfig({
 
   // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
   vite: {
+    define: {
+      __BOW_LIB_HASHES__: JSON.stringify(artifactLibHashes()),
+    },
     server: {
       // Vite rejects requests whose Host header is not listed here (dev only).
       // Set BOW_ALLOWED_HOSTS (comma-separated, leading dot = any subdomain) to

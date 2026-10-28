@@ -3,7 +3,7 @@
     <div>
       <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.memory.title') }}</h3>
       <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.memory.subtitle') }}</p>
-      <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1 flex-wrap">
+      <p class="text-2xs text-ink-muted mt-1 flex items-center gap-1 flex-wrap">
         <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
         <span>{{ $t('profile.memory.vsInstructions') }}</span>
         <button type="button" class="text-blue-600 dark:text-blue-400 hover:underline" data-testid="memory-open-instructions" @click="emit('open-instructions')">
@@ -13,7 +13,7 @@
     </div>
 
     <div v-if="loading" class="py-6 flex justify-center">
-      <Spinner class="w-5 h-5 text-gray-400" />
+      <Spinner class="w-5 h-5 text-ink-muted" />
     </div>
 
     <template v-else>
@@ -39,14 +39,14 @@
           :key="tg.tag"
           type="button"
           :class="[
-            'px-1.5 py-0.5 rounded text-[11px] border transition-colors',
+            'px-1.5 py-0.5 rounded text-2xs border transition-colors',
             activeTag === tg.tag
               ? 'bg-blue-50 border-blue-200 text-blue-700 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-300'
               : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:border-gray-700 dark:text-gray-400'
           ]"
           @click="activeTag = activeTag === tg.tag ? null : tg.tag"
         >
-          <bdi dir="ltr">#{{ tg.tag }}</bdi> <span class="text-gray-400">{{ tg.count }}</span>
+          <bdi dir="ltr">#{{ tg.tag }}</bdi> <span class="text-ink-muted">{{ tg.count }}</span>
         </button>
       </div>
 
@@ -74,24 +74,24 @@
           />
           <div v-else class="flex items-start gap-2">
             <div class="flex-1 min-w-0">
-              <div class="text-[13px] text-gray-800 dark:text-gray-200 break-words" data-testid="memory-entry-text">
+              <div class="text-sm text-gray-800 dark:text-gray-200 break-words" data-testid="memory-entry-text">
                 <bdi>{{ e.text }}</bdi>
               </div>
               <div class="flex items-center gap-1.5 flex-wrap mt-1">
-                <span v-if="e.date" class="text-[11px] text-gray-600 dark:text-gray-300 inline-flex items-center gap-1" data-testid="memory-entry-date">
+                <span v-if="e.date" class="text-2xs text-gray-600 dark:text-gray-300 inline-flex items-center gap-1" data-testid="memory-entry-date">
                   <UIcon name="i-heroicons-calendar" class="w-3 h-3" />
                   <bdi>{{ formatDates(e) }}</bdi>
                 </span>
-                <span v-if="e.expired" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ $t('profile.memory.past') }}</span>
+                <span v-if="e.expired" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ $t('profile.memory.past') }}</span>
                 <button
                   v-for="tg in displayTags(e)"
                   :key="tg"
                   type="button"
-                  class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-blue-600"
+                  class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:text-blue-600"
                   @click="activeTag = tg"
                 ><bdi dir="ltr">#{{ tg }}</bdi></button>
                 <!-- Where it came from: only on hover, to keep the list quiet. -->
-                <span class="hidden group-hover:inline-flex items-center gap-1 text-[11px] text-gray-400 min-w-0" data-testid="memory-entry-source">
+                <span class="hidden group-hover:inline-flex items-center gap-1 text-2xs text-ink-muted min-w-0" data-testid="memory-entry-source">
                   <UIcon :name="e.source === 'user' ? 'i-heroicons-user' : e.source === 'dream' ? 'i-heroicons-moon' : 'i-heroicons-sparkles'" class="w-3 h-3 shrink-0" />
                   <NuxtLink
                     v-if="e.evidence?.report_link"
@@ -109,13 +109,13 @@
             </div>
           </div>
         </li>
-        <li v-if="!visible.length" class="px-3 py-3 text-xs text-gray-400 dark:text-gray-500 italic" data-testid="memory-empty">
+        <li v-if="!visible.length" class="px-3 py-3 text-xs text-ink-muted italic" data-testid="memory-empty">
           {{ entries.length ? $t('profile.memory.noMatches') : $t('profile.memory.empty') }}
         </li>
       </ul>
 
       <div class="flex items-center justify-between">
-        <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('profile.memory.count', { count: total, cap }) }}</span>
+        <span class="text-2xs text-ink-muted">{{ $t('profile.memory.count', { count: total, cap }) }}</span>
         <UButton
           v-if="total > 0"
           size="2xs"

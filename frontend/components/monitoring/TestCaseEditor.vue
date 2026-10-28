@@ -27,7 +27,7 @@
                             <template #option="{ option }">
                                 <div class="flex items-center gap-1.5 min-w-0 w-full">
                                     <span class="text-xs truncate">{{ option.label }}</span>
-                                    <span v-if="option.hint" class="ms-auto shrink-0 text-[10px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ option.hint }}</span>
+                                    <span v-if="option.hint" class="ms-auto shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ option.hint }}</span>
                                 </div>
                             </template>
                         </USelectMenu>
@@ -51,13 +51,13 @@
                         </USelectMenu>
                     </div>
                 </div>
-                <div class="text-[11px] text-gray-400 dark:text-gray-600">
+                <div class="text-2xs text-ink-muted">
                     Select an existing suite{{ isEditing ? '' : ' or choose "Create New Suite…" to add one' }}. Build version affects "Save and Run".
                 </div>
             </div>
     </div>
     <div class="max-h-[62vh] overflow-hidden pe-1">
-        <div v-if="initialLoading" class="min-h-[420px] flex flex-col items-center justify-center gap-2 text-gray-400 dark:text-gray-500">
+        <div v-if="initialLoading" class="min-h-[420px] flex flex-col items-center justify-center gap-2 text-ink-muted">
             <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 animate-spin" />
             <div class="text-xs">{{ isEditing ? 'Loading test case…' : 'Loading…' }}</div>
         </div>
@@ -88,16 +88,16 @@
             <div class="p-3 flex-1 flex flex-col space-y-3 overflow-y-auto">
                 <div v-if="categoryRules.length === 0" class="p-6 text-center">
                   <div class="text-sm font-medium text-gray-800 dark:text-gray-200 mb-1">No rules yet</div>
-                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Define expectations for your test. Add your first rule to get started.</div>
+                  <div class="text-2xs text-gray-500 dark:text-gray-400 mb-3">Define expectations for your test. Add your first rule to get started.</div>
                   <div class="flex items-center justify-center">
                     <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
                   </div>
-                  <div class="text-[11px] text-gray-500 dark:text-gray-400 mt-2" v-if="catalogLoading">Loading catalog…</div>
+                  <div class="text-2xs text-gray-500 dark:text-gray-400 mt-2" v-if="catalogLoading">Loading catalog…</div>
                 </div>
                 <template v-else>
                   <div class="flex items-center gap-2">
                       <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
-                      <div class="text-[11px] text-gray-500 dark:text-gray-400 ms-auto" v-if="catalogLoading">Loading catalog…</div>
+                      <div class="text-2xs text-gray-500 dark:text-gray-400 ms-auto" v-if="catalogLoading">Loading catalog…</div>
                   </div>
                   <!-- Category list -->
                   <div class="space-y-3">
@@ -129,7 +129,7 @@
                     </div>
 
                     <!-- Category helper text -->
-                    <div class="px-3 pb-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    <div class="px-3 pb-1 text-2xs text-gray-500 dark:text-gray-400">
                       {{ categoryShortHelp(cat.categoryId) }}
                     </div>
 
@@ -137,7 +137,7 @@
                     <div v-if="cat.categoryId === 'judge'" class="px-3 pb-3 space-y-3">
                       <!-- Judge prompt textarea -->
                       <div class="space-y-1">
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Prompt</div>
+                        <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Prompt</div>
                         <textarea
                           v-model="(getJudgeRule(cat, 'prompt').matcher as any).value"
                           rows="4"
@@ -146,7 +146,7 @@
                         />
                       </div>
                       <div class="space-y-1">
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Output</div>
+                        <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Output</div>
                         <div class="flex items-center gap-2">
                           <span class="bg-green-100 dark:bg-green-900/50 text-green-800 text-xs px-2 py-1 rounded-md">Pass</span>
                           <span class="bg-red-100 dark:bg-red-900/50 text-red-800 text-xs px-2 py-1 rounded-md">Fail</span>
@@ -154,7 +154,7 @@
                       </div>
                       <!-- Judge model selector (popover UI like PromptBoxV2) -->
                       <div class="space-y-1">
-                        <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Model</div>
+                        <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Model</div>
                         <UPopover>
                           <UTooltip :text="judgeSelectedModelLabel(cat)" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                             <button class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md px-2 py-1 text-xs flex items-center border border-gray-200 dark:border-gray-700">
@@ -170,7 +170,7 @@
                                 </div>
                                 <div class="flex flex-col flex-1 text-start min-w-0">
                                   <span class="font-medium truncate">{{ m.name || m.model_id }}</span>
-                                  <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
+                                  <span class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ m.provider?.name || m.provider_name || '' }}</span>
                                 </div>
                                 <Icon v-if="(getJudgeRule(cat, 'model_id').matcher as any).value === (m.model_id || m.value)" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                               </div>
@@ -183,7 +183,7 @@
                       <div v-for="fr in cat.fieldRules" :key="fr.key" class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center">
                         <!-- Field -->
                         <div class="md:col-span-2">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Field</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Field</div>
                           <USelectMenu
                             v-model="fr.target.field"
                             :options="fieldOptionsForCategory(cat.categoryId)"
@@ -204,7 +204,7 @@
                         </div>
                         <!-- Op -->
                         <div class="md:col-span-2">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Operator</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Operator</div>
                           <USelectMenu
                             v-model="(fr.matcher as any).type"
                             :options="opOptionsFor(cat, fr)"
@@ -225,7 +225,7 @@
                         </div>
                         <!-- Value editor -->
                         <div class="md:col-span-3">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Value</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Value</div>
                           <div v-if="(fr.matcher as any).type === 'number.cmp' || (fr.matcher as any).type === 'length.cmp'" class="flex items-center gap-2">
                             <USelectMenu
                               v-model="(fr.matcher as any).op"
@@ -272,46 +272,46 @@
 
                 <!-- Other rules (preserved through round-trip) -->
                 <div v-if="otherRules.length" class="space-y-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-                  <div class="text-[11px] text-gray-500 dark:text-gray-400">Other rules</div>
+                  <div class="text-2xs text-gray-500 dark:text-gray-400">Other rules</div>
                   <div v-for="(r, idx) in otherRules" :key="`other:${idx}`" class="rounded-md border border-blue-200 px-3 py-2 space-y-2">
                     <div class="flex items-center gap-2">
-                      <span class="bg-blue-50 dark:bg-blue-950 text-blue-700 text-[10px] uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
+                      <span class="bg-blue-50 dark:bg-blue-950 text-blue-700 text-2xs uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
                       <UButton class="ms-auto" color="gray" variant="ghost" size="xs" icon="i-heroicons-trash" @click="removeOtherRule(idx)" />
                     </div>
 
                     <template v-if="r.type === 'tool.calls'">
                       <div class="grid grid-cols-1 md:grid-cols-8 gap-2 items-center">
                         <div class="md:col-span-3">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Tool</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Tool</div>
                           <input type="text" v-model="r.tool" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" placeholder="e.g. create_data" />
                         </div>
                         <div class="md:col-span-2">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Min calls</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Min calls</div>
                           <input type="number" min="0" v-model.number="r.min_calls" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                         </div>
                         <div class="md:col-span-3">
-                          <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Max calls (optional)</div>
+                          <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Max calls (optional)</div>
                           <input type="number" min="0" :value="r.max_calls ?? ''" @input="(e: any) => { const v = e.target.value; r.max_calls = v === '' ? null : Number(v) }" class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full" />
                         </div>
                       </div>
                     </template>
 
                     <template v-else-if="r.type === 'ordering'">
-                      <div class="text-[11px] text-gray-600 dark:text-gray-400">
+                      <div class="text-2xs text-gray-600 dark:text-gray-400">
                         Mode: <span class="font-medium">{{ r.mode || 'flexible' }}</span> · Sequence: <span class="font-mono">{{ (r.sequence || []).map((s: any) => s.tool_or_bind).join(' → ') }}</span>
                       </div>
-                      <div class="text-[10px] text-gray-400 dark:text-gray-600">Read-only — edit via JSON for now.</div>
+                      <div class="text-2xs text-ink-muted">Read-only — edit via JSON for now.</div>
                     </template>
 
                     <template v-else-if="r.type === 'phase'">
-                      <div class="text-[11px] text-gray-600 dark:text-gray-400">
+                      <div class="text-2xs text-gray-600 dark:text-gray-400">
                         Phase <span class="font-medium">{{ r.phase }}</span> {{ r.occurred === false ? 'did NOT run' : 'ran' }}{{ typeof r.turn === 'number' ? ` on turn ${r.turn}` : '' }}
                       </div>
-                      <div class="text-[10px] text-gray-400 dark:text-gray-600">Read-only — edit via JSON for now.</div>
+                      <div class="text-2xs text-ink-muted">Read-only — edit via JSON for now.</div>
                     </template>
 
                     <template v-else>
-                      <pre class="text-[10px] bg-gray-50 dark:bg-gray-900 p-2 rounded overflow-x-auto">{{ JSON.stringify(r, null, 2) }}</pre>
+                      <pre class="text-2xs bg-gray-50 dark:bg-gray-900 p-2 rounded overflow-x-auto">{{ JSON.stringify(r, null, 2) }}</pre>
                     </template>
                   </div>
                 </div>
@@ -805,9 +805,13 @@ function setJudgeModel(cat: CategoryRuleUI, m: any) {
 function ensureDefaultJudgeModel(cat: CategoryRuleUI) {
   const currentVal = (getJudgeRule(cat, 'model_id').matcher as any).value
   if (currentVal) return
-  const small = (judgeModels.value || []).find((m: any) => m.is_small_default)
-  const reg = (judgeModels.value || []).find((m: any) => m.is_default)
-  const pick = small || reg || (judgeModels.value || [])[0]
+  // The list only holds models this user may use, so a restricted org
+  // default is absent; prefer their inherited (group) default next.
+  const list = judgeModels.value || []
+  const small = list.find((m: any) => m.is_small_default)
+  const inherited = list.find((m: any) => m.is_inherited_default)
+  const reg = list.find((m: any) => m.is_default)
+  const pick = small || inherited || reg || list[0]
   if (pick) {
     (getJudgeRule(cat, 'model_id').matcher as any).value = pick.model_id || pick.value || ''
   }

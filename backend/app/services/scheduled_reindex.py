@@ -132,7 +132,7 @@ async def sweep_due_reindexes() -> None:
         for conn in candidates:
             # Per-user catalogs (OneDrive, personal Drive) have no admin-side
             # catalog to re-index — they heal on each user's sign-in. Skip.
-            if svc._is_per_user_catalog(conn.type):
+            if svc._is_per_user_catalog(conn.type, conn.config):
                 continue
             # Per-user OAuth connectors (MCP/Custom API connected via DCR or an
             # admin OAuth app) hold an OAuth client, not a token — a sweep run

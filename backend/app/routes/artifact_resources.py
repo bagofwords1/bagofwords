@@ -9,6 +9,7 @@ import time
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Request, UploadFile, File as Upload, Query
 from fastapi.responses import Response, StreamingResponse
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func, delete, update
 from sqlalchemy.exc import IntegrityError
@@ -191,7 +192,7 @@ async def ai_stream(operation: str, payload: AIInput, request: Request, service=
         service.actor,
         str(service.artifact.id),
         str(service.artifact.organization_id),
-        str(service.report.id),
+        str(service.report.id) if service.report else None,
     )
     await service.db.commit()  # Never hold the resource transaction while streaming.
 
@@ -284,7 +285,8 @@ async def ai_stream(operation: str, payload: AIInput, request: Request, service=
                 await usage.flush()
 
     return StreamingResponse(
-        events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
+        events(), media_type="application/x-ndjson",
+        headers={**NO_BUFFER_HEADERS, "Cache-Control": "no-store, no-transform"},
     )
 
 
@@ -310,8 +312,25 @@ async def view_token(surface: str = Query(pattern="^(embedded|standalone)$"), se
     }
 
 
+async def _dashboard_editor(service) -> bool:
+    """Someone who can edit the dashboard (collab01): its analytics are
+    theirs to read, and their own visits are not its audience."""
+    if not service.user:
+        return False
+    from app.services.dashboard_access import can_edit
+
+    try:
+        return await can_edit(service.db, service.artifact, service.user)
+    except Exception:
+        return False
+
+
 @router.post("/views")
 async def view(payload: ViewInput, service=Depends(visibility_access)):
+    if not service.owner and await _dashboard_editor(service):
+        # Other editors' own visits are left out of the numbers (collab01);
+        # the owner's count as they always did.
+        return {"accepted": True, "counted": False}
     try:
         token = unseal(payload.token)
         if (
@@ -377,7 +396,7 @@ async def view(payload: ViewInput, service=Depends(visibility_access)):
 
 @router.get("/analytics")
 async def analytics(days: int = Query(default=30, ge=1, le=366), service=Depends(visibility_access)):
-    if not service.owner:
+    if not service.owner and not await _dashboard_editor(service):
         fail("FORBIDDEN", "Only the report owner can inspect analytics", 403)
     since = (datetime.utcnow() - timedelta(days=days - 1)).date().isoformat()
     clause = (ArtifactViewDay.artifact_id == service.artifact.id, ArtifactViewDay.day >= since)

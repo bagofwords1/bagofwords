@@ -1604,6 +1604,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             content = {**content, 'sdk_version': 1,
                        'resource_requirements': replace_content.get('resource_requirements', {})}
         artifact.content = content
+        if data.mode == "page":
+            # Precompile the final code in the background so the first view can
+            # skip in-browser Babel (app.services.artifact_precompile).
+            from app.services.artifact_precompile import schedule_compile
+            schedule_compile(content.get("code"))
         if data.mode == "slides":
             artifact.status = "completed" if pptx_success else "failed"
             # Persist the executor error like page mode persists render errors,

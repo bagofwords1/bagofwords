@@ -200,6 +200,19 @@ async def report_has_lists(db, report, user, organization) -> bool:
     ds_ids = [str(r[0]) for r in (await db.execute(
         select(assoc.c.data_source_id).where(assoc.c.report_id == str(report.id))
     )).all()]
+    return await _sources_have_lists(db, ds_ids, user, organization)
+
+
+async def release_has_lists(db, release, user, organization) -> bool:
+    """report_has_lists for a published dashboard's release: its own data sources."""
+    if release is None or user is None or organization is None:
+        return False
+    from app.services.dashboard_data import release_data_source_ids
+    return await _sources_have_lists(db, await release_data_source_ids(db, release.id), user, organization)
+
+
+async def _sources_have_lists(db, ds_ids, user, organization) -> bool:
+    ds_ids = [str(d) for d in ds_ids]
     if not ds_ids:
         return False
     live = (await db.execute(

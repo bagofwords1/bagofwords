@@ -103,8 +103,16 @@ class Anthropic(LLMClient):
         # the SDK's own default client.
         sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
         async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
-        sync_http = {"http_client": AnthropicDefaultHttpxClient(event_hooks=sync_hooks)} if sync_hooks else {}
-        async_http = {"http_client": AnthropicDefaultAsyncHttpxClient(event_hooks=async_hooks)} if async_hooks else {}
+        # Always our own clients, on the process-wide TLS context: the SDK's
+        # implicit ones each load the CA bundle (app.core.tls).
+        from app.core.tls import shared_ssl_context
+        from app.core.llm_transport import shared_transports
+        tls = shared_ssl_context()
+        # Connections are shared by every client in the process
+        # (app.core.llm_transport), so a message reuses a warm one.
+        plain_sync, plain_async = shared_transports(pinned=False)
+        sync_http = {"http_client": AnthropicDefaultHttpxClient(transport=plain_sync, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {}))}
+        async_http = {"http_client": AnthropicDefaultAsyncHttpxClient(transport=plain_async, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {}))}
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
         # input: Anthropic models hosted on Azure AI Foundry answer the same
@@ -138,12 +146,13 @@ class Anthropic(LLMClient):
             if pin_egress:
                 # Admin-configured base_url (Azure AI Foundry): validate and
                 # pin every request to the checked address (app.core.egress).
-                from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
-
+                pinned_sync, pinned_async = shared_transports(pinned=True)
                 self.client = AnthropicAPI(**client_kwargs, http_client=AnthropicDefaultHttpxClient(
-                    transport=PinnedTransport(Policy.ADMIN), **({"event_hooks": sync_hooks} if sync_hooks else {})))
+                    transport=pinned_sync, verify=tls,
+                    **({"event_hooks": sync_hooks} if sync_hooks else {})))
                 self.async_client = AsyncAnthropic(**client_kwargs, http_client=AnthropicDefaultAsyncHttpxClient(
-                    transport=AsyncPinnedTransport(Policy.ADMIN), **({"event_hooks": async_hooks} if async_hooks else {})))
+                    transport=pinned_async, verify=tls,
+                    **({"event_hooks": async_hooks} if async_hooks else {})))
             else:
                 self.client = AnthropicAPI(**client_kwargs, **sync_http)
                 self.async_client = AsyncAnthropic(**client_kwargs, **async_http)

@@ -20,13 +20,13 @@
     </header>
 
     <div v-if="loading" class="flex items-center justify-center py-20">
-      <Spinner class="h-6 w-6 text-gray-400" />
+      <Spinner class="h-6 w-6 text-ink-muted" />
     </div>
 
     <template v-else>
       <div v-if="clients.length > 5" class="mt-6 max-w-sm">
         <div class="relative">
-          <UIcon name="i-heroicons-magnifying-glass" class="pointer-events-none absolute start-3 top-2.5 h-4 w-4 text-gray-400" />
+          <UIcon name="i-heroicons-magnifying-glass" class="pointer-events-none absolute start-3 top-2.5 h-4 w-4 text-ink-muted" />
           <input
             v-model="search"
             type="search"
@@ -37,7 +37,7 @@
       </div>
 
       <div v-if="clients.length === 0" class="mt-6 rounded-xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
-        <UIcon name="i-heroicons-key" class="mx-auto h-6 w-6 text-gray-400" />
+        <UIcon name="i-heroicons-key" class="mx-auto h-6 w-6 text-ink-muted" />
         <h4 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">
           {{ $t('settings.integrations.channels.oauth.noneYet') }}
         </h4>
@@ -69,20 +69,20 @@
               <span
                 v-for="scopeName in client.scopes"
                 :key="scopeName"
-                class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1"
+                class="rounded px-1.5 py-0.5 text-2xs font-medium ring-1"
                 :class="scopeName === 'app'
                   ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900'
                   : 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900'"
               >
                 {{ scopeLabel(scopeName) }}
               </span>
-              <span v-if="client.trusted" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 dark:text-amber-300 dark:ring-amber-900">
+              <span v-if="client.trusted" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-2xs font-medium text-amber-700 ring-1 ring-amber-200 dark:text-amber-300 dark:ring-amber-900">
                 <UIcon name="i-heroicons-bolt" class="h-3 w-3" />
                 {{ $t('settings.integrations.channels.oauth.trusted') }}
               </span>
             </div>
 
-            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400">
+            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-gray-500 dark:text-gray-400">
               <button type="button" class="inline-flex min-w-0 items-center gap-1 hover:text-gray-800 dark:hover:text-gray-200" @click="copy(client.client_id)">
                 <code class="max-w-48 truncate font-mono">{{ client.client_id }}</code>
                 <UIcon name="i-heroicons-clipboard-document" class="h-3 w-3 shrink-0" />
@@ -106,7 +106,7 @@
             />
             <template #item="{ item }">
               <span class="truncate" :class="item.danger ? 'text-red-600 dark:text-red-400' : ''">{{ item.label }}</span>
-              <UIcon v-if="item.icon" :name="item.icon" class="ms-auto h-4 w-4 shrink-0" :class="item.danger ? 'text-red-500' : 'text-gray-400'" />
+              <UIcon v-if="item.icon" :name="item.icon" class="ms-auto h-4 w-4 shrink-0" :class="item.danger ? 'text-red-500' : 'text-ink-muted'" />
             </template>
           </UDropdown>
         </article>
@@ -226,7 +226,7 @@
             <span>
               <span class="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
                 {{ $t('settings.integrations.channels.oauth.trusted') }}
-                <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <span class="rounded bg-amber-50 px-1.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                   {{ $t('settings.integrations.channels.oauth.internalOnly') }}
                 </span>
               </span>

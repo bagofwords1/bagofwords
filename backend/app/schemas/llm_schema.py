@@ -302,6 +302,12 @@ class LLMModelSchema(LLMModelBase):
     # Whether this model is the CALLER's personal default (memberships.default_llm_model_id).
     # Computed per-request in LLMService.get_models — not a column.
     is_user_default: bool = False
+    # Whether this is the default the CALLER inherits with no personal
+    # preference: their group's default, else the org default, else the first
+    # model they may use. Computed per-request in LLMService.get_models.
+    is_inherited_default: bool = False
+    inherited_default_source: Optional[str] = None  # "group" | "org" | "fallback"
+    inherited_default_group_name: Optional[str] = None
     # Reasoning capability for the model picker and admin card: whether effort
     # applies, what each level (low/medium/high/max) runs as on this model, the
     # admin's mode / default / raw per-level fields. Derived from model_id +

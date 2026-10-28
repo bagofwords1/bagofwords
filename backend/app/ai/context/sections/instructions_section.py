@@ -59,6 +59,15 @@ class SkillCatalogItem(BaseModel):
     description: Optional[str] = None
     # Display names of tables the entry is scoped to (helps the agent pick).
     table_refs: List[str] = []
+    # Non-table references as "kind:name" (e.g. "instruction:Revenue rule",
+    # "resource:orders_model"), so the agent can judge relevance without
+    # opening the entry.
+    other_refs: List[str] = []
+    # Which field the user's message strongly matched ('title' | 'labels' |
+    # 'tables'), set when a matching instruction was too long to inline.
+    matched: Optional[str] = None
+    # Approximate size of the full text, so the agent knows what a read costs.
+    tokens: Optional[int] = None
     # Aggregated org-wide usage (InstructionStats), used for ordering.
     usage_count: Optional[int] = None
 
@@ -69,11 +78,20 @@ class InstructionsSection(ContextSection):
     items: List[InstructionItem] = []
     # Skills advertised (not force-loaded) — rendered as <available_skills>.
     skills: List[SkillCatalogItem] = []
-    # Intelligent instructions beyond the load capacity — advertised (not
-    # force-loaded), rendered as <available_instructions> for agents that can
-    # call read_instruction (the planner). Excluded from render() by default so
+    # Smart (intelligent) instructions — never inlined, always advertised.
+    # Rendered as <available_instructions> for agents that can call
+    # read_instruction (the planner). Excluded from render() by default so
     # tool-less consumers (coder/answer) don't see references they can't open.
     available_instructions: List[SkillCatalogItem] = []
+    # Smart instructions the agent READ (read_instruction) in this report.
+    # Tool-less consumers (coder, chart step) can't open catalog entries, so
+    # they get these in full via render(). The planner (include_catalog=True)
+    # doesn't: it already has the text from its own read.
+    read_items: List[InstructionItem] = []
+    # Org setting smart_instructions_on_demand, as resolved by the builder.
+    # Only changes the catalog's intro text; what is listed vs loaded is
+    # decided by the builder.
+    on_demand: bool = False
 
     @staticmethod
     def _tables_attr(table_refs: List[str], cap: int = 5) -> str:
@@ -82,13 +100,19 @@ class InstructionsSection(ContextSection):
         return ", ".join(shown) + suffix
 
     def render(self, include_catalog: bool = False) -> str:
-        if not self.items and not self.skills and not (include_catalog and self.available_instructions):
+        # Tool-less consumers also get what the agent read; the planner reads
+        # catalog entries itself and already has their text.
+        loaded = list(self.items)
+        if not include_catalog and self.read_items:
+            seen = {i.id for i in loaded}
+            loaded += [i for i in self.read_items if i.id not in seen]
+        if not loaded and not self.skills and not (include_catalog and self.available_instructions):
             return ""
         rendered: List[str] = []
 
-        if self.items:
+        if loaded:
             parts: List[str] = []
-            for inst in self.items:
+            for inst in loaded:
                 attrs = {"id": inst.id, "category": inst.category or ""}
                 if inst.title:
                     attrs["title"] = inst.title
@@ -119,18 +143,37 @@ class InstructionsSection(ContextSection):
             rendered.append(xml_tag("available_skills", "\n".join(skill_parts)))
 
         if include_catalog and self.available_instructions:
-            cat_parts: List[str] = [
-                "More organization instructions exist beyond the ones loaded above. "
-                "Each entry lists a short id and title (and the tables it is scoped "
-                "to) — the full text is NOT shown here. If an entry looks relevant "
-                "to the user's request, call read_instruction with its short_id to "
-                "load the full text BEFORE acting. If you suspect a rule exists but "
-                "nothing here matches, call search_instructions."
-            ]
+            if self.on_demand:
+                intro = (
+                    "Organization instructions available on demand. Each entry lists "
+                    "a short id, title and description (and the tables and other "
+                    "objects it references) — the full text is NOT shown here. Decide "
+                    "which entries apply to the user's request and call read_instruction "
+                    "with their short_id to load the full text BEFORE acting. Entries "
+                    "marked matched=... share words with the request (listed first) — "
+                    "a hint, not a guarantee. If you suspect a rule exists but nothing "
+                    "here matches, call search_instructions."
+                )
+            else:
+                intro = (
+                    "More organization instructions exist beyond the ones loaded above. "
+                    "Each entry lists a short id and title (and the tables it is scoped "
+                    "to) — the full text is NOT shown here. If an entry looks relevant "
+                    "to the user's request, call read_instruction with its short_id to "
+                    "load the full text BEFORE acting. If you suspect a rule exists but "
+                    "nothing here matches, call search_instructions."
+                )
+            cat_parts: List[str] = [intro]
             for ref in self.available_instructions:
                 attrs = {"short_id": ref.short_id, "title": ref.title}
                 if ref.table_refs:
                     attrs["tables"] = self._tables_attr(ref.table_refs)
+                if ref.other_refs:
+                    attrs["refs"] = self._tables_attr(ref.other_refs)
+                if ref.matched:
+                    attrs["matched"] = ref.matched
+                if ref.tokens:
+                    attrs["tokens"] = str(ref.tokens)
                 body = xml_escape((ref.description or "").strip())
                 cat_parts.append(xml_tag("instruction_ref", body, attrs))
             rendered.append(xml_tag("available_instructions", "\n".join(cat_parts)))

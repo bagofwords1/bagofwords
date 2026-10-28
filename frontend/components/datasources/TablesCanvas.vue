@@ -9,7 +9,7 @@
           <button data-testid="erd-select-tables" class="control px-2 gap-1.5"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5" />{{ activeIds.size ? t('tableErd.selectedCount', { count: activeIds.size }) : t('tableErd.selectTables') }}</button>
           <template #option="{ option }">
             <DataSourceIcon :type="option.connection_type" class="h-3.5 w-3.5 shrink-0" />
-            <span class="min-w-0 flex-1"><span class="block truncate font-mono" dir="ltr">{{ option.name }}</span><span class="block truncate text-[10px] text-gray-400">{{ option.connection_name }}{{ option.metadata_json?.schema ? ` · ${option.metadata_json.schema}` : '' }}</span></span>
+            <span class="min-w-0 flex-1"><span class="block truncate font-mono" dir="ltr">{{ option.name }}</span><span class="block truncate text-2xs text-ink-muted">{{ option.connection_name }}{{ option.metadata_json?.schema ? ` · ${option.metadata_json.schema}` : '' }}</span></span>
           </template>
           <template #empty>{{ t('tableErd.noMatches') }}</template>
           <template #option-empty>{{ t('tableErd.noMatches') }}</template>
@@ -21,7 +21,7 @@
       </div>
     </div>
     <div class="absolute end-3 top-3 z-10 pointer-events-auto">
-      <button v-if="fullscreen" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200/90 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white" :aria-label="t('tableErd.exitFullscreen')" :title="t('tableErd.exitFullscreen')" @click="emit('toggleFullscreen')">
+      <button v-if="fullscreen" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200/90 bg-white/95 px-2.5 py-1.5 text-2xs font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white" :aria-label="t('tableErd.exitFullscreen')" :title="t('tableErd.exitFullscreen')" @click="emit('toggleFullscreen')">
         <UIcon name="i-heroicons-arrows-pointing-in" class="h-3.5 w-3.5" />
         {{ t('tableErd.exitFullscreen') }}
       </button>
@@ -30,10 +30,10 @@
       </button>
     </div>
     <div v-if="searchOpen" class="absolute start-3 top-14 z-10 w-60 max-h-[60%] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-md p-1" data-testid="erd-discovery">
-      <div class="px-2 py-2 text-[10px] text-gray-500">{{ t('tableErd.searchHint') }}</div>
+      <div class="px-2 py-2 text-2xs text-gray-500">{{ t('tableErd.searchHint') }}</div>
       <button v-for="table in matchingTables.slice(0, resultLimit)" :key="tableId(table)" class="flex items-center gap-2 w-full rounded px-2 py-2 text-start hover:bg-gray-50 dark:hover:bg-gray-800" @click="reveal(tableId(table))">
-        <UIcon :name="activeIds.has(tableId(table)) ? 'i-heroicons-check' : 'i-heroicons-table-cells'" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
-        <span class="truncate text-[11px] font-mono" dir="ltr">{{ table.name }}</span>
+        <UIcon :name="activeIds.has(tableId(table)) ? 'i-heroicons-check' : 'i-heroicons-table-cells'" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
+        <span class="truncate text-2xs font-mono" dir="ltr">{{ table.name }}</span>
       </button>
       <div v-if="!matchingTables.length" class="p-2 text-xs text-gray-500">{{ t('tableErd.noMatches') }}</div>
       <button v-if="matchingTables.length > resultLimit" class="control px-2 w-full" @click="resultLimit += 50">{{ t('tableErd.showMore') }}</button>
@@ -49,26 +49,26 @@
     </div>
     <div v-if="focusedTable" ref="detailsPanel" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
       <div class="flex justify-between items-center gap-2"><span class="font-mono text-xs truncate dark:text-gray-200" dir="ltr">{{ focusedTable.name }}</span><button class="control w-5" :aria-label="t('tableErd.clearFocus')" @click="clearFocus"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button></div>
-      <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.outsideFilters') }}</div>
-      <p v-if="!focusedLinks.length" class="text-[11px] text-gray-500 mt-2">{{ t('tableErd.noRelationships') }}</p>
+      <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-2xs text-gray-500">{{ t('tableErd.outsideFilters') }}</div>
+      <p v-if="!focusedLinks.length" class="text-2xs text-gray-500 mt-2">{{ t('tableErd.noRelationships') }}</p>
       <div v-for="link in columnsOpen ? [] : focusedLinks" :key="link.id" class="border-t border-gray-100 dark:border-gray-800 mt-2 pt-2">
-        <p v-if="link.suggested" class="text-[10px] text-gray-500 mb-1">{{ t('tableErd.suggestedHint') }}</p>
-        <p v-if="byId.get(link.source)?.connection_id !== byId.get(link.target)?.connection_id" class="text-[10px] text-gray-400 mb-1">{{ byId.get(link.source)?.connection_name }} → {{ byId.get(link.target)?.connection_name }}</p>
-        <div v-for="pair in link.columns" :key="pair.from + pair.to" class="text-[10px] text-gray-600 dark:text-gray-400 break-words font-mono" dir="ltr"><span :class="pairHidden(link, pair) ? 'line-through opacity-60' : ''">{{ byId.get(link.source)?.name }}.{{ pair.from }} → {{ byId.get(link.target)?.name }}.{{ pair.to }}</span><span v-if="pairHidden(link, pair)" class="ms-1 font-sans text-gray-400" dir="auto">· {{ t('tableErd.relationshipHidden') }}</span></div>
+        <p v-if="link.suggested" class="text-2xs text-gray-500 mb-1">{{ t('tableErd.suggestedHint') }}</p>
+        <p v-if="byId.get(link.source)?.connection_id !== byId.get(link.target)?.connection_id" class="text-2xs text-ink-muted mb-1">{{ byId.get(link.source)?.connection_name }} → {{ byId.get(link.target)?.connection_name }}</p>
+        <div v-for="pair in link.columns" :key="pair.from + pair.to" class="text-2xs text-gray-600 dark:text-gray-400 break-words font-mono" dir="ltr"><span :class="pairHidden(link, pair) ? 'line-through opacity-60' : ''">{{ byId.get(link.source)?.name }}.{{ pair.from }} → {{ byId.get(link.target)?.name }}.{{ pair.to }}</span><span v-if="pairHidden(link, pair)" class="ms-1 font-sans text-ink-muted" dir="auto">· {{ t('tableErd.relationshipHidden') }}</span></div>
       </div>
-      <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.unresolved') }}</p>
-      <details :open="columnsOpen" class="mt-3 text-[10px] text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
+      <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-2xs text-gray-500">{{ t('tableErd.unresolved') }}</p>
+      <details :open="columnsOpen" class="mt-3 text-2xs text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="cursor-pointer">{{ t('tableErd.columns', { count: focusedTable.columns?.length || 0 }) }}</summary>
         <input ref="columnSearchInput" v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
         <div class="max-h-64 overflow-auto overscroll-contain">
-          <div v-for="column in filteredColumns.slice(0, columnLimit)" :key="column.name" data-testid="erd-column" class="flex justify-between gap-3 py-1.5 font-mono" dir="ltr"><span class="break-all">{{ column.name }}</span><span class="text-gray-400 shrink-0">{{ column.dtype || column.type }}</span></div>
+          <div v-for="column in filteredColumns.slice(0, columnLimit)" :key="column.name" data-testid="erd-column" class="flex justify-between gap-3 py-1.5 font-mono" dir="ltr"><span class="break-all">{{ column.name }}</span><span class="text-ink-muted shrink-0">{{ column.dtype || column.type }}</span></div>
           <p v-if="!filteredColumns.length" class="py-2">{{ t('tableErd.noColumns') }}</p>
           <button v-if="filteredColumns.length > columnLimit" class="control px-2 w-full" @click="columnLimit += 50">{{ t('tableErd.showMore') }}</button>
         </div>
       </details>
       <TableRecentPrompts v-if="canViewPrompts && agentId && focusedTable.id" :agent-id="agentId" :table-id="focusedTable.id" />
     </div>
-    <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-[10px] text-gray-500">
+    <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-2xs text-gray-500">
       <div class="flex items-center gap-3"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-blue-500" />{{ t('tableErd.selected') }}</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-dotted border-gray-400" />{{ t('tableErd.notSelected') }}</span><span v-if="hasHidden" class="flex items-center gap-1.5" data-testid="erd-legend-hidden"><span class="w-4 border-t border-dotted border-gray-400" />{{ t('tableErd.hiddenFromAgent') }}</span><span v-if="hasSuggestions" class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-gray-400" />{{ t('tableErd.suggested') }}</span></div>
       <span data-testid="erd-visible-count">{{ t('tableErd.visibleCount', { shown: nodes.length, total: tables.length }) }}</span>
     </div>
@@ -304,6 +304,6 @@ watch([visibleIds, () => props.tables, () => props.activeIds, focused, locale, (
 </script>
 <style scoped>
 .erd-flow { position: absolute; inset: 48px 0 36px; width: auto; height: auto; }
-.control { @apply inline-flex h-6 items-center justify-center rounded text-[11px] text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800; }
+.control { @apply inline-flex h-6 items-center justify-center rounded text-2xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800; }
 :deep(.vue-flow__attribution) { display: none; }
 </style>
