@@ -3,7 +3,7 @@
 ## Version 0.0.600 (October 28, 2026)
 - Added Amazon CloudWatch Logs as an audit log stream destination (#1499)
 - Added encryption at rest for conversation text, agent context, dashboard content, run parameters and entity SQL under the `data_encryption` setting (#1501)
-- Added voice input to the chat prompt box, transcribed in the browser (#1503) — turn off with the Voice input setting under AI settings
+- Added voice input to the chat prompt box, transcribed in the browser (#1503) — off by default; turn on with the Voice input setting under AI settings
 - Added search to the agent picker in the prompt box (#1496)
 - Added the line range, grep matches and outline of a `read_instruction` read to its row in chat (#1497)
 - Changed the Helm chart to ship PostgreSQL on the official postgres image instead of the Bitnami subchart (#1500)
