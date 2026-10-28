@@ -37,6 +37,7 @@ from app.models.entity import Entity
 from app.models.report_context_state import ReportContextState
 from app.models.step import Step
 from app.models.step_user_result import StepUserResult
+from tests.fixtures.encryption import seed_encryption_graph as _seed_graph
 
 
 @pytest.fixture
@@ -174,52 +175,54 @@ def _insert(model, defaults: dict, over: dict):
     return model.__table__.insert().values(**{**defaults, **over})
 
 
-def _completion(cid, **over):
+def _completion(cid, g, **over):
     return _insert(Completion, {
-        "id": cid, "report_id": "r-" + cid, "prompt": PROMPT, "completion": ANSWER,
+        "id": cid, "report_id": g["report"], "prompt": PROMPT, "completion": ANSWER,
         "status": "success", "model": "m", "turn_index": 0, "feedback_score": 0,
         "message_type": "ai_completion",
     }, over)
 
 
-def _snapshot(sid, **over):
+def _snapshot(sid, g, **over):
     return _insert(ContextSnapshot, {
-        "id": sid, "agent_execution_id": "ae-" + sid, "kind": "final",
+        "id": sid, "agent_execution_id": g["execution"], "kind": "final",
         "context_view_json": CONTEXT_VIEW, "prompt_text": "show revenue by region for EMEA",
     }, over)
 
 
-def _state(sid, **over):
+def _state(sid, g, **over):
     return _insert(ReportContextState, {
-        "id": sid, "report_id": "r-" + sid, "summary_json": SUMMARY,
+        "id": sid, "report_id": g["report"], "summary_json": SUMMARY,
     }, over)
 
 
-def _execution(eid, **over):
+def _execution(eid, g, **over):
     return _insert(AgentExecution, {
-        "id": eid, "completion_id": "c-" + eid, "prompt_text": "show revenue by region for EMEA",
+        "id": eid, "completion_id": g["completion"], "prompt_text": "show revenue by region for EMEA",
     }, over)
 
 
-def _entity(eid, **over):
+def _entity(eid, g, **over):
     return _insert(Entity, {
-        "id": eid, "organization_id": "o-" + eid, "owner_id": "u-" + eid, "type": "model",
+        "id": eid, "organization_id": g["org"], "owner_id": g["user"], "type": "model",
         "title": "t", "slug": "s-" + eid, "code": SQL, "applied_params": PARAMS, "status": "draft",
     }, over)
 
 
-def _step(sid, **over):
+def _step(sid, g, **over):
     return _insert(Step, {
         "id": sid, "title": "t", "slug": sid, "status": "success", "prompt": "", "code": "",
         "data": {}, "description": "", "type": "table", "data_model": {}, "view": {},
-        "applied_params": PARAMS, "widget_id": "w-" + sid,
+        "applied_params": PARAMS, "widget_id": g["widget"],
     }, over)
 
 
-def _user_result(rid, **over):
+def _user_result(rid, g, **over):
     return _insert(StepUserResult, {
-        "id": rid, "step_id": "s-" + rid, "user_id": "u-" + rid, "organization_id": "o-" + rid,
-        "status": "success", "data": {}, "executed_as": "viewer", "params_fingerprint": "",
+        "id": rid, "step_id": g["step"], "user_id": g["user"], "organization_id": g["org"],
+        # (step, user, fingerprint) is unique; key it on the row so two
+        # rows for one viewer can coexist.
+        "status": "success", "data": {}, "executed_as": "viewer", "params_fingerprint": rid,
         "applied_params": PARAMS,
     }, over)
 
@@ -250,7 +253,8 @@ async def test_column_is_ciphertext_on_disk_and_plaintext_through_the_orm(
     table = model.__table__
     row_id = str(uuid.uuid4())
     async with async_session_maker() as db:
-        await db.execute(insert(row_id))
+        g = await _seed_graph(db)
+        await db.execute(insert(row_id, g))
         await db.commit()
 
     async with async_session_maker() as db:
@@ -286,12 +290,16 @@ async def test_plaintext_and_encrypted_rows_read_identically(
 
     monkeypatch.setattr(enc, "encryption_active", lambda: False)
     async with async_session_maker() as db:
-        await db.execute(insert(plain_id))
+        g = await _seed_graph(db)
+        await db.execute(insert(plain_id, g))
         await db.commit()
 
     monkeypatch.setattr(enc, "encryption_active", lambda: True)
     async with async_session_maker() as db:
-        await db.execute(insert(enc_id))
+        # ReportContextState is one row per report, so the second row needs
+        # its own parent graph.
+        g2 = await _seed_graph(db) if model is ReportContextState else g
+        await db.execute(insert(enc_id, g2))
         await db.commit()
 
     # Read with the feature OFF again: ciphertext must still decrypt.
@@ -332,7 +340,8 @@ async def test_none_applied_params_stay_null(encrypting):
 
     sid = str(uuid.uuid4())
     async with async_session_maker() as db:
-        await db.execute(_step(sid, applied_params=None))
+        g = await _seed_graph(db)
+        await db.execute(_step(sid, g, applied_params=None))
         await db.commit()
     async with async_session_maker() as db:
         null_rows = (await db.execute(
@@ -359,7 +368,8 @@ async def test_orm_object_round_trip_rewrites_plaintext_as_ciphertext(monkeypatc
     eid = str(uuid.uuid4())
     monkeypatch.setattr(enc, "encryption_active", lambda: False)
     async with async_session_maker() as db:
-        await db.execute(_entity(eid))
+        g = await _seed_graph(db)
+        await db.execute(_entity(eid, g))
         await db.commit()
 
     monkeypatch.setattr(enc, "encryption_active", lambda: True)
