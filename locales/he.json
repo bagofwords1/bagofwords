@@ -1428,7 +1428,17 @@
       "reading": "קורא…",
       "read": "הנחיה נקראה",
       "readSkill": "קריאת מיומנות",
-      "failed": "לא ניתן לקרוא את ההנחיה"
+      "failed": "לא ניתן לקרוא את ההנחיה",
+      "lines": "שורות {start}–{end} / {total}",
+      "truncated": "קוצר",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} התאמה",
+      "matchPlural": "{count} התאמות",
+      "moreMatches": "+עוד",
+      "moreShown": "+{count} נוספות הוצגו לסוכן",
+      "noMatches": "אין שורות תואמות — הוחזר מתאר במקום",
+      "outline": "מתאר",
+      "longLine": "שורה ארוכה: תווים {start}–{end} מתוך {length}"
     },
     "createEval": {
       "drafting": "מנסח הערכה",

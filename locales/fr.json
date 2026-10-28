@@ -1407,7 +1407,17 @@
       "reading": "Lecture…",
       "read": "Instruction lue",
       "readSkill": "Compétence lue",
-      "failed": "Impossible de lire l'instruction"
+      "failed": "Impossible de lire l'instruction",
+      "lines": "lignes {start}–{end} / {total}",
+      "truncated": "tronqué",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} correspondance",
+      "matchPlural": "{count} correspondances",
+      "moreMatches": "+plus",
+      "moreShown": "+{count} de plus montrées à l'agent",
+      "noMatches": "Aucune ligne correspondante — le plan a été renvoyé à la place",
+      "outline": "Plan",
+      "longLine": "ligne longue : caractères {start}–{end} sur {length}"
     },
     "createEval": {
       "drafting": "Brouillon d'évaluation",

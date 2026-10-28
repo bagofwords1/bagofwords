@@ -1526,7 +1526,17 @@
       "reading": "Reading…",
       "read": "Read instruction",
       "readSkill": "Read skill",
-      "failed": "Could not read instruction"
+      "failed": "Could not read instruction",
+      "lines": "lines {start}–{end} / {total}",
+      "truncated": "truncated",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} match",
+      "matchPlural": "{count} matches",
+      "moreMatches": "+more",
+      "moreShown": "+{count} more shown to the agent",
+      "noMatches": "No matching lines — the outline was returned instead",
+      "outline": "Outline",
+      "longLine": "long line: chars {start}–{end} of {length}"
     },
     "createEval": {
       "drafting": "Drafting eval",

@@ -1407,7 +1407,17 @@
       "reading": "Lettura…",
       "read": "Istruzione letta",
       "readSkill": "Competenza letta",
-      "failed": "Impossibile leggere l'istruzione"
+      "failed": "Impossibile leggere l'istruzione",
+      "lines": "righe {start}–{end} / {total}",
+      "truncated": "troncato",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} corrispondenza",
+      "matchPlural": "{count} corrispondenze",
+      "moreMatches": "+altre",
+      "moreShown": "+{count} altre mostrate all'agente",
+      "noMatches": "Nessuna riga corrispondente — è stata restituita la struttura",
+      "outline": "Struttura",
+      "longLine": "riga lunga: caratteri {start}–{end} di {length}"
     },
     "createEval": {
       "drafting": "Bozza della valutazione",

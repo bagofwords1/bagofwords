@@ -1407,7 +1407,17 @@
       "reading": "Läser…",
       "read": "Instruktion läst",
       "readSkill": "Färdighet läst",
-      "failed": "Kunde inte läsa instruktionen"
+      "failed": "Kunde inte läsa instruktionen",
+      "lines": "rader {start}–{end} / {total}",
+      "truncated": "trunkerad",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} träff",
+      "matchPlural": "{count} träffar",
+      "moreMatches": "+fler",
+      "moreShown": "+{count} fler visade för agenten",
+      "noMatches": "Inga matchande rader — en översikt returnerades i stället",
+      "outline": "Översikt",
+      "longLine": "lång rad: tecken {start}–{end} av {length}"
     },
     "createEval": {
       "drafting": "Utformar utvärdering",

@@ -1407,7 +1407,17 @@
       "reading": "Чтение…",
       "read": "Инструкция прочитана",
       "readSkill": "Навык прочитан",
-      "failed": "Не удалось прочитать инструкцию"
+      "failed": "Не удалось прочитать инструкцию",
+      "lines": "строки {start}–{end} / {total}",
+      "truncated": "усечено",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} совпадение",
+      "matchPlural": "{count} совпадений",
+      "moreMatches": "+ещё",
+      "moreShown": "+{count} ещё показано агенту",
+      "noMatches": "Нет совпадающих строк — вместо этого возвращена структура",
+      "outline": "Структура",
+      "longLine": "длинная строка: символы {start}–{end} из {length}"
     },
     "createEval": {
       "drafting": "Создание черновика оценки",
