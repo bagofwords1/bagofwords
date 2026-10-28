@@ -688,6 +688,17 @@
       "runsAs": "Runs as {level} on this model",
       "faster": "Faster",
       "smarter": "Smarter"
+    },
+    "voiceInput": {
+      "start": "Dictate a prompt",
+      "stop": "Stop dictating",
+      "errors": {
+        "permissionDenied": "Microphone access was blocked. Allow it in your browser settings to dictate.",
+        "noSpeech": "No speech was detected.",
+        "noMicrophone": "No microphone was found.",
+        "network": "Speech recognition needs a network connection.",
+        "failed": "Voice input failed. Please try again."
+      }
     }
   },
   "exports": {
@@ -3247,6 +3258,10 @@
         "enable_follow_ups": {
           "name": "Follow-up suggestions",
           "description": "After each answer in the web app, suggest a few follow-up questions the user can ask next. Generated on the small/default model."
+        },
+        "enable_voice_input": {
+          "name": "Voice input",
+          "description": "Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it."
         },
         "auto_suggest_evals": {
           "name": "Auto-suggest evals",
