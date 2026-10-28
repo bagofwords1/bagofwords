@@ -208,7 +208,7 @@ async def clone_saved_queries(ctx) -> None:
 def _remap_prompt(prompt, ctx):
     p = remap_mentions(dict(prompt or {}), ctx)
     if isinstance(p.get("content"), str):
-        p["content"] = remap_mention_text(p["content"], ctx)
+        p["content"] = remap_mention_text(p["content"], ctx, (prompt or {}).get("mentions"))
     # Runtime-only pointers into the source's conversations.
     for k in ("widget_id", "step_id"):
         if k in p:

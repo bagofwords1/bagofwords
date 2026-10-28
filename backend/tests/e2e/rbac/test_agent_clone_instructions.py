@@ -284,3 +284,59 @@ def test_linking_an_instruction_with_a_change_waiting_in_a_build_is_refused(test
 
     r = _clone(test_client, w, {"instructions": "copy"})
     assert r.status_code == 201, r.text
+
+
+def test_a_copy_takes_the_rows_labels_and_its_versions_category(test_client, with_instructions):
+    """Labels live on the row (a label edit makes no version); every other
+    field comes from the approved version, the category too, so the copy's
+    row and its version 1 agree."""
+    import asyncio
+
+    from sqlalchemy import update
+
+    from app.dependencies import async_session_maker
+    from app.models.instruction import Instruction
+    from app.models.instruction_version import InstructionVersion
+
+    w = with_instructions
+    h = _h(w["admin"]["token"], w["org_id"])
+    label = test_client.post("/api/instructions/labels", json={"name": f"Finance {uuid.uuid4().hex[:4]}"}, headers=h)
+    assert label.status_code == 200, label.text
+    r = test_client.put("/api/instructions/bulk", json={"ids": [w["plain_instr"]["id"]],
+                                                        "add_label_ids": [label.json()["id"]]}, headers=h)
+    assert r.status_code == 200, r.text
+    version_id = _get(test_client, w, w["plain_instr"]["id"])["current_version_id"]
+
+    async def _drift():
+        async with async_session_maker() as db:
+            await db.execute(update(InstructionVersion).where(InstructionVersion.id == version_id)
+                             .values(category_ids=["metrics"]))
+            await db.execute(update(Instruction).where(Instruction.id == w["plain_instr"]["id"])
+                             .values(category="general"))
+            await db.commit()
+    asyncio.run(_drift())
+
+    clone = _clone(test_client, w, {"instructions": "copy"}).json()["data_source"]
+    copy_id = next(i for i, v in _list(test_client, w, clone["id"]).items() if v["text"] == w["plain_instr"]["text"])
+    copy = _get(test_client, w, copy_id)
+    assert [lbl["id"] for lbl in copy["labels"]] == [label.json()["id"]]
+    assert copy["category"] == "metrics"
+
+
+def test_a_draft_opened_before_the_link_does_not_bring_the_old_version_back(test_client, with_instructions):
+    """A draft copied from main before the link holds the old version as an
+    unchanged row; the next edit reuses that draft and promotes it. The link
+    moves those rows onto the new version, so the live version keeps naming
+    the clone."""
+    w = with_instructions
+    h = _h(w["admin"]["token"], w["org_id"])
+    assert test_client.post("/api/builds", json={"source": "user"}, headers=h).status_code == 200
+    clone = _clone(test_client, w, {"instructions": "link"}).json()["data_source"]
+    linked_version = _get(test_client, w, w["ref_instr"]["id"])["current_version_id"]
+
+    r = test_client.put(f"/api/instructions/{w['global_instr']['id']}", json={"text": "Unrelated edit"}, headers=h)
+    assert r.status_code == 200, r.text
+    after = _get(test_client, w, w["ref_instr"]["id"])
+    assert after["current_version_id"] == linked_version
+    v = test_client.get(f"/api/instructions/{after['id']}/versions/{after['current_version_id']}", headers=h).json()
+    assert clone["id"] in v["data_source_ids"]

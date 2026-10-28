@@ -312,7 +312,7 @@ def test_follow_up_turns_of_an_eval_point_at_the_clone():
     from app.utils.mentions import MentionMatcher
     ctx = SimpleNamespace(source=SimpleNamespace(name="Sales"), clone=SimpleNamespace(name="Sales copy"),
                           source_id="src", clone_id="dst", table_map={}, entity_map={},
-                          mention_matcher=MentionMatcher(["Sales"]))
+                          mention_matcher=MentionMatcher(["Sales"]), source_name_is_a_table=False)
     turn = {"prompt": {"content": "now ask @Sales for Q2", "step_id": "s1", "widget_id": "w1",
                        "mentions": [{"type": "data_source", "id": "src", "name": "Sales"}]}, "expectations": {}}
     out = _remap_turn(turn, ctx)["prompt"]
@@ -391,3 +391,56 @@ def test_mentions_are_re_pointed_in_both_stored_shapes():
         {"name": "ENTITIES", "items": [{"id": "e1-copy", "title": "Top rows", "entity_type": "query"}]},
         # A file whose id happens to match is not an agent.
         {"name": "FILES", "items": [{"id": "src", "filename": "src.csv"}]}]
+
+
+def test_group_names_match_in_any_case_and_connection_tools_follow():
+    """mention_service reads group names upper-cased; CONNECTION TOOLS items
+    carry the agent as data_source_id (frontend/utils/mentions.ts)."""
+    from types import SimpleNamespace
+
+    from app.services.agent_clone_service import remap_mentions
+    ctx = SimpleNamespace(source_id="src", clone_id="dst", clone=SimpleNamespace(name="Sales copy"),
+                          table_map={"t1": "t1-copy"}, entity_map={})
+    out = remap_mentions([
+        {"name": "Data Sources", "items": [{"id": "src", "name": "Sales"}]},
+        {"name": "tables", "items": [{"id": "t1", "name": "orders", "datasource_id": "src", "data_source_name": "Sales"}]},
+        {"name": "CONNECTION TOOLS", "items": [{"id": "tool-1", "name": "get_orders", "data_source_id": "src"}]},
+    ], ctx)
+    assert out[0]["items"] == [{"id": "dst", "name": "Sales copy"}]
+    assert out[1]["items"][0]["id"] == "t1-copy" and out[1]["items"][0]["datasource_id"] == "dst"
+    assert out[2]["items"] == [{"id": "tool-1", "name": "get_orders", "data_source_id": "dst"}]
+
+
+@pytest.mark.parametrize("mentions,rewritten", [
+    ([{"name": "TABLES", "items": [{"id": "t1", "name": "orders", "datasource_id": "src"}]}], False),
+    ([{"name": "DATA SOURCES", "items": [{"id": "src", "name": "orders"}]}], True),
+    ([{"name": "TABLES", "items": [{"type": "datasource_table", "id": "t1", "name": "orders", "data_source_id": "src"}]},
+      {"name": "DATA SOURCES", "items": [{"type": "data_source", "id": "src", "name": "orders"}]}], True),
+    (None, True),
+])
+def test_an_agent_named_like_its_table_is_told_apart_by_the_stored_mentions(mentions, rewritten):
+    from types import SimpleNamespace
+
+    from app.services.agent_clone_service import remap_mention_text
+    from app.utils.mentions import MentionMatcher
+    ctx = SimpleNamespace(source=SimpleNamespace(name="orders"), clone=SimpleNamespace(name="orders-copy"),
+                          source_id="src", mention_matcher=MentionMatcher(["orders"]), source_name_is_a_table=True)
+    out = remap_mention_text("@orders by month", ctx, mentions)
+    assert out == ('@"orders-copy" by month' if rewritten else "@orders by month")
+
+
+def test_a_saved_query_named_after_the_source_is_not_taken_for_it(test_client, world):
+    """The dictionary holds the source's saved queries: @<source> Pipeline is
+    the query "<source> Pipeline", not the agent followed by a word."""
+    h = _h(world["admin"]["token"], world["org_id"])
+    name = world["agent"]["name"]
+    _entity(test_client, world, "df = None", f"{name} Pipeline")
+    r = test_client.post("/api/prompts", json={
+        "title": "Pipeline", "text": f"@{name} Pipeline last week", "scope": "agent",
+        "data_source_ids": [world["agent"]["id"]],
+    }, headers=h)
+    assert r.status_code == 200, r.text
+    clone = _clone(test_client, world).json()["data_source"]
+    res = test_client.get("/api/prompts", params={"data_source_id": clone["id"]}, headers=h)
+    [copy] = [p for p in res.json()["prompts"] if p["title"] == "Pipeline"]
+    assert copy["text"] == f"@{name} Pipeline last week"

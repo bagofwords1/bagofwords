@@ -297,6 +297,28 @@ def test_the_clone_is_never_more_visible_than_its_source(test_client, world, sta
     assert clone["publish_status"] == status and clone["reliability_status"] == "training"
 
 
+def test_a_source_in_development_gives_a_clone_in_development(test_client, world):
+    """The reliability loop pulled the source from regular users (development:
+    its admins only). A clone with the same members must not hand it back."""
+    import asyncio
+
+    from sqlalchemy import update
+
+    from app.dependencies import async_session_maker
+    from app.models.data_source import DataSource
+
+    async def _pull():
+        async with async_session_maker() as db:
+            await db.execute(update(DataSource).where(DataSource.id == world["agent"]["id"])
+                             .values(reliability_status="development"))
+            await db.commit()
+    asyncio.run(_pull())
+    clone = _clone(test_client, world, {"access": "copy"}).json()["data_source"]
+    assert clone["reliability_status"] == "development"
+    assert clone["id"] not in _agent_ids(test_client, world, actor="viewer")
+    assert clone["id"] in _agent_ids(test_client, world, actor="manager")
+
+
 def test_the_clone_name_does_not_shadow_a_mention_of_the_source(test_client, world):
     """Named "<source> EU", the clone is a longer name that @<source> EU would
     match first; the text was written before it existed, so @<source> wins."""

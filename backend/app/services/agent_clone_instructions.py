@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Dict, List, Tuple
 
 from fastapi import HTTPException
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import case, func, insert, select, update
 
 from app.core.main_build import main_build_select
 from app.models.build_content import BuildContent
@@ -116,12 +116,14 @@ _OPEN_BUILD_STATUSES = ("draft", "pending_approval")
 async def check_no_pending_changes(db, organization, items: List[Item]) -> None:
     """Linking gives each instruction a new version. A change already waiting
     in an open build was based on the old one, so promoting it later would
-    drop the clone from the instruction (its agents and table references live
-    on the version). Refuse up front, naming the instructions, instead."""
+    make a version without the clone live again (the row keeps the clone's
+    agent link and table references, but row and version would disagree).
+    Refuse up front, naming the instructions, instead. Unchanged carry-over
+    rows of open builds are moved onto the new version (rebase_open_builds)."""
     ids = [str(i.id) for i, _ in items]
     if not ids:
         return
-    waiting = set((await db.execute(
+    waiting = set(str(w) for w in (await db.execute(
         select(BuildContent.instruction_id)
         .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
         .where(
@@ -132,7 +134,7 @@ async def check_no_pending_changes(db, organization, items: List[Item]) -> None:
             BuildContent.instruction_id.in_(ids),
         )
     )).scalars().all())
-    blocked = [i.title or (i.text or "")[:60] for i, _ in items if str(i.id) in {str(w) for w in waiting}]
+    blocked = [i.title or (i.text or "")[:60] for i, _ in items if str(i.id) in waiting]
     if blocked:
         raise HTTPException(
             status_code=409,
@@ -174,10 +176,46 @@ def _row_sync(v: InstructionVersion) -> dict:
     values = {k: val for k, val in values.items()
               if val is not None or k in ("description", "applicable_modes", "applicable_channels")}
     if v.category_ids:
-        values["category"] = v.category_ids[0] if isinstance(v.category_ids, list) else v.category_ids
+        values["category"] = _version_category(v)
     if v.status == "published":
         values["status"] = "published"
     return values
+
+
+def _version_category(v: InstructionVersion):
+    """The row category promote_build derives from a version."""
+    return v.category_ids[0] if isinstance(v.category_ids, list) else v.category_ids
+
+
+async def _row_labels(db, ids: List[str]) -> Dict[str, List[str]]:
+    """Labels live on the row only: editing them makes no version."""
+    out: Dict[str, List[str]] = {}
+    for iid, lid in (await db.execute(
+        select(instruction_label_association.c.instruction_id, instruction_label_association.c.label_id)
+        .where(instruction_label_association.c.instruction_id.in_(ids))
+    )).all():
+        out.setdefault(str(iid), []).append(str(lid))
+    return out
+
+
+async def rebase_open_builds(db, org_id: str, own_build_id: str, new_versions: Dict[str, str]) -> None:
+    """Open builds copied from main hold the linked instructions' old version
+    as unchanged carry-over rows; promoting one would make that version live
+    again. Point those rows at the new version, as if copied after the link."""
+    if not new_versions:
+        return
+    open_builds = (
+        select(InstructionBuild.id)
+        .where(InstructionBuild.organization_id == org_id, InstructionBuild.status.in_(_OPEN_BUILD_STATUSES),
+               InstructionBuild.deleted_at.is_(None), InstructionBuild.id != own_build_id)
+    )
+    await db.execute(
+        update(BuildContent)
+        .where(BuildContent.build_id.in_(open_builds), BuildContent.is_change.is_(False),
+               BuildContent.instruction_id.in_(list(new_versions)))
+        .values(instruction_version_id=case(new_versions, value=BuildContent.instruction_id))
+        .execution_options(synchronize_session=False)
+    )
 
 
 def _remap_refs(refs, ctx) -> list:
@@ -254,6 +292,7 @@ async def clone_instructions(ctx) -> None:
     build.total_instructions = await bs._copy_contents_bulk(db, str(main_id), str(build.id), False) if main_id else 0
 
     current: List[dict] = []  # instruction id -> its new version, set after one flush
+    row_labels = await _row_labels(db, [str(i.id) for i, _ in items])
     if mode == "copy":
         # Ids first, so references to another copied instruction can follow.
         for inst, _ in items:
@@ -265,19 +304,21 @@ async def clone_instructions(ctx) -> None:
             db.add(Instruction(
                 id=new_id, text=v.text, title=v.title, description=v.description,
                 structured_data=v.structured_data, formatted_content=v.formatted_content,
-                status=v.status, category=inst.category, kind=inst.kind, load_mode=v.load_mode or "always",
+                status=v.status, category=_version_category(v) if v.category_ids else inst.category,
+                kind=inst.kind, load_mode=v.load_mode or "always",
                 applicable_modes=v.applicable_modes, applicable_channels=v.applicable_channels,
                 is_seen=inst.is_seen, can_user_toggle=inst.can_user_toggle,
                 organization_id=org_id, user_id=user_id, source_type="user",
             ))
             assoc.append({"instruction_id": new_id, "data_source_id": ctx.clone_id})
-            labels += [{"instruction_id": new_id, "label_id": l} for l in v.label_ids or []]
+            label_ids = row_labels.get(str(inst.id), [])
+            labels += [{"instruction_id": new_id, "label_id": l} for l in label_ids]
             refs = _remap_refs(v.references_json, ctx)
             for r in refs:
                 db.add(InstructionReference(instruction_id=new_id, object_type=r["object_type"], object_id=r["object_id"],
                                             column_name=r.get("column_name"), display_text=r.get("display_text")))
             version = _version_row(new_id, 1, v, user_id=user_id, data_source_ids=[ctx.clone_id],
-                                   references_json=refs or None, label_ids=v.label_ids)
+                                   references_json=refs or None, label_ids=label_ids or None)
             version.id = str(uuid.uuid4())
             db.add(version)
             current.append({"id": new_id, "current_version_id": version.id})
@@ -326,6 +367,8 @@ async def clone_instructions(ctx) -> None:
         await db.execute(insert(ids_assoc), [{"instruction_id": i, "data_source_id": ctx.clone_id} for i in ids])
         await db.flush()
         await db.execute(update(BuildContent), content_updates)
+        await rebase_open_builds(db, org_id, str(build.id),
+                                 {c["id"]: c["current_version_id"] for c in current})
         build.modified_count = len(items)
         part.linked = len(items)
     await db.execute(update(Instruction), current)

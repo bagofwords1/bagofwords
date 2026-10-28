@@ -87,6 +87,8 @@ class CloneContext:
     list_names: List[tuple] = field(default_factory=list)
     # Names an @mention can resolve to (load_mention_matcher).
     mention_matcher: Any = None
+    # The source's name is also one of its tables' (see _means_a_table).
+    source_name_is_a_table: bool = False
 
     def part(self, name: str) -> CloneComponent:
         return self.summary.setdefault(name, CloneComponent())
@@ -107,7 +109,28 @@ class CloneContext:
 
 # Prompts store mentions grouped by display name with untyped items
 # (MentionInput.buildMentionGroups); eval cases keep typed MentionItems.
-_GROUP_KINDS = {"DATA SOURCES": "data_source", "TABLES": "datasource_table", "ENTITIES": "entity"}
+# Group names are matched upper-cased, as mention_service reads them.
+_GROUP_KINDS = {"DATA SOURCES": "data_source", "TABLES": "datasource_table", "ENTITIES": "entity",
+                "CONNECTION TOOLS": "connection_tool"}
+
+
+def _group_kind(value: dict) -> Optional[str]:
+    if not isinstance(value.get("items"), list):
+        return None
+    return _GROUP_KINDS.get(str(value.get("name") or "").upper())
+
+
+def _mention_items(value: Any, kind: Optional[str] = None):
+    """(kind, item) for every mention item, in either stored shape."""
+    if isinstance(value, list):
+        for v in value:
+            yield from _mention_items(v, kind)
+    elif isinstance(value, dict):
+        group_kind = _group_kind(value)
+        if group_kind:
+            yield from _mention_items(value["items"], group_kind)
+        else:
+            yield value.get("type") or kind, value
 
 
 def remap_mentions(value: Any, ctx: CloneContext, kind: Optional[str] = None) -> Any:
@@ -119,7 +142,7 @@ def remap_mentions(value: Any, ctx: CloneContext, kind: Optional[str] = None) ->
         return [remap_mentions(v, ctx, kind) for v in value]
     if not isinstance(value, dict):
         return value
-    group_kind = _GROUP_KINDS.get(value.get("name")) if isinstance(value.get("items"), list) else None
+    group_kind = _group_kind(value)
     if group_kind:
         return {**value, "items": remap_mentions(value["items"], ctx, group_kind)}
     out = {k: remap_mentions(v, ctx) for k, v in value.items()}
@@ -149,10 +172,11 @@ def remap_mentions(value: Any, ctx: CloneContext, kind: Optional[str] = None) ->
 
 async def load_mention_matcher(ctx: CloneContext) -> None:
     """The names an ``@`` in the source's text can resolve to: the org's agents
-    and the source's tables. Parsing against them (longest match wins, as when
-    the text is used) is what tells ``@Sales`` from ``@Sales Orders``. The
-    clone and deleted agents are left out: the text was written without them,
-    and as longer names they would shadow the source."""
+    and the source's tables and saved queries. Parsing against them (longest
+    match wins, as when the text is used) is what tells ``@Sales`` from
+    ``@Sales Orders``. The clone and deleted agents are left out: the text was
+    written without them, and as longer names they would shadow the source."""
+    from app.models.entity import Entity, entity_data_source_association as entity_links
     from app.utils.mentions import MentionMatcher
 
     agents = (await ctx.db.execute(
@@ -166,17 +190,38 @@ async def load_mention_matcher(ctx: CloneContext) -> None:
             DataSourceTable.datasource_id == ctx.source_id, DataSourceTable.deleted_at.is_(None)
         )
     )).scalars().all()
-    ctx.mention_matcher = MentionMatcher([ctx.source.name, *agents, *tables])
+    entities = (await ctx.db.execute(
+        select(Entity.title)
+        .join(entity_links, entity_links.c.entity_id == Entity.id)
+        .where(entity_links.c.data_source_id == ctx.source_id, Entity.deleted_at.is_(None))
+    )).scalars().all()
+    ctx.mention_matcher = MentionMatcher([ctx.source.name, *agents, *tables, *entities])
+    source = ctx.source.name.casefold()
+    ctx.source_name_is_a_table = any((t or "").casefold() == source for t in tables)
 
 
-def remap_mention_text(text: Optional[str], ctx: CloneContext) -> Optional[str]:
+def _means_a_table(mentions: Any, ctx: CloneContext) -> bool:
+    """When the source shares its name with one of its tables, the text alone
+    can't say which an ``@`` means; the stored mentions can."""
+    if not ctx.source_name_is_a_table:
+        return False
+    source = ctx.source.name.casefold()
+    items = list(_mention_items(mentions))
+    names_agent = any(k == "data_source" and str(i.get("id")) == ctx.source_id for k, i in items)
+    names_table = any(k == "datasource_table" and str(i.get("name") or "").casefold() == source for k, i in items)
+    return names_table and not names_agent
+
+
+def remap_mention_text(text: Optional[str], ctx: CloneContext, mentions: Any = None) -> Optional[str]:
     """Mentions of the source agent in text a user wrote become mentions of
     the clone. The text is split by the same parser that resolves it
     (utils/mentions.py), so only an ``@`` that resolves to the source changes:
-    ``@"Sales"`` and ``@Sales`` do, ``@Sales Orders`` (another name) doesn't."""
+    ``@"Sales"`` and ``@Sales`` do, ``@Sales Orders`` (another name) doesn't.
+    ``mentions`` (the item's stored mentions, before remapping) settle an
+    ``@`` that names both the source and one of its tables."""
     from app.utils.mentions import format_mention, parse_mention_segments
 
-    if not text:
+    if not text or (mentions and _means_a_table(mentions, ctx)):
         return text
     old = ctx.source.name.replace('"', "").casefold()
     return "".join(
@@ -243,9 +288,10 @@ async def _create_agent(ctx: CloneContext) -> None:
         is_active=s.is_active,
         # In Training, and never more visible than the source: a live source
         # gives a live clone (with access=default, for the cloner alone); a
-        # draft or disabled one stays so.
+        # draft or disabled one stays so, and a source pulled into development
+        # (shown to its admins only) gives a clone in development.
         publish_status=s.publish_status,
-        reliability_status="training",
+        reliability_status="development" if s.reliability_status == "development" else "training",
         # Its description and starters came with it; an LLM sync would
         # overwrite what the user just named it.
         use_llm_sync=False,
@@ -311,7 +357,7 @@ async def _copy_prompts(ctx: CloneContext) -> None:
         # show those agents the same prompt twice.
         new_id = str(uuid.uuid4())
         ctx.db.add(Prompt(id=new_id, **copy_columns(p, mentions=remap_mentions(p.mentions, ctx),
-                                                    text=remap_mention_text(p.text, ctx))))
+                                                    text=remap_mention_text(p.text, ctx, p.mentions))))
         links.append({"prompt_id": new_id, "data_source_id": ctx.clone_id})
     await ctx.db.flush()
     await ctx.db.execute(insert(prompt_data_source_association), links)
