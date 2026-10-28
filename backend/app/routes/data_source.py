@@ -17,6 +17,7 @@ from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, Dat
 from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema
+from app.schemas.agent_clone_schema import AgentCloneIn, AgentCloneOut
 from app.errors.redact import redact_error
 from app.schemas.datasource_table_schema import (
     DataSourceTableSchema,
@@ -917,6 +918,43 @@ import asyncio as _asyncio
 from collections import defaultdict as _defaultdict
 _bundle_export_locks: dict[str, "_asyncio.Lock"] = _defaultdict(_asyncio.Lock)
 _BUNDLE_EXPORT_TIMEOUT_SECONDS = 60
+
+
+@router.post("/data_sources/{data_source_id}/clone", response_model=AgentCloneOut, status_code=201)
+@requires_resource_permission('data_source', 'manage')
+async def clone_data_source(
+    data_source_id: str,
+    payload: AgentCloneIn,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Create a new agent from this one: same connections, tables, tool
+    policies and prompts, plus the instructions, saved queries, lists, evals,
+    files and access the caller chose to copy, share or leave out. One
+    transaction: nothing is created if any part fails.
+
+    Needs ``manage`` on this agent and the right to build an agent on its
+    connections (the same check as creating one)."""
+    from sqlalchemy import select as _select
+
+    from app.models.domain_connection import domain_connection
+    from app.services.agent_clone_service import clone_agent
+
+    connection_ids = [str(c) for c in (await db.execute(
+        _select(domain_connection.c.connection_id).where(domain_connection.c.data_source_id == str(data_source_id))
+    )).scalars().all()]
+    if connection_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", connection_ids, "create_data_sources",
+        )
+    else:
+        await require_org_permission(db, str(current_user.id), str(organization.id), "create_data_source")
+    clone_id, summary = await clone_agent(db, organization, current_user, data_source_id, payload, request=request)
+    created = await data_source_service.get_data_source(db, clone_id, organization, current_user)
+    return AgentCloneOut(data_source=created, summary=summary)
 
 
 @router.get("/data_sources/{data_source_id}/instructions/export")

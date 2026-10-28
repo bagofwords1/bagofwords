@@ -6219,5 +6219,77 @@
     "notFound": "No se encontró esta conexión.",
     "forbidden": "No tienes acceso a esta conexión.",
     "loadFailed": "No se pudo cargar la conexión. Inténtalo de nuevo más tarde."
+  },
+  "agentClone": {
+    "menu": "Clonar agente",
+    "name": "Nombre",
+    "description": "Descripción",
+    "defaultName": "Copia de {name}",
+    "parts": {
+      "instructions": "Instrucciones",
+      "saved_queries": "Consultas guardadas",
+      "lists": "Listas",
+      "evals": "Evaluaciones",
+      "files": "Archivos",
+      "access": "Acceso"
+    },
+    "choices": {
+      "copy": "Copiar",
+      "link": "Compartir",
+      "none": "Nada",
+      "sameAccess": "Las mismas personas",
+      "onlyMe": "Solo yo"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copias propias, se editan por separado",
+        "link": "Las mismas instrucciones; los cambios se ven en ambos",
+        "none": "Solo instrucciones globales"
+      },
+      "saved_queries": {
+        "copy": "Se ejecutan en el agente nuevo; sin resultados guardados",
+        "none": "No incluido"
+      },
+      "lists": {
+        "copy": "Mismos campos, sin filas",
+        "link": "La misma lista y filas en ambos",
+        "none": "No incluido"
+      },
+      "evals": {
+        "copy": "Apuntan al agente nuevo",
+        "none": "No incluido"
+      },
+      "files": {
+        "link": "Los mismos archivos en ambos",
+        "none": "No incluido"
+      },
+      "access": {
+        "copy": "Las mismas personas y permisos",
+        "default": "Solo tú, hasta que lo compartas"
+      }
+    },
+    "unavailable": {
+      "saved_queries": {
+        "link": "Aún no disponible"
+      }
+    },
+    "footnote": "Las conversaciones, los dashboards y la sincronización con Git no se clonan. El agente nuevo empieza en Entrenamiento.",
+    "submit": "Clonar",
+    "cloning": "Clonando…",
+    "nameTaken": "Ya existe un agente con este nombre.",
+    "instructionsChanged": "Las instrucciones cambiaron durante la clonación. Inténtalo de nuevo.",
+    "linkBlocked": "Estas instrucciones también las usan agentes que no administras, así que no se pueden compartir. Cópialas, o pide ayuda a quien administre esos agentes.",
+    "linkPending": "Estas instrucciones tienen cambios pendientes de aprobación, así que todavía no se pueden compartir. Aprueba o rechaza esos cambios primero, o copia las instrucciones.",
+    "done": "Se creó {name}",
+    "notCopied": "No se copió: {names}",
+    "failed": "No se pudo clonar el agente",
+    "titleFor": "Clonar {name}",
+    "alwaysIncluded": "Siempre incluido:",
+    "always": {
+      "settings": "Configuración",
+      "tables": "Tablas",
+      "tools": "Herramientas",
+      "prompts": "Prompts"
+    }
   }
 }
