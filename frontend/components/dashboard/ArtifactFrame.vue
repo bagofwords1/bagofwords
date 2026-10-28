@@ -1934,19 +1934,9 @@ async function renameTo(title: string): Promise<boolean> {
 
     const saved = (data.value as any)?.title || title;
 
-    // The report title is what every list renders (see /dashboards). Keep it
-    // in step, then tell the page and the sidebar — the same event
-    // loadReport() fires when the server generates a title.
-    if (props.report?.id) {
-      const { error: reportError } = await useMyFetch(`/api/reports/${props.report.id}`, {
-        method: 'PUT',
-        body: { title: saved },
-      });
-      if (reportError.value) throw reportError.value;
-      window.dispatchEvent(new CustomEvent('report:updated', {
-        detail: { id: props.report.id, title: saved },
-      }));
-    }
+    // A dashboard is named by its own title; renaming it no longer renames the
+    // conversation it was born from (the /dashboards card reads the artifact's
+    // title now, falling back to the conversation's only when it has none).
     // Patch local state instead of refetching: the list endpoint is the same
     // one the report page seeds us from, and a refetch would race an
     // in-flight generation and could snap the selection.
