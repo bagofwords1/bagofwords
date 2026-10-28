@@ -264,3 +264,10 @@ exclude:
     - 'backend/email_sandbox/**'
     - 'tools'
     - 'tools/**'
+    # Feedback-loop harnesses: standalone reproduce/verify scripts (seed, launch,
+    # probe, and a localhost-only git/HTTP server) that drive a local BOW instance
+    # for a documented bug/feature loop. Not imported by the application
+    # (backend/app) and never shipped; the throwaway localhost servers here bind
+    # 127.0.0.1 with test fixtures, not production request handlers.
+    - 'docs/feedback-loops'
+    - 'docs/feedback-loops/**'
