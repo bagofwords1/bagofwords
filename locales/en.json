@@ -6204,7 +6204,18 @@
     "showAllColumns": "Show all",
     "hideAllColumns": "Hide all",
     "includeColumn": "Include {name} in agent context",
-    "columnHidden": "hidden"
+    "columnHidden": "hidden",
+    "relationships": "Relationships",
+    "relationshipsContextHint": "Unchecked relationships are left out of the agent's context. The agent can still join these tables itself.",
+    "showAllRelationships": "Show all",
+    "hideAllRelationships": "Hide all",
+    "includeRelationship": "Include {name} in agent context",
+    "relationshipHidden": "hidden",
+    "relationshipsHiddenBadge": "Hidden: {count}",
+    "relationshipsHiddenTooltip": "Some relationships are hidden from this agent's context",
+    "relationshipTargetNotSelected": "Not in context: {name} isn't selected",
+    "relationshipColumnHidden": "Not in context: a column is hidden",
+    "hiddenFromAgent": "Hidden from agent"
   },
   "fork": {
     "preparing": "Preparing your copy…",

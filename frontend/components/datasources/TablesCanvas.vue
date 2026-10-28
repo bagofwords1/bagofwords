@@ -54,7 +54,7 @@
       <div v-for="link in columnsOpen ? [] : focusedLinks" :key="link.id" class="border-t border-gray-100 dark:border-gray-800 mt-2 pt-2">
         <p v-if="link.suggested" class="text-2xs text-gray-500 mb-1">{{ t('tableErd.suggestedHint') }}</p>
         <p v-if="byId.get(link.source)?.connection_id !== byId.get(link.target)?.connection_id" class="text-2xs text-ink-muted mb-1">{{ byId.get(link.source)?.connection_name }} → {{ byId.get(link.target)?.connection_name }}</p>
-        <div v-for="pair in link.columns" :key="pair.from + pair.to" class="text-2xs text-gray-600 dark:text-gray-400 break-words font-mono" dir="ltr">{{ byId.get(link.source)?.name }}.{{ pair.from }} → {{ byId.get(link.target)?.name }}.{{ pair.to }}</div>
+        <div v-for="pair in link.columns" :key="pair.from + pair.to" class="text-2xs text-gray-600 dark:text-gray-400 break-words font-mono" dir="ltr"><span :class="pairHidden(link, pair) ? 'line-through opacity-60' : ''">{{ byId.get(link.source)?.name }}.{{ pair.from }} → {{ byId.get(link.target)?.name }}.{{ pair.to }}</span><span v-if="pairHidden(link, pair)" class="ms-1 font-sans text-ink-muted" dir="auto">· {{ t('tableErd.relationshipHidden') }}</span></div>
       </div>
       <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-2xs text-gray-500">{{ t('tableErd.unresolved') }}</p>
       <details :open="columnsOpen" class="mt-3 text-2xs text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
@@ -69,7 +69,7 @@
       <TableRecentPrompts v-if="canViewPrompts && agentId && focusedTable.id" :agent-id="agentId" :table-id="focusedTable.id" />
     </div>
     <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-2xs text-gray-500">
-      <div class="flex items-center gap-3"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-blue-500" />{{ t('tableErd.selected') }}</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-dotted border-gray-400" />{{ t('tableErd.notSelected') }}</span><span v-if="hasSuggestions" class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-gray-400" />{{ t('tableErd.suggested') }}</span></div>
+      <div class="flex items-center gap-3"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-blue-500" />{{ t('tableErd.selected') }}</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-dotted border-gray-400" />{{ t('tableErd.notSelected') }}</span><span v-if="hasHidden" class="flex items-center gap-1.5" data-testid="erd-legend-hidden"><span class="w-4 border-t border-dotted border-gray-400" />{{ t('tableErd.hiddenFromAgent') }}</span><span v-if="hasSuggestions" class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-gray-400" />{{ t('tableErd.suggested') }}</span></div>
       <span data-testid="erd-visible-count">{{ t('tableErd.visibleCount', { shown: nodes.length, total: tables.length }) }}</span>
     </div>
   </div>
@@ -79,11 +79,11 @@ import { useElementSize, useEventListener } from '@vueuse/core'
 import { VueFlow, useVueFlow, MarkerType, BaseEdge, type Node } from '@vue-flow/core'
 import { Graph } from 'dagre-d3-es/src/graphlib/graph.js'
 import { layout } from 'dagre-d3-es/src/dagre/layout.js'
-import { TABLE_NODE_WIDTH, TABLE_NODE_HEIGHT, tableGraph, tableId, visibleTableIds, type GraphTable } from '~/utils/tableGraph'
+import { TABLE_NODE_WIDTH, TABLE_NODE_HEIGHT, tableGraph, tableId, visibleTableIds, fkEdgeKey, type GraphTable, type TableLink } from '~/utils/tableGraph'
 import TableCanvasNode from './TableCanvasNode.vue'
 import TableRecentPrompts from './TableRecentPrompts.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
-const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean; bottomInset?: number; fill?: boolean }>()
+const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; hiddenFks?: Map<string, Set<string>>; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean; bottomInset?: number; fill?: boolean }>()
 const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: []; ready: [] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
@@ -161,11 +161,26 @@ const focusedLinks = computed(() => graph.value.links.filter(l => l.source === f
 const neighborhood = computed(() => new Set(focused.value ? [focused.value, ...graph.value.neighbors.get(focused.value) || []] : []))
 const rendered = computed(() => new Set(nodes.value.map(n => n.id)))
 const hasSuggestions = computed(() => graph.value.links.some(l => l.suggested && rendered.value.has(l.source) && rendered.value.has(l.target)))
-const edges = computed(() => graph.value.links.filter(l => rendered.value.has(l.source) && rendered.value.has(l.target)).map(l => ({
-  id: l.id, source: l.source, target: l.target, type: l.source === l.target ? 'self' : 'smoothstep', markerEnd: MarkerType.ArrowClosed,
-  class: l.suggested ? 'erd-suggested-edge' : '',
-  style: { strokeDasharray: l.suggested ? '5 4' : undefined, stroke: focused.value && (l.source === focused.value || l.target === focused.value) ? '#3b82f6' : '#9ca3af', strokeWidth: 1.2, opacity: focused.value && !(l.source === focused.value || l.target === focused.value) ? 0.2 : 0.7 },
-})))
+// A declared pair the agent manager hid from the agent's context. The link
+// stays on the diagram (it is still a real key) but reads as switched off.
+function pairHidden(link: TableLink, pair: { from: string; to: string }) {
+  const hidden = props.hiddenFks?.get(link.source)
+  if (link.suggested || !hidden?.size) return false
+  return (byId.value.get(link.source)?.fks || []).some(fk => fk.column?.name === pair.from && fk.references_column?.name === pair.to && hidden.has(fkEdgeKey(fk.column?.name, fk.references_name, fk.references_column?.name)))
+}
+const linkHidden = (link: TableLink) => link.columns.length > 0 && link.columns.every(pair => pairHidden(link, pair))
+// Resolved once per change; the legend and the edge styling both read it.
+const hiddenLinkIds = computed(() => new Set(graph.value.links.filter(linkHidden).map(l => l.id)))
+const hasHidden = computed(() => graph.value.links.some(l => rendered.value.has(l.source) && rendered.value.has(l.target) && hiddenLinkIds.value.has(l.id)))
+const edges = computed(() => graph.value.links.filter(l => rendered.value.has(l.source) && rendered.value.has(l.target)).map(l => {
+  const hidden = hiddenLinkIds.value.has(l.id)
+  const inFocus = focused.value && (l.source === focused.value || l.target === focused.value)
+  return {
+    id: l.id, source: l.source, target: l.target, type: l.source === l.target ? 'self' : 'smoothstep', markerEnd: MarkerType.ArrowClosed,
+    class: [l.suggested ? 'erd-suggested-edge' : '', hidden ? 'erd-hidden-edge' : ''].filter(Boolean).join(' '),
+    style: { strokeDasharray: l.suggested ? '5 4' : hidden ? '1 3' : undefined, stroke: inFocus && !hidden ? '#3b82f6' : '#9ca3af', strokeWidth: 1.2, opacity: focused.value && !inFocus ? 0.2 : hidden ? 0.45 : 0.7 },
+  }
+}))
 const actions = computed(() => [
   { label: t('tableErd.fit'), icon: 'i-heroicons-viewfinder-circle', run: () => fitNodes() },
   { label: t('tableErd.zoomIn'), icon: 'i-heroicons-magnifying-glass-plus', run: () => zoomIn() },

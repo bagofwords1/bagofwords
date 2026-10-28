@@ -5945,7 +5945,18 @@
     "exitFullscreen": "الخروج من ملء الشاشة",
     "searchColumns": "البحث في الأعمدة…",
     "noColumns": "لا توجد أعمدة مطابقة",
-    "centrality": "المركزية"
+    "centrality": "المركزية",
+    "relationships": "العلاقات",
+    "relationshipsContextHint": "العلاقات غير المحددة لا تُضمَّن في سياق الوكيل. لا يزال بإمكان الوكيل ربط هذه الجداول بنفسه.",
+    "showAllRelationships": "إظهار الكل",
+    "hideAllRelationships": "إخفاء الكل",
+    "includeRelationship": "تضمين {name} في سياق الوكيل",
+    "relationshipHidden": "مخفية",
+    "relationshipsHiddenBadge": "مخفية: {count}",
+    "relationshipsHiddenTooltip": "بعض العلاقات مخفية عن سياق هذا الوكيل",
+    "relationshipTargetNotSelected": "خارج السياق: {name} غير محدد",
+    "relationshipColumnHidden": "خارج السياق: يوجد عمود مخفي",
+    "hiddenFromAgent": "مخفية عن الوكيل"
   },
   "fork": {
     "preparing": "جارٍ تجهيز نسختك…",

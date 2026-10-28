@@ -314,6 +314,7 @@ class DataSource(BaseSchema):
             # manager hid; the management view (include_inactive) shows every
             # column so they can be toggled back on.
             excluded = None if include_inactive else table.excluded_columns
+            excluded_fks = None if include_inactive else table.excluded_fks
             columns = [
                 TableColumn(name=col["name"], dtype=col.get("dtype", "unknown"))
                 for col in filter_columns(table.columns, excluded)
@@ -334,8 +335,11 @@ class DataSource(BaseSchema):
                 name=table.name,
                 columns=columns,
                 pks=filter_columns(table.pks, excluded),
-                fks=filter_fks(table.fks, excluded),
+                fks=filter_fks(table.fks, excluded, excluded_fks),
                 excluded_columns=table.excluded_columns or None,
+                # Managers only, like the paginated view: a reader gets the
+                # stripped fks, not the list of what was hidden.
+                excluded_fks=(table.excluded_fks or None) if include_inactive else None,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
                 # Connection info (for multi-connection support)
