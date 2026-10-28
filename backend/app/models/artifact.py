@@ -1,5 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, String, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, select
 from sqlalchemy.orm import column_property, relationship
+from app.ee.encryption import EncryptedJSON
 from app.models.base import BaseSchema
 
 
@@ -150,8 +151,10 @@ class ArtifactVersion(BaseSchema):
     # Version number within the parent artifact (unique per artifact_id)
     version = Column(Integer, nullable=False, default=1)
 
-    # Flexible content storage - structure depends on the parent's mode
-    content = Column(JSON, nullable=False, default=dict)
+    # Flexible content storage - structure depends on the parent's mode.
+    # Encrypted at rest (enterprise data_encryption); file_access_service's
+    # SQL prefilter over this column is envelope-aware.
+    content = Column(EncryptedJSON, nullable=False, default=dict)
 
     # Optional: Store the prompt that generated this version
     generation_prompt = Column(Text, nullable=True)

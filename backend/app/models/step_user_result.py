@@ -50,7 +50,7 @@ class StepUserResult(BaseSchema):
     # hold one cached result per parameter combination.
     params_fingerprint = Column(String(64), nullable=False, default='', server_default='')
     # The resolved values themselves, for display/debugging ({} when none).
-    applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
+    applied_params = Column(EncryptedJSON(none_as_null=True), nullable=True, default=None)
 
     last_run_at = Column(DateTime, nullable=True)
 

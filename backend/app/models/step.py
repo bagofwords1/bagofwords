@@ -47,7 +47,7 @@ class Step(BaseSchema):
     # The concrete param values this step's shared snapshot was produced with
     # (resolved defaults at creation, or the builder's values on a /run save).
     # Per-viewer runs record their values on StepUserResult, not here.
-    applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
+    applied_params = Column(EncryptedJSON(none_as_null=True), nullable=True, default=None)
 
     # Nullable in the database since it was added; a published dashboard's
     # copies have no widget (dashfc02).
