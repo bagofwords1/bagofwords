@@ -159,11 +159,12 @@ def _scope_change(base: Optional[dict], proposed: dict, main: dict, resolved: se
     """The scope change this suggestion still proposes against the LIVE
     attachment, as one review row (agents + their table references), or [].
 
-    An empty live attachment is a global instruction: it already reaches every
-    agent, so attaching one would NARROW it — nothing to propose here."""
+    A move FROM global (empty live attachment) is a real change too: narrowing
+    a rule that reached every agent down to one is exactly the kind of scope
+    change a reviewer must see and promotion will apply, so it is not
+    short-circuited here — only a genuine no-op (proposed == base, or proposed
+    already matches live) returns []."""
     live_ds = tuple(main.get("scope_live") or ())
-    if not live_ds:
-        return []
     live_refs = main.get("scope_live_refs") or []
     p_ds = proposed.get("scope_ds") or ()
     p_refs = proposed.get("scope_refs") or []

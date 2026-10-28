@@ -1727,14 +1727,19 @@ class InstructionService:
         out: dict = {}
         if not ids:
             return out
-        for r in (await db.execute(
-            select(InstructionReference).where(InstructionReference.instruction_id.in_(ids))
-        )).scalars().all():
-            out.setdefault(str(r.instruction_id), []).append({
-                "object_type": r.object_type, "object_id": str(r.object_id),
-                "column_name": r.column_name, "relation_type": r.relation_type,
-                "display_text": r.display_text,
-            })
+        # Chunked: the org-wide pending sweep passes one id per candidate
+        # instruction, and an unchunked IN (...) can exceed SQLite's bound
+        # parameter limit (same reason as _version_field_metas).
+        for i in range(0, len(ids), 500):
+            for r in (await db.execute(
+                select(InstructionReference).where(
+                    InstructionReference.instruction_id.in_(ids[i:i + 500]))
+            )).scalars().all():
+                out.setdefault(str(r.instruction_id), []).append({
+                    "object_type": r.object_type, "object_id": str(r.object_id),
+                    "column_name": r.column_name, "relation_type": r.relation_type,
+                    "display_text": r.display_text,
+                })
         return out
 
     @staticmethod
@@ -1781,46 +1786,12 @@ class InstructionService:
         and removals only touch rows that are actually present, so a delta
         computed against a possibly-stale base can never clobber scope the
         delta did not name. Writes only — the caller commits. ``added_ds``
-        holds existing agents only."""
-        from app.models.instruction import instruction_data_source_association as idsa
-        from app.models.instruction_reference import InstructionReference
-        from sqlalchemy import delete as sql_delete
-        iid = str(instruction_id)
-        add_ds = {str(d) for d in (added_ds or [])}
-        rem_ds = {str(d) for d in (removed_ds or [])} - add_ds
-        attached = {str(d) for (d,) in (await db.execute(
-            select(idsa.c.data_source_id).where(idsa.c.instruction_id == iid)
-        )).all()}
-        new = sorted(add_ds - attached)
-        if new:
-            await db.execute(idsa.insert(), [{"instruction_id": iid, "data_source_id": d} for d in new])
-        gone = sorted(rem_ds & attached)
-        if gone:
-            await db.execute(sql_delete(idsa).where(
-                idsa.c.instruction_id == iid, idsa.c.data_source_id.in_(gone)))
-        if not (added_refs or removed_refs):
-            await db.flush()
-            return
-        have = {(r.object_type, str(r.object_id), r.column_name): r for r in (await db.execute(
-            select(InstructionReference).where(InstructionReference.instruction_id == iid)
-        )).scalars().all()}
-        for r in (added_refs or []):
-            ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
-            if not r.get("object_id") or ident in have:
-                continue
-            row = InstructionReference(
-                instruction_id=iid, object_type=ident[0], object_id=str(r["object_id"]),
-                column_name=r.get("column_name"), relation_type=r.get("relation_type"),
-                display_text=r.get("display_text"),
-            )
-            db.add(row)
-            have[ident] = row
-        for r in (removed_refs or []):
-            ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
-            row = have.pop(ident, None)
-            if row is not None:
-                await db.delete(row)
-        await db.flush()
+        holds existing agents only. Shares the one applier with build promote
+        (see app.services.scope_apply)."""
+        from app.services.scope_apply import apply_scope_delta
+        await apply_scope_delta(
+            db, str(instruction_id), added_ds, removed_ds, added_refs, removed_refs,
+        )
 
     async def _build_proposes_scope_change(self, db: AsyncSession, build, instruction) -> bool:
         """Whether ``build``'s staged version for ``instruction`` still proposes
@@ -1851,17 +1822,26 @@ class InstructionService:
         )
 
     async def _restage_base_scope(self, db: AsyncSession, build, instruction_id: str) -> None:
-        """Rewrite ``build``'s staged version for the instruction so its scope
-        (data sources + table references) equals the base version's, keeping
-        its text. Undoes a scope change a reviewer rejected, so promoting the
-        build whole applies nothing. Writes only — the caller commits."""
+        """Re-point ``build``'s staged row for the instruction at a version whose
+        scope (data sources + table references) equals the base version's, with
+        the staged text kept. Undoes a scope change a reviewer rejected, so
+        promoting the build whole applies nothing.
+
+        Mints a NEW version rather than editing the staged one in place: a
+        version is immutable and content-addressed (``content_hash``), and other
+        builds or history rows may point at the same staged version, so rewriting
+        its scope would silently change what they mean. Writes only — the caller
+        commits."""
         from app.models.build_content import BuildContent
         from app.models.instruction_version import InstructionVersion as _IV
-        from sqlalchemy.orm.attributes import flag_modified
+        from app.services.field_changes import scope_delta
         iid = str(instruction_id)
-        pv = (await db.execute(select(BuildContent.instruction_version_id).where(
+        content = (await db.execute(select(BuildContent).where(
             BuildContent.build_id == str(build.id), BuildContent.instruction_id == iid))).scalar_one_or_none()
-        if not pv:
+        if content is None:
+            return
+        pver = await db.get(_IV, str(content.instruction_version_id))
+        if pver is None:
             return
         base_ds, base_refs = None, None
         bv = await self._build_base_version_id(db, build, iid)
@@ -1869,12 +1849,25 @@ class InstructionService:
             bver = await db.get(_IV, str(bv))
             if bver is not None:
                 base_ds, base_refs = bver.data_source_ids, bver.references_json
-        pver = await db.get(_IV, str(pv))
-        if pver is not None:
-            pver.data_source_ids = base_ds
-            pver.references_json = base_refs
-            flag_modified(pver, "data_source_ids")
-            flag_modified(pver, "references_json")
+        # Already at the base scope (e.g. a text-only edit) — nothing to revert,
+        # so don't mint a redundant version.
+        a, r, ar, rr = scope_delta(base_ds, base_refs, pver.data_source_ids, pver.references_json)
+        if not (a or r or ar or rr):
+            return
+        reverted = await self.version_service.create_version_from_data(
+            db, instruction_id=iid, text=pver.text, title=pver.title,
+            description=pver.description, structured_data=pver.structured_data,
+            formatted_content=pver.formatted_content, status=pver.status,
+            load_mode=pver.load_mode, applicable_modes=pver.applicable_modes,
+            applicable_channels=pver.applicable_channels,
+            references_json=base_refs, data_source_ids=base_ds,
+            label_ids=pver.label_ids, category_ids=pver.category_ids,
+            user_id=getattr(pver, "created_by_user_id", None),
+        )
+        content.instruction_version_id = str(reverted.id)
+        content.is_change = await self.build_service._is_change_against_base(
+            db, build, iid, str(reverted.id),
+        )
 
     async def _live_field_changes_by_row(self, db: AsyncSession, rows, instruction_id: str, main_vid) -> list:
         """Unresolved field changes per `_pending_suggestion_builds` row, in row
@@ -2907,9 +2900,13 @@ class InstructionService:
             from app.services.instruction_authority import require_scope_authority
             live_now = set((await self._live_scopes(db, [instruction_id])).get(str(instruction_id), ()))
             live_refs_now = (await self._live_scope_refs(db, [instruction_id])).get(str(instruction_id), [])
-            await require_scope_authority(
-                db, current_user, organization, sorted(live_now | scope_added),
-            )
+            targets = sorted(live_now | scope_added)
+            await require_scope_authority(db, current_user, organization, targets)
+            # A change that leaves the instruction with NO agents makes it global
+            # — it then reaches every agent in the org, which managing the agents
+            # it is losing does not authorize. Require org-level manage on top.
+            if targets and not (live_now | scope_added) - set(scope_removed):
+                await require_scope_authority(db, current_user, organization, [])
             if scope_added_refs:
                 # Drop references to tables whose agent was deleted since the
                 # suggestion was written — their datasource_tables are gone.
@@ -5878,6 +5875,11 @@ class InstructionService:
                         trigger_reliability=trigger_reliability,
                         expected_main_build_id=expected_main_build_id,
                         enforce_expected_main=enforce_expected_main,
+                        # This build carries a user/AI edit (create, edit, accept,
+                        # bulk) — its staged scope change must reach the live
+                        # attachment. System promotes (rollback/git/demo/
+                        # reliability) call promote_build directly and leave it off.
+                        apply_scope_changes=True,
                     )
                     logger.info(f"Auto-approved and promoted build {build.id} to main")
                 else:

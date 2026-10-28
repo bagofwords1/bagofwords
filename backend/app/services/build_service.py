@@ -863,21 +863,17 @@ class BuildService:
         db: AsyncSession,
         build_id: str,
     ) -> list[str]:
-        """Return distinct data_source_ids touched by all instructions in a build.
+        """Return distinct data_source_ids LIVE on the instructions in a build.
 
-        Used for strict per-DS permission enforcement on build publish/submit/rollback:
-        the acting user must hold `manage_instructions` on every returned DS (admin
-        bypass via `manage_instructions` is handled in the resolver).
-
-        Includes the LIVE attachment of every instruction AND the scope a change
-        row STAGES (the ``is_change`` version's ``data_source_ids``). A share or a
-        ``table_names`` edit widens an instruction to a new agent on the version,
-        not on the live row until promotion applies it — so without the staged
-        side a per-agent manager could stage a share to an agent they do not
-        manage and publish it past this gate. Gating the resulting scope here, at
-        the route that has the acting user, mirrors the reviewer-accept check
-        (``require_scope_authority`` over ``live | added``) without threading
-        permissions into the system-driven ``promote_build``.
+        Used for strict per-DS permission enforcement on build publish/submit/
+        rollback: the acting user must hold `manage_instructions` on every
+        returned DS (admin bypass via `manage_instructions` is handled in the
+        resolver). This is the LIVE attachment only; the agents a change row
+        would NEWLY attach (a share, a table edit) are the staged scope, gated
+        separately by authority over each changed instruction's PROPOSED scope
+        (see routes/build._require_authority_over_instructions). Keeping the
+        staged scope out of here avoids a false 403 when a text-only edit's
+        snapshot still lists a detached or deleted agent.
         """
         result = await db.execute(
             select(BuildContent)
@@ -890,16 +886,26 @@ class BuildService:
             if inst and inst.data_sources:
                 for ds in inst.data_sources:
                     ds_ids.add(str(ds.id))
-        from app.models.instruction_version import InstructionVersion as _IV
-        staged = (await db.execute(
-            select(_IV.data_source_ids)
-            .join(BuildContent, BuildContent.instruction_version_id == _IV.id)
-            .where(BuildContent.build_id == build_id, BuildContent.is_change.is_(True))
-        )).all()
-        for (staged_ds,) in staged:
-            for d in (staged_ds or []):
-                ds_ids.add(str(d))
         return list(ds_ids)
+
+    async def get_build_proposed_scopes(
+        self, db: AsyncSession, build_id: str,
+    ) -> Dict[str, set]:
+        """{instruction_id: proposed agent ids} for each CHANGED row — the scope
+        its staged version would place the instruction on once published.
+
+        The authority counterpart to ``get_build_data_source_ids`` (which is the
+        LIVE scope): a publish must be authorized over what it WILL attach, so a
+        per-agent manager cannot stage a share to an agent they do not manage —
+        and an empty proposed set (going global) surfaces here so the gate can
+        require org-level authority."""
+        from app.models.instruction_version import InstructionVersion as _IV
+        rows = (await db.execute(
+            select(BuildContent.instruction_id, _IV.data_source_ids)
+            .join(_IV, _IV.id == BuildContent.instruction_version_id)
+            .where(BuildContent.build_id == str(build_id), BuildContent.is_change.is_(True))
+        )).all()
+        return {str(iid): {str(d) for d in (ds or [])} for iid, ds in rows}
 
     async def get_build_instruction_ids(self, db: AsyncSession, build_id: str) -> set[str]:
         """Every instruction pinned in ``build_id`` (the whole snapshot)."""
@@ -937,12 +943,15 @@ class BuildService:
         scopes: dict[str, set[str]] = {i: set() for i in ids}
         if not ids:
             return scopes
-        rows = (await db.execute(
-            select(idsa.c.instruction_id, idsa.c.data_source_id)
-            .where(idsa.c.instruction_id.in_(ids))
-        )).all()
-        for iid, ds_id in rows:
-            scopes[str(iid)].add(str(ds_id))
+        # Chunked: the org-wide pending sweep passes one id per candidate, and an
+        # unchunked IN (...) can exceed SQLite's bound parameter limit.
+        for i in range(0, len(ids), 500):
+            rows = (await db.execute(
+                select(idsa.c.instruction_id, idsa.c.data_source_id)
+                .where(idsa.c.instruction_id.in_(ids[i:i + 500]))
+            )).all()
+            for iid, ds_id in rows:
+                scopes[str(iid)].add(str(ds_id))
         return scopes
 
     async def visible_instruction_ids(
@@ -1276,10 +1285,8 @@ class BuildService:
         version fields. Only ``is_change`` rows are considered — the handful the
         build modified, never the org-wide carry-over snapshot."""
         from app.models.instruction_version import InstructionVersion as _IV
-        from app.models.instruction import instruction_data_source_association as idsa
-        from app.models.instruction_reference import InstructionReference
         from app.services.field_changes import scope_delta
-        from sqlalchemy import delete as sql_delete
+        from app.services.scope_apply import apply_scope_delta
         rows = (await db.execute(
             select(BuildContent.instruction_id, BuildContent.base_version_id,
                    _IV.data_source_ids, _IV.references_json)
@@ -1311,36 +1318,7 @@ class BuildService:
             added_ds = [d for d in added_ds if d in alive_add]
             if not (added_ds or removed_ds or added_refs or removed_refs):
                 continue
-            iid = str(iid)
-            attached = {str(d) for (d,) in (await db.execute(
-                select(idsa.c.data_source_id).where(idsa.c.instruction_id == iid))).all()}
-            new = [d for d in added_ds if d not in attached]
-            if new:
-                await db.execute(idsa.insert(), [{"instruction_id": iid, "data_source_id": d} for d in new])
-            gone = [d for d in removed_ds if d in attached]
-            if gone:
-                await db.execute(sql_delete(idsa).where(
-                    idsa.c.instruction_id == iid, idsa.c.data_source_id.in_(gone)))
-            if not (added_refs or removed_refs):
-                continue
-            have = {(r.object_type, str(r.object_id), r.column_name): r for r in (await db.execute(
-                select(InstructionReference).where(InstructionReference.instruction_id == iid)
-            )).scalars().all()}
-            for r in added_refs:
-                ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
-                if not r.get("object_id") or ident in have:
-                    continue
-                row = InstructionReference(
-                    instruction_id=iid, object_type=ident[0], object_id=str(r["object_id"]),
-                    column_name=r.get("column_name"), relation_type=r.get("relation_type"),
-                    display_text=r.get("display_text"))
-                db.add(row)
-                have[ident] = row
-            for r in removed_refs:
-                ident = (r.get("object_type") or "datasource_table", str(r.get("object_id")), r.get("column_name"))
-                row = have.pop(ident, None)
-                if row is not None:
-                    await db.delete(row)
+            await apply_scope_delta(db, str(iid), added_ds, removed_ds, added_refs, removed_refs)
         await db.flush()
 
     async def promote_build(
@@ -1353,6 +1331,7 @@ class BuildService:
         expected_main_build_id: Optional[str] = None,
         enforce_expected_main: bool = False,
         apply_staged_deactivation: Optional[bool] = None,
+        apply_scope_changes: bool = False,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
@@ -1363,6 +1342,17 @@ class BuildService:
         lets a staged ``status='draft'`` version switch its live row off — see
         the status note below. Auto-merge passes the ORIGINATING build's answer,
         since the merged build it promotes is its own source ('merge').
+
+        ``apply_scope_changes`` syncs each changed instruction's SCOPE (agents +
+        table references) onto the live attachment, as a base->proposed delta.
+        Default OFF: promotion is also how rollback, git sync, demo seed and
+        reliability put a build live, and none of those mean to re-attach agents
+        from an old or unrelated snapshot (a NULL/stale base would read as "add
+        everything"). Only the two user-facing entry points that carry a
+        reviewed or published scope change opt in — ``publish_build`` and
+        ``_auto_finalize_build`` — and ``publish_build`` first repoints a merged
+        row's base to the originating draft's fork point so a text-only edit
+        published after a concurrent share cannot silently detach the share.
         """
         build = await self.get_build(db, build_id)
         if not build:
@@ -1488,8 +1478,9 @@ class BuildService:
         # Sync the SCOPE (agents + table references) of the instructions this
         # build changed onto the live attachment — the version fields above do
         # not include data_source_ids/references_json. Delta-only, so carry-over
-        # rows and stale snapshots touch nothing.
-        await self._apply_scope_on_promote(db, build_id)
+        # rows and stale snapshots touch nothing. Opt-in: see apply_scope_changes.
+        if apply_scope_changes:
+            await self._apply_scope_on_promote(db, build_id)
 
         await db.commit()
 
@@ -1567,7 +1558,7 @@ class BuildService:
         
         # Case 1: Fresh build or no main - simple promote
         if not current_main or not build.base_build_id or build.base_build_id == current_main.id:
-            promoted = await self.promote_build(db, build_id, user_id)
+            promoted = await self.promote_build(db, build_id, user_id, apply_scope_changes=True)
 
             # Audit log for publish
             try:
@@ -1620,15 +1611,43 @@ class BuildService:
         for instruction_id in user_diff['removed']:
             await self.remove_from_build(db, merged.id, instruction_id)
 
+        # The merged build is a copy of the NEW main, so add_to_build stamped
+        # each re-applied row's base to the new main. For scope-on-promote the
+        # base must instead be the ORIGINATING draft's fork point: otherwise a
+        # text-only edit, whose snapshot still lists the agents it forked with,
+        # reads as "remove whatever main gained in the meantime" — e.g. a share
+        # a reviewer accepted onto this instruction while the draft was open.
+        # Repoint added+modified rows to the draft's own base (its stamped
+        # fork point, else its base build's version); a brand-new instruction
+        # has no fork point and keeps NULL (its scope is a genuine addition).
+        draft_base_map = (
+            await self._base_version_map(db, build.base_build_id)
+            if build.base_build_id else {}
+        )
+        for instruction_id in list(user_diff['added']) + [m['instruction_id'] for m in user_diff['modified']]:
+            draft_content = source_map.get(instruction_id)
+            fork_point = None
+            if draft_content is not None:
+                fork_point = draft_content.base_version_id or draft_base_map.get(str(instruction_id))
+            await db.execute(
+                sql_update(BuildContent)
+                .where(and_(
+                    BuildContent.build_id == merged.id,
+                    BuildContent.instruction_id == instruction_id,
+                ))
+                .values(base_version_id=fork_point)
+            )
+
         # Finalize merged build
         merged.status = 'approved'
         merged.approved_by_user_id = user_id
         merged.approved_at = datetime.utcnow()
         await db.commit()
-        
+
         promoted = await self.promote_build(
             db, merged.id, user_id,
             apply_staged_deactivation=(build.source == "ai"),
+            apply_scope_changes=True,
         )
 
         logger.info(f"Deployed build {build_id} via auto-merge: +{user_diff['added_count']} ~{user_diff['modified_count']} -{user_diff['removed_count']}")

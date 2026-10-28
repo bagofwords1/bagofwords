@@ -376,14 +376,17 @@ class EditInstructionTool(Tool):
                 "instruction, or it is confirmed wrong as a whole. Do NOT delete its text to "
                 "achieve the same, and do not use load_mode for it. Not available in knowledge "
                 "mode.\n\n"
-                "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
-                "Pass an empty list [] to make the instruction global (remove all table scoping). "
-                "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
-                "table inspected is wrong — it scopes the instruction and may prevent it from "
-                "loading in unrelated queries.\n\n"
+                "SCOPING — table_names: sets WHICH TABLES the instruction is about; it changes "
+                "the table references ONLY and never which agents the instruction is attached to. "
+                "Pass ONLY when you want to change the table scope. Pass an empty list [] to make "
+                "the instruction GLOBAL — this drops every agent so it applies everywhere (an "
+                "org-level change a reviewer must approve). OMIT the field entirely to leave "
+                "scoping unchanged. Listing every table inspected is wrong — it scopes the "
+                "instruction and may prevent it from loading in unrelated queries.\n\n"
                 "SHARING WITH ANOTHER AGENT — add_agents: to make an existing instruction apply to "
-                "another agent of this conversation too, pass that agent's name in add_agents "
-                "(not table_names, which matches tables across every agent in the organization).\n\n"
+                "another agent of this conversation too, pass that agent's name in add_agents. "
+                "This is the ONLY way to change which agents an instruction is attached to; "
+                "table_names never does.\n\n"
                 "EVIDENCE: always set `evidence` — ONE short sentence (under 150 characters) "
                 "naming the source and the fact. Reviewers see it next to the suggested change; "
                 "no preamble."
@@ -439,7 +442,7 @@ class EditInstructionTool(Tool):
                         "instruction_id": "inst_abc123",
                         "table_names": []
                     },
-                    "description": "Make it global — empty list removes all table scoping so the instruction applies everywhere."
+                    "description": "Make it global — an empty list drops every agent so the instruction applies everywhere (reviewer-approved, org-level)."
                 },
                 {
                     "input": {
@@ -1053,20 +1056,39 @@ class EditInstructionTool(Tool):
                     )
                     return
 
-            # Scope (agents + their tables) is an ordinary version field: an
-            # add_agents share and a table_names edit both write the version's
-            # data_source_ids/references_json, which the review diffs against
-            # the live attachment and promotion applies. add_agents and
-            # table_names are mutually exclusive (conflicting_scope above).
+            # Scope has two independent axes, and this tool keeps them apart:
+            #   - WHICH AGENTS (data_source_ids) — changed by add_agents (a
+            #     share), or emptied to go global;
+            #   - WHICH TABLES (references_json) — changed by table_names.
+            # A table_names edit therefore touches references ONLY and leaves
+            # the agent attachment as it is: matching a table that happens to
+            # live under agent A must not silently detach agent B. The one
+            # exception is table_names=[], the documented "make global" gesture,
+            # which clears the agents (reviewed, and org-level authority applies
+            # at accept/publish). add_agents and table_names are mutually
+            # exclusive (conflicting_scope above).
             matched_table_names = []
+            # The agent scope carried forward unchanged by a table_names edit:
+            # the pending draft's if there is one, else the instruction's live
+            # attachment.
+            current_ds_ids = (
+                (list(pending_version.data_source_ids) if pending_version is not None
+                 and pending_version.data_source_ids is not None
+                 else [ds.id for ds in (instruction.data_sources or [])]) or None
+            )
             if shared is not None and "data_source_ids" in shared:
                 new_data_source_ids = shared["data_source_ids"] or None
                 new_references_json = shared["references"] or None
             elif data.table_names is not None:
-                # Resolve the requested table list to ds_ids + references.
-                resolved_ds_ids = set()
-                resolved_refs = []
-                if data.table_names:
+                if not data.table_names:
+                    # Explicit "make global": drop every agent (and, with no
+                    # agents, the agent-specific table references).
+                    new_data_source_ids = []
+                    new_references_json = None
+                else:
+                    # Resolve the requested table list to references only; the
+                    # agent attachment is carried forward untouched.
+                    resolved_refs = []
                     conditions = []
                     for name in data.table_names:
                         name_lower = name.lower()
@@ -1096,8 +1118,6 @@ class EditInstructionTool(Tool):
                         table_result = await db.execute(table_stmt)
                         tables = table_result.scalars().all()
                         for table in tables:
-                            if table.datasource_id:
-                                resolved_ds_ids.add(table.datasource_id)
                             resolved_refs.append({
                                 "object_type": "datasource_table",
                                 "object_id": str(table.id),
@@ -1105,8 +1125,8 @@ class EditInstructionTool(Tool):
                                 "display_text": table.name,
                             })
                             matched_table_names.append(table.name)
-                new_data_source_ids = list(resolved_ds_ids)
-                new_references_json = resolved_refs
+                    new_data_source_ids = current_ds_ids
+                    new_references_json = resolved_refs or None
             elif pending_version is not None:
                 new_data_source_ids = pending_version.data_source_ids or None
                 new_references_json = pending_version.references_json or None
@@ -1179,6 +1199,14 @@ class EditInstructionTool(Tool):
                 # rather than reporting success (and, for a share, telling the
                 # user it is waiting for review when nothing was staged).
                 logger.warning(f"Failed to stage edit for instruction {instruction.id}: {e}")
+                # Roll the aborted transaction back: a failed staging write (e.g.
+                # a race on the build-content unique index) leaves the session in
+                # a pending-rollback state, and the NEXT tool call in this run
+                # would then blow up with PendingRollbackError on its first query.
+                try:
+                    await db.rollback()
+                except Exception:  # noqa: BLE001
+                    pass
                 yield ToolEndEvent(
                     type="tool.end",
                     payload={

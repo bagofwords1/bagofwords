@@ -114,11 +114,21 @@ def test_scope_not_inferred_without_base_intent():
     assert field_changes_against_main(base, proposed, _main(live_ds=("a",))) == []
 
 
-def test_global_instruction_has_no_scope_change():
-    """Empty live attachment = global; attaching an agent would narrow it, so
-    nothing is proposed."""
+def test_narrowing_a_global_is_a_reviewable_scope_change():
+    """Narrowing a global instruction (empty live attachment) down to one agent
+    is a real change a reviewer must see and promotion will apply — it is NOT
+    short-circuited. The 'from' side reads as all agents (empty)."""
+    from app.services.field_changes import field_changes_against_main, SCOPE_FIELD
+    rows = field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=["b"]), _main(live_ds=()))
+    assert len(rows) == 1 and rows[0]["field"] == SCOPE_FIELD
+    assert rows[0]["from"] == [] and rows[0]["to"] == ["b"] and rows[0]["added"] == ["b"]
+
+
+def test_global_carried_forward_proposes_nothing():
+    """A global instruction that stays global (base global, proposed global,
+    live global) is a no-op: no scope row."""
     from app.services.field_changes import field_changes_against_main
-    assert field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=["b"]), _main(live_ds=())) == []
+    assert field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=[]), _main(live_ds=())) == []
 
 
 def test_scope_change_carries_added_table_refs():
