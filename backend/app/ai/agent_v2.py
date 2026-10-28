@@ -2290,7 +2290,6 @@ class AgentV2:
         All instructions land in a draft AI build that is submitted for review
         (matches the existing _stream_suggestions_inline semantics).
         """
-        from app.ai.agents.planner import PlannerV2
         from app.ai.agents.suggest_instructions.trigger import InstructionTriggerEvaluator, TriggerCondition
 
         # Budget: 1 search + up to 2 verify (inspect_data/describe_tables) + up to

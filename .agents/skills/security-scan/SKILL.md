@@ -124,7 +124,7 @@ snyk code test --json > /tmp/code.json     # honors .snyk exclude.code paths
 
 Triage by location:
 - **Dev-only code** (`backend/scripts`, `backend/email_sandbox`, `tools`,
-  `frontend/.repro`, `frontend/pages/old_agents`, tests, evals): these are
+  `frontend/.repro`, tests, evals): these are
   standalone verification/seed harnesses that log in to `localhost` with
   throwaway test credentials, not imported by `backend/app`, never shipped.
   Add their paths to `exclude.code` in `.snyk` (match the existing

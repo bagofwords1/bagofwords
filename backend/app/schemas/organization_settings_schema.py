@@ -398,16 +398,21 @@ class OrganizationSettingsConfig(BaseModel):
     # FeatureConfig, mirroring the plain-int settings.
     llm_fallback_order: list = []
 
-    ai_features: Dict[str, FeatureConfig] = {
-        # Update defaults to use 'value' instead of 'enabled'
-        "planner": FeatureConfig(value=True, name="Planner", description="Orchestrates analysis by breaking down user requests into actionable steps", is_lab=False, editable=False),
-        "coder": FeatureConfig(value=True, name="Coder", description="Translates data models into executable Python code for data processing", is_lab=False, editable=False),
-        "validator": FeatureConfig(value=True, name="Validator", description="Validates code safety and integrity and its data model compatibility", is_lab=False, editable=True),
-        "dashboard_designer": FeatureConfig(value=True, name="Dashboard Designer", description="Creates layout and organization of dashboard elements", is_lab=False),
-        "analyze_data": FeatureConfig(value=False, name="Analyze Data", description="Provides natural language responses to user questions about their data", is_lab=False, editable=False),
-        "code_reviewer": FeatureConfig(value=False, name="Code Reviewer", description="Allow users to get feedback on their code", is_lab=False), # Changed enabled=True to value=False based on previous value
-        "search_context": FeatureConfig(value=True, name="Search Context", description="Allow users to search through metadata, context, and data models", is_lab=False),
-    }
+    # Legacy nested home for settings, kept EMPTY on purpose.
+    #
+    # Nothing is declared here any more: the per-agent toggles that used to live
+    # here (planner / coder / validator / dashboard_designer / analyze_data /
+    # code_reviewer / search_context) were read by no live code and were never
+    # rendered — settings/ai_settings.vue skips the whole dict. New settings go
+    # at the top level of this model.
+    #
+    # The key itself stays because it is still a READ FALLBACK for orgs that
+    # snapshotted a setting under the old nested shape (e.g. tools_max,
+    # mcp_native_tools_max). OrganizationSettings.get_config,
+    # mcp_tool_registry._stored and artifact_verification_policy all look here
+    # when a key is absent at the top level, and the config sync deliberately
+    # does not prune it.
+    ai_features: Dict[str, FeatureConfig] = {}
 
 
 class OrganizationSettingsBase(BaseModel):

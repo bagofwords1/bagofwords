@@ -249,8 +249,6 @@ exclude:
     - 'frontend/public/libs/**'
     - 'frontend/pages/agents/*/evals.vue'
     - 'frontend/pages/evals/index.vue'
-    - 'frontend/pages/old_agents'
-    - 'frontend/pages/old_agents/**'
     - 'frontend/.repro'
     - 'frontend/.repro/**'
     - 'scripts/pw-shot.js'

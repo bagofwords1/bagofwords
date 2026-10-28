@@ -61,8 +61,6 @@ Highest blast radius in the app; also partly covered by the existing suite.
 
 ### Out of scope by default
 
-- `/old_agents/*` (11 routes) — superseded, but still linked from `layouts/data.vue`, so
-  reachable. Confirm with the user before spending time here.
 - `/reports/[id]/legacy`, `/i18n-smoke` — legacy and test fixture respectively.
 - `/r/[id]`, `/c/[token]` — public share links, need a shared resource to exist first.
 

@@ -1,10 +1,10 @@
 """Shared prompt blocks used by multiple planner prompt builders.
 
 Kept in a standalone module so the active builder (prompt_builder_v3) and the
-deprecated v2 builder (which still serves the knowledge harness and the
-BOW_PLANNER=v2 fallback) state identical contracts. Update the text here, and
-every instruction-writing prompt (training mode, knowledge harness) picks it
-up.
+deprecated v2 builder (which now serves only the BOW_PLANNER=v2 fallback — the
+knowledge harness moved to PlannerV3) state identical contracts. Update the
+text here, and every instruction-writing prompt (training mode, knowledge
+harness) picks it up.
 """
 
 # The anti-overfit contract for every prompt that can call
