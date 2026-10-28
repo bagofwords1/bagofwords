@@ -41,6 +41,20 @@ class ErrorCode(str, Enum):
     SHARING_PUBLIC_DISABLED = "sharing.public_disabled"
     MCP_DYNAMIC_PARAMS_INVALID = "mcp.dynamic_params_invalid"
 
+    # Embedded chat (embeds)
+    EMBED_NOT_FOUND = "embed.not_found"
+    EMBED_DISABLED = "embed.disabled"
+    EMBED_CONFIG_INVALID = "embed.config_invalid"
+    EMBED_REVISION_CONFLICT = "embed.revision_conflict"
+    EMBED_ASSERTION_INVALID = "embed.assertion_invalid"
+    EMBED_ASSERTION_REPLAYED = "embed.assertion_replayed"
+    EMBED_IDENTITY_UNMAPPED = "embed.identity_unmapped"
+    EMBED_IDENTITY_AMBIGUOUS = "embed.identity_ambiguous"
+    EMBED_USER_INACTIVE = "embed.user_inactive"
+    EMBED_SESSION_INVALID = "embed.session_invalid"
+    EMBED_AGENT_FORBIDDEN = "embed.agent_forbidden"
+    EMBED_CONTEXT_TOO_LARGE = "embed.context_too_large"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"

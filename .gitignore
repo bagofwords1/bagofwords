@@ -88,3 +88,7 @@ tools/agent/node_modules
 
 # Audit-log spill files written at runtime (and by test runs)
 backend/data/audit-spill/
+
+# Playwright video scratch next to committed PR evidence (the GIF is committed, the raw video is not)
+media/pr/**/.video/
+media/pr/**/*.webm

@@ -10,6 +10,7 @@ from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: 
 from app.models.report_share import ReportShare  # noqa: F401
 from app.models.report_star import ReportStar  # noqa: F401
 from app.models.project import Project  # noqa: F401
+from app.models.embed import Embed  # noqa: F401  (reports.embed_id FK target)
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -132,6 +133,14 @@ class Report(BaseSchema):
     source_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_source_artifact_id'),
                                 nullable=True, index=True)
     project = relationship("Project", back_populates="reports", lazy="joined")  # to-one: fold into parent query
+
+    # An employee's private thread inside an embedded chat deployment
+    # (report_type='embed_chat'): the embed it belongs to. Exactly one live
+    # thread per (embed, user) — enforced by the partial unique index
+    # uq_reports_embed_user (see alembic embed01). Invisible to every list,
+    # search and agent surface because those filter report_type == 'regular'.
+    embed_id = Column(String(36), ForeignKey('embeds.id', name='fk_reports_embed_id', ondelete='SET NULL'),
+                      nullable=True, index=True)
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     user = relationship("User", back_populates="reports", lazy="joined")  # to-one: fold into parent query

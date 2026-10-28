@@ -3,6 +3,8 @@ import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/
 export default defineNuxtPlugin(async (nuxtApp) => {
   // Internal previews render through a scoped server broker, without an app session.
   if (window.location.pathname.startsWith('/artifact-preview/')) return
+  // The embedded-chat frame authenticates with an embed session, not an app session.
+  if (window.location.pathname.startsWith('/embed/')) return
   const { getSession, data: sessionData } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
   const permissions = usePermissions()

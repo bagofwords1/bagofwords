@@ -103,7 +103,7 @@ class ReportSchema(ReportBase):
     id: str
     status: Literal["draft", "published", "archived"]
     slug: str
-    report_type: Literal["regular", "test", "artifact_chat"]
+    report_type: Literal["regular", "test", "artifact_chat", "embed_chat"]
     widgets: List[WidgetSchema] = []
     dashboard_layout_versions: List[DashboardLayoutVersionSchema] = []
     data_sources: List[DataSourceReportSchema] = []

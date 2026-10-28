@@ -99,6 +99,14 @@ def run_scope_agents(runtime_ctx: dict[str, Any]) -> list[Any]:
     return out
 
 
+# Report types whose EMPTY roster means "no agents", never Auto: artifact chat
+# (owner-allowed ∩ viewer-accessible, synced per message) and embedded chat
+# (admin roster ∩ the employee's own access, synced per message). Widening
+# either to everything the user can reach would hand a shared surface far more
+# than its owner configured.
+NON_AUTO_REPORT_TYPES = frozenset({"artifact_chat", "embed_chat"})
+
+
 def report_selection_is_auto(report: Any) -> bool:
     """Empty attached roster = Auto (the user never pinned a selection)."""
     return not list(getattr(report, "data_sources", None) or [])
@@ -130,7 +138,7 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
     # viewer-accessible intersection synced per message, and empty means
     # "dashboard data only" — widening to everything the viewer can access
     # would hand a shared-dashboard chat far more than the owner shared.
-    if not attached and getattr(report, "report_type", "regular") == "artifact_chat":
+    if not attached and getattr(report, "report_type", "regular") in NON_AUTO_REPORT_TYPES:
         return []
     agents = attached if attached else await accessible_agents(db, organization, user)
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
@@ -196,7 +204,7 @@ async def resolve_candidate_agents(
     if not attached:
         # Artifact-chat threads never widen to Auto (see resolve_run_agents);
         # their focus tools are filtered out anyway — defense in depth.
-        if getattr(report, "report_type", "regular") == "artifact_chat":
+        if getattr(report, "report_type", "regular") in NON_AUTO_REPORT_TYPES:
             return [], "attached", set()
         # Auto: the working set is everything accessible; nothing needs attach.
         agents = await accessible_agents(db, organization, user)

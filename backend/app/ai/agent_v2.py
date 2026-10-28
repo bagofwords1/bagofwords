@@ -970,7 +970,7 @@ class AgentV2:
 
         # Build browser candidates respecting registry mode/platform constraints.
         # Live eligibility is resolved before each planner step below.
-        if getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
+        if getattr(self.report, 'report_type', 'regular') not in ('artifact_chat', 'embed_chat'):
             available_capabilities.add("artifact_preview")
 
         # Start with all available tools for the planner to see, filtered by mode and platform
