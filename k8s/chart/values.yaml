@@ -10,18 +10,92 @@ image:
 # -- Hostname for the Ingress rule (e.g. `app.example.com`).
 host: app.bagofwords.com
 
-# -- Bitnami PostgreSQL subchart values. All subchart keys are accepted here.
-# @default -- see subchart defaults
+# -- Bundled single-instance PostgreSQL, run from the official `postgres`
+# image. Intended for evaluation and small installs; for production point the
+# app at a managed or operator-run database (`postgresql.enabled: false` plus
+# `database.*`, or a Secret supplying `BOW_DATABASE_URL`).
+# @default -- see the `postgresql.*` rows
 postgresql:
+  # -- Deploy the bundled PostgreSQL StatefulSet.
+  enabled: true
+  image:
+    # -- PostgreSQL image registry.
+    registry: docker.io
+    # -- PostgreSQL image repository (the Docker Official Image).
+    repository: library/postgres
+    # -- Image tag. Stay on major 17 and the Debian 12 (bookworm) base:
+    # `config.database.idleSessionTimeoutMs` relies on 14+, a major-version
+    # change needs a dump/restore or `pg_upgrade`, and a different glibc can
+    # change text collation order and silently corrupt existing indexes.
+    tag: "17-bookworm"
+    # -- Image pull policy.
+    pullPolicy: IfNotPresent
+  # -- Image pull secrets for the PostgreSQL pod, e.g. `[{name: regcred}]`.
+  imagePullSecrets: []
   auth:
+    # -- Application database user (created as the database owner, not a superuser).
     username: ""
+    # -- Application user's password. Ignored when `existingSecret` is set.
     password: ""
+    # -- Application database name.
     database: ""
+    # -- Password for the `postgres` superuser. Ignored when `existingSecret` is
+    # set. Empty keeps the one already stored in the chart's Secret, or
+    # generates one on first install.
+    postgresPassword: ""
+    # -- Existing Secret holding the passwords under `secretKeys`. When set the
+    # chart does not emit `BOW_DATABASE_URL`; supply it via `config.secretRef`.
     existingSecret: ""
+    secretKeys:
+      # -- Key in the Secret holding the application user's password.
+      userPasswordKey: password
+      # -- Key in the Secret holding the `postgres` superuser's password.
+      adminPasswordKey: postgres-password
   primary:
     persistence:
+      # -- Persist data in a PersistentVolumeClaim. `false` uses an emptyDir (data is lost on restart).
+      enabled: true
+      # -- Size of the data volume.
       size: 20Gi
+      # -- StorageClass for the data volume. Empty uses the cluster default; `-` sets `storageClassName: ""`.
+      storageClass: ""
+      # -- Access modes of the data volume.
+      accessModes:
+        - ReadWriteOnce
+      # -- Use an existing PersistentVolumeClaim instead of creating one.
+      existingClaim: ""
+    # -- Resource requests/limits for the PostgreSQL container.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    # -- Node selector for the PostgreSQL pod.
     nodeSelector: {}
+    # -- Tolerations for the PostgreSQL pod.
+    tolerations: []
+    # -- Affinity rules for the PostgreSQL pod.
+    affinity: {}
+    # -- Annotations added to the PostgreSQL pod.
+    podAnnotations: {}
+    # -- Pod security context. uid/gid 1001 matches data volumes created by
+    # the Bitnami subchart in chart <= 2.x, so they are adopted as-is.
+    podSecurityContext:
+      runAsUser: 1001
+      runAsGroup: 1001
+      runAsNonRoot: true
+      fsGroup: 1001
+      fsGroupChangePolicy: OnRootMismatch
+      seccompProfile:
+        type: RuntimeDefault
+    # -- Container security context for PostgreSQL.
+    containerSecurityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+    # -- Seconds PostgreSQL gets to shut down cleanly before it is killed.
+    terminationGracePeriodSeconds: 60
+    # -- Extra `postgresql.conf` lines.
     # Stock PostgreSQL allows 100 connections, 3 of them reserved for
     # superusers. One app worker's pool alone can reach
     # `config.database.poolSize + maxOverflow` (40 by default), and `start.sh`
@@ -34,12 +108,12 @@ postgresql:
     extendedConfiguration: |
       max_connections = 300
 
-# -- Managed database with IAM auth (alternative to the bundled postgresql subchart).
-# When `database.auth.provider` is not `password`, the postgresql subchart values
+# -- Managed database with IAM auth (alternative to the bundled PostgreSQL).
+# When `database.auth.provider` is not `password`, the `postgresql` values
 # above are ignored and the app connects to the external managed database instead.
 database:
   auth:
-    # -- Authentication provider. `password` uses the bundled postgresql subchart.
+    # -- Authentication provider. `password` uses the bundled PostgreSQL.
     # `aws_iam` connects to an external RDS instance using IAM token authentication.
     provider: password   # password | aws_iam
     # -- AWS region for IAM token generation (aws_iam only, e.g. `us-east-1`).
@@ -133,7 +207,7 @@ config:
   # (stock PostgreSQL: 100 - 3 = 97), or connects are refused outright with
   # "remaining connection slots are reserved for roles with the SUPERUSER
   # attribute" — which surfaces to users as a failed agent run, not as a
-  # pool timeout. The bundled postgresql subchart below is sized to match.
+  # pool timeout. The bundled PostgreSQL (`postgresql.primary.extendedConfiguration`) is sized to match.
   database:
     # -- Pooled connections held per worker. Empty uses the app default (20).
     poolSize: ""
@@ -146,7 +220,7 @@ config:
     # REQUIRES PostgreSQL 14+: on older servers the parameter is rejected at
     # connect time and *every* connection fails. Left empty here, which applies
     # `600000` (10 min) only when this chart can be certain the app is talking to
-    # the bundled PostgreSQL 17 subchart — that is, it generates the database URL
+    # the bundled PostgreSQL 17 — that is, it generates the database URL
     # itself and nothing can override it. It stays unset when the URL is
     # delegated elsewhere and the version is therefore unknown: an external
     # `database.host`, an IAM-authenticated `database.auth.provider`,

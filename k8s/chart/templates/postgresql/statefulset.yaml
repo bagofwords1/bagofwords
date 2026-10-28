@@ -1,0 +1,181 @@
+{{- if .Values.postgresql.enabled }}
+{{- $pg := .Values.postgresql }}
+{{- $fullname := include "bowapp.postgresql.fullname" . }}
+{{- $secretName := include "bowapp.postgresql.secretName" . }}
+{{- $superuser := ternary $pg.auth.username "postgres" (eq $pg.auth.username "postgres") }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.postgresql.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $fullname }}-hl
+  selector:
+    matchLabels:
+      {{- include "bowapp.postgresql.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bowapp.postgresql.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/postgresql/configmap.yaml") . | sha256sum }}
+        {{- with $pg.primary.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $pg.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /*
+        uid/gid 1001 is what the Bitnami image ran as, so a data directory
+        adopted from it is already owned correctly; the official image supports
+        an arbitrary uid on a fresh volume too.
+      */}}
+      securityContext:
+        {{- toYaml $pg.primary.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ $pg.primary.terminationGracePeriodSeconds }}
+      containers:
+        - name: postgresql
+          image: "{{ $pg.image.registry }}/{{ $pg.image.repository }}:{{ $pg.image.tag }}"
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          args:
+            - -c
+            - config_file=/etc/postgresql/postgresql.conf
+            - -c
+            - hba_file=/etc/postgresql/pg_hba.conf
+          env:
+            {{- /*
+              The volume is mounted at the image's own data path (mounting a
+              parent of it would leave the image's declared VOLUME shadowing the
+              PVC on some runtimes) and the cluster lives in its `data/`
+              subdirectory — the layout the Bitnami chart used.
+            */}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/data
+            - name: POSTGRES_USER
+              value: {{ $superuser | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ ternary $pg.auth.secretKeys.userPasswordKey $pg.auth.secretKeys.adminPasswordKey (eq $superuser $pg.auth.username) }}
+                  {{- if $pg.auth.existingSecret }}
+                  optional: true
+                  {{- end }}
+            - name: POSTGRES_DB
+              value: {{ default $superuser $pg.auth.database | quote }}
+            {{- if and $pg.auth.username (ne $pg.auth.username $superuser) }}
+            - name: BOW_APP_USER
+              value: {{ $pg.auth.username | quote }}
+            - name: BOW_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ $pg.auth.secretKeys.userPasswordKey }}
+            {{- end }}
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          startupProbe:
+            exec:
+              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- with $pg.primary.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $pg.primary.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+            - name: config
+              mountPath: /etc/postgresql/pg_hba.conf
+              subPath: pg_hba.conf
+            - name: config
+              mountPath: /docker-entrypoint-initdb.d/10-create-app-user.sh
+              subPath: 10-create-app-user.sh
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}
+            defaultMode: 0555
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        {{- if not $pg.primary.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- else if $pg.primary.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $pg.primary.persistence.existingClaim }}
+        {{- end }}
+  {{- if and $pg.primary.persistence.enabled (not $pg.primary.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    {{- /*
+      volumeClaimTemplates is immutable: keep this byte-for-byte what the
+      Bitnami chart rendered (no labels, quoted size) so an upgrade from it
+      patches nothing here.
+    */}}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes:
+        {{- range $pg.primary.persistence.accessModes }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- with $pg.primary.persistence.storageClass }}
+        storageClassName: {{ ternary "" . (eq . "-") | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.primary.persistence.size | quote }}
+  {{- end }}
+{{- end }}

@@ -192,8 +192,10 @@ stringData:
   # License
   BOW_LICENSE_KEY: "<license-key>"
 
-  # Bundled-Postgres (subchart)
+  # Bundled PostgreSQL (read via postgresql.auth.existingSecret)
   postgres-password: "<postgres-password>"
+  # ...plus the app user's password when postgresql.auth.username is set
+  # password: "<app-user-password>"
 ```
 
 3. Reference the Secret in your install:

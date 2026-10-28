@@ -1,5 +1,52 @@
 # Changelog
 
+## 3.0.0 — Breaking change
+
+### ⚠ Breaking: bundled PostgreSQL no longer uses the Bitnami subchart
+
+Bitnami stopped publishing versioned `docker.io/bitnami/postgresql` images, so
+the subchart's pinned image (`17.2.0-debian-12-r3`) can no longer be pulled and
+fresh installs hung in `ImagePullBackOff`. The chart now ships its own
+single-instance PostgreSQL (`templates/postgresql/`) running the Docker
+Official Image `postgres:17-bookworm`, and has no chart dependencies.
+
+**Existing data is adopted in place.** The StatefulSet name, selector labels,
+`serviceName`, PVC template (`data-<release>-postgresql-0`), on-disk layout
+(`<volume>/data`, uid/gid 1001) and Secret keys (`password`,
+`postgres-password`) all match what the Bitnami subchart rendered, and both
+images are PostgreSQL 17 on Debian 12, so `helm upgrade` restarts the database
+pod on the new image against the same volume.
+
+**Before upgrading:**
+
+1. Back up the database (`pg_dump`, or a volume snapshot).
+2. Remove Bitnami-only keys under `postgresql:` from your values (e.g.
+   `architecture`, `primary.resourcesPreset`, `metrics`, `readReplicas`). They
+   are now rejected by the values schema instead of being silently ignored. The
+   keys this chart still reads are listed under `postgresql.*` in README.md.
+3. If you changed the PVC template in 2.x (e.g. `primary.persistence.storageClass`
+   or `global.storageClass`), set the same value under
+   `postgresql.primary.persistence` — or, if the upgrade fails with
+   `updates to statefulset spec for fields other than ... are forbidden`,
+   delete only the StatefulSet object and upgrade again (the PVC and its data are
+   kept):
+
+   ```bash
+   kubectl delete statefulset <release>-postgresql -n <namespace> --cascade=orphan
+   ```
+
+### Other changes in 3.0.0
+
+- `postgresql.auth.username`, `password` and `database` are now required for the
+  bundled database (unless `postgresql.auth.existingSecret` is set); a missing
+  value fails the render instead of producing an unusable `BOW_DATABASE_URL`.
+- The PostgreSQL pod now requests `100m` CPU / `256Mi` memory with no limits
+  (Bitnami's `nano` preset capped it at `150m` / `192Mi`). Tune it with
+  `postgresql.primary.resources`.
+- `BOW_DATABASE_URL` now points at the real Service name when the release name
+  itself contains `postgresql` (previously `<release>-postgresql`, which did not
+  exist in that case).
+
 ## 2.0.0 — Breaking change
 
 ### ⚠ Breaking: Deployment selector labels changed
