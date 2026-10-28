@@ -2778,6 +2778,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "HTTPS-вебхук",
           "syslog": "Syslog через TLS"
         },
@@ -2787,6 +2788,7 @@
           "sentinel": "Logs Ingestion API (DCR)",
           "s3": "Объекты NDJSON по пакетам",
           "gcs": "Объекты NDJSON с ключами HMAC",
+          "cloudwatch": "PutLogEvents в группу логов",
           "https": "Подписанный JSON POST",
           "syslog": "RFC 5424, JSON или CEF"
         },
@@ -2814,6 +2816,8 @@
           "stream_name": "Имя потока",
           "authority_url": "URL центра авторизации",
           "bucket": "Бакет",
+          "log_group": "Группа логов",
+          "log_stream": "Поток логов",
           "region": "Регион",
           "prefix": "Префикс ключа",
           "role_arn": "ARN роли",
@@ -2821,6 +2825,7 @@
           "access_key_id": "ID ключа доступа",
           "secret_access_key": "Секретный ключ доступа",
           "gzip": "Сжимать объекты gzip",
+          "create_log_group": "Создать группу логов, если её нет",
           "endpoint_url": "Свой URL конечной точки",
           "sts_endpoint_url": "Своя конечная точка STS",
           "host": "Хост",

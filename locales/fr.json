@@ -2778,6 +2778,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook HTTPS",
           "syslog": "Syslog sur TLS"
         },
@@ -2787,6 +2788,7 @@
           "sentinel": "API d'ingestion de logs (DCR)",
           "s3": "Objets NDJSON par lot",
           "gcs": "Objets NDJSON via clés HMAC",
+          "cloudwatch": "PutLogEvents vers un groupe de logs",
           "https": "POST JSON signé",
           "syslog": "RFC 5424, JSON ou CEF"
         },
@@ -2814,6 +2816,8 @@
           "stream_name": "Nom du flux",
           "authority_url": "URL d'autorité",
           "bucket": "Bucket",
+          "log_group": "Groupe de logs",
+          "log_stream": "Flux de logs",
           "region": "Région",
           "prefix": "Préfixe de clé",
           "role_arn": "ARN du rôle",
@@ -2821,6 +2825,7 @@
           "access_key_id": "ID de clé d'accès",
           "secret_access_key": "Clé d'accès secrète",
           "gzip": "Compresser les objets (gzip)",
+          "create_log_group": "Créer le groupe de logs s'il n'existe pas",
           "endpoint_url": "URL de point de terminaison personnalisée",
           "sts_endpoint_url": "Point de terminaison STS personnalisé",
           "host": "Hôte",

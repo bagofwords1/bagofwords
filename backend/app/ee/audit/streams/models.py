@@ -11,7 +11,7 @@ from sqlalchemy.orm import relationship
 from app.models.base import Base, BaseSchema
 from app.settings.config import settings
 
-DESTINATIONS = ("datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog")
+DESTINATIONS = ("datadog", "splunk", "sentinel", "s3", "gcs", "cloudwatch", "https", "syslog")
 STATES = ("active", "inactive", "error", "invalid")
 
 

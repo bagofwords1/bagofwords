@@ -117,7 +117,7 @@ def test_destinations_schema_marks_secret_fields(test_client, bootstrap_admin):
     r = test_client.get(f"{BASE}/destinations", headers=h(admin["token"], admin["org_id"]))
     assert r.status_code == 200
     specs = {d["type"]: {f["key"]: f for f in d["fields"]} for d in r.json()}
-    assert set(specs) == {"datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog"}
+    assert set(specs) == {"datadog", "splunk", "sentinel", "s3", "gcs", "cloudwatch", "https", "syslog"}
     assert specs["datadog"]["api_key"]["secret"] and specs["splunk"]["token"]["secret"]
     assert not specs["splunk"]["hec_url"]["secret"]
 

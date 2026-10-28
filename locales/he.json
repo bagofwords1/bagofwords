@@ -3009,6 +3009,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "וובהוק HTTPS",
           "syslog": "Syslog על גבי TLS"
         },
@@ -3018,6 +3019,7 @@
           "sentinel": "Logs Ingestion API ‏(DCR)",
           "s3": "אובייקט NDJSON לכל אצווה",
           "gcs": "אובייקטי NDJSON עם מפתחות HMAC",
+          "cloudwatch": "PutLogEvents לקבוצת לוגים",
           "https": "POST של JSON חתום",
           "syslog": "RFC 5424, ‏JSON או CEF"
         },
@@ -3045,6 +3047,8 @@
           "stream_name": "שם הזרם",
           "authority_url": "כתובת רשות (Authority)",
           "bucket": "דלי (Bucket)",
+          "log_group": "קבוצת לוגים",
+          "log_stream": "זרם לוגים",
           "region": "אזור",
           "prefix": "קידומת מפתח",
           "role_arn": "ARN של התפקיד",
@@ -3052,6 +3056,7 @@
           "access_key_id": "מזהה מפתח גישה",
           "secret_access_key": "מפתח גישה סודי",
           "gzip": "דחיסת אובייקטים ב-gzip",
+          "create_log_group": "צור קבוצת לוגים אם אינה קיימת",
           "endpoint_url": "כתובת נקודת קצה מותאמת",
           "sts_endpoint_url": "נקודת קצה STS מותאמת",
           "host": "שרת",

@@ -35,7 +35,7 @@ import uuid
 import httpx
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DESTS = ["datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog"]
+DESTS = ["datadog", "splunk", "sentinel", "s3", "gcs", "cloudwatch", "https", "syslog"]
 
 
 class Loop:
@@ -127,6 +127,8 @@ class Loop:
                    {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
             "gcs": ({"bucket": "gcs-audit", "prefix": "bow", "endpoint_url": f"{m}/s3", "gzip": True},
                     {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
+            "cloudwatch": ({"log_group": "/bow/audit", "log_stream": "loop", "region": "us-east-1", "endpoint_url": f"{m}/cloudwatch"},
+                           {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
             "https": ({"url": f"{m}/https/loop"}, {"hmac_secret": "demo-hmac-secret"}),
             "syslog": ({"host": "127.0.0.1", "port": self.a.syslog_port, "tls": True, "ca_cert": ca, "format": "json"}, {}),
         }
