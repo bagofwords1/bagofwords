@@ -664,6 +664,8 @@
     "modelAuto": "Auto",
     "modelAutoHint": "Router picks the best model",
     "autoAgentsHint": "Any agent you can access",
+    "searchAgents": "Search agents…",
+    "noAgentsMatch": "No agents match",
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found",
     "effort": {
