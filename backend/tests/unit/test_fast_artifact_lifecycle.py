@@ -40,9 +40,12 @@ class ArtifactLifecycle(unittest.IsolatedAsyncioTestCase):
         self.patch = patch.object(artifacts, "_ARTIFACT_ROOT", self.path / "fast")
         self.patch.start()
         self.admin = None
-        postgres = os.environ.get("ARTIFACT_LOOP_POSTGRES_URL")
-        if postgres:
-            url = make_url(postgres)
+        # Follow pytest's --db selection, including xdist's per-worker URL.
+        # Destructive fault injection uses a private database on that same
+        # server so DROP/trigger failures cannot damage the harness template.
+        harness_url = make_url(os.environ["TEST_DATABASE_URL"])
+        if harness_url.get_backend_name() == "postgresql":
+            url = harness_url
             self.database = "artifact_loop_" + uuid.uuid4().hex
             self.admin = create_engine(url.set(drivername="postgresql+psycopg2"), isolation_level="AUTOCOMMIT")
             with self.admin.connect() as conn:
@@ -122,12 +125,13 @@ class ArtifactLifecycle(unittest.IsolatedAsyncioTestCase):
                 task = asyncio.create_task(self.service.refresh(db, connection, table))
                 try:
                     self.assertTrue(await asyncio.to_thread(entered.wait, 10))
-                    task.cancel()
-                    # Yield through the executor rather than sleeping: deliver
-                    # cancellation while the source is deterministically blocked.
-                    await asyncio.to_thread(lambda: None)
-                    with artifacts.try_refresh_lock(self.connection_id) as acquired:
-                        self.assertFalse(acquired)
+                    for _ in range(3):
+                        task.cancel()
+                        # Deliver each cancellation while the source remains
+                        # deterministically blocked, without timing sleeps.
+                        await asyncio.to_thread(lambda: None)
+                        with artifacts.try_refresh_lock(self.connection_id) as acquired:
+                            self.assertFalse(acquired)
                     release.set()
                     with self.assertRaises(asyncio.CancelledError):
                         await task
@@ -137,6 +141,7 @@ class ArtifactLifecycle(unittest.IsolatedAsyncioTestCase):
                         await asyncio.gather(task, return_exceptions=True)
             await db.refresh(table)
             self.assertEqual(table.artifact_path, old_path)
+            self.assertEqual(table.last_refresh_status, "error")
             self.assertEqual(set((self.path / "fast").rglob("*.db")), {Path(old_path)})
 
     async def test_deleted_table_is_not_rebuilt_by_a_preloaded_refresh(self):
@@ -212,6 +217,96 @@ class ArtifactLifecycle(unittest.IsolatedAsyncioTestCase):
             await db.refresh(table)
             self.assertEqual(table.artifact_path, old_path)
             self.assertTrue(Path(old_path).exists())
+
+    async def test_contended_volume_lock_returns_conflict_and_can_be_reused(self):
+        from app.errors import AppError
+        with artifacts.try_refresh_lock(self.connection_id) as acquired:
+            self.assertTrue(acquired)
+            with self.assertRaises(AppError) as error:
+                async with artifacts.refresh_lock(self.connection_id, timeout=0):
+                    self.fail("entered a contended volume")
+            self.assertEqual(error.exception.status_code, 409)
+        async with artifacts.refresh_lock(self.connection_id, timeout=0):
+            self.assertTrue((self.path / "fast" / self.connection_id / ".refresh.lock").exists())
+
+    async def test_scheduled_sweep_claims_one_run_across_workers(self):
+        from app.core import scheduler as scheduler_module
+        from app.services.fast_artifact_maintenance import scheduled_purge_orphaned_fast_artifacts
+        sync_driver = "postgresql+psycopg2" if self.admin else "sqlite"
+        claim_engine = create_engine(self.engine.url.set(drivername=sync_driver))
+        # The claim table is migration-only (no ORM model), so install its
+        # actual schema in this private fault-injection database.
+        import importlib.util
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        migration_path = Path(__file__).resolve().parents[2] / "alembic/versions/sc1d2e3f4a5b_add_scheduled_job_runs.py"
+        spec = importlib.util.spec_from_file_location("claim_schema", migration_path)
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+        with claim_engine.begin() as connection:
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.upgrade()
+        orphan = artifacts.artifact_dir(self.connection_id) / "orphan.db"
+        old = time.time() - 2 * 86400
+        try:
+            # Replace only the datastore handle. The claim primitive, unique
+            # constraint and sweep all run against the real private database.
+            with patch.object(scheduler_module, "_engine", claim_engine), patch("time.time", return_value=time.time()):
+                orphan.write_bytes(b"orphan")
+                os.utime(orphan, (old, old))
+                first = await scheduled_purge_orphaned_fast_artifacts(self.sessions)
+                self.assertEqual(first["deleted"], 1)
+                orphan.write_bytes(b"next worker must not run the same sweep")
+                os.utime(orphan, (old, old))
+                second = await scheduled_purge_orphaned_fast_artifacts(self.sessions)
+                self.assertEqual(second["deleted"], 0)
+                self.assertTrue(orphan.exists())
+        finally:
+            claim_engine.dispose()
+
+    async def test_cleanup_continues_after_one_file_cannot_be_removed(self):
+        from app.services.fast_artifact_maintenance import purge_orphaned_fast_artifacts
+        directory = artifacts.artifact_dir(self.connection_id)
+        blocked, removable = directory / "blocked.db", directory / "removable.db"
+        old = time.time() - 2 * 86400
+        for path in (blocked, removable):
+            path.write_bytes(b"orphan")
+            os.utime(path, (old, old))
+        original = Path.unlink
+
+        def unlink(path, *args, **kwargs):
+            if path == blocked:
+                raise PermissionError("sandbox protected inode")
+            return original(path, *args, **kwargs)
+
+        # Inject an OS unlink failure at the filesystem boundary, not the
+        # collector. It must not skip other files or lose their totals.
+        with patch.object(Path, "unlink", unlink):
+            result = await purge_orphaned_fast_artifacts(self.sessions)
+        self.assertEqual(result["deleted"], 1)
+        self.assertEqual(result["reclaimed_bytes"], len(b"orphan"))
+        self.assertTrue(blocked.exists())
+        self.assertFalse(removable.exists())
+
+    async def test_deleted_table_cannot_regain_schedule_from_stale_update(self):
+        from app.core.scheduler import scheduler
+        from app.services.custom_query_service import job_id_for
+        from apscheduler.jobstores.base import JobLookupError
+        try:
+            async with self.sessions() as db, self.sessions() as queued:
+                connection, table = await self.load(db)
+                stale_connection, stale_table = await self.load(queued)
+                await self.service.delete(db, connection, table)
+                with self.assertRaises(HTTPException) as error:
+                    await self.service.update(queued, stale_connection, stale_table,
+                                              definition_sql="SELECT value FROM orders WHERE value > 0")
+                self.assertEqual(error.exception.status_code, 404)
+                self.assertIsNone(scheduler.get_job(job_id_for(self.table_id)))
+        finally:
+            try:
+                scheduler.remove_job(job_id_for(self.table_id))
+            except JobLookupError:
+                pass
 
     async def test_cleanup_preserves_references_recent_files_and_active_refreshes(self):
         from app.services.fast_artifact_maintenance import purge_orphaned_fast_artifacts

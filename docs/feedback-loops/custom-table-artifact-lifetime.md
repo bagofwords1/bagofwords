@@ -62,32 +62,41 @@ FAILED (failures=1)
 ## The fix
 
 - `backend/app/data_sources/fast/artifacts.py:115`: a persistent per-connection
-  `flock` on the artifact volume coordinates refresh, delete and maintenance
-  across workers sharing those files. Waiting is asynchronous; maintenance skips
-  busy connections. Lock files are never unlinked, and process exit releases locks.
+  kernel lock via the pinned `filelock` dependency coordinates refresh, delete
+  and maintenance across workers sharing the volume. Waiting uses exponential
+  backoff with a 30s cap and the existing localized 409 conflict response;
+  maintenance skips busy connections. Lock files are never unlinked, process
+  exit releases locks, and soft-lock fallback is disabled.
 - `backend/app/services/custom_query_service.py:652`: reload the table under the
   lock before choosing the old path; skip a table deleted while queued. Keep the
   previous file until a successful swap. On an ambiguous failed commit, delete
   the replacement only after rollback and a fresh query prove it unreferenced.
   If verification fails, leave it for GC. Cleanup after a successful swap runs
   even when activation sync fails. Cancellation waits for extraction to finish
-  before removing its unpublished output and releasing the lock.
+  before removing its unpublished output and releasing the lock, even after
+  repeated cancellation; best-effort terminal status prevents stale `running`.
+  Update rechecks liveness under the same lock before scheduling a refresh.
 - The delete path now commits its cleared reference before removing the file,
   so a failed delete commit preserves the original artifact.
-- `backend/app/services/fast_artifact_maintenance.py:14`: daily cleanup acquires
-  the same volume lock, reads all DB references (including soft-deleted rows),
-  and removes only unreferenced `.db`, `.tmp`, and `.wal` files older than 24h.
+- `backend/app/services/fast_artifact_maintenance.py`: daily cleanup reads and
+  resolves all DB references once (including soft-deleted rows), then acquires
+  each directory's volume lock and removes only unreferenced `.db`, `.tmp`, and
+  `.wal` files older than 24h. The cutoff is captured before the snapshot: any
+  newly committed reference points at a fresh UUID file, protected by its age.
   It preserves referenced WALs, recent files, symlinks and unknown file types;
-  failed DB reads preserve every file in that directory.
-- `backend/main.py`: scheduler-leader registration at 03:15 server time.
+  failed DB reads abort the sweep safely. Per-file OS errors are logged without
+  preventing other deletions or discarding their totals.
+- `backend/main.py`: registration at 03:15 server time; the scheduled wrapper
+  claims the shared job before sweeping, preventing duplicate worker execution.
   A restored scheduler/next deployment runs this automatically; no migration.
 
-Observed after:
+Observed before PR creation: 9 lifecycle tests passed on SQLite and PostgreSQL,
+and 67 targeted tests passed. After addressing review comments:
 
 ```text
-SQLite sandbox:     Ran 9 tests — OK
-PostgreSQL sandbox: Ran 9 tests — OK
-Targeted pytest:    67 passed
+SQLite sandbox:                   Ran 13 tests — OK
+Targeted pytest --db=sqlite:       71 passed
+Lifecycle pytest --db=postgres:   13 passed
 ```
 
 The normal-suite command is:
@@ -111,7 +120,7 @@ free disk. Its temporary container/volume were removed. Production was untouched
 
 ## What this proves / limits
 
-The nine regressions cover stale sessions, cross-process exclusion/crash release,
+The thirteen regressions cover stale sessions, cross-process exclusion/crash release,
 source failure, failed refresh/delete commits, activation-sync failure,
 cancellation, queued refresh after deletion, and safe/idempotent orphan cleanup
 (including missing DB schema, recent files, active refresh, referenced WALs,
@@ -128,3 +137,23 @@ artifact volume supporting `flock`; replicas sharing artifacts must share that
 volume. A 24h grace period protects pre-lock writers during a rolling deployment
 (the normal extraction wall-clock cap is 30 minutes). GC cannot repair already
 missing referenced files and intentionally preserves soft-deleted references.
+
+## Review follow-up — PR #1505
+
+Three additional checks were run against the original PR implementation before
+repair: an unremovable file, repeated request cancellation, and a stale update
+rescheduling a deleted table. All three failed; all pass with the review fixes.
+Additional tests verify terminal cancelled status, bounded lock conflict/reuse,
+and real shared-job deduplication against the migration's unique constraint.
+
+The test engine now derives its backend from the harness's `TEST_DATABASE_URL`
+(including xdist worker URLs), so `--db=postgres` really exercises PostgreSQL.
+Separate disposable databases are retained for destructive trigger/DROP fault
+injection. The workflow explicitly runs this module in both database matrix jobs;
+the pre-existing unit job alone only ran `--db=sqlite`.
+
+The claim regression initially lacked `scheduled_job_runs` because that schema
+is migration-only, not part of ORM metadata. The test now applies the real claim
+migration to its private database; the production schema is unchanged. The
+cross-worker claim is exercised with real SQL, with only the clock and datastore
+handle controlled at their boundaries.

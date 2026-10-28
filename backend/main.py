@@ -521,9 +521,9 @@ async def startup_event():
     # Register daily maintenance jobs
     if is_scheduler_leader:
         try:
-            from app.services.fast_artifact_maintenance import purge_orphaned_fast_artifacts
+            from app.services.fast_artifact_maintenance import scheduled_purge_orphaned_fast_artifacts
             scheduler.add_job(
-                purge_orphaned_fast_artifacts,
+                scheduled_purge_orphaned_fast_artifacts,
                 trigger="cron",
                 hour=3,
                 minute=15,

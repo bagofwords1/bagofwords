@@ -14,7 +14,9 @@ from pathlib import Path
 with tempfile.TemporaryDirectory(prefix="bow-artifact-loop-") as sandbox:
     backend = Path(__file__).resolve().parents[2] / "backend"
     os.environ["TESTING"] = "true"
-    os.environ["TEST_DATABASE_URL"] = f"sqlite:///{sandbox}/app.db"
+    os.environ["TEST_DATABASE_URL"] = os.environ.get(
+        "ARTIFACT_LOOP_POSTGRES_URL", f"sqlite:///{sandbox}/app.db"
+    )
     os.environ["BOW_DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
     sys.path.insert(0, str(backend))
     os.chdir(backend)

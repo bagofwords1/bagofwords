@@ -18,10 +18,10 @@ already backs SMTP and external-platform secrets.
 
 import asyncio
 import base64
-import fcntl
 import logging
 import os
 import secrets
+import time
 import uuid
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -29,7 +29,9 @@ from typing import Optional
 
 import duckdb
 from cryptography.fernet import Fernet
+from filelock import FileLock, Timeout
 
+from app.errors import AppError
 from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
@@ -116,36 +118,52 @@ def artifact_size(path: Optional[str]) -> int:
 def try_refresh_lock(connection_id: str):
     """Coordinate writers/GC across processes sharing the artifact volume.
 
-    The inode must persist: unlinking a lock file lets another process lock a
-    different inode while the first owner is still working. A crashed process
-    releases flock automatically. All replicas sharing artifacts must share this
-    directory too; unrelated volumes contain independent files.
+    Keep the inode across releases; process exit releases the kernel lock. Use
+    the pinned filelock implementation with no soft-lock fallback: a soft lock
+    cannot provide the crash-release guarantee required by artifact maintenance.
     """
-    path = artifact_dir(connection_id) / ".refresh.lock"
-    with path.open("a") as handle:
-        try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+    lock = FileLock(
+        artifact_dir(connection_id) / ".refresh.lock",
+        preserve_lock_file=True,
+        fallback_to_soft=False,
+        thread_local=False,
+    )
+    try:
+        lock.acquire(blocking=False)
+    except Timeout:
+        yield False
+        return
+    try:
+        yield True
+    finally:
+        lock.release()
 
 
 @asynccontextmanager
-async def refresh_lock(connection_id: str):
-    """Wait without blocking the event loop; cancellation closes the handle."""
+async def refresh_lock(connection_id: str, timeout: float = 30.0):
+    """Bound queued refreshes; exponential backoff never blocks the event loop."""
+    deadline = time.monotonic() + timeout
+    delay = 0.05
     while True:
         with try_refresh_lock(connection_id) as acquired:
             if acquired:
                 yield
                 return
-        await asyncio.sleep(0.1)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            # Existing localized conflict response; no hard-coded UI message.
+            raise AppError.conflict()
+        await asyncio.sleep(min(delay, remaining))
+        delay = min(delay * 2, 1.0)
 
 
-def prune_unreferenced(connection_id: str, references: list[str], before: float) -> dict:
+def protected_paths(references: list[str]) -> set[str]:
+    """Resolve one reference snapshot, including each referenced WAL sidecar."""
+    protected = {str(Path(p).resolve()) for p in references if p}
+    return protected | {p + ".wal" for p in protected}
+
+
+def prune_unreferenced(connection_id: str, protected: set[str], before: float) -> dict:
     """Delete only old artifact files; caller must hold the refresh lock.
 
     Preserve references from *all* rows (including soft-deleted ones), their WAL
@@ -153,22 +171,23 @@ def prune_unreferenced(connection_id: str, references: list[str], before: float)
     artifact directories are flat and GC must never traverse outside its volume.
     """
     directory = artifact_dir(connection_id)
-    protected = {str(Path(p).resolve()) for p in references if p}
-    protected |= {p + ".wal" for p in protected}
     deleted = reclaimed = 0
     for path in directory.iterdir():
-        if path.is_symlink() or not path.is_file():
-            continue
-        if path.suffix not in {".db", ".tmp", ".wal"}:
-            continue
-        if str(path.resolve()) in protected:
-            continue
         try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            if path.suffix not in {".db", ".tmp", ".wal"}:
+                continue
+            if str(path.resolve()) in protected:
+                continue
             info = path.stat()
             if info.st_mtime >= before:
                 continue
             path.unlink()
         except FileNotFoundError:
+            continue
+        except OSError:
+            logger.warning("fast.artifact.prune_failed", extra={"path": str(path)}, exc_info=True)
             continue
         deleted += 1
         reclaimed += info.st_size

@@ -104,16 +104,6 @@ def is_accelerable_type(conn_type) -> bool:
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
-# One refresh at a time per connection: a refresh is a full scan against the
-# source, and the whole point is to be gentle with it.
-_refresh_locks: dict[str, asyncio.Lock] = {}
-
-
-def _lock_for(connection_id: str) -> asyncio.Lock:
-    if connection_id not in _refresh_locks:
-        _refresh_locks[connection_id] = asyncio.Lock()
-    return _refresh_locks[connection_id]
-
 
 def job_id_for(cq_id: str) -> str:
     return f"custom_query_{cq_id}"
@@ -608,14 +598,18 @@ class CustomQueryService:
 
         if sql_changed:
             await self.refresh(db, connection, cq, current_user=current_user)
-        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
+        async with artifacts.refresh_lock(connection.id):
+            # Delete may have won while update/refresh was queued. Recheck
+            # liveness under the same lock before touching the shared job store.
+            cq = await self.get_custom_query(db, connection.id, cq.id)
+            self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
         return cq
 
     async def delete(
         self, db: AsyncSession, connection: Connection, cq: ConnectionTable
     ) -> dict:
         """Soft-delete the relation, drop its agent activations, remove the file."""
-        async with _lock_for(connection.id), artifacts.refresh_lock(connection.id):
+        async with artifacts.refresh_lock(connection.id):
             await db.refresh(cq)
             self._unschedule(cq.id)
 
@@ -649,7 +643,7 @@ class CustomQueryService:
         current_user: User = None,
     ) -> ConnectionTable:
         """Rebuild the artifact. A failure keeps the previous one serving."""
-        async with _lock_for(connection.id), artifacts.refresh_lock(connection.id):
+        async with artifacts.refresh_lock(connection.id):
             # A queued caller may have loaded this row before another worker
             # committed its swap. Reload under the volume lock before reading
             # old_path, otherwise the newly superseded file is never removed.
@@ -678,11 +672,34 @@ class CustomQueryService:
                 # its extraction thread is still writing into that directory.
                 res = await asyncio.shield(extraction)
             except asyncio.CancelledError:
-                try:
-                    res = await extraction
-                    artifacts.delete_artifact(res.artifact_path)
-                except Exception:
-                    logger.exception("custom_query.cancelled_extraction.failed")
+                async def finish_cancelled_refresh():
+                    try:
+                        res = await extraction
+                        artifacts.delete_artifact(res.artifact_path)
+                    except Exception:
+                        logger.exception("custom_query.cancelled_extraction.failed")
+                    finally:
+                        try:
+                            await db.rollback()
+                            await db.refresh(cq)
+                            if cq.deleted_at is None:
+                                cq.last_refresh_status = "error"
+                                cq.last_refresh_error = None
+                                await db.commit()
+                            logger.info("custom_query.refresh.cancelled")
+                        except Exception:
+                            logger.exception("custom_query.cancelled_status.failed")
+
+                # Shield the entire cleanup and drain it despite repeated
+                # cancellation of this request. The volume lock stays owned
+                # until the source thread and terminal-status write finish.
+                cleanup = asyncio.create_task(finish_cancelled_refresh())
+                while not cleanup.done():
+                    try:
+                        await asyncio.shield(cleanup)
+                    except asyncio.CancelledError:
+                        continue
+                cleanup.result()
                 raise
             except Exception as e:
                 cq.last_refresh_status = "error"

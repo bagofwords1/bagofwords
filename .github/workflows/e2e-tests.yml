@@ -59,6 +59,14 @@ jobs:
       run: |
         uv run pytest -s -m ai --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
 
+    - name: Verify custom-table artifact lifecycle
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        uv run pytest tests/unit/test_fast_artifact_lifecycle.py --db=${{ matrix.db }} -q --timeout=600 --timeout-method=thread
+
     - name: Run E2E tests
       working-directory: ./backend
       env:
