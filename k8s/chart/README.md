@@ -77,7 +77,7 @@ Bag of words - a new ai data tool
 | config.uvicornWorkers | string | `""` | Number of Uvicorn worker processes. Leave empty to use Uvicorn's default. |
 | config.verifyEmails | bool | `false` | Require users to verify their email address before logging in. |
 | containerSecurityContext | object | `{}` | Security context for the main app container. |
-| database | object | `{"auth":{"provider":"password","region":"","sslMode":"","sslRootCert":{"key":"","secretName":""}},"host":"","name":"","port":5432,"username":""}` | Managed database with IAM auth (alternative to the bundled PostgreSQL). When `database.auth.provider` is not `password`, the `postgresql` values above are ignored and the app connects to the external managed database instead. |
+| database | object | `{"auth":{"provider":"password","region":"","sslMode":"","sslRootCert":{"key":"","secretName":""}},"host":"","name":"","port":5432,"username":""}` | Managed database with IAM auth (alternative to the bundled PostgreSQL). When `database.auth.provider` is not `password`, the bundled PostgreSQL is not deployed, the `postgresql` values above are ignored, and the app connects to the external managed database instead. |
 | database.auth.provider | string | `"password"` | Authentication provider. `password` uses the bundled PostgreSQL. `aws_iam` connects to an external RDS instance using IAM token authentication. |
 | database.auth.region | string | `""` | AWS region for IAM token generation (aws_iam only, e.g. `us-east-1`). |
 | database.auth.sslMode | string | `""` | PostgreSQL SSL mode for managed database connections (e.g. `verify-full`). |
@@ -115,11 +115,11 @@ Bag of words - a new ai data tool
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |
 | podSecurityContext | object | `{}` | Security context for the pod (fsGroup, runAsUser, etc.). |
-| postgresql | object | see the `postgresql.*` rows | Bundled single-instance PostgreSQL, run from the official `postgres` image. Intended for evaluation and small installs; for production point the app at a managed or operator-run database (`postgresql.enabled: false` plus `database.*`, or a Secret supplying `BOW_DATABASE_URL`). |
+| postgresql | object | see the `postgresql.*` rows | Bundled single-instance PostgreSQL, run from the official `postgres` image. Intended for evaluation and small installs; for production point the app at a managed or operator-run database (`postgresql.enabled: false` plus `database.*`, or a Secret supplying `BOW_DATABASE_URL`). Not deployed when `database.auth.provider` is not `password`. |
 | postgresql.auth.database | string | `""` | Application database name. |
 | postgresql.auth.existingSecret | string | `""` | Existing Secret holding the passwords under `secretKeys`. When set the chart does not emit `BOW_DATABASE_URL`; supply it via `config.secretRef`. |
 | postgresql.auth.password | string | `""` | Application user's password. Ignored when `existingSecret` is set. |
-| postgresql.auth.postgresPassword | string | `""` | Password for the `postgres` superuser. Ignored when `existingSecret` is set. Empty keeps the one already stored in the chart's Secret, or generates one on first install. |
+| postgresql.auth.postgresPassword | string | `""` | Password for the `postgres` superuser. Ignored when `existingSecret` is set. Empty keeps the one already stored in the chart's Secret, or generates one on first install. Set it (or use `existingSecret`) when the chart is rendered without cluster access (`helm template`, Argo CD): the stored value cannot be read there, so a new random one would be written on every sync while the database keeps the original. |
 | postgresql.auth.secretKeys.adminPasswordKey | string | `"postgres-password"` | Key in the Secret holding the `postgres` superuser's password. |
 | postgresql.auth.secretKeys.userPasswordKey | string | `"password"` | Key in the Secret holding the application user's password. |
 | postgresql.auth.username | string | `""` | Application database user (created as the database owner, not a superuser). |

@@ -1,4 +1,4 @@
-{{- if .Values.postgresql.enabled }}
+{{- if include "bowapp.postgresql.enabled" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,12 +19,17 @@ data:
     {{- with .Values.postgresql.primary.extendedConfiguration }}
     {{- . | trim | nindent 4 }}
     {{- end }}
+  {{- /*
+    `md5` rather than `scram-sha-256`: it runs SCRAM for SCRAM-stored passwords
+    (PostgreSQL 14+'s default) but still accepts MD5-stored ones, which a
+    volume adopted from the Bitnami chart (whose pg_hba used `md5`) may hold.
+  */}}
   pg_hba.conf: |
     local all all trust
-    host  all all 127.0.0.1/32 scram-sha-256
-    host  all all ::1/128      scram-sha-256
-    host  all all 0.0.0.0/0    scram-sha-256
-    host  all all ::/0         scram-sha-256
+    host  all all 127.0.0.1/32 md5
+    host  all all ::1/128      md5
+    host  all all 0.0.0.0/0    md5
+    host  all all ::/0         md5
   {{- /*
     The image's POSTGRES_USER is a superuser. Keep that as `postgres` and
     create the app role as a plain database owner, like the Bitnami chart did,

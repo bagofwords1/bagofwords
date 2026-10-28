@@ -56,6 +56,26 @@ notes for any reindex advice that applies to you.
 
 ### Other changes in 3.0.0
 
+- The bundled PostgreSQL is no longer deployed when `database.auth.provider` is
+  not `password` (IAM-authenticated external database). In 2.x the Bitnami
+  StatefulSet was still created there but never used; upgrading removes it and
+  its Service/Secret. Its PVC is kept — delete it yourself once you are sure
+  nothing on it is needed.
+- Password logins use `md5` in `pg_hba.conf`, as the Bitnami chart did. It runs
+  SCRAM for SCRAM-stored passwords and still accepts MD5-stored ones on an
+  adopted volume.
+- If you render the chart without cluster access (`helm template`, Argo CD)
+  and don't use `postgresql.auth.existingSecret`, set
+  `postgresql.auth.postgresPassword`. Otherwise the chart can't read the stored
+  superuser password and writes a new random one to the Secret on every sync
+  (the database keeps the original). The Bitnami chart behaved the same way.
+- With `postgresql.auth.existingSecret`, the Secret must contain the key the
+  superuser password is read from (`postgres-password`, or `password` when
+  `postgresql.auth.username` is `postgres`). A missing key now stops the pod
+  with `CreateContainerConfigError` instead of a crash loop on first start.
+- `postgresql.auth.database` is required whenever `postgresql.auth.username`
+  names an app user, including with `existingSecret`.
+
 - `postgresql.auth.username`, `password` and `database` are now required for the
   bundled database (unless `postgresql.auth.existingSecret` is set); a missing
   value fails the render instead of producing an unusable `BOW_DATABASE_URL`.

@@ -58,6 +58,16 @@ them is what lets `helm upgrade` adopt an existing database in place.
 {{- end -}}
 {{- end }}
 
+{{/*
+Whether to deploy the bundled PostgreSQL: enabled, and the app actually uses
+it. With an IAM-authenticated external database (`database.auth.provider`
+other than `password`) the bundled server would be unused, and its required
+credentials would make the documented IAM install fail to render.
+*/}}
+{{- define "bowapp.postgresql.enabled" -}}
+{{- if and .Values.postgresql.enabled (eq (default "password" .Values.database.auth.provider) "password") }}true{{ end -}}
+{{- end }}
+
 {{- define "bowapp.postgresql.selectorLabels" -}}
 app.kubernetes.io/name: postgresql
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -67,7 +77,8 @@ app.kubernetes.io/component: primary
 {{- define "bowapp.postgresql.labels" -}}
 helm.sh/chart: {{ include "bowapp.chart" . }}
 {{ include "bowapp.postgresql.selectorLabels" . }}
-app.kubernetes.io/version: {{ .Values.postgresql.image.tag | quote }}
+{{- /* sprig's regexReplaceAll is (regex, input, replacement) — the tag can't be piped in. */}}
+app.kubernetes.io/version: {{ regexReplaceAll "[^A-Za-z0-9_.-]" .Values.postgresql.image.tag "_" | trunc 63 | trimSuffix "-" | trimSuffix "_" | trimSuffix "." | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 

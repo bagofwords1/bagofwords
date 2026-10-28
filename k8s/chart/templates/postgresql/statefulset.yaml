@@ -1,8 +1,18 @@
-{{- if .Values.postgresql.enabled }}
+{{- if include "bowapp.postgresql.enabled" . }}
 {{- $pg := .Values.postgresql }}
 {{- $fullname := include "bowapp.postgresql.fullname" . }}
 {{- $secretName := include "bowapp.postgresql.secretName" . }}
-{{- $superuser := ternary $pg.auth.username "postgres" (eq $pg.auth.username "postgres") }}
+{{- /* The superuser is always `postgres`; a separate app role exists unless auth.username is `postgres` too. */}}
+{{- $appIsSuperuser := eq $pg.auth.username "postgres" }}
+{{- $hasAppUser := and (not (empty $pg.auth.username)) (not $appIsSuperuser) }}
+{{- /*
+  Checked here, not only in secret.yaml, because that check is skipped with
+  `existingSecret`: an app user with no database would otherwise be handed
+  ownership of the `postgres` maintenance database instead of its own.
+*/}}
+{{- if and $hasAppUser (empty $pg.auth.database) }}
+{{- fail "postgresql.auth.database is required when postgresql.auth.username is set" }}
+{{- end }}
 {{- /*
   Upgrading a chart 2.x release swaps the image under a live database, so it
   must be a deliberate step, not something an unpinned `helm upgrade` in a
@@ -30,7 +40,7 @@ To stay on 2.x instead, pin the chart: --version "^2.0.0"` $liveChart) }}
   disappeared) would run a Bitnami image with this chart's env, args and data
   path — the upgrade would succeed and the database would not start.
 */}}
-{{- if contains "bitnami" (printf "%s/%s" $pg.image.registry $pg.image.repository) }}
+{{- if regexMatch "(^|/)bitnami[a-z]*/postgresql$" $pg.image.repository }}
 {{- fail (printf "postgresql.image is %s/%s, but chart 3.x runs the official postgres image (docker.io/library/postgres) and cannot run a Bitnami one. Remove the postgresql.image override." $pg.image.registry $pg.image.repository) }}
 {{- end }}
 apiVersion: apps/v1
@@ -100,18 +110,15 @@ spec:
             - name: PGDATA
               value: /var/lib/postgresql/data/data
             - name: POSTGRES_USER
-              value: {{ $superuser | quote }}
+              value: postgres
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ $secretName }}
-                  key: {{ ternary $pg.auth.secretKeys.userPasswordKey $pg.auth.secretKeys.adminPasswordKey (eq $superuser $pg.auth.username) }}
-                  {{- if $pg.auth.existingSecret }}
-                  optional: true
-                  {{- end }}
+                  key: {{ ternary $pg.auth.secretKeys.userPasswordKey $pg.auth.secretKeys.adminPasswordKey $appIsSuperuser }}
             - name: POSTGRES_DB
-              value: {{ default $superuser $pg.auth.database | quote }}
-            {{- if and $pg.auth.username (ne $pg.auth.username $superuser) }}
+              value: {{ default "postgres" $pg.auth.database | quote }}
+            {{- if $hasAppUser }}
             - name: BOW_APP_USER
               value: {{ $pg.auth.username | quote }}
             - name: BOW_APP_PASSWORD
@@ -123,9 +130,18 @@ spec:
           ports:
             - name: tcp-postgresql
               containerPort: 5432
+          {{- /*
+            Startup and liveness only ask "is the postmaster answering?":
+            pg_isready exits 1 ("rejecting connections") while the server runs
+            crash recovery, which can take minutes on a large WAL. Treating that
+            as dead would restart the container and start recovery over, in a
+            loop. Readiness alone gates traffic on exit 0 (accepting). `-U` is
+            required: uid 1001 has no passwd entry, so libpq cannot default the
+            user name and would make pg_isready exit 3 on a healthy server.
+          */}}
           startupProbe:
             exec:
-              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+              command: ["sh", "-c", 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]']
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
@@ -137,7 +153,7 @@ spec:
             failureThreshold: 6
           livenessProbe:
             exec:
-              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+              command: ["sh", "-c", 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]']
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6

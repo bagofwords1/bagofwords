@@ -197,9 +197,10 @@ tests:
       - matchRegex:
           path: data["postgresql.conf"]
           pattern: "max_connections = 300"
+      # md5 accepts SCRAM- and MD5-stored passwords (adopted Bitnami volumes).
       - matchRegex:
           path: data["pg_hba.conf"]
-          pattern: "host  all all 0.0.0.0/0    scram-sha-256"
+          pattern: "host  all all 0.0.0.0/0    md5"
       - notMatchRegex:
           path: data["pg_hba.conf"]
           pattern: "host .* trust"
@@ -311,3 +312,94 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "cannot run a Bitnami one"
+
+  # Review fixes.
+  - it: does not deploy the bundled database for an IAM-authenticated external one
+    set:
+      postgresql.auth.username: ""
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      database.auth.provider: aws_iam
+      database.host: db.example.com
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: requires a database name for an app user even with an existing secret
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      - failedTemplate:
+          errorPattern: "postgresql.auth.database is required when postgresql.auth.username is set"
+
+  - it: runs superuser-only with an existing secret and no app user
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.auth.username: ""
+      postgresql.auth.password: ""
+      postgresql.auth.database: ""
+      postgresql.auth.existingSecret: my-db-secret
+    asserts:
+      # No `optional`: a missing key must stop the pod with a clear error.
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: my-db-secret
+                key: postgres-password
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: POSTGRES_DB
+            value: postgres
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: BOW_APP_USER
+
+  - it: keeps liveness alive through crash recovery, readiness gates traffic
+    template: postgresql/statefulset.yaml
+    asserts:
+      # pg_isready exit 1 = "rejecting connections" (startup/recovery).
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.exec.command[2]
+          value: 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]'
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.exec.command[2]
+          value: 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]'
+      - matchRegex:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command[2]
+          pattern: "^exec pg_isready "
+
+  - it: sanitises the image tag into a valid version label
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.tag: "17-bookworm@sha256:0123abcd"
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/version"]
+          value: 17-bookworm_sha256_0123abcd
+
+  - it: refuses a mirrored Bitnami image too
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.registry: harbor.corp
+      postgresql.image.repository: mirror/bitnamilegacy/postgresql
+    asserts:
+      - failedTemplate:
+          errorPattern: "cannot run a Bitnami one"
+
+  - it: accepts a non-Bitnami mirror whose path mentions bitnami
+    template: postgresql/statefulset.yaml
+    set:
+      postgresql.image.registry: bitnami-mirror.corp
+      postgresql.image.repository: bitnami-replacement/postgres
+    asserts:
+      - isKind:
+          of: StatefulSet
