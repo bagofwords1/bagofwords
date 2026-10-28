@@ -8,7 +8,7 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
   - `README.md`: Install/upgrade instructions with `helm` examples, secrets usage, SA annotations, node selectors.
   - `AGENTS.md`: This guide.
   - `chart/`: Helm chart for Bag of Words
-    - `Chart.yaml`, `Chart.lock`: Chart metadata and lockfile.
+    - `Chart.yaml`: Chart metadata (no dependencies).
     - `values.yaml`: Default configuration values.
     - `templates/`: Rendered into K8s manifests
       - `deployment.yml`: App `Deployment` (container, env, probes, resources).
@@ -16,8 +16,8 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
       - `ingress.yml`: `Ingress` (TLS optional) routing to Service.
       - `config.yml`: `ConfigMap`/config template for app env defaults.
       - `sa.yml`: `ServiceAccount` (optional annotations via values).
-    - `charts/`: Vendored dependencies
-      - `postgresql-<version>.tgz`: Bitnami PostgreSQL subchart.
+      - `postgresql/`: Bundled PostgreSQL (official `postgres` image):
+        StatefulSet, Services, Secret, ConfigMap.
     - `index.yaml`: Helm repo index (only used when packaging/publishing).
 
 ### Components and responsibilities
@@ -26,7 +26,8 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
 - **Ingress**: Exposes the app at `host` with optional TLS. Integrates with your ingress controller/cert-manager.
 - **Config**: Default env via `ConfigMap`. A user-provided `Secret` can override specific keys.
 - **ServiceAccount**: Optional annotations for IAM/workload identity.
-- **PostgreSQL (subchart)**: Optional in-cluster DB via Bitnami chart; can also point to an external DB.
+- **PostgreSQL (bundled)**: Optional single-instance in-cluster DB from the official `postgres` image (`templates/postgresql/`); can also point to an external DB.
+  Its StatefulSet name, selector, `serviceName`, PVC template, data layout (`<volume>/data`, uid 1001) and Secret keys deliberately match the Bitnami subchart used by chart <= 2.x so upgrades adopt existing data — don't change them without a migration note in `chart/CHANGELOG.md`.
 
 ### Configuration model (key `values.yaml` paths)
 - **Hostname & TLS**
@@ -66,11 +67,11 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
   - `helm repo add bow https://helm.bagofwords.com`
   - `helm repo update`
 - Install with managed PostgreSQL:
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB>`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB>`
 - Install without TLS and custom hostname:
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set ingress.tls=false`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set ingress.tls=false`
 - Install with TLS and Google OAuth enabled (cert-manager assumed):
-  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set config.googleOauthEnabled=true --set config.googleClientId=<CLIENT_ID> --set config.googleClientSecret=<CLIENT_SECRET>`
+  - `helm upgrade -i -n <namespace> <release> bow/bagofwords --version "^3.0.0" --set host=<HOST> --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB> --set config.googleOauthEnabled=true --set config.googleClientId=<CLIENT_ID> --set config.googleClientSecret=<CLIENT_SECRET>`
 
 ### Using an existing Secret
 - Create `Secret` with only the keys you want to override; these values take precedence over the chart `ConfigMap` defaults.

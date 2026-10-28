@@ -33,9 +33,18 @@ tests:
           path: data.BOW_TELEMETRY_ENABLED
           value: "true"
 
+  - it: points the URL at the bundled Service when the release name contains postgresql
+    release:
+      name: my-postgresql
+    asserts:
+      # The bundled Service drops the "-postgresql" suffix in that case.
+      - matchRegex:
+          path: data.BOW_DATABASE_URL
+          pattern: "^postgresql://test:test@my-postgresql:5432/testdb$"
+
   - it: defaults the idle-session timeout on only for the bundled server
     asserts:
-      # The bundled subchart is PostgreSQL 17, so the GUC is known-supported.
+      # The bundled server is PostgreSQL 17, so the GUC is known-supported.
       - equal:
           path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
           value: "600000"
