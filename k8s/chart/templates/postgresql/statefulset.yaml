@@ -131,6 +131,20 @@ spec:
             - name: tcp-postgresql
               containerPort: 5432
           {{- /*
+            Kubernetes stops containers with SIGTERM, which PostgreSQL treats as
+            a "smart" shutdown: it waits for every client to disconnect. The
+            app's pool never does, so without this each stop runs out the grace
+            period, ends in SIGKILL, and the next start replays WAL. SIGINT is
+            the "fast" shutdown (roll back open transactions, checkpoint, exit)
+            the image itself asks for via STOPSIGNAL, which Kubernetes ignores.
+            The postmaster's PID is read from postmaster.pid rather than assumed
+            to be 1, and a later SIGTERM cannot downgrade a fast shutdown.
+          */}}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", 'pid=$(head -n1 "$PGDATA/postmaster.pid" 2>/dev/null) && kill -INT "$pid"; exit 0']
+          {{- /*
             Startup and liveness only ask "is the postmaster answering?":
             pg_isready exits 1 ("rejecting connections") while the server runs
             crash recovery, which can take minutes on a large WAL. Treating that

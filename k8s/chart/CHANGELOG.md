@@ -61,6 +61,11 @@ notes for any reindex advice that applies to you.
   StatefulSet was still created there but never used; upgrading removes it and
   its Service/Secret. Its PVC is kept — delete it yourself once you are sure
   nothing on it is needed.
+- A `preStop` hook sends PostgreSQL a fast-shutdown signal (SIGINT), so stops
+  (rollouts, node drains) take seconds instead of waiting the full grace period
+  for the app's pooled connections and then being killed. The 2.x → 3.x
+  migration itself doesn't benefit: the old Bitnami pod is stopped under its
+  own spec, which has no hook.
 - Password logins use `md5` in `pg_hba.conf`, as the Bitnami chart did. It runs
   SCRAM for SCRAM-stored passwords and still accepts MD5-stored ones on an
   adopted volume.

@@ -403,3 +403,15 @@ tests:
     asserts:
       - isKind:
           of: StatefulSet
+
+  - it: shuts PostgreSQL down fast on stop instead of waiting out the grace period
+    template: postgresql/statefulset.yaml
+    asserts:
+      # SIGINT = fast shutdown; SIGTERM (Kubernetes' default) waits for the
+      # app's pooled connections, which never close.
+      - equal:
+          path: spec.template.spec.containers[0].lifecycle.preStop.exec.command
+          value:
+            - sh
+            - -c
+            - 'pid=$(head -n1 "$PGDATA/postmaster.pid" 2>/dev/null) && kill -INT "$pid"; exit 0'
