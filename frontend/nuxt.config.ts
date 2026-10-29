@@ -23,9 +23,7 @@ function artifactLibHashes(): Record<string, string> {
 }
 
 export default defineNuxtConfig({
-  // NUXT_DEVTOOLS=0 turns the dev-only toolbar off (agent sandboxes capture
-  // UI evidence from the dev server, where its badge would land in screenshots).
-  devtools: { enabled: process.env.NUXT_DEVTOOLS !== '0' },
+  devtools: { enabled: true },
   ssr: false,
 
   modules: [

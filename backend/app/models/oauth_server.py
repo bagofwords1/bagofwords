@@ -12,7 +12,6 @@ from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
-from app.models.embed import Embed  # noqa: F401  (embed_id FK target)
 
 
 class OAuthClient(BaseSchema):
@@ -59,11 +58,6 @@ class OAuthAccessToken(BaseSchema):
     scope = Column(String(255), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     exchange_context = Column(JSON, nullable=True)
-    # Embedded-chat sessions (scope "embed", prefix bow_embed_): the embed the
-    # token was issued for. NULL for ordinary OAuth clients. Disabling the
-    # embed or rotating its secret bumps Embed.epoch, which every embed token
-    # records in exchange_context, so all of them die at once.
-    embed_id = Column(String(36), ForeignKey("embeds.id", ondelete="CASCADE"), nullable=True, index=True)
     refresh_token_hash = Column(String(64), nullable=True, unique=True, index=True)  # SHA-256
     refresh_expires_at = Column(DateTime, nullable=True)
 

@@ -17,8 +17,7 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   // Allow auth, organization creation, and public routes
   // '/print/': headless paper renders (PDF export) have no session and must
   // never be redirected — the renderer would capture the onboarding card.
-  // '/embed/': the embedded-chat frame has no app session of its own.
-  const allowPrefixes = ['/users/', '/organizations/new', '/r/', '/d/', '/print/', '/artifact-preview/', '/embed/']
+  const allowPrefixes = ['/users/', '/organizations/new', '/r/', '/d/', '/print/', '/artifact-preview/']
   if (allowPrefixes.some(p => to.path.startsWith(p))) return
 
   // Ensure org
