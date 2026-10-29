@@ -1125,6 +1125,15 @@ class ContextHub:
             _hub_logger.warning(f"[context_hub:refresh_warm] scheduled_tasks failed: {e}")
             scheduled_tasks = None
 
+        # App activity: computed once per turn (the first loop marks the
+        # events as seen by this completion; later loops keep the same text).
+        if "app_activity" not in self._warm_cache:
+            try:
+                self._warm_cache["app_activity"] = await self._build_app_activity_section()
+            except Exception as e:
+                _hub_logger.warning(f"[context_hub:refresh_warm] app_activity failed: {e}")
+                self._warm_cache["app_activity"] = None
+
         self._warm_cache.update({
             "messages": messages if not isinstance(messages, Exception) else None,
             "widgets": None,  # Deprecated
@@ -1134,6 +1143,17 @@ class ContextHub:
             "entities": entities if not isinstance(entities, Exception) else None,
             "scheduled_tasks": scheduled_tasks,
         })
+
+    async def _build_app_activity_section(self):
+        """Failures in this conversation's apps the agent has not seen yet."""
+        from app.ai.context.sections.app_activity_section import AppActivitySection
+        from app.services import artifact_activity
+
+        if not self.report or not self.head_completion:
+            return None
+        text = await artifact_activity.context_section(
+            self.db, report_id=str(self.report.id), completion_id=str(self.head_completion.id))
+        return AppActivitySection(text=text) if text else None
 
     async def _build_scheduled_tasks_section(self):
         """Build the <scheduled_tasks> section for the current report.
@@ -1215,6 +1235,7 @@ class ContextHub:
             mentions=self._warm_cache.get("mentions", None),
             entities=self._warm_cache.get("entities", None),
             scheduled_tasks=self._warm_cache.get("scheduled_tasks", None),
+            app_activity=self._warm_cache.get("app_activity", None),
         )
         meta = self.metadata.model_dump()
         return ContextView(static=static, warm=warm, meta=meta)

@@ -33,7 +33,13 @@ class BrowserNavigateTool(Tool):
                 "inspect_data / read_excel_as_csv. To verify an internal data app, "
                 "pass artifact_id instead of url: this opens its real viewer and "
                 "parameter bridge without a browser connector. Returns initial "
-                "snapshot, declared parameters, and automatic runtime/query evidence."
+                "snapshot, declared parameters, and automatic runtime/query evidence. "
+                "In an artifact preview every bow.* call is exercised and reported in "
+                "evidence.sdk_calls (failures also in evidence.errors): records, files, "
+                "bow.ai and bow.conversations run simulated (no model, no writes) but "
+                "against the real conversation policy, so click through the app's main "
+                "flow (start a conversation, send a question) to verify it; a refused "
+                "call shows the same error code the live app would get."
             ),
             category="both",
             version="1.0.0",

@@ -1,7 +1,9 @@
 # Next work: app conversation policy and artifact activity
 
-Status: **§1 (conversation policy) and the model rule are implemented**; §2–§5
-(activity log, preview, context, window) are not started. Written 2026-10-29 on
+Status: **§1 (conversation policy), §2 (activity log), §3 (preview evidence) and
+§4 (agent context) are implemented**; §5 (the Activity window) and the
+"Fix with BOW" toast are not started (no UI yet). As-built notes for §2–§4 are in
+§2.3 below. Written 2026-10-29 on
 `ai/exciting-goodall-m7toth` as the follow-up to `docs/design/embedded-artifacts.md`.
 
 ## 0. Why this exists (the bug that started it)
@@ -165,6 +167,36 @@ SQLite and Postgres.
 
 The migration must be idempotent if the dashboard test corpus applies it
 unstamped (see `hostapp01` and `tests/fixtures/dashboard_corpus/alembic_at.py`).
+
+### 2.3 As built (§2–§4)
+
+- **Capture is client-side, at the broker** (`frontend/composables/useArtifactRuntime.ts`):
+  every SDK request's op, status, error code and duration, how streams end, plus
+  what the app reports over the validated port (`artifact-sdk.js`: clicks named
+  by role and label, uncaught errors, `console.error`). The host adds filter
+  commits and render errors (`ArtifactFrame.vue`). No server-side route capture:
+  the editor's log only feeds their own agent, so the broker's view is enough.
+- **Who is logged:** the editor's report page (`ArtifactFrame`, not view-as) and
+  the draft page; never published pages or host applications. The endpoint
+  (`routes/artifact_activity.py`) takes an app session only (embed tokens get
+  401) and someone editing a conversation of the artifact (others get 404).
+- **Storage:** `artifact_activity_events` (`activity01`, idempotent). Detail is
+  an allowlist per kind, bounded, PII-redacted; typed values are never sent.
+  Retention: 7 days and the newest 500 per conversation, pruned on every write.
+- **Context:** `<app_activity>` (`ai/context/sections/app_activity_section.py`)
+  holds failures not yet shown, with up to 3 steps before each and the app
+  version (`vN`). It is built once per turn and stamped with the turn's
+  prompt completion. Tool: `read_artifact_activity`.
+- **Preview:** every SDK call in BOW's preview is evidence (`sdk_calls`, failed
+  ones in `errors`) and is kept with `source=preview`. Simulated
+  conversations use the editor's real `policy()`, so `create({agents})` and
+  `no_agents` fail exactly as live. Playwright's service-worker blocking
+  error inside the sandboxed frame is ignored.
+- **Verified live (Haiku 5.5):** editor hits `agent_forbidden` → next message
+  "I got an error, fix it" → BOW reads `<app_activity>` and fixes it unprompted.
+  Fresh conversation "check it works before I share" → BOW's preview finds
+  `agent_forbidden` → "fix it" → edit + preview re-check passes → the
+  editor's real question is answered (`media/pr/embedded-artifacts/70-…`, `71-…`).
 
 ## 3. Browser testing (BOW's own preview)
 

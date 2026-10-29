@@ -335,10 +335,11 @@ app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 from app.routes import artifact_resources
 app.include_router(artifact_resources.router, prefix="/api")
-from app.routes import host_applications, embed, artifact_conversations
+from app.routes import host_applications, embed, artifact_conversations, artifact_activity
 app.include_router(host_applications.router, prefix="/api")
 app.include_router(embed.router, prefix="/api")
 app.include_router(artifact_conversations.router, prefix="/api")
+app.include_router(artifact_activity.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 

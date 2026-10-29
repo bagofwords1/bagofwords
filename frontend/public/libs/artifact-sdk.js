@@ -31,7 +31,51 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
       if (message.error) task.reject(sdkError(message.error)); else task.resolve(message.result);
     };
     port.start(); connectedResolve();
+    activityBuffer.splice(0).forEach(function (e) { port.postMessage({activity: e}); });
   });
+  // What happened in the app, for its editor's agent (the host decides
+  // whether to keep it: only an editor's own session or BOW's preview).
+  // Never typed values: clicks name the control, not what was entered.
+  var activityBuffer = [], activityCount = 0;
+  function activity(e) {
+    if (!window.__BOW_RUNTIME_NONCE__ || ++activityCount > 400) return;
+    if (port) port.postMessage({activity: e}); else if (activityBuffer.length < 50) activityBuffer.push(e);
+  }
+  function clip(v, n) { v = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return v.length > n ? v.slice(0, n - 1) + '…' : v; }
+  function describe(el) {
+    var target = el.closest && el.closest('button,a,summary,select,label,[role=button],[role=tab],[role=menuitem],[role=option],[role=link],[role=switch],[role=checkbox],input[type=checkbox],input[type=radio],input[type=submit],input[type=button]');
+    if (!target) return null;
+    var role = target.getAttribute('role') || (target.tagName === 'A' ? 'link' : target.tagName === 'INPUT' ? target.type : target.tagName.toLowerCase());
+    var name = target.getAttribute('aria-label') || target.getAttribute('title') ||
+      (target.tagName === 'INPUT' || target.tagName === 'SELECT' ? (target.labels && target.labels[0] ? target.labels[0].innerText : target.name) : target.innerText);
+    return role + " '" + clip(name, 60) + "'";
+  }
+  if (typeof document !== 'undefined') document.addEventListener('click', function (e) {
+    try { var d = describe(e.target); if (d) activity({kind: 'click', detail: {target: d}}); } catch (_) {}
+  }, true);
+  window.addEventListener('error', function (e) {
+    activity({kind: 'error', detail: {message: clip(e.message || (e.error && e.error.message), 300), stack: clip(e.error && e.error.stack, 1200), where: 'window'}});
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason || {};
+    activity({kind: 'error', error_code: typeof r.code === 'string' ? r.code : undefined, detail: {message: clip(r.message || r, 300), stack: clip(r.stack, 1200), where: 'promise'}});
+  });
+  if (typeof console !== 'undefined' && console.error) {
+    var consoleError = console.error;
+    console.error = function () {
+      try { activity({kind: 'console', detail: {message: clip(Array.prototype.map.call(arguments, function (a) { return a && a.message ? a.message : typeof a === 'object' ? JSON.stringify(a) : String(a); }).join(' '), 300)}}); } catch (_) {}
+      return consoleError.apply(console, arguments);
+    };
+  }
+  function opName(method, a) {
+    if (method === 'records') return 'records.' + a.action;
+    if (method === 'upload') return 'files.upload';
+    if (method.indexOf('file') === 0) return 'files.' + method.slice(4).toLowerCase();
+    if (method === 'ai') return 'ai.' + a.operation;
+    if (method === 'conversations') return 'conversations.' + a.op;
+    if (method === 'conversationSend') return 'conversations.send';
+    return method;
+  }
   if (window.__BOW_RUNTIME_NONCE__) window.parent.postMessage({type: 'BOW_RUNTIME_READY', nonce: window.__BOW_RUNTIME_NONCE__}, '*');
   var fixtureRows = new Map(), fixtureFiles = new Map(), fixtureKeys = new Map();
   function fixtureDefinitions() { return (window.ARTIFACT_DATA || {})._fixture_resources || []; }
@@ -77,10 +121,23 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
   }
   // Verifier mode: conversations live in the frame and answer with a fixed text.
   var fixtureThreads = new Map();
+  // The preview's host supplies the editor's real policy (ARTIFACT_DATA
+  // ._fixture_conversation_policy) so a create/send the live app would refuse
+  // fails here too; only the answer itself is simulated.
+  function fixturePolicy() { return (window.ARTIFACT_DATA || {})._fixture_conversation_policy || {available:true,agents_mode:'auto',agents:[],model:null}; }
+  function fixtureRefusal(agents) {
+    var p = fixturePolicy();
+    if (!p.available) throw sdkError(p.reason === 'no_agents' ? {code:'conversation.no_agents',message:'No agent is available for this app'} : {code:'conversation.unavailable',message:'Conversations are unavailable ('+(p.reason||'unknown')+')'});
+    if (Array.isArray(agents) && agents.length && Array.isArray(p.agents) && (p.agents.length || p.agents_mode === 'limited')) {
+      var ids = p.agents.map(function (a) { return String(a.id); });
+      if (agents.some(function (a) { return ids.indexOf(String(a)) < 0; })) throw sdkError({code:'conversation.agent_forbidden',message:"You can't use that agent here"});
+    }
+  }
   function fixtureConversation(method, args, options) {
     var now = new Date().toISOString(), thread = args.id != null ? fixtureThreads.get(args.id) : null;
     if (method === 'conversationSend') {
       if (!thread) throw sdkError({code:'NOT_FOUND',message:'Conversation not found'});
+      fixtureRefusal(null);
       thread.messages.push({id:'fixture-msg-'+String(++sequence),role:'user',text:String(args.text||''),status:'success',created_at:now});
       var reply = 'Preview answer. No agent was called.';
       if (options.onEvent) { options.onEvent({type:'started',message_id:'fixture-msg-'+String(++sequence)}); options.onEvent({type:'text_delta',block:'b1',text:reply}); options.onEvent({type:'completed',status:'success'}); }
@@ -88,9 +145,9 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
       return null;
     }
     switch (args.op) {
-      case 'policy': return {available:true,agents_mode:'auto',agents:[],model:null};
+      case 'policy': return fixturePolicy();
       case 'list': return {items:Array.from(fixtureThreads.values()).reverse().map(function(t){return {id:t.id,title:t.title,created_at:t.created_at,updated_at:t.created_at};}),next_before:null};
-      case 'create': var id='fixture-conv-'+String(++sequence); fixtureThreads.set(id,{id:id,title:args.title||'Preview conversation',created_at:now,agents:args.agents||[],messages:[]}); return {id:id,title:fixtureThreads.get(id).title,created_at:now,updated_at:now,agents:args.agents||[]};
+      case 'create': fixtureRefusal(args.agents); var id='fixture-conv-'+String(++sequence); fixtureThreads.set(id,{id:id,title:args.title||'Preview conversation',created_at:now,agents:args.agents||[],messages:[]}); return {id:id,title:fixtureThreads.get(id).title,created_at:now,updated_at:now,agents:args.agents||[]};
     }
     if (!thread) throw sdkError({code:'NOT_FOUND',message:'Conversation not found'});
     if (args.op === 'get') return {id:thread.id,title:thread.title,created_at:thread.created_at,updated_at:thread.created_at,agents:thread.agents};
@@ -102,7 +159,15 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
   }
   function request(method, args, options) {
     options = options || {};
-    if(window.__BOW_FIXTURE_MODE__) return Promise.resolve().then(function(){if(options.signal && options.signal.aborted)throw sdkError({code:'ABORTED',message:'Cancelled'});return fixtureRequest(method,args,options);});
+    if(window.__BOW_FIXTURE_MODE__) {
+      // BOW's preview: simulated, but every call is reported like a live one.
+      var t0 = Date.now(), op = opName(method, args || {}), streaming = method === 'ai' || method === 'conversationSend';
+      var detail = typeof (args || {}).resource === 'string' ? {resource: args.resource} : {};
+      if (method === 'conversations' && args.op === 'create' && Array.isArray(args.agents)) detail.agents = args.agents.slice(0, 10);
+      return Promise.resolve().then(function(){if(options.signal && options.signal.aborted)throw sdkError({code:'ABORTED',message:'Cancelled'});return fixtureRequest(method,args,options);})
+        .then(function (r) { activity({kind: streaming ? 'stream' : 'request', op: op, status: streaming ? 'completed' : 'ok', duration_ms: Date.now() - t0, detail: Object.assign({simulated: true}, detail)}); return r; },
+              function (e) { activity({kind: streaming ? 'stream' : 'request', op: op, status: 'error', error_code: e.code, duration_ms: Date.now() - t0, detail: Object.assign({message: clip(e.message, 300), simulated: true}, detail)}); throw e; });
+    }
     if (!window.__BOW_RUNTIME_NONCE__) {
       // Offline/verification: reads are empty fixtures; live effects unavailable.
       if (method === 'records' && args.action === 'list') return Promise.resolve({items: [], nextCursor: null});
