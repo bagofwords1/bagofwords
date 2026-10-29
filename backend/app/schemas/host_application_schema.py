@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import List, Literal, Optional
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 MAX_ORIGINS = 20
 IdentityMode = Literal["assertion", "idp_token", "sso"]
@@ -113,8 +114,8 @@ class HostApplicationSchema(BaseModel):
     key_fingerprint: Optional[str] = None
     epoch: int
     revision: int
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
+    updated_at: OptionalUTCDatetime = None
     active_sessions: int = 0
     artifacts: int = 0
 
@@ -143,7 +144,11 @@ class EmbedSessionRequest(BaseModel):
 
 class EmbedSessionSchema(BaseModel):
     token: str
-    expires_at: datetime
+    # UTC with its Z: a bare timestamp is read as local time by a browser.
+    expires_at: UTCDatetime
+    # Seconds left when this was sent; the frame renews from it, so neither
+    # its clock nor its timezone is involved.
+    expires_in: int
     user: dict
     host_application: str
     organization_id: str

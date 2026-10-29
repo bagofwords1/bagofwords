@@ -1,3 +1,5 @@
+import { embedRuntimeIdentity } from '~/utils/embedSession'
+
 /** Trusted transport: fixed operation mapping, per-document channel, no tokens in frames.
  * `recordViews: false` keeps the page's resources working but counts no view
  * (a dashboard's draft preview: editors at work are not readers). */
@@ -121,6 +123,9 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
   }
   onMounted(()=>window.addEventListener('message',listener))
   onUnmounted(()=>{window.removeEventListener('message',listener);dispose()})
-  watch(token, dispose)
+  // A renewed token for the same viewer keeps the ports and their running
+  // requests (the frame gets only one port); another viewer, or none, gets nothing of theirs.
+  const embed = useEmbedCredential(), { token: appToken } = useAuth()
+  watch(() => embedRuntimeIdentity(embed.value, appToken.value || ''), dispose)
   return { dispose }
 }

@@ -22,6 +22,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
+import { embedRuntimeIdentity, renewalDelayMs, renewalFailure, sessionLifetimeMs } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -36,13 +37,12 @@ type Status = 'starting' | 'signing_in' | 'sign_in_required' | 'ready' | 'failed
 const status = ref<Status>('starting');
 const message = ref(t('embed.gate.starting'));
 const mode = ref<'assertion' | 'idp_token' | 'sso' | null>(null);
-// Who BOW does not know (or knows twice, or deactivated) gains nothing from a retry.
-const PERMANENT = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive'];
 const retryable = ref(true);
 let allowedOrigins: string[] = [];
 let renewTimer: ReturnType<typeof setTimeout> | null = null;
-// Renew this long before expiry, so a running request never straddles it.
-const RENEW_LEAD_MS = 5 * 60 * 1000;
+// When the current session really ends, on this page's clock.
+let expiresAt = 0;
+let renewFailures = 0;
 
 const api = (path: string) => `${config.public.baseURL}/embed/${encodeURIComponent(props.hostApplication)}${path}`;
 
@@ -78,24 +78,45 @@ async function exchange(body: Record<string, string>) {
     return payload;
 }
 
-function accept(session: any) {
-    credential.value = {
+function schedule(next: () => void, delay: number) {
+    if (renewTimer) clearTimeout(renewTimer);
+    renewTimer = setTimeout(next, delay);
+}
+
+async function accept(session: any) {
+    const next = {
         token: session.token,
         organizationId: session.organization_id,
         hostApplication: session.host_application,
         viewer: session.viewer || null,
     };
+    // Someone else now: the previous viewer's app unmounts before theirs mounts.
+    if (credential.value && embedRuntimeIdentity(credential.value, '') !== embedRuntimeIdentity(next, '')) {
+        credential.value = null;
+        status.value = 'signing_in';
+        message.value = t('embed.gate.signingIn');
+        await nextTick();
+    }
+    credential.value = next;
     status.value = 'ready';
     host.post('bow:auth', { status: 'authenticated', user: { name: session.user?.name, email: session.user?.email } });
-    if (renewTimer) clearTimeout(renewTimer);
-    const wait = new Date(session.expires_at).getTime() - Date.now() - RENEW_LEAD_MS;
-    renewTimer = setTimeout(() => renew(), Math.max(wait, 15_000));
+    renewFailures = 0;
+    const lifetime = sessionLifetimeMs(session);
+    expiresAt = Date.now() + lifetime;
+    // SSO cannot renew silently: it asks for a sign-in when the session really ends.
+    schedule(renew, mode.value === 'sso' ? lifetime : renewalDelayMs(lifetime));
 }
 
 async function renew() {
-    // The host signs the user in again silently; SSO sessions ask for a new sign-in.
-    if (mode.value === 'sso') { credential.value = null; fail('sign_in_required', t('embed.gate.expired')); return; }
+    // The host signs the user in again silently.
+    if (mode.value === 'sso') { expire(); return; }
     await signIn();
+}
+
+function expire() {
+    credential.value = null;
+    retryable.value = true;
+    fail(mode.value === 'sso' ? 'sign_in_required' : 'failed', t('embed.gate.expired'));
 }
 
 let inflight: Promise<void> | null = null;
@@ -107,10 +128,18 @@ function signIn(): Promise<void> {
         try {
             const kind = mode.value === 'idp_token' ? 'id_token' : 'assertion';
             const value = await host.requestCredential(kind);
-            accept(await exchange({ [kind]: value }));
+            await accept(await exchange({ [kind]: value }));
         } catch (e: any) {
+            // A failed renewal keeps the session it was renewing, and the app:
+            // retry quietly until that session really ends.
+            const next = renewalFailure({ hasCredential: !!credential.value, errorCode: e?.data?.error_code, failures: renewFailures, remainingMs: expiresAt - Date.now() });
+            if (next.kind !== 'fail') {
+                renewFailures++;
+                schedule(next.kind === 'expire' ? expire : renew, next.delay!);
+                return;
+            }
             credential.value = null;
-            retryable.value = !PERMANENT.includes(e?.data?.error_code);
+            retryable.value = !!next.retryable;
             fail('failed', e?.data ? getErrorMessage(e) : (e?.message || t('embed.gate.failed')));
         }
     })().finally(() => { inflight = null; });
@@ -140,7 +169,7 @@ async function signInWithPopup() {
         window.removeEventListener('message', onMessage);
         try { popup.close(); } catch { /* already closed */ }
         try {
-            accept(await exchange({ sso_code: String(data.code || ''), code_verifier: verifier }));
+            await accept(await exchange({ sso_code: String(data.code || ''), code_verifier: verifier }));
         } catch (e: any) {
             fail('failed', getErrorMessage(e));
         }

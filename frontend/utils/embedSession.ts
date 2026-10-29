@@ -1,0 +1,65 @@
+// Timing and identity rules of an embedded artifact's session
+// (EmbeddedArtifactGate.vue, useArtifactRuntime.ts). Pure, so they are tested
+// on their own (tests/unit/embedSession.mjs).
+
+// Renew this long before expiry, so a running request never straddles it.
+export const RENEW_LEAD_MS = 5 * 60 * 1000
+// Never renew more often than this, whatever the server said.
+export const RENEW_MIN_MS = 15_000
+// A failed renewal is retried after these delays (the last one repeats).
+export const RENEW_RETRY_MS = [15_000, 30_000, 60_000, 120_000]
+// A retry starts at least this long before expiry: asking the host for a
+// credential may take up to 20 s, then the exchange itself.
+export const RENEW_RETRY_MARGIN_MS = 30_000
+
+/** Milliseconds the session has left, from `expires_in` (relative: no clock
+ * or timezone involved), else from the `expires_at` instant. A bare
+ * `expires_at` (no offset) is the server's UTC, never the browser's local time. */
+export function sessionLifetimeMs(session: { expires_in?: number | null, expires_at?: string | null }, now = Date.now()): number {
+  if (typeof session.expires_in === 'number' && Number.isFinite(session.expires_in)) return Math.max(0, session.expires_in * 1000)
+  const text = String(session.expires_at || '')
+  const at = Date.parse(/(Z|[+-]\d\d:?\d\d)$/i.test(text) ? text : `${text}Z`)
+  return Number.isFinite(at) ? Math.max(0, at - now) : 0
+}
+
+/** When to renew a session that lasts `lifetimeMs`: RENEW_LEAD_MS before it
+ * ends, or halfway through a shorter one. */
+export function renewalDelayMs(lifetimeMs: number): number {
+  if (!Number.isFinite(lifetimeMs)) return RENEW_MIN_MS
+  return Math.max(lifetimeMs - Math.min(RENEW_LEAD_MS, lifetimeMs / 2), RENEW_MIN_MS)
+}
+
+/** After the `failures`-th failed renewal (0-based) with `remainingMs` of the
+ * current session left: retry after a backoff, or, when no retry fits, end
+ * the session when it really expires. */
+export function renewalRetry(failures: number, remainingMs: number): { expire: boolean, delay: number } {
+  const latest = remainingMs - RENEW_RETRY_MARGIN_MS
+  if (latest <= 0) return { expire: true, delay: Math.max(0, remainingMs) }
+  const backoff = RENEW_RETRY_MS[Math.min(failures, RENEW_RETRY_MS.length - 1)]
+  return { expire: false, delay: Math.min(backoff, latest) }
+}
+
+/** Who the artifact runtime acts for. A renewed embed token is the same
+ * viewer (same host application, organization and user); anything else, and
+ * a credential that does not name its user, is someone new. The app session
+ * keeps its token as the identity. */
+export function embedRuntimeIdentity(embed: { token: string, organizationId: string, hostApplication: string, viewer: Record<string, any> | null } | null, appToken: string): string {
+  if (!embed) return `app:${appToken}`
+  const user = embed.viewer?.id
+  return user ? `embed:${embed.hostApplication}:${embed.organizationId}:${user}` : `embed-token:${embed.token}`
+}
+
+// Who BOW does not know (or knows twice, or deactivated) gains nothing from a retry.
+export const PERMANENT_ERROR_CODES = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive']
+
+/** A sign-in or renewal failed with `errorCode`, after `failures` earlier
+ * failed renewals, with `remainingMs` left of the current session (if any).
+ * A failed renewal keeps the session it was renewing, and the app: retry
+ * quietly until that session really ends. Without a session, or for a
+ * permanent error, the gate fails (`retryable`: whether to offer a retry). */
+export function renewalFailure({ hasCredential, errorCode, failures, remainingMs }: { hasCredential: boolean, errorCode?: string | null, failures: number, remainingMs: number }): { kind: 'retry' | 'expire' | 'fail', delay?: number, retryable?: boolean } {
+  const permanent = PERMANENT_ERROR_CODES.includes(String(errorCode))
+  if (!hasCredential || permanent) return { kind: 'fail', retryable: !permanent }
+  const next = renewalRetry(failures, remainingMs)
+  return { kind: next.expire ? 'expire' : 'retry', delay: next.delay }
+}

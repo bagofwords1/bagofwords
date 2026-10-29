@@ -26,6 +26,7 @@ import json
 import secrets
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import jwt
 import pytest
@@ -190,6 +191,44 @@ def test_a_signed_assertion_signs_in_the_member_it_names(embed):
     assert body["user"]["id"] == embed.corpus.cast.id("member")
     status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(body["token"]))
     assert status.status_code == 200 and status.json()["token"] == ""
+
+
+def _expiry(body):
+    """The session's expiry as an aware instant, refusing a bare local time
+    (a browser reads one in its own timezone)."""
+    expires_at = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+    assert expires_at.utcoffset() == timedelta(0), body["expires_at"]
+    return expires_at
+
+
+def test_a_session_says_when_it_ends_in_utc_and_in_seconds(embed):
+    """The frame schedules its renewal from this: the instant must not depend
+    on the browser's timezone, and ``expires_in`` not on its clock."""
+    embed.attribute("member", "E-2077")
+    host = embed.create()
+    before = datetime.now(timezone.utc)
+    issued = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub="E-2077"))
+    assert issued.status_code == 200, issued.text
+    body = issued.json()
+    status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(body["token"]))
+    assert status.status_code == 200, status.text
+    for seen in (body, status.json()):
+        expires_at = _expiry(seen)
+        assert 0 < seen["expires_in"] <= 3600
+        # Both name the same end, give or take the request's own duration.
+        assert abs((before + timedelta(seconds=seen["expires_in"]) - expires_at).total_seconds()) < 60
+    assert _expiry(status.json()) == _expiry(body)
+
+
+@pytest.mark.parametrize("configured,lifetime", [("120", 120), ("5", 60), ("86400", 3600), ("soon", 3600)])
+def test_the_session_lifetime_setting_stays_within_an_hour(embed, monkeypatch, configured, lifetime):
+    """BOW_EMBED_SESSION_LIFETIME_SECONDS (dev/test: force a renewal in
+    minutes) is clamped to 60 s - 1 h; anything unreadable is the 1 h default."""
+    monkeypatch.setenv("BOW_EMBED_SESSION_LIFETIME_SECONDS", configured)
+    embed.attribute("member", "E-3011")
+    host = embed.create()
+    body = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub="E-3011")).json()
+    assert lifetime - 60 < body["expires_in"] <= lifetime
 
 
 def _refusals(embed, host, other_key, public_key_pem):
