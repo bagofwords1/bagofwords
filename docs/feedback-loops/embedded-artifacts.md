@@ -66,6 +66,19 @@ from an env var. The back office: `tools/agent/embed/erp_host.py` on :4173
 
 Evidence: `media/pr/embedded-artifacts/`.
 
+## Regressions
+
+- 112 passed: artifact chat, artifact resources, fork resources, LDAP (e2e +
+  unit), Entra token exchange, security headers, SPA caching.
+- `tests/e2e/dashboards` (≈600): the only failures are the golden-snapshot
+  suites (`test_visibility_baseline`, `test_migration_before_after`), which
+  fail identically on the commit before this work in this sandbox (artifact
+  body hashes differ). One real regression found and fixed: the release-copy
+  audit refuses route files with `include_in_schema=False` (`routes/embed.py`).
+- `yarn build` passes. With `SERVE_FRONTEND=1`, `/d/{ref}?host=` sends the
+  host's frame policy, an unknown host gets `'self'`, a plain `/d/` page keeps
+  the site default.
+
 ## What this proves / notes
 
 - The employee never sees a BOW login in assertion and IdP-token modes; the
