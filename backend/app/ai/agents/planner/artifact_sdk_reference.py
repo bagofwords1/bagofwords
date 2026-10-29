@@ -57,16 +57,20 @@ for await (const event of bow.ai.stream(operationName,
 CONVERSATIONS: chat-assistant apps talk to the organization's agents (the
 same agents, tools and data access as a BOW conversation, as the viewer), not
 to a bare model. Use bow.conversations for that; use bow.ai only for one-off
-text operations without data. Conversations use the agents this artifact was
-built with (the conversation's agents), as each viewer may use them; no
-setting needs switching on. Each viewer sees only their own conversations.
-Show policy().reason when available is false (auth_required, not_member).
-const policy = await bow.conversations.policy(); // {available,reason?,scope,agents:[{id,name}]}
+text operations without data. Conversations work like a BOW chat: on Auto
+they may use every agent the viewer can use (or the agents the owner limited
+the app to); the model is the owner's choice or the viewer's default. No
+setting needs switching on. Do not pass `agents` to create() unless the user
+asked to narrow a conversation to specific agents. Each viewer sees only
+their own conversations. When policy().available is false, show its reason
+(auth_required, not_member, no_agents) instead of the composer.
+const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
-const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}
+const conv = await bow.conversations.create({title}); // {id,title,agents}; agents:[ids] only to narrow on request
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
 const history = await bow.conversations.messages(conv.id, {limit: 30});
-// {items:[{id,role:'user'|'assistant',text,status,created_at,tools?:[{name,title,status}]}],next_before}
+// {items:[{id,role:'user'|'assistant',text,status,created_at,steps?:[string],tools?:[{name,title,status}]}],next_before}
+// text is the reply; steps are the agent's narration before it (optional to show).
 // tools (assistant only) are objects, the same shape as tool events: render tool.title || tool.name, never the object.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
   // started {message_id}; tool {name,title,status}; text_delta {block,text}: append;

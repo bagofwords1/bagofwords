@@ -9,12 +9,19 @@ capability, not the bubble's, so the bubble's settings (Allow chat, its
 * who: whoever may read the published artifact, signed in (an app session or
   an embed session), a live member of its organization; and its editors on
   the draft, before it is published, so they can try the app they build;
-* the agents: the ones the artifact was built with (the release's, or the
-  draft's conversation's) plus any the chat settings name, that the viewer
-  may use, live. A conversation may name a subset when it starts (a report
-  can carry several agents); each message re-checks it, so a revoked agent
-  drops out at once;
-* the model: the artifact's chat_model_id, else the organization's;
+* the agents: Auto by default, like a normal BOW chat: every agent the
+  viewer may use, resolved per message. Narrowed when the owner lists agents
+  in the artifact's settings (chat_data_source_ids, a non-empty list), else
+  when the report the artifact was built from attached agents explicitly (the
+  release's sources; on a draft, its editing conversations'). An Auto report
+  narrows nothing. A conversation may also name a subset when it starts
+  (kept in its focused_data_source_ids). Viewer access applies on every
+  message, so a revoked agent drops out at once; never "dashboard data only"
+  (that is the bubble's option): no agent means the conversation is refused;
+* the model: the owner's pin (chat_model_id), else the viewer's own default
+  (personal, group, organization) with the organization's Auto routing. A
+  pin the viewer may not use falls back to their default; policy() says which
+  model runs;
 * the context: the live release, the rows this viewer may see.
 
 A viewer may hold any number of conversations on an artifact and sees only
@@ -59,11 +66,13 @@ async def open_for(db, artifact_id: str, user):
     return artifact, release, organization
 
 
-async def _built_with(db, artifact, release) -> set[str]:
-    """The agents the artifact was made with: the release's, else (a draft)
-    those of the conversations editing it."""
+async def _explicit_agents(db, artifact, release) -> set[str]:
+    """Agents the report attached explicitly (an Auto report attaches none):
+    the release's own; on a draft, its editing conversations'."""
     if release is not None:
-        return set(await dashboard_chat._release_sources(db, release))
+        from app.services.dashboard_data import release_data_source_ids
+
+        return set(await release_data_source_ids(db, release.id))
     from app.services.dashboard_collab import editing_report_ids
 
     reports = [str(r) for r in await editing_report_ids(db, artifact)] or [str(artifact.report_id)]
@@ -71,26 +80,57 @@ async def _built_with(db, artifact, release) -> set[str]:
         report_data_source_association.c.report_id.in_(reports)))).scalars().all()}
 
 
+async def agent_limit(db, artifact, release) -> Optional[set[str]]:
+    """The agents an app may use at most, or None for Auto."""
+    chosen = artifact.chat_data_source_ids
+    if isinstance(chosen, list) and chosen:
+        return {str(x) for x in chosen}
+    return (await _explicit_agents(db, artifact, release)) or None
+
+
 async def allowed_agent_ids(db, artifact, release, organization, user) -> list[str]:
     """The agents this viewer may talk to through this artifact, live."""
     from app.ai.tools.implementations.agent_focus_common import accessible_agents
     from app.services.data_source_service import DataSourceService
 
-    allowed = await _built_with(db, artifact, release) | {str(x) for x in (artifact.chat_data_source_ids or [])}
-    if not allowed:
-        return []
+    limit = await agent_limit(db, artifact, release)
     return [str(ds.id) for ds in await accessible_agents(db, organization, user)
-            if str(ds.id) in allowed and DataSourceService.is_execution_live(ds)]
+            if DataSourceService.is_execution_live(ds) and (limit is None or str(ds.id) in limit)]
+
+
+async def resolved_model(db, artifact, organization, user) -> Optional[dict]:
+    """The model a message from this viewer runs on, by the same resolution a
+    run uses (LLMService.get_default_model_for_report): the owner's pin when it
+    is live and the viewer may use it, else the viewer's own default."""
+    from types import SimpleNamespace
+
+    from app.services.llm_service import LLMService
+
+    pinned_id = dashboard_chat.chat_model_id(artifact)
+    model = await LLMService().get_default_model_for_report(db, organization, user,
+                                                           SimpleNamespace(model_id=pinned_id))
+    if model is None:
+        return None
+    source = "default" if not pinned_id else ("pinned" if str(model.id) == str(pinned_id) else "fallback")
+    return {"id": str(model.id), "name": model.name or model.model_id, "source": source}
+
+
+def _no_agents() -> AppError:
+    return AppError.forbidden(ErrorCode.CONVERSATION_NO_AGENTS, "No agent is available to you here")
 
 
 async def policy(db, artifact, release, organization, user) -> dict:
     from app.models.data_source import DataSource
 
     agent_ids = await allowed_agent_ids(db, artifact, release, organization, user)
+    model = await resolved_model(db, artifact, organization, user)
+    if not agent_ids:
+        return {"available": False, "reason": "no_agents", "agents": [], "model": model}
     names = dict((await db.execute(select(DataSource.id, DataSource.name).where(
-        DataSource.id.in_(agent_ids)))).all()) if agent_ids else {}
-    return {"available": True, "scope": "agents" if agent_ids else "data_only",
-            "agents": [{"id": a, "name": names.get(a, "")} for a in agent_ids]}
+        DataSource.id.in_(agent_ids)))).all())
+    limited = await agent_limit(db, artifact, release) is not None
+    return {"available": True, "agents_mode": "limited" if limited else "auto",
+            "agents": [{"id": a, "name": names.get(a, "")} for a in agent_ids], "model": model}
 
 
 def _summary(thread: Report, agent_ids: list[str] | None = None) -> dict:
@@ -140,23 +180,26 @@ def _title(value: Optional[str], artifact) -> str:
 async def create(db, artifact, release, organization, user, *, title: Optional[str],
                  agent_ids: Optional[list[str]]) -> dict:
     allowed = await allowed_agent_ids(db, artifact, release, organization, user)
-    if agent_ids is None:
-        chosen = allowed
-    else:
-        chosen = list(dict.fromkeys(str(a) for a in agent_ids))
-        if set(chosen) - set(allowed):
+    if not allowed:
+        raise _no_agents()
+    narrowed = None
+    if agent_ids:
+        narrowed = list(dict.fromkeys(str(a) for a in agent_ids))
+        if set(narrowed) - set(allowed):
             raise AppError.forbidden(ErrorCode.CONVERSATION_AGENT_FORBIDDEN, "You can't use that agent here")
     thread = Report(
         title=_title(title, artifact), slug=f"artifact-chat-{uuid.uuid4().hex[:12]}", status="draft",
         report_type="artifact_chat", mode="chat", model_id=dashboard_chat.chat_model_id(artifact),
         user_id=str(user.id), organization_id=str(artifact.organization_id), source_artifact_id=str(artifact.id),
+        focused_data_source_ids=narrowed,
     )
     db.add(thread)
     await db.flush()
-    await artifact_chat_service.sync_roster(db, thread, chosen)
+    roster = narrowed or allowed
+    await artifact_chat_service.sync_roster(db, thread, roster)
     await db.commit()
     await db.refresh(thread)
-    return _summary(thread, chosen)
+    return _summary(thread, roster)
 
 
 async def describe(db, thread: Report) -> dict:
@@ -176,27 +219,30 @@ async def archive(db, thread: Report) -> None:
 
 
 async def prepare_message(db, artifact, release, organization, user, thread: Report) -> dict:
-    """Re-apply the policy before a message: the thread's agents still allowed,
-    the artifact's model, and the live context. Returns the platform context."""
-    allowed = set(await allowed_agent_ids(db, artifact, release, organization, user))
-    current = await _roster(db, thread)
-    keep = [a for a in current if a in allowed]
-    if current and not keep:
-        # Every agent it was started with is gone: it would silently become
-        # data-only, which is a different conversation.
-        raise AppError.forbidden(ErrorCode.CONVERSATION_AGENT_FORBIDDEN, "The agents of this conversation are no longer available to you")
+    """Re-apply the policy before a message: the agents (Auto re-resolved for
+    this viewer, or the conversation's own subset, both ∩ what is allowed now),
+    the model, and the live context. Returns the platform context."""
+    allowed = await allowed_agent_ids(db, artifact, release, organization, user)
+    narrowed = thread.focused_data_source_ids or None
+    keep = [a for a in narrowed if a in set(allowed)] if narrowed else allowed
+    if not keep:
+        # Never fall back to "dashboard data only": that is a different
+        # conversation, and the app would answer as if it had no data access.
+        raise _no_agents()
     thread.model_id = dashboard_chat.chat_model_id(artifact)
     await artifact_chat_service.sync_roster(db, thread, keep)
     await db.commit()
     if release is None:  # an editor trying the draft: no published rows to hand over
-        return {"source_report_title": artifact.title, "artifact_title": artifact.title,
-                "scope": "agents" if keep else "data_only"}
-    return await dashboard_chat.build_context(db, artifact, release, keep, user)
+        return {"source_report_title": artifact.title, "artifact_title": artifact.title, "scope": "agents",
+                "surface": "app"}
+    return {**await dashboard_chat.build_context(db, artifact, release, keep, user), "surface": "app"}
 
 
-def _text(blocks) -> str:
-    ordered = sorted(blocks or [], key=lambda b: (b.get("block_index") or 0))
-    return "\n\n".join(b["content"] for b in ordered if b.get("content"))
+def _texts(blocks) -> tuple[str, list[str]]:
+    """(the answer, the narration before it): the last block with text is
+    the reply; earlier ones are the agent's steps along the way."""
+    said = [b["content"] for b in sorted(blocks or [], key=lambda b: (b.get("block_index") or 0)) if b.get("content")]
+    return (said[-1] if said else ""), said[:-1]
 
 
 def _tools(blocks) -> list[dict]:
@@ -221,8 +267,9 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
         items.append({
             "id": str(c.get("id")), "role": role, "status": c.get("status"),
             "created_at": c["created_at"].isoformat() if hasattr(c.get("created_at"), "isoformat") else c.get("created_at"),
-            "text": ((c.get("prompt") or {}).get("content") or "") if role == "user" else _text(c.get("completion_blocks")),
-            **({"tools": _tools(c.get("completion_blocks"))} if role == "assistant" else {}),
+            "text": ((c.get("prompt") or {}).get("content") or "") if role == "user" else _texts(c.get("completion_blocks"))[0],
+            **({"steps": _texts(c.get("completion_blocks"))[1], "tools": _tools(c.get("completion_blocks"))}
+               if role == "assistant" else {}),
         })
     items.sort(key=lambda m: m["created_at"] or "")
     return {"items": items, "next_before": data.get("next_before")}

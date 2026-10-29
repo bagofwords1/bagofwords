@@ -1,8 +1,8 @@
 # Next work: app conversation policy and artifact activity
 
-Status: **not started.** Written 2026-10-29 on `ai/exciting-goodall-m7toth` as the
-follow-up to `docs/design/embedded-artifacts.md` (§12 there is the as-built record).
-Nothing below is implemented yet.
+Status: **§1 (conversation policy) and the model rule are implemented**; §2–§5
+(activity log, preview, context, window) are not started. Written 2026-10-29 on
+`ai/exciting-goodall-m7toth` as the follow-up to `docs/design/embedded-artifacts.md`.
 
 ## 0. Why this exists (the bug that started it)
 
@@ -31,7 +31,39 @@ Root cause (`backend/app/services/artifact_conversations.py`, `_built_with` and
 My live loop missed it because the sandbox report had the agent attached
 explicitly; nobody tested an Auto report, which is the normal case.
 
-## 1. Conversation policy (do first; it is the actual bug)
+## 1. Conversation policy — DONE
+
+As built (`backend/app/services/artifact_conversations.py`):
+
+- `agent_limit`: the owner's list (`chat_data_source_ids`, non-empty) → else the
+  agents the report attached explicitly (`release_data_source_ids`; on a draft,
+  the editing conversations' roster) → else **None = Auto**.
+  `allowed_agent_ids` = the viewer's live accessible agents ∩ that limit.
+- A conversation narrowed at creation remembers it in the thread's
+  `focused_data_source_ids` (no migration); otherwise its roster is re-resolved
+  for the viewer on every message.
+- No agent → `policy()` `{available:false, reason:"no_agents"}`;
+  `create`/`send` → `conversation.no_agents`. Never data-only.
+- `policy()` returns `agents_mode` (`auto` / `limited`) and `model`
+  `{id, name, source: default|pinned|fallback}`. The resolver is the one runs
+  use (`LLMService.get_default_model_for_report`).
+- The prompt marks an app conversation (`surface: "app"`): reply in the
+  person's language, no narration, nothing about charts or tools.
+  `messages()` returns the final block as `text`, with earlier narration as
+  `steps`.
+- Settings → Viewers: **Agents and model** is always visible (Auto / Only
+  these, model = each viewer's default or a pin); "Allow chat" and
+  "dashboard data only" are the bubble's alone. Stored in the existing
+  columns: `["*"]` → null (Auto), a list (a limit), `[]` (bubble data only;
+  apps then use Auto or the report's agents).
+- The chat bubble's own rules are unchanged (its default stays the release's
+  sources, so existing dashboards do not widen).
+- Tests: `test_artifact_conversations.py` (11), `tests/unit/test_artifact_chat_context.py`.
+  Live: `tools/agent/embed/auto_app_flow.mjs`, an Auto report, a Hebrew prompt,
+  a chat app with no queries, answered in Hebrew from the data
+  (`media/pr/embedded-artifacts/50-auto-app-he-answer.png`).
+
+### The original plan for §1
 
 The rule, decided with the user:
 

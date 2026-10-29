@@ -371,11 +371,20 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         if not ctx:
             return ''
         lines: List[str] = ['<artifact_chat_context>']
-        lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
+        if ctx.get('surface') == 'app':
+            # bow.conversations: an app built on BOW holds this conversation
+            # and shows the person only the final reply (often inside another
+            # company system, in their own language).
+            lines.append("  You are the assistant inside an app built on BOW, answering a person who uses that app. "
+                         "Answer their questions from the organization's data through the available agents.")
+            lines.append("  Reply in the language the person writes in. Give the answer directly: do not narrate your plan or "
+                         "reasoning, and do not mention tools, queries, reports or charts you created — the app shows only your final reply.")
+        else:
+            lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
         lines.append('  TEXT-ONLY SURFACE: the viewer chats in a small text bubble and sees ONLY your text replies — tool outputs, tables, and widgets you produce are NOT visible to them. Every answer must be self-contained: present the relevant data inline as short markdown lists or tables. NEVER refer to a table or result as "above", "available", or "shown" — nothing but your text is shown. For large results, include the most relevant rows (up to ~20) inline and say how many rows the full result has.')
         title = ctx.get('artifact_title') or ctx.get('source_report_title')
         if title:
-            lines.append(f'  Dashboard: {json.dumps(title)}')
+            lines.append(f'  {"App" if ctx.get("surface") == "app" else "Dashboard"}: {json.dumps(title)}')
         if ctx.get('scope') == 'data_only':
             lines.append("  Scope: the dashboard's own data ONLY (below). You have no query tools and no other data access — if a question needs data beyond this, say so plainly.")
             for viz in ctx.get('visualizations') or []:
@@ -403,6 +412,8 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     lines.append('    rows:')
                 lines.append(f'    {json.dumps(rows)}')
                 lines.append('  </visualization>')
+        elif ctx.get('surface') == 'app':
+            lines.append('  Scope: you may query the attached agents (read-only).')
         else:
             lines.append('  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.')
         lines.append('</artifact_chat_context>')

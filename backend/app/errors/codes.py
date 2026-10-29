@@ -58,6 +58,7 @@ class ErrorCode(str, Enum):
     CONVERSATION_UNAVAILABLE = "conversation.unavailable"
     CONVERSATION_AGENT_FORBIDDEN = "conversation.agent_forbidden"
     CONVERSATION_LIMIT = "conversation.limit"
+    CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"

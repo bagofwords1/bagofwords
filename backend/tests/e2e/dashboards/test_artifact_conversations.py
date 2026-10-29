@@ -6,6 +6,10 @@ The contract:
 * a signed-in member who may read the published artifact (or an editor, on
   the draft) holds conversations; the chat bubble's settings (Allow chat,
   "dashboard data only") neither switch them off nor narrow their agents;
+* agents: Auto (every agent the viewer may use) unless the owner listed
+  some or the report attached some; never wider than the viewer's access;
+  no agent means refused, never "dashboard data only";
+* the policy names the model each viewer's messages run on;
 * each viewer holds any number of conversations and reaches only their own;
 * a message streams NDJSON (started … completed, exactly one terminal
   event) and is stored, readable back through messages();
@@ -142,14 +146,95 @@ def test_access_is_rechecked_on_every_message(corpus, corpus_rows, test_client, 
                             headers=as_(corpus, "member")).status_code == 404
 
 
-def test_conversations_use_the_agents_the_artifact_was_built_with(corpus, corpus_rows, test_client):
-    aid = _chatty(corpus, corpus_rows, test_client)  # bubble off, "dashboard data only"
-    agents = [a["id"] for a in test_client.get(f"{base(aid)}/policy", headers=as_(corpus, "owner")).json()["agents"]]
-    assert agents, "the dashboard's own agent is offered whatever the bubble's scope"
-    picked = test_client.post(base(aid), json={"agents": agents[:1]}, headers=as_(corpus, "owner"))
-    assert picked.status_code == 201 and picked.json()["agents"] == agents[:1]
-    r = test_client.post(base(aid), json={"agents": [str(uuid.uuid4())]}, headers=as_(corpus, "owner"))
+def _release_agents(corpus_rows, aid) -> list[str]:
+    from sqlalchemy import text
+
+    with corpus_rows.engine.connect() as conn:
+        release = conn.execute(text("select published_release_id from artifacts where id = :a"), {"a": aid}).scalar()
+        return [str(r) for r in conn.execute(text(
+            "select data_source_id from artifact_release_data_source_association where artifact_release_id = :r"),
+            {"r": release}).scalars()]
+
+
+def _as_auto(corpus_rows, aid):
+    """The dashboard as built from an Auto report: its release names no agents."""
+    from sqlalchemy import text
+
+    with corpus_rows.engine.begin() as conn:
+        release = conn.execute(text("select published_release_id from artifacts where id = :a"), {"a": aid}).scalar()
+        conn.execute(text("delete from artifact_release_data_source_association where artifact_release_id = :r"),
+                     {"r": release})
+
+
+@pytest.fixture
+def second_agent(corpus, sqlite_data_source):
+    """Another agent the whole organization can use."""
+    admin = corpus.cast.people["admin"]
+    return sqlite_data_source(name="Second agent", user_token=admin.token, org_id=corpus.cast.org_id,
+                              is_public=True)["id"]
+
+
+def _policy(test_client, corpus, aid, person="member"):
+    return test_client.get(f"{base(aid)}/policy", headers=as_(corpus, person)).json()
+
+
+def test_an_app_built_on_auto_uses_every_agent_the_viewer_may_use(corpus, corpus_rows, test_client, second_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)  # bubble off and "data only": irrelevant to apps
+    _as_auto(corpus_rows, aid)
+    policy = _policy(test_client, corpus, aid)
+    assert policy["available"] is True and policy["agents_mode"] == "auto"
+    assert {corpus.cast.data_sources["chinook"], second_agent} <= {a["id"] for a in policy["agents"]}
+    conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
+    assert set(conv["agents"]) == {a["id"] for a in policy["agents"]}
+
+
+def test_a_report_with_attached_agents_limits_its_app_to_them(corpus, corpus_rows, test_client, second_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    attached = _release_agents(corpus_rows, aid)
+    assert attached, "the corpus report attaches its agent explicitly"
+    policy = _policy(test_client, corpus, aid)
+    assert policy["agents_mode"] == "limited" and {a["id"] for a in policy["agents"]} == set(attached)
+    r = test_client.post(base(aid), json={"agents": [second_agent]}, headers=as_(corpus, "member"))
     assert r.status_code == 403 and r.json()["error_code"] == "conversation.agent_forbidden"
+
+
+def test_the_owners_limit_wins_and_never_widens_a_viewers_access(corpus, corpus_rows, test_client, sqlite_data_source,
+                                                                 second_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    _as_auto(corpus_rows, aid)
+    corpus_rows.update("artifacts", aid, chat_data_source_ids=[second_agent])
+    assert [a["id"] for a in _policy(test_client, corpus, aid)["agents"]] == [second_agent]
+    # Limited to an agent this viewer may not use: no agent, refused, never "data only".
+    admin = corpus.cast.people["admin"]
+    private = sqlite_data_source(name="Private agent", user_token=admin.token, org_id=corpus.cast.org_id,
+                                 is_public=False)["id"]
+    corpus_rows.update("artifacts", aid, chat_data_source_ids=[private])
+    policy = _policy(test_client, corpus, aid)
+    assert policy["available"] is False and policy["reason"] == "no_agents"
+    r = test_client.post(base(aid), json={}, headers=as_(corpus, "member"))
+    assert r.status_code == 403 and r.json()["error_code"] == "conversation.no_agents"
+
+
+def test_a_narrowed_conversation_keeps_its_agents(corpus, corpus_rows, test_client, second_agent, stub_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    _as_auto(corpus_rows, aid)
+    chinook = corpus.cast.data_sources["chinook"]
+    conv = test_client.post(base(aid), json={"agents": [chinook]}, headers=as_(corpus, "member")).json()
+    assert conv["agents"] == [chinook]
+    events(test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "hi"}, headers=as_(corpus, "member")))
+    again = test_client.get(f"{base(aid)}/{conv['id']}", headers=as_(corpus, "member")).json()
+    assert again["agents"] == [chinook]
+
+
+def test_the_policy_names_the_model_a_viewer_runs_on(corpus, corpus_rows, test_client, stub_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    unpinned = _policy(test_client, corpus, aid)["model"]
+    assert unpinned and unpinned["source"] == "default"
+    models = test_client.get("/api/llm/models", headers=as_(corpus, "admin")).json()
+    other = next(m for m in models if m["id"] != unpinned["id"])
+    corpus_rows.update("artifacts", aid, chat_model_id=other["id"])
+    pinned = _policy(test_client, corpus, aid)["model"]
+    assert pinned == {"id": other["id"], "name": pinned["name"], "source": "pinned"}
 
 
 def test_an_embed_session_holds_conversations_only_where_its_host_is_allowed(corpus, corpus_rows, test_client, stub_agent):

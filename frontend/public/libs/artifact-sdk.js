@@ -88,7 +88,7 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
       return null;
     }
     switch (args.op) {
-      case 'policy': return {available:true,scope:'data_only',agents:[]};
+      case 'policy': return {available:true,agents_mode:'auto',agents:[],model:null};
       case 'list': return {items:Array.from(fixtureThreads.values()).reverse().map(function(t){return {id:t.id,title:t.title,created_at:t.created_at,updated_at:t.created_at};}),next_before:null};
       case 'create': var id='fixture-conv-'+String(++sequence); fixtureThreads.set(id,{id:id,title:args.title||'Preview conversation',created_at:now,agents:args.agents||[],messages:[]}); return {id:id,title:fixtureThreads.get(id).title,created_at:now,updated_at:now,agents:args.agents||[]};
     }

@@ -4350,7 +4350,8 @@
     "conversation.not_found": "Esa conversación no existe.",
     "conversation.unavailable": "Las conversaciones no están activadas aquí.",
     "conversation.agent_forbidden": "No puedes usar ese agente aquí.",
-    "conversation.limit": "Demasiados mensajes. Espera un momento e inténtalo de nuevo."
+    "conversation.limit": "Demasiados mensajes. Espera un momento e inténtalo de nuevo.",
+    "conversation.no_agents": "No tienes ningún agente disponible aquí. Pregunta al propietario qué agentes puede usar esta app."
   },
   "email": {
     "dashboardShare": {
@@ -6764,7 +6765,17 @@
       "viaProject": "A través del proyecto {name}",
       "projectMembers": "Miembros del proyecto {name}",
       "projectMembersUnnamed": "Miembros de su proyecto"
-    }
+    },
+    "agentsModelTitle": "Agentes y modelo",
+    "agentsModelDesc": "Se usan cuando las personas chatean con este tablero: en la burbuja de chat y en las apps que mantienen conversaciones.",
+    "agentsLabel": "Agentes",
+    "agentsAuto": "Automático",
+    "agentsAutoDesc": "Todos los agentes que cada espectador puede usar, como en un chat de BOW (o los agentes que adjuntó esta conversación, si adjuntó alguno).",
+    "agentsLimited": "Solo estos agentes",
+    "agentsLimitedDesc": "Siempre limitado a lo que cada espectador puede usar.",
+    "agentsLimitedDataOnly": "No disponible mientras la burbuja de chat responde solo con los datos del tablero.",
+    "modelDesc": "El modelo predeterminado de cada espectador sigue a su grupo y a la organización (y al enrutamiento automático si está activo). Si un espectador no puede usar un modelo, se usa su predeterminado.",
+    "bubbleUsesAgents": "Los agentes de arriba"
   },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",
@@ -6804,11 +6815,8 @@
     "tab": {
       "title": "Insertar",
       "desc": "Muéstralo dentro de tus otras aplicaciones",
-      "desc_app": "Muestra esta app dentro de tus otras aplicaciones",
       "intro": "Elige las aplicaciones que pueden mostrar este tablero. Las personas lo ven allí como ellas mismas, con la sesión de esa aplicación, y solo si ya pueden verlo aquí.",
-      "intro_app": "Elige las aplicaciones que pueden mostrar esta app. Las personas la ven allí como ellas mismas, con la sesión de esa aplicación, y solo si ya pueden verla aquí.",
       "privateWarning": "Solo tú puedes ver este tablero. Compártelo (Acceso) para que lo vean las personas de la otra aplicación.",
-      "privateWarning_app": "Solo tú puedes ver esta app. Compártela (Acceso) para que la vean las personas de la otra aplicación.",
       "embeddableIn": "Se puede insertar en",
       "noHosts": "Aún no hay aplicaciones configuradas. Pide a un administrador que agregue una en Configuración → Integraciones → Aplicaciones anfitrionas.",
       "noHostsAdmin": "Aún no hay aplicaciones configuradas. Agrega la primera aquí.",

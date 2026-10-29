@@ -4410,7 +4410,8 @@
     "conversation.not_found": "That conversation doesn't exist.",
     "conversation.unavailable": "Conversations aren't turned on here.",
     "conversation.agent_forbidden": "You can't use that agent here.",
-    "conversation.limit": "Too many messages. Wait a moment and try again."
+    "conversation.limit": "Too many messages. Wait a moment and try again.",
+    "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use."
   },
   "email": {
     "dashboardShare": {
@@ -6793,7 +6794,17 @@
       "viaProject": "Through project {name}",
       "projectMembers": "Members of project {name}",
       "projectMembersUnnamed": "Members of its project"
-    }
+    },
+    "agentsModelTitle": "Agents and model",
+    "agentsModelDesc": "Used when people chat with this dashboard: in the chat bubble, and in apps on it that hold conversations.",
+    "agentsLabel": "Agents",
+    "agentsAuto": "Auto",
+    "agentsAutoDesc": "Every agent each viewer can use, like a BOW chat (or the agents this conversation attached, if it attached some).",
+    "agentsLimited": "Only these agents",
+    "agentsLimitedDesc": "Still limited to what each viewer can use.",
+    "agentsLimitedDataOnly": "Not available while the chat bubble answers from dashboard data only.",
+    "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
+    "bubbleUsesAgents": "The agents above"
   },
   "dashboardStart": {
     "title": "No dashboard here yet",
@@ -6833,11 +6844,8 @@
     "tab": {
       "title": "Embed",
       "desc": "Show it inside your other applications",
-      "desc_app": "Show this app inside your other applications",
       "intro": "Pick the applications that may show this dashboard. People see it there as themselves, signed in by that application, and only if they can already view it here.",
-      "intro_app": "Pick the applications that may show this app. People see it there as themselves, signed in by that application, and only if they can already view it here.",
       "privateWarning": "Only you can view this dashboard. Share it (Access) so the people in the other application can see it.",
-      "privateWarning_app": "Only you can view this app. Share it (Access) so the people in the other application can see it.",
       "embeddableIn": "Embeddable in",
       "noHosts": "No applications are set up yet. Ask an admin to add one in Settings → Integrations → Host applications.",
       "noHostsAdmin": "No applications are set up yet. Add the first one here.",
