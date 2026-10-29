@@ -1,8 +1,9 @@
 # Embedding BOW artifacts in host applications — plan
 
-Status: **plan, not implemented.** Written 2026-10-29 on `ai/exciting-goodall-m7toth`.
-Supersedes the "embedded chat" prototype that lived on this branch (commit `544eb0c`,
-removed in the next commit; see §11 for what to port from it).
+Status: **phases 1–3 built, phase 4 in progress** on `ai/exciting-goodall-m7toth`
+(revised 2026-10-29; §12 is the as-built record and what is left). Supersedes the
+"embedded chat" prototype that lived on this branch (commit `544eb0c`, removed in
+the next commit; see §11 for what was ported from it).
 
 ## 1. Decisions
 
@@ -137,36 +138,38 @@ Reuse `Artifact.chat_enabled / chat_data_source_ids / chat_model_id` (Settings �
 - Created with `data_sources` ⊆ policy allowlist ∩ the viewer's access (a viewer may pick a subset, so a report keeps its multi-agent shape); model, effort and tools from the policy, re-applied on every turn (owner changes apply immediately — existing behavior).
 - Invisible in the main report list (already true for `artifact_chat`).
 
-### 5.3 Runtime routes (server-side, under `/api/artifacts/{id}/runtime/`)
+### 5.3 Runtime routes (server-side, under `/api/artifacts/{id}/runtime/conversations`)
 
-| Route | Delegates to |
+As built (`backend/app/routes/artifact_conversations.py`, `services/artifact_conversations.py`):
+
+| Route | Does |
 | --- | --- |
-| `GET  conversations?cursor&limit&search` | the viewer's `artifact_chat` reports for this artifact |
-| `POST conversations` `{title?, data_sources?}` | create (policy-checked) |
-| `GET/PATCH/DELETE conversations/{rid}` | read, rename, archive (owner = viewer) |
-| `GET  conversations/{rid}/completions?before&limit` | `CompletionService.get_completions_v2` |
-| `POST conversations/{rid}/completions` `{content, context?, metadata?, idempotency_key?}` | `create_completion_stream` (SSE) |
-| `GET  conversations/{rid}/completions/{cid}/stream` | `watch_completion_stream` |
-| `POST conversations/{rid}/completions/{cid}/stop` | `update_completion_sigkill` |
-| `POST conversations/{rid}/completions/{cid}/confirmations/{id}` | existing MCP confirmation handler |
-| `POST conversations/{rid}/completions/{cid}/clarify/{te}` | existing clarify handler |
+| `GET  /policy` | available or why not (`auth_required`, `disabled`), scope, the agents this viewer may use |
+| `GET  ?limit&before` | the viewer's conversations on this artifact, newest first |
+| `POST` `{title?, agents?}` | create; `agents` must be ⊆ policy ∩ the viewer's access (`conversation.agent_forbidden`) |
+| `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise) |
+| `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}` |
+| `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, then exactly one `completed` or `error` |
+| `POST /{cid}/messages/{mid}/stop` | `update_completion_sigkill` |
 
-Each route: `ArtifactResources.open` (viewer must be a member, chat enabled), the conversation must belong to `(artifact, viewer)`, the policy is re-applied, rate limiting uses a new `admit` category (`converse`) per viewer and per organization. Usage attribution already flows through the completion service.
+Viewer = `viewer_optional` (app session or embed session); policy = `dashboard_chat.open_chat` (published, readable, member, chat on), re-applied on every message. Rate limits: 6 messages/min per viewer per artifact, 60/min per organization, 240 reads/min. Not built yet: re-attach to a running answer (`watch`), MCP approvals and clarify responses (§10.2).
 
 **Why not let the broker call `/api/reports` directly:** generated code would get the viewer's whole API (every report, settings, sharing), policy would live in the browser, and embed sessions would have to be accepted by the main API. Server-side runtime routes keep all three closed.
 
-### 5.4 SDK surface (`artifact-sdk.js` v1 additions, broker in `useArtifactRuntime.ts`)
+### 5.4 SDK surface (`artifact-sdk.js`, broker in `useArtifactRuntime.ts`)
 
 ```js
-const convo = await bow.conversations.create({ title: 'Incident review' })
-for await (const ev of bow.conversations.send(convo.id, { content, context })) { /* same SSE events as the report page */ }
-await bow.conversations.list({ limit: 20 })            // past conversations
-await bow.conversations.history(convo.id, { before })  // transcript
-await bow.conversations.stop(convo.id, completionId)
-await bow.conversations.respond(convo.id, completionId, confirmationId, { approved: true })
+await bow.conversations.policy()                          // {available, scope, agents}
+const c = await bow.conversations.create({ title, agents })
+for await (const ev of bow.conversations.send(c.id, text, { signal })) { /* started|tool|text_delta|text|completed */ }
+await bow.conversations.list({ limit: 20 })               // past conversations
+await bow.conversations.messages(c.id, { before })        // transcript
+await bow.conversations.rename(c.id, title); await bow.conversations.archive(c.id)
+await bow.conversations.stop(c.id, messageId)
+bow.markdown(text)                                        // agent answers → safe React elements (no HTML)
 ```
 
-Naming: `conversations` (a report used as a chat) rather than `reports`, so generated code does not expect dashboards/publishing/sharing. Preview/fixture mode returns scripted events, like `bow.ai` does today.
+Fixture mode keeps conversations in the frame and answers with a fixed text, like `bow.ai`. The page's own chat bubble hides when the artifact uses `bow.conversations` (it is the chat).
 
 ### 5.5 Authoring
 
@@ -243,7 +246,7 @@ Every phase runs on SQLite and PostgreSQL, keeps the existing `/d/` sharing and 
 4. **Default role for JIT users** and whether a host application can narrow it further.
 5. **Per-viewer limits and cost**: conversation turns per hour per viewer and per organization; budget alerts before opening embedding to every employee.
 
-## 11. Prototype history (what to port, what not)
+## 11. Prototype history (what was ported, what not)
 
 The removed prototype (`git show 544eb0c`) is the reference for:
 
@@ -258,3 +261,35 @@ The removed prototype (`git show 544eb0c`) is the reference for:
 Not ported: the `embeds` table and its runtime/branding, the `embed_chat` report type, the dedicated chat document and panel, the Settings → Embedded chat page.
 
 One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>` in `ArtifactChatBubble.vue` (two streamed answers starting with the same chunk rendered the same text).
+
+## 12. As built (revision 2026-10-29) and what is left
+
+### Decisions taken on §10
+1. Past conversations are scoped to **this artifact** (the viewer's own).
+2. MCP tools: **not yet** — conversations keep the artifact-chat tool ceiling (read/query). Approvals through the SDK are the next step (left below).
+3. Public artifacts: embeddable for viewing; conversations need a signed-in member.
+4. JIT users get the organization's **default member role**.
+5. Rate limits per viewer and per organization (§5.3); session creation 30/min per host + address, 600/min per host.
+
+### Deviations from the plan
+- **Admin capability for the Embed tab** follows the dashboard's own Settings gate (`dashboard_for(..., CAP_SETTINGS)`): an organization admin who does not edit a dashboard cannot embed it (same as the rest of its Settings window).
+- **SSO mode** is handled inside the frame: the user clicks *Sign in* in the embedded page, BOW's own sign-in runs in a popup on the BOW origin and posts a one-time PKCE-bound code back to the frame (`pages/embed-signin.vue`). The host page configures nothing.
+- **Host context** reaches artifact code as `ARTIFACT_DATA.host_context` (updated on `embed.updateContext`), not as `bow.context.host`.
+- **"Made with BOW" badge** is not shown inside a host application (it floated over the customer's controls — found in the live loop).
+- **`bow.markdown`** added: agent answers are Markdown and the sandbox has no renderer; the live loop showed raw tables.
+- Embed sessions also return the viewer payload (`viewer_context`) so the artifact's `current_user` is the host's user.
+
+### Where it lives
+- Backend: `models/host_application.py`, migration `hostapp01`, `services/host_application_service.py` (keys, assertions, IdP tokens, SSO codes, sessions), `services/host_identity.py` (identity sources + JIT), `core/embed_auth.py` (`viewer_optional`), `routes/host_applications.py`, `routes/embed.py` (SDK, bootstrap, session, frame policy), `routes/artifact_conversations.py`, `static/embed/bow-embed.js`.
+- Frontend: `components/embed/HostApplication{Form,sPanel}.vue`, `components/dashboard/{DashboardEmbedPanel,EmbeddedArtifactGate}.vue`, `composables/{useEmbedCredential,useEmbedHost}.ts`, `pages/embed-signin.vue`, `server/middleware/embed-frame.ts`, `public/libs/artifact-sdk.js`.
+- Tests: `tests/e2e/dashboards/test_embed_host_applications.py` (39), `test_artifact_conversations.py` (6).
+- Live loop: `tools/agent/embed/` (stand-in back office on its own origin, admin and employee Playwright flows).
+
+### Verified live (real Claude Haiku 5.5, unbiased prompts)
+- An analyst asked BOW chat for an account-manager dashboard; published; embedded in the back office; Alice and Bob saw it signed in silently, Hebrew rendered RTL, an unmapped contractor got a clear refusal, the frame policy named only the back-office origin.
+- An analyst asked for "a sales assistant … with previous conversations on the side"; BOW chose `bow.conversations` unprompted. Two bugs surfaced in the generated app (a tool object rendered as a React child; a new conversation's messages overwritten by a reload) and were fixed by reporting them to BOW in plain words; the SDK reference was made explicit about the `tools` shape as a result.
+
+### Left
+- Phase 4: e2e for IdP-token mode (mocked provider keys) and JIT per source (OIDC, SAML, LDAP), concurrent first sign-in; SSO popup browser loop.
+- MCP tools and approvals in conversations (§10.2); `watch` re-attach.
+- Regression suites (dashboard chat, LDAP, artifact chat), security review, user docs, release notes.
