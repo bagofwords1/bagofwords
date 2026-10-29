@@ -198,7 +198,7 @@ async def _embedding(db, artifact: ArtifactModel, organization, user) -> Artifac
         ArtifactEmbeddingHost(
             id=str(h.id), public_id=h.public_id, name=h.name, enabled=bool(h.enabled),
             allowed_origins=list(h.allowed_origins or []), identity_mode=h.identity_mode,
-            allowed=str(h.id) in allowed,
+            identity_source=h.identity_source, issuer=h.issuer, allowed=str(h.id) in allowed,
         )
         for h in await service.list(db, organization)
     ]

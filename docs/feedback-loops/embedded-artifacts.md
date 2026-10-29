@@ -64,6 +64,13 @@ from an env var. The back office: `tools/agent/embed/erp_host.py` on :4173
    *Sign in*, BOW sign-in in a popup on the BOW origin, popup closes, the
    dashboard appears as the person.
 
+6. Backend examples (Settings → Integrations → *Backend example*, the
+   Embed tab's *Server* view, and right after creating a host): the Python
+   (PyJWT) and Node (jsonwebtoken) code, rendered for the real host and run
+   unchanged against `POST /api/embed/{host}/session` — both return 200 for
+   Alice. Screenshots `60-host-apps-python-{en,he}.png`,
+   `61-embed-tab-python-{en,he}.png`.
+
 Evidence: `media/pr/embedded-artifacts/`.
 
 ## Regressions

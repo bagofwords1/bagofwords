@@ -51,7 +51,7 @@ await shot('03-host-app-key-once')
 await page.getByTestId('host-app-key-done').click()
 await page.getByTestId('host-app-row').first().waitFor()
 await shot('04-host-app-listed')
-const publicId = (await page.getByTestId('host-app-row').first().locator('p.font-mono').textContent()).trim()
+const publicId = (await page.getByTestId('host-app-row').first().locator('.font-mono').first().textContent()).trim()
 
 // 2. The dashboard's Settings → Embed
 await page.goto(`${BOW}/reports/${reportId}`)

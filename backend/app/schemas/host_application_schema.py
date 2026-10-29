@@ -175,6 +175,9 @@ class ArtifactEmbeddingHost(BaseModel):
     enabled: bool
     allowed_origins: List[str]
     identity_mode: IdentityMode
+    # For the backend example on the Embed tab (neither is secret).
+    identity_source: Optional[str] = None
+    issuer: Optional[str] = None
     allowed: bool
 
 
