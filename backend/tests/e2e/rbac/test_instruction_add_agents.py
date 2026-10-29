@@ -330,6 +330,41 @@ async def test_accepting_needs_authority_over_every_new_agent(test_client, world
 
 
 @pytest.mark.asyncio
+async def test_accepting_a_move_to_global_needs_org_level_authority(test_client, world):
+    """Emptying an instruction's agents makes it GLOBAL — it then reaches every
+    agent in the org, so it needs org-level manage_instructions. Managing the
+    one agent it is LOSING is not enough: the manager of `a` is refused, an org
+    admin succeeds. (table_names=[] is the 'make global' gesture.)"""
+    iid = _instruction(test_client, world, ["a"])
+    bid, out = await _edit(world, {"instruction_id": iid, "table_names": []})
+    assert out["success"], out
+    only_a = world["manager_of"]("a")
+    _accept(test_client, world, iid, bid, token=only_a["token"], expect=403)
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"]}  # unchanged
+
+    _accept(test_client, world, iid, bid, token=world["admin"]["token"])
+    assert _live(test_client, world, iid)[0] == set()  # now global
+
+
+@pytest.mark.asyncio
+async def test_publishing_a_move_to_global_needs_org_level_authority(test_client, world):
+    """The whole-build publish of a move-to-global is gated the same way: a
+    per-agent manager cannot publish it past the gate; an org admin can."""
+    H_admin = _hdr(world["admin"]["token"], world["org_id"])
+    iid = _instruction(test_client, world, ["a"])
+    bid, out = await _edit(world, {"instruction_id": iid, "table_names": []})
+    assert out["success"], out
+    only_a = world["manager_of"]("a")
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=_hdr(only_a["token"], world["org_id"]))
+    assert r.status_code == 403, r.text
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"]}
+
+    r = test_client.post(f"/api/builds/{bid}/publish", headers=H_admin)
+    assert r.status_code == 200, r.text
+    assert _live(test_client, world, iid)[0] == set()
+
+
+@pytest.mark.asyncio
 async def test_publishing_needs_authority_over_every_new_agent(test_client, world):
     """A whole-build publish applies the staged scope, so it is gated like an
     accept: the publisher must manage every agent the share ADDS, not only the
