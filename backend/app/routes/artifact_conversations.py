@@ -122,7 +122,8 @@ async def list_messages(artifact_id: str, conversation_id: str, request: Request
 async def send_message(artifact_id: str, conversation_id: str, body: MessageCreate, request: Request,
                        db: AsyncSession = Depends(get_async_db), user: Optional[User] = Depends(viewer_optional)):
     """A message, answered by the conversation's agents. Streams NDJSON
-    (started, tool, text_delta, text, then completed or error)."""
+    (started, tool, text_delta, text, result, then completed or error;
+    completed adds results_incomplete: true when some results are missing)."""
     from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
     from app.services.completion_service import CompletionService
 
@@ -134,8 +135,9 @@ async def send_message(artifact_id: str, conversation_id: str, body: MessageCrea
     sse = await CompletionService().create_completion_stream(db, str(thread.id), completion, user, organization)
     if not isinstance(sse, StreamingResponse):
         raise AppError.conflict(ErrorCode.CONVERSATION_LIMIT, "This conversation is still answering")
-    return StreamingResponse(conversations.ndjson(sse.body_iterator), media_type="application/x-ndjson",
-                             headers=NO_BUFFER_HEADERS)
+    return StreamingResponse(conversations.ndjson(sse.body_iterator, thread_id=str(thread.id),
+                                                  organization_id=str(organization.id)),
+                             media_type="application/x-ndjson", headers=NO_BUFFER_HEADERS)
 
 
 @router.post("/{conversation_id}/messages/{message_id}/stop")
