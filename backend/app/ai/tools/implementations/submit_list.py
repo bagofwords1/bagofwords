@@ -101,7 +101,9 @@ class SubmitListTool(Tool):
             # was registered for (service.submit_route).
             ds = None if read_only_chat else (await submit_route(db, user, organization, lst, attached))[0]
             if ds is None:
-                yield self._fail(lst.id, lst.name, str(lst.data_source_id),
+                # The list isn't reachable here; don't name the agent it lives
+                # on, which the caller may not be allowed to see.
+                yield self._fail(lst.id, lst.name, None,
                                  [f"list '{lst.name}' is not available in this conversation"])
                 return
 

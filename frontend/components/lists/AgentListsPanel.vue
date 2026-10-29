@@ -128,7 +128,10 @@ const fieldNames = (l: AgentList) => l.fields.map(f => f.name).join(', ')
 async function load() {
   loading.value = true
   try {
-    const { data } = await useMyFetch<AgentList[]>(`/api/data_sources/${props.dsId}/lists`, { method: 'GET' })
+    const { data, error } = await useMyFetch<AgentList[]>(`/api/data_sources/${props.dsId}/lists`, { method: 'GET' })
+    // A failed fetch is not an empty agent: keep what we have and don't treat
+    // the current list as moved (which would jump to another agent).
+    if (error.value) return
     lists.value = (data.value || []) as AgentList[]
     await relocateIfMoved()
   } finally {

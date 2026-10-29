@@ -145,6 +145,10 @@ async def unlink_list(db, lst: AgentList, ds: DataSource) -> None:
     """Remove ``lst`` from one agent. The list and its rows stay on the other
     agents; a list left with no agent is deleted."""
     await lock_list(db, lst)
+    # A concurrent delete may have soft-deleted the list under the lock; then
+    # there is nothing to unlink.
+    if lst.deleted_at is not None:
+        return
     remaining = await _drop_link(db, lst, str(ds.id))
     if not remaining:
         lst.deleted_at = datetime.utcnow()

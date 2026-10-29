@@ -323,6 +323,45 @@ def test_clearing_a_shared_list_needs_manage_on_every_linked_agent(test_client, 
     assert _rows_total(test_client, w, "other_agent", lid) == 0
 
 
+def test_bulk_deleting_rows_of_a_shared_list_needs_manage_on_every_linked_agent(test_client, shared):
+    """Deleting several picked rows at once wipes shared data the same way
+    Clear-all does, so it needs manage on every linked agent. A single-row
+    delete is a per-row edit and stays with the agent's own manager."""
+    w = shared
+    lid = w["list"]["id"]
+    submit(w, [_record(cp="Acme"), _record(cp="Globex"), _record(cp="Initech")], report_key="other_report")
+    url = f"/api/data_sources/{w['agent']['id']}/lists/{lid}/rows/delete"
+    rows = test_client.get(f"/api/data_sources/{w['agent']['id']}/lists/{lid}/rows",
+                           headers=_h(w["manager"]["token"], w["org_id"])).json()["rows"]
+
+    # The single-agent manager cannot delete several rows at once.
+    r = test_client.post(url, json={"row_ids": [rows[0]["id"], rows[1]["id"]]},
+                         headers=_h(w["manager"]["token"], w["org_id"]))
+    assert r.status_code == 403
+    assert _rows_total(test_client, w, "other_agent", lid) == 3
+
+    # One row at a time still works for them.
+    r = test_client.post(url, json={"row_ids": [rows[0]["id"]]}, headers=_h(w["manager"]["token"], w["org_id"]))
+    assert r.status_code == 200 and r.json()["deleted"] == 1
+
+    # Someone who manages every linked agent may delete several at once.
+    r = test_client.post(url, json={"row_ids": [rows[1]["id"], rows[2]["id"]]},
+                         headers=_h(w["admin"]["token"], w["org_id"]))
+    assert r.status_code == 200 and r.json()["deleted"] == 2
+    assert _rows_total(test_client, w, "other_agent", lid) == 0
+
+
+def test_unshared_list_rows_can_be_bulk_deleted_by_its_agent_manager(test_client, world):
+    submit(world, [_record(cp="Acme"), _record(cp="Globex")])
+    lid = world["list"]["id"]
+    url = f"/api/data_sources/{world['agent']['id']}/lists/{lid}/rows/delete"
+    rows = test_client.get(f"/api/data_sources/{world['agent']['id']}/lists/{lid}/rows",
+                           headers=_h(world["manager"]["token"], world["org_id"])).json()["rows"]
+    r = test_client.post(url, json={"row_ids": [r_["id"] for r_ in rows]},
+                         headers=_h(world["manager"]["token"], world["org_id"]))
+    assert r.status_code == 200 and r.json()["deleted"] == 2
+
+
 def test_unshared_list_can_be_cleared_by_its_agent_manager(test_client, world):
     submit(world, [_record(cp="Acme")])
     r = test_client.post(f"/api/data_sources/{world['agent']['id']}/lists/{world['list']['id']}/rows/delete",

@@ -61,6 +61,13 @@ def _require_schema_authority(access: ListAccess) -> None:
         )
 
 
+def _require_live(lst) -> None:
+    """Re-check after ``lock_list`` reloaded the row: a concurrent delete may
+    have soft-deleted the list, and a write must not land on a deleted list."""
+    if lst.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="List not found")
+
+
 @router.get("/agent_lists/counts")
 async def agent_list_counts(
     db: AsyncSession = Depends(get_async_db),
@@ -163,6 +170,7 @@ async def update_agent_list(
     # Hold the list while checking: a link added meanwhile would otherwise
     # let this edit through for an agent the caller doesn't manage.
     await svc.lock_list(db, lst)
+    _require_live(lst)
     access = await _access(db, current_user, organization, lst)
     _require_schema_authority(access)
     change = await svc.update_list(db, ds, lst, payload)
@@ -188,6 +196,7 @@ async def delete_agent_list(
         await svc.unlink_list(db, lst, ds)
         return None
     await svc.lock_list(db, lst)
+    _require_live(lst)
     _require_schema_authority(await _access(db, current_user, organization, lst))
     await svc.delete_list(db, lst)
     return None
@@ -284,11 +293,15 @@ async def delete_list_rows(
     """Delete selected rows, or clear the list (``all``) keeping its schema."""
     ds = await svc.get_agent(db, organization, data_source_id)
     lst = await svc.get_list(db, ds, list_id)
-    if payload.all:
-        # Clearing a shared list wipes what every linked agent saved. Hold the
-        # list while checking, as the field edit and delete-all do: a link
-        # added meanwhile would otherwise let the clear through.
+    # Clearing the list, or deleting more than one row at once, wipes shared
+    # data the same way, so on a shared list both need manage on every linked
+    # agent — the Clear-all bar. A contributor who manages one agent may still
+    # add or remove a single row (a per-row edit, like the single-row delete
+    # endpoint). Hold the list while checking, as the field edit and delete-all
+    # do: a link added meanwhile would otherwise let the bulk delete through.
+    if payload.all or len(payload.row_ids) > 1:
         await svc.lock_list(db, lst)
+        _require_live(lst)
         access = await _access(db, current_user, organization, lst)
         if access.shared:
             _require_schema_authority(access)

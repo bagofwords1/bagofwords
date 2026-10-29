@@ -148,7 +148,7 @@
         <thead class="sticky top-0 z-10 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur">
           <tr class="text-start text-2xs text-gray-500 dark:text-gray-400">
             <th v-if="list.can_manage" class="w-8 ps-3 pe-0 py-2 border-b border-gray-100 dark:border-gray-800">
-              <input type="checkbox" data-testid="list-select-all" class="rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500/30" :aria-label="$t('lists.selectAll')" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" @change="toggleAll" />
+              <input v-if="canBulkDelete" type="checkbox" data-testid="list-select-all" class="rounded border-gray-300 dark:border-gray-600 text-blue-500 focus:ring-blue-500/30" :aria-label="$t('lists.selectAll')" :checked="allChecked" :indeterminate="checked.length > 0 && !allChecked" @change="toggleAll" />
             </th>
             <th v-for="f in list.fields" :key="f.id" class="px-3 py-2 font-medium text-start whitespace-nowrap border-b border-gray-100 dark:border-gray-800">
               <span class="font-mono">{{ f.name }}</span>
@@ -289,6 +289,11 @@ const deleting = ref(false)
 const checked = ref<string[]>([])
 const allChecked = computed(() => rows.value.length > 0 && rows.value.every(r => checked.value.includes(r.id)))
 function toggleAll() { checked.value = allChecked.value ? [] : rows.value.map(r => r.id) }
+// Clearing or deleting several rows at once of a shared list wipes what every
+// agent saved: same bar as its fields. A contributor who manages one agent may
+// still remove a single row, so keep selection to one row for them.
+const canBulkDelete = computed(() => !props.list.shared || (props.list.can_manage_schema ?? props.list.can_manage))
+watch(checked, (v) => { if (!canBulkDelete.value && v.length > 1) checked.value = [v[v.length - 1]] })
 
 const base = computed(() => `/api/data_sources/${props.dsId}/lists/${props.list.id}`)
 // snake_case field name as a sentence-case column label (side pane only).

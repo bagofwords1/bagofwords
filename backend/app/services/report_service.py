@@ -4626,24 +4626,20 @@ class ReportService:
                 )).scalars().all()
             }
             lists = [i for i in lists if i.list_id in live]
-            # A shared list keeps pointing at the agent it was saved through,
-            # while that agent is still linked; otherwise at its home agent.
-            from app.services.agent_lists.service import linked_agent_ids
-            linked = await linked_agent_ids(db, [i.list_id for i in lists])
+            # Name each list under an agent the viewer can see: the agent it was
+            # saved through while that's still linked and visible, else its
+            # name_agent (home when visible, else the first visible linked
+            # agent). A viewer who can see none of its agents sees no agent.
+            from app.services.agent_lists.service import access_for_lists
+            access = await access_for_lists(db, current_user, organization, [live[i.list_id] for i in lists])
             for item in lists:
                 lst = live[item.list_id]
                 item.list_name = lst.name
-                if str(item.data_source_id or "") not in linked.get(item.list_id, []):
-                    item.data_source_id = str(lst.data_source_id)
-            agent_names = {
-                str(ds_id): name for ds_id, name in (await db.execute(
-                    select(DataSource.id, DataSource.name).where(
-                        DataSource.id.in_([i.data_source_id for i in lists])
-                    )
-                )).all()
-            }
-            for item in lists:
-                item.agent_name = agent_names.get(item.data_source_id)
+                acc = access.get(str(lst.id))
+                visible = {str(a.id): a for a in (acc.visible_agents if acc else [])}
+                chosen = visible.get(str(item.data_source_id or "")) or (acc.name_agent if acc else None)
+                item.data_source_id = str(chosen.id) if chosen else None
+                item.agent_name = chosen.name if chosen else None
 
         # Sub-agents: one row per delegated child across the report's recent waves.
         sub_agents: list = []

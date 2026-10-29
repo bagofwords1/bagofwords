@@ -319,7 +319,10 @@ class EditListTool(Tool):
                 if not await svc.can_manage_schema(s, user, organization, s_lst):
                     raise HTTPException(status_code=403, detail="This list is now shared with agents you don't manage.")
                 saved_change = await svc.update_list(s, s_ds, s_lst, payload)
-                out = output_for(s_lst, s_ds, status="updated", change=saved_change, row_count=row_count)
+                # Name the table from access as it stands now, not the access
+                # captured before the review pause — links may have changed.
+                fresh = (await svc.access_for_lists(s, user, organization, [s_lst]))[str(s_lst.id)]
+                out = _output_for(s_lst, s_ds, status="updated", change=saved_change, row_count=row_count, access=fresh)
         except HTTPException as e:
             status = ("duplicate_name" if e.status_code == 409 else "list_not_found" if e.status_code == 404
                       else "permission_denied" if e.status_code == 403 else "failed")
