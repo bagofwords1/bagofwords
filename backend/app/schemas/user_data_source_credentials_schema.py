@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+from app.schemas.base import OptionalUTCDatetime
+
 
 class UserDataSourceCredentialsCreate(BaseModel):
     auth_mode: str = Field(..., description="Registry auth key, e.g. userpass, pat, iam")
@@ -32,7 +34,7 @@ class UserDataSourceCredentialsSchema(BaseModel):
     is_active: bool
     is_primary: bool
     last_used_at: Optional[datetime]
-    expires_at: Optional[datetime]
+    expires_at: OptionalUTCDatetime
     metadata_json: Optional[Dict[str, Any]]
     created_at: datetime
     updated_at: datetime

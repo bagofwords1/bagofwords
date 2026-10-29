@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from app.schemas.base import OptionalUTCDatetime
 
 
 class ApiKeyCreate(BaseModel):
@@ -13,7 +14,7 @@ class ApiKeyResponse(BaseModel):
     name: str
     key_prefix: str
     created_at: datetime
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalUTCDatetime = None
     last_used_at: Optional[datetime] = None
 
     class Config:
