@@ -291,6 +291,7 @@ One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>
 - An analyst asked for "a sales assistant … with previous conversations on the side"; BOW chose `bow.conversations` unprompted. Two bugs surfaced in the generated app (a tool object rendered as a React child; a new conversation's messages overwritten by a reload) and were fixed by reporting them to BOW in plain words; the SDK reference was made explicit about the `tools` shape as a result.
 
 ### Left
+- **Next:** `docs/design/artifact-activity-and-conversation-policy.md`: app conversations use Auto agents (the current release-based rule fails for Auto reports), owner-chosen model, an activity log for the agent and BOW's preview, then an Activity window.
 - SAML first-sign-in e2e (OIDC and Active Directory are covered; the SSO popup has a live browser loop).
 - MCP tools and approvals in conversations (§10.2); `watch` re-attach.
 - Regression suites (dashboard chat, LDAP, artifact chat), security review, user docs, release notes.
