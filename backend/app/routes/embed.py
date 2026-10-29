@@ -85,7 +85,7 @@ def _sdk_etag() -> str:
         return '"missing"'
 
 
-@router.get("/sdk/v1/bow-embed.js", include_in_schema=False)
+@router.get("/sdk/v1/bow-embed.js")
 async def embed_sdk(request: Request):
     """Static and versioned by path, served by this BOW (no CDN). Revalidates
     on every load so an upgraded BOW ships the matching SDK."""
@@ -125,7 +125,7 @@ async def frame_ancestors(db: AsyncSession, ref: Optional[str], public_id: Optio
     return "'self'"
 
 
-@router.get("/{public_id}/frame", include_in_schema=False)
+@router.get("/{public_id}/frame")
 async def embed_frame_policy(public_id: str, artifact: str, db: AsyncSession = Depends(get_async_db)):
     return {"frame_ancestors": await frame_ancestors(db, artifact, public_id)}
 
@@ -192,7 +192,7 @@ async def create_sso_code(public_id: str, body: SsoCodeRequest, request: Request
 
 # ── /d/{ref}?host=… when this process also serves the SPA ─────────────────
 
-frame_router = APIRouter(include_in_schema=False)
+frame_router = APIRouter(tags=["embed"])
 
 
 @frame_router.get("/d/{ref}")
