@@ -1825,6 +1825,34 @@
     return opt;
   }
 
+  // Content signature of an ECharts option: a stable string that changes when
+  // anything the chart draws changes. Functions count by source. With
+  // `withoutData`, data arrays (series/axis `data`, dataset `source`) are left
+  // out, so two options with the same signature differ only in values — safe
+  // to merge, since merge replaces data arrays wholesale. null = not
+  // serialisable (cycles, DOM): the caller always rebuilds.
+  function _optionSig(opt, withoutData) {
+    try {
+      return JSON.stringify(opt, function(key, v) {
+        if (typeof v === 'function') return 'fn:' + String(v);
+        if (withoutData && (key === 'data' || key === 'source') && Array.isArray(v)) return '[data]';
+        if (typeof v === 'number' && !isFinite(v)) return String(v);
+        return v;
+      });
+    } catch (e) { return null; }
+  }
+  function _hasFunction(v, depth) {
+    if (typeof v === 'function') return true;
+    if (!v || typeof v !== 'object' || (depth || 0) > 6) return false;
+    if (Array.isArray(v)) {
+      // Data arrays are long and hold values, not callbacks.
+      for (var i = 0; i < v.length && i < 50; i++) if (_hasFunction(v[i], (depth || 0) + 1)) return true;
+      return false;
+    }
+    for (var k in v) if (_hasFunction(v[k], (depth || 0) + 1)) return true;
+    return false;
+  }
+
   // <EChart option height className viz rows calc palette /> — palette: array of
   // colors overriding the theme's chart palette for this chart only.
   window.EChart = function(props) {
@@ -1859,18 +1887,49 @@
       }
       return o;
     }
+    // Signatures of the option last applied: `full` (everything) and `shape`
+    // (everything but the data arrays). See applyOption.
+    var appliedRef = React.useRef({ full: null, shape: null });
     React.useEffect(function() {
       if (!ref.current) return;
-      var chart = echarts.init(ref.current, 'bow', { renderer: props.renderer || 'canvas' });
+      var el = ref.current;
+      var chart = echarts.init(el, 'bow', { renderer: props.renderer || 'canvas' });
       chartRef.current = chart;
-      if (props.option) chart.setOption(safeOption(withPalette(props.option)));
+      appliedRef.current = { full: null, shape: null };
+      if (props.option) {
+        var opt = withPalette(props.option);
+        appliedRef.current = { full: _optionSig(opt, false), shape: _optionSig(opt, true) };
+        chart.setOption(safeOption(opt));
+      }
       if (props.onClick) chart.on('click', props.onClick);
-      var ro = new ResizeObserver(function() { chart.resize(); });
-      ro.observe(ref.current);
+      // A chart in a hidden tab or collapsed panel measures 0×0; resizing it
+      // then would only blank it. It re-lays out when it is shown again.
+      var ro = new ResizeObserver(function() { if (el.clientWidth && el.clientHeight) chart.resize(); });
+      ro.observe(el);
       return function() { ro.disconnect(); chart.dispose(); };
     }, [gen]);
+    // Artifact code builds `option` inline, so it is a new object on EVERY
+    // render of the parent — opening a modal, switching a tab, typing in a
+    // search box. Rebuilding the chart for each (setOption notMerge) replayed
+    // its intro animation every time. Instead:
+    //   same content            → nothing to draw (formatters refreshed only)
+    //   same shape, new data    → merge, so marks animate to their new values
+    //   different shape         → full rebuild, so nothing stale survives
     React.useEffect(function() {
-      if (chartRef.current && props.option) chartRef.current.setOption(safeOption(withPalette(props.option)), true);
+      var chart = chartRef.current;
+      if (!chart || !props.option) return;
+      var opt = withPalette(props.option);
+      var full = _optionSig(opt, false);
+      var last = appliedRef.current;
+      if (full !== null && full === last.full) {
+        // Same source, but a formatter may close over newer state.
+        if (_hasFunction(opt)) chart.setOption(safeOption(opt), { notMerge: false, silent: true });
+        return;
+      }
+      var shape = _optionSig(opt, true);
+      appliedRef.current = { full: full, shape: shape };
+      if (shape !== null && shape === last.shape) chart.setOption(safeOption(opt), { notMerge: false });
+      else chart.setOption(safeOption(opt), true);
     }, [props.option]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' });
     if (!props.viz) return chart;
@@ -1892,6 +1951,376 @@
   // Fonts load asynchronously; charts measured with fallback metrics re-layout
   // once the real faces are in.
   try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function() { setTimeout(window.resizeAllCharts, 50); }); } catch (e) {}
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Motion: usePresence, Modal, Drawer, Tabs
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Hand-written `{open && <div className="fixed inset-0 …">}` cannot animate
+  // out: the element is gone the moment `open` flips. These keep an overlay
+  // mounted while it animates out, and keep visited tab panels mounted so the
+  // charts inside are not rebuilt (and their intro replayed) on every switch.
+  // Keyframes live in a stylesheet of their own, outside Tailwind, and the
+  // `bow-motion` class honours prefers-reduced-motion (portals render outside
+  // #root, so the base stylesheet's #root rule does not reach them).
+  var MOTION_IN_MS = 220, MOTION_OUT_MS = 160;
+  var EASE_OUT = 'cubic-bezier(0.16, 1, 0.3, 1)', EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)';
+  (function injectMotionStyles() {
+    var st = document.createElement('style');
+    st.id = 'bow-motion';
+    st.textContent = [
+      '@keyframes bow-fade-in { from { opacity: 0 } to { opacity: 1 } }',
+      '@keyframes bow-fade-out { from { opacity: 1 } to { opacity: 0 } }',
+      '@keyframes bow-pop-in { from { opacity: 0; transform: translateY(8px) scale(0.97) } to { opacity: 1; transform: none } }',
+      '@keyframes bow-pop-out { from { opacity: 1; transform: none } to { opacity: 0; transform: translateY(4px) scale(0.98) } }',
+      '@keyframes bow-slide-in-right { from { transform: translateX(100%) } to { transform: none } }',
+      '@keyframes bow-slide-out-right { from { transform: none } to { transform: translateX(100%) } }',
+      '@keyframes bow-slide-in-left { from { transform: translateX(-100%) } to { transform: none } }',
+      '@keyframes bow-slide-out-left { from { transform: none } to { transform: translateX(-100%) } }',
+      '@keyframes bow-slide-in-bottom { from { transform: translateY(100%) } to { transform: none } }',
+      '@keyframes bow-slide-out-bottom { from { transform: none } to { transform: translateY(100%) } }',
+      '@keyframes bow-panel-in { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }',
+      '.bow-tablist { scrollbar-width: none; }',
+      '.bow-tablist::-webkit-scrollbar { display: none; }',
+      '@media (prefers-reduced-motion: reduce) { .bow-motion, .bow-motion * { animation-duration: 1ms !important; transition-duration: 1ms !important; } }'
+    ].join('\n');
+    (document.head || document.documentElement).appendChild(st);
+  })();
+
+  function _reducedMotion() {
+    try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+  }
+  function _anim(name, entering) {
+    return name + ' ' + (entering ? MOTION_IN_MS : MOTION_OUT_MS) + 'ms ' + (entering ? EASE_OUT : EASE_IN) + ' both';
+  }
+  function _isRtl() {
+    try { return getComputedStyle(document.documentElement).direction === 'rtl' || getComputedStyle(document.body).direction === 'rtl'; } catch (e) { return false; }
+  }
+  var _motionUid = 0;
+  function _useUid(prefix) {
+    var r = React.useRef(null);
+    if (r.current === null) r.current = prefix + (++_motionUid);
+    return r.current;
+  }
+
+  // usePresence(open, exitMs?) → { mounted, closing }. Render while `mounted`;
+  // apply the exit style while `closing`. The element unmounts exitMs after
+  // `open` turns false; reopening mid-exit cancels it.
+  window.usePresence = function(open, exitMs) {
+    var _s = React.useState(!!open), present = _s[0], setPresent = _s[1];
+    var ms = exitMs == null ? MOTION_OUT_MS : exitMs;
+    React.useEffect(function() {
+      if (open) { setPresent(true); return; }
+      var t = setTimeout(function() { setPresent(false); }, _reducedMotion() ? 0 : ms);
+      return function() { clearTimeout(t); };
+    }, [!!open, ms]);
+    return { mounted: !!open || present, closing: !open && present };
+  };
+
+  // Open overlays, bottom → top. Escape and the focus trap act on the top one;
+  // the page scroll lock lasts while any is open.
+  var _overlayStack = [];
+  var _savedOverflow = null;
+  function _lockScroll() {
+    if (_overlayStack.length !== 1) return;
+    var de = document.documentElement;
+    _savedOverflow = { html: de.style.overflow, body: document.body.style.overflow, gutter: de.style.scrollbarGutter };
+    // Keep a classic scrollbar's space reserved, or the page shifts sideways
+    // as the dialog opens.
+    if (window.innerWidth > de.clientWidth) de.style.scrollbarGutter = 'stable';
+    de.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  function _unlockScroll() {
+    if (_overlayStack.length || !_savedOverflow) return;
+    document.documentElement.style.overflow = _savedOverflow.html;
+    document.body.style.overflow = _savedOverflow.body;
+    document.documentElement.style.scrollbarGutter = _savedOverflow.gutter;
+    _savedOverflow = null;
+  }
+  var _FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),[contenteditable="true"]';
+  function _focusables(root) {
+    return Array.prototype.filter.call(root.querySelectorAll(_FOCUSABLE), function(el) {
+      return el.offsetParent !== null || el === document.activeElement;
+    });
+  }
+
+  // Shared behaviour of Modal and Drawer while open: stack entry, scroll lock,
+  // initial focus, Escape (top overlay only), Tab trap, focus restore.
+  function _useOverlay(open, id, panelRef, props) {
+    var onCloseRef = React.useRef(props.onClose);
+    onCloseRef.current = props.onClose;
+    var dismissable = props.closeOnEscape !== false;
+    React.useEffect(function() {
+      if (!open) return;
+      var opener = document.activeElement;
+      _overlayStack.push(id);
+      _lockScroll();
+      var raf = requestAnimationFrame(function() {
+        var panel = panelRef.current;
+        if (!panel || panel.contains(document.activeElement)) return;
+        var target = panel.querySelector('[autofocus]') || panel.querySelector('[data-bow-autofocus]') || panel;
+        try { target.focus({ preventScroll: true }); } catch (e) {}
+      });
+      function onKey(e) {
+        if (_overlayStack[_overlayStack.length - 1] !== id) return;
+        if (e.key === 'Escape' && dismissable) {
+          e.stopPropagation();
+          if (onCloseRef.current) onCloseRef.current();
+        } else if (e.key === 'Tab') {
+          var panel = panelRef.current;
+          if (!panel) return;
+          var items = _focusables(panel);
+          if (!items.length) { e.preventDefault(); panel.focus(); return; }
+          var first = items[0], last = items[items.length - 1], active = document.activeElement;
+          if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) { e.preventDefault(); last.focus(); }
+          else if (!e.shiftKey && (active === last || !panel.contains(active))) { e.preventDefault(); first.focus(); }
+        }
+      }
+      document.addEventListener('keydown', onKey);
+      return function() {
+        cancelAnimationFrame(raf);
+        document.removeEventListener('keydown', onKey);
+        var i = _overlayStack.indexOf(id);
+        if (i !== -1) _overlayStack.splice(i, 1);
+        _unlockScroll();
+        if (opener && opener.focus && document.contains(opener)) { try { opener.focus({ preventScroll: true }); } catch (e) {} }
+      };
+    }, [open, dismissable]);
+  }
+
+  function _overlayHeader(props, titleId, onClose) {
+    var close = props.hideClose ? null : h('button', {
+      key: 'x', type: 'button', 'aria-label': props.closeLabel || 'Close', onClick: onClose,
+      className: 'shrink-0 -m-1 p-1 rounded-control text-ink-3 hover:text-ink hover:bg-surface-2 transition-colors'
+    }, h(window.Icon, { name: 'x', size: 18 }));
+    if (!props.title && !props.subtitle) {
+      return close ? h('div', { key: 'hx', className: 'absolute top-3 end-3 z-10' }, close) : null;
+    }
+    return h('div', { key: 'hd', className: 'flex items-start gap-3 px-5 pt-4 pb-3 border-b border-line' }, [
+      h('div', { key: 't', className: 'min-w-0 flex-1' }, [
+        props.title ? h('h2', { key: 'h', id: titleId, className: 'text-base font-semibold text-ink leading-6' }, props.title) : null,
+        props.subtitle ? h('p', { key: 's', className: 'mt-0.5 text-sm text-ink-3' }, props.subtitle) : null
+      ]),
+      close
+    ]);
+  }
+  function _overlayBody(props) {
+    var pad = { none: '', sm: 'px-4 py-3', md: 'px-5 py-4', lg: 'px-6 py-5' }[props.padding || 'md'];
+    return h('div', { key: 'bd', className: _join('flex-1 min-h-0 overflow-auto', pad, props.bodyClassName) }, props.children);
+  }
+  function _overlayFooter(props) {
+    if (!props.footer) return null;
+    return h('div', { key: 'ft', className: 'flex flex-wrap items-center justify-end gap-2 px-5 py-3 border-t border-line' }, props.footer);
+  }
+  function _backdrop(closing, onClick) {
+    return h('div', {
+      key: 'bg', 'aria-hidden': 'true', onMouseDown: onClick,
+      className: 'absolute inset-0 bg-black/40 dark:bg-black/60',
+      style: { animation: _anim(closing ? 'bow-fade-out' : 'bow-fade-in', !closing) }
+    });
+  }
+
+  // <Modal open onClose title subtitle footer size padding closeOnBackdrop closeOnEscape hideClose className>
+  window.Modal = function(props) {
+    props = props || {};
+    var open = !!props.open;
+    var p = window.usePresence(open);
+    var panelRef = React.useRef(null);
+    var id = _useUid('bow-modal-');
+    _useOverlay(open, id, panelRef, props);
+    if (!p.mounted) return null;
+    var close = function() { if (props.onClose) props.onClose(); };
+    var width = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-4xl', full: 'max-w-none h-full' }[props.size || 'md'] || 'max-w-lg';
+    // An explicit max-w-* in className wins over the size preset.
+    if (/(^|\s)max-w-/.test(props.className || '')) width = '';
+    var titleId = props.title ? id + '-title' : undefined;
+    return ReactDOM.createPortal(
+      h('div', {
+        className: 'bow-motion fixed inset-0 flex items-center justify-center p-4',
+        style: { zIndex: props.zIndex || 1000, pointerEvents: p.closing ? 'none' : 'auto' }
+      }, [
+        _backdrop(p.closing, function(e) { if (e.target === e.currentTarget && props.closeOnBackdrop !== false) close(); }),
+        h('div', {
+          key: 'panel', ref: panelRef, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId,
+          'aria-label': titleId ? undefined : props.ariaLabel, tabIndex: -1,
+          className: _mergeClasses('relative flex flex-col w-full max-h-full overflow-hidden bg-surface text-ink border border-line rounded-card shadow-lift outline-none ' + width, props.className),
+          style: Object.assign({ animation: _anim(p.closing ? 'bow-pop-out' : 'bow-pop-in', !p.closing) }, props.style || {})
+        }, [_overlayHeader(props, titleId, close), _overlayBody(props), _overlayFooter(props)])
+      ]),
+      document.body);
+  };
+
+  // <Drawer open onClose side="end|start|bottom" width title subtitle footer …>
+  // A side panel for detail views and filters. `end` is the right edge in LTR
+  // and the left edge in RTL.
+  window.Drawer = function(props) {
+    props = props || {};
+    var open = !!props.open;
+    var p = window.usePresence(open);
+    var panelRef = React.useRef(null);
+    var id = _useUid('bow-drawer-');
+    _useOverlay(open, id, panelRef, props);
+    if (!p.mounted) return null;
+    var close = function() { if (props.onClose) props.onClose(); };
+    var side = props.side || 'end';
+    var rtl = _isRtl();
+    var physical = side === 'bottom' ? 'bottom'
+      : side === 'left' || side === 'right' ? side
+      : ((side === 'end') !== rtl ? 'right' : 'left');
+    var w = props.width || 420;
+    var place = physical === 'bottom'
+      ? { left: 0, right: 0, bottom: 0, maxHeight: props.height || '85vh' }
+      : { top: 0, bottom: 0, width: 'min(' + (typeof w === 'number' ? w + 'px' : w) + ', 100vw - 2rem)' };
+    if (physical === 'right') place.right = 0;
+    if (physical === 'left') place.left = 0;
+    var edge = physical === 'bottom' ? 'rounded-t-card border-t' : physical === 'right' ? 'border-s' : 'border-e';
+    var titleId = props.title ? id + '-title' : undefined;
+    return ReactDOM.createPortal(
+      h('div', {
+        className: 'bow-motion fixed inset-0',
+        style: { zIndex: props.zIndex || 1000, pointerEvents: p.closing ? 'none' : 'auto' }
+      }, [
+        _backdrop(p.closing, function(e) { if (e.target === e.currentTarget && props.closeOnBackdrop !== false) close(); }),
+        h('div', {
+          key: 'panel', ref: panelRef, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId,
+          'aria-label': titleId ? undefined : props.ariaLabel, tabIndex: -1,
+          className: _mergeClasses('absolute flex flex-col overflow-hidden bg-surface text-ink border-line shadow-lift outline-none ' + edge, props.className),
+          style: Object.assign(place, { animation: _anim('bow-slide-' + (p.closing ? 'out' : 'in') + '-' + physical, !p.closing) }, props.style || {})
+        }, [_overlayHeader(props, titleId, close), _overlayBody(props), _overlayFooter(props)])
+      ]),
+      document.body);
+  };
+
+  // <Tabs items={[{ value, label, icon, badge, disabled, content }]} value onChange
+  //       defaultValue variant="underline|pills" className panelClassName />
+  // `content` may be a node or a function returning one. A panel mounts the
+  // first time its tab is opened and then STAYS mounted (hidden), so charts
+  // and scroll positions survive switching back. Omit `content` everywhere to
+  // use Tabs as a bar that only reports `onChange`.
+  window.Tabs = function(props) {
+    props = props || {};
+    var items = (props.items || []).filter(Boolean).map(function(it) {
+      return typeof it === 'object' ? it : { value: it, label: String(it) };
+    });
+    var controlled = props.value !== undefined;
+    var _s = React.useState(props.defaultValue !== undefined ? props.defaultValue : (items[0] && items[0].value));
+    var current = controlled ? props.value : _s[0];
+    var active = items.some(function(it) { return String(it.value) === String(current); }) ? current : (items[0] && items[0].value);
+    var key = String(active);
+    var visitedRef = React.useRef({});
+    visitedRef.current[key] = true;
+    var switchedRef = React.useRef(false);
+    var prevRef = React.useRef(key);
+    if (prevRef.current !== key) { switchedRef.current = true; prevRef.current = key; }
+    var listRef = React.useRef(null);
+    var tabRefs = React.useRef({});
+    var _ind = React.useState(null), ind = _ind[0], setInd = _ind[1];
+    var id = _useUid('bow-tabs-');
+    var pills = props.variant === 'pills';
+
+    function select(v) {
+      if (!controlled) _s[1](v);
+      if (props.onChange && String(v) !== key) props.onChange(v);
+    }
+    var keyRef = React.useRef(key);
+    keyRef.current = key;
+    // Reads the active key from a ref: the observer below is created once and
+    // calls this long after the render that defined it.
+    function measure() {
+      var el = tabRefs.current[keyRef.current];
+      if (!el || !el.offsetWidth) return;
+      setInd(function(prev) {
+        var next = { left: el.offsetLeft, width: el.offsetWidth, top: el.offsetTop, height: el.offsetHeight, animate: !!prev };
+        return prev && prev.left === next.left && prev.width === next.width && prev.top === next.top && prev.height === next.height ? prev : next;
+      });
+    }
+    React.useLayoutEffect(function() {
+      measure();
+      var el = tabRefs.current[key];
+      if (el && el.scrollIntoView && switchedRef.current) {
+        try { el.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (e) {}
+      }
+    }, [key, items.length]);
+    // Created once: a fresh observer per render fires its initial callback on
+    // every render, and the re-render that triggers loops at frame rate.
+    React.useEffect(function() {
+      var alive = true;
+      var remeasure = function() { if (alive) measure(); };
+      var ro = typeof ResizeObserver !== 'undefined' && listRef.current ? new ResizeObserver(remeasure) : null;
+      if (ro) ro.observe(listRef.current);
+      try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(remeasure); } catch (e) {}
+      return function() { alive = false; if (ro) ro.disconnect(); };
+    }, []);
+
+    function onKeyDown(e) {
+      var enabled = items.filter(function(it) { return !it.disabled; });
+      var idx = enabled.findIndex(function(it) { return String(it.value) === key; });
+      var fwd = _isRtl() ? 'ArrowLeft' : 'ArrowRight', back = _isRtl() ? 'ArrowRight' : 'ArrowLeft';
+      var next = null;
+      if (e.key === fwd) next = enabled[(idx + 1) % enabled.length];
+      else if (e.key === back) next = enabled[(idx - 1 + enabled.length) % enabled.length];
+      else if (e.key === 'Home') next = enabled[0];
+      else if (e.key === 'End') next = enabled[enabled.length - 1];
+      if (!next) return;
+      e.preventDefault();
+      select(next.value);
+      var el = tabRefs.current[String(next.value)];
+      if (el) el.focus();
+    }
+
+    var indicator = ind ? h('span', {
+      key: 'ind', 'data-bow-tab-indicator': '1', 'aria-hidden': 'true',
+      className: pills ? 'absolute rounded-chip bg-surface shadow-card' : 'absolute bottom-0 h-0.5 rounded-full bg-accent',
+      style: {
+        left: 0, width: ind.width,
+        top: pills ? ind.top : undefined, height: pills ? ind.height : undefined,
+        transform: 'translateX(' + ind.left + 'px)',
+        transition: ind.animate ? 'transform 260ms ' + EASE_OUT + ', width 260ms ' + EASE_OUT : 'none'
+      }
+    }) : null;
+
+    var tabs = items.map(function(it) {
+      var v = String(it.value), on = v === key;
+      return h('button', {
+        key: v, ref: function(el) { tabRefs.current[v] = el; },
+        type: 'button', role: 'tab', id: id + '-tab-' + v, 'aria-selected': on ? 'true' : 'false',
+        'aria-controls': it.content !== undefined ? id + '-panel-' + v : undefined,
+        tabIndex: on ? 0 : -1, disabled: it.disabled || undefined,
+        onClick: function() { select(it.value); },
+        className: _join(
+          'relative z-[1] inline-flex items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed outline-none focus-visible:ring-2 focus-visible:ring-accent/50',
+          pills ? 'px-3 py-1.5 rounded-chip' : 'px-3 py-2.5 rounded-t-control',
+          on ? 'text-ink' : 'text-ink-3 hover:text-ink-2')
+      }, [
+        it.icon ? h(window.Icon, { key: 'i', name: it.icon, size: 14 }) : null,
+        h('span', { key: 'l' }, it.label),
+        it.badge != null ? h('span', { key: 'b', className: 'ms-0.5 rounded-full bg-surface-2 px-1.5 text-[11px] leading-4 text-ink-3 tabular-nums' }, it.badge) : null
+      ]);
+    });
+
+    var bar = h('div', {
+      key: 'bar', ref: listRef, role: 'tablist', 'aria-orientation': 'horizontal', 'aria-label': props.ariaLabel, onKeyDown: onKeyDown,
+      className: _mergeClasses(pills
+        ? 'bow-tablist relative inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-control bg-surface-2 p-0.5'
+        : 'bow-tablist relative flex items-end gap-1 overflow-x-auto border-b border-line', props.className)
+    }, [indicator].concat(tabs));
+
+    var hasPanels = items.some(function(it) { return it.content !== undefined; });
+    if (!hasPanels) return bar;
+    var panels = items.map(function(it) {
+      var v = String(it.value), on = v === key;
+      if (!visitedRef.current[v] || it.content === undefined) return null;
+      var content = typeof it.content === 'function' ? it.content() : it.content;
+      return h('div', {
+        key: v, role: 'tabpanel', id: id + '-panel-' + v, 'aria-labelledby': id + '-tab-' + v,
+        className: _join('bow-motion', props.panelClassName),
+        // display:none restarts the CSS animation each time the panel is shown;
+        // the very first panel appears without one.
+        style: on ? (switchedRef.current ? { animation: 'bow-panel-in 200ms ' + EASE_OUT + ' both' } : undefined) : { display: 'none' }
+      }, content);
+    });
+    return h('div', { className: _join('min-w-0', props.containerClassName) }, [bar, h('div', { key: 'panels', className: 'pt-4' }, panels)]);
+  };
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc
