@@ -168,8 +168,6 @@ export function humanToolLabel(toolName: string): string {
     read_query: 'Reading a query',
     run_query: 'Running a query',
     read_artifact: 'Reading the artifact',
-    read_routine: 'Reading a procedure',
-    list_routines: 'Listing procedures',
     execute_mcp: 'Calling a tool',
     call_tool: 'Calling a tool',
     edit_note: 'Updating notes',

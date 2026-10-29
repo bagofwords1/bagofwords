@@ -254,88 +254,6 @@ class Table(BaseModel):
     excluded_columns: Optional[list[str]] = None
 
 
-class RoutineParam(BaseModel):
-    name: str | None = None
-    dtype: str | None = None
-    mode: str | None = None  # IN / OUT / INOUT / RETURN (engine-dependent)
-
-
-class Routine(BaseModel):
-    """A stored procedure / function discovered from a source catalog.
-
-    Reference material, NOT a queryable relation: the agent reads a routine to
-    understand business logic that lives in the database, it never SELECTs from
-    one. Discovery returns the catalog (name, type, signature) WITHOUT `body` —
-    procedure bodies are large, so the source text is fetched live on demand via
-    the client's `get_routine_definition` (surfaced to the agent as a tool).
-    """
-    name: str                               # qualified: "schema.name"
-    schema_name: str | None = None
-    routine_type: str = "procedure"         # procedure | function
-    language: str | None = None             # SQL, PLpgSQL, EXTERNAL, ...
-    params: list[RoutineParam] | None = None
-    # Pre-rendered argument string as the engine itself prints it (e.g. Postgres
-    # `pg_get_function_arguments`), used when structured `params` aren't worth
-    # reconstructing. Goes INSIDE the parentheses. Preferred over `params` by
-    # the formatter when set — avoids mis-splitting types like numeric(10,2).
-    arguments: str | None = None
-    returns: str | None = None              # return type (functions)
-    description: str | None = None
-    # False when the routine exists but its source is not readable by the
-    # indexing account (e.g. missing VIEW DEFINITION on SQL Server). Surfaced
-    # so the body-fetch tool can say "exists but not visible" instead of failing.
-    definition_available: bool = True
-    body: str | None = None                 # only when fetched on demand
-    # Connection info (multi-connection support), mirrors Table.
-    connection_id: Optional[str] = None
-    connection_name: Optional[str] = None
-    connection_type: Optional[str] = None
-    metadata_json: Optional[dict] = None
-
-
-class RoutineFormatter:
-    """Render routine catalogs as compact signatures for the schema context.
-
-    Bodies are deliberately omitted: this is the index tier the planner sees so
-    it knows which routines exist and can ask to read one. One line per routine:
-
-        procedure dbo.usp_load_sales(@from date, @to date)
-        function  dbo.fn_tax(amount decimal) returns decimal
-    """
-
-    routine_sep: str = "\n"
-
-    def __init__(self, routines: list[Routine]) -> None:
-        self.routines = routines
-        self.routine_str = self.format_routines(routines)
-
-    def format_routine(self, routine: Routine) -> str:
-        if routine.arguments is not None:
-            inside = routine.arguments.strip()
-        else:
-            parts = []
-            for p in routine.params or []:
-                seg = p.name or ""
-                if p.dtype:
-                    seg = f"{seg} {p.dtype}".strip()
-                if p.mode and p.mode.upper() not in ("IN", "RETURN"):
-                    seg = f"{p.mode.upper()} {seg}".strip()
-                if seg:
-                    parts.append(seg)
-            inside = ", ".join(parts)
-        sig = f"{routine.routine_type} {routine.name}({inside})"
-        if routine.returns:
-            sig += f" returns {routine.returns}"
-        if not routine.definition_available:
-            sig += "  -- source not readable (check VIEW DEFINITION)"
-        elif routine.description:
-            sig += f"  -- {routine.description}"
-        return sig
-
-    def format_routines(self, routines: list[Routine]) -> str:
-        return self.routine_sep.join(self.format_routine(r) for r in routines or [])
-
-
 def excluded_column_set(excluded) -> frozenset:
     """Normalize a DataSourceTable.excluded_columns value to a lookup set.
 
@@ -481,6 +399,14 @@ class TableFormatter:
 
     def format_table(self, table: Table) -> str:
         """Get table format."""
+        meta = table.metadata_json if isinstance(table.metadata_json, dict) else {}
+        if meta.get("type") == "routine":
+            # A stored procedure / function (app.data_sources.routines): not a
+            # relation, so no CREATE TABLE. Its signature, marked reference-only.
+            block = meta.get("routine") if isinstance(meta.get("routine"), dict) else {}
+            sigs = block.get("signatures") or [f"{block.get('kind') or 'procedure'} {table.name}()"]
+            note = "-- stored routine: reference only, not a table (read its source with describe_tables)"
+            return "\n".join([note] + [f"-- {sig}" for sig in sigs])
         is_semantic_view = (
             isinstance(table.metadata_json, dict)
             and table.metadata_json.get("type") == "semantic_view"

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+from app.data_sources.routines import build_routine_tables, mysql_variants, with_routines
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
 from urllib.parse import quote_plus
@@ -159,15 +160,6 @@ class MysqlClient(DataSourceClient):
             print(f"Error retrieving tables: {e}")
             return []
 
-    def get_routines(self) -> List["Routine"]:
-        """Stored procedures / functions from information_schema (signatures)."""
-        from app.data_sources.clients._routines_sql import mysql_family_routines
-        return mysql_family_routines(self.execute_query, self.database)
-
-    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
-        from app.data_sources.clients._routines_sql import mysql_family_definition
-        return mysql_family_definition(self.execute_query, self.database, qualified_name)
-
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(
@@ -190,8 +182,17 @@ class MysqlClient(DataSourceClient):
 
     @discovery_progress
     def get_schemas(self, progress_callback=None):
-        """Get schemas for all tables in the specified database."""
-        return self.get_tables()
+        """Tables and views, then stored procedures and functions (see
+        app.data_sources.routines)."""
+        tables = self.get_tables()
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mysql")
+
+    def get_routines(self, table_names=()) -> List[Table]:
+        """Stored procedures and functions as schema entries. Tables are named
+        bare (one database per connection), so routines are too."""
+        with self.connect() as conn:
+            variants = mysql_variants(conn, self.database)
+        return build_routine_tables(variants, table_names, lambda schema, name: name)
 
     def prompt_schema(self):
         schemas = self.get_schemas()

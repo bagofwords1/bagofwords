@@ -1665,10 +1665,6 @@ class ConnectionService:
         # Reset the reuse stash: it must only ever describe THIS run.
         self.last_refresh_fresh_tables = None
         self.last_refresh_identity_user_id = None
-        # Count of routines (stored procedures / functions) in the catalog after
-        # the most recent refresh_routines; read by the indexing runner for the
-        # run's stats. None until a refresh runs.
-        self.last_routine_count = None
         # Recorded by resolve_credentials when the client is built below; reset
         # per call so a previous refresh on this service instance can never
         # decide whether THIS one is authoritative over the shared catalog.
@@ -1891,12 +1887,6 @@ class ConnectionService:
 
             if not fresh_tables:
                 logger.warning(f"refresh_schema: No tables returned from get_schemas()")
-                # A source can have routines even with no indexable tables (or a
-                # discovery that returned none this run). Routine sync is
-                # independent of the table catalog, so run it before bailing.
-                await self.refresh_routines(
-                    db, connection, client, authoritative=authoritative
-                )
                 return []
 
             # Normalize incoming tables
@@ -2095,15 +2085,6 @@ class ConnectionService:
             final_tables = result.scalars().all()
             logger.info(f"refresh_schema: Final query returned {len(final_tables)} ConnectionTable records")
 
-            # Sync the stored-procedure / function catalog alongside tables.
-            # Reference material, so this is strictly additive to table indexing:
-            # it never raises into the run (see refresh_routines). Only an
-            # authoritative (system-identity) crawl may prune, same rule as
-            # tables — a per-user crawl is add-only.
-            await self.refresh_routines(
-                db, connection, client, authoritative=authoritative
-            )
-
             # Audit log
             try:
                 await audit_service.log(
@@ -2134,111 +2115,6 @@ class ConnectionService:
         except Exception as e:
             logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {redact_error(e)}")
-
-    async def refresh_routines(
-        self,
-        db: AsyncSession,
-        connection: Connection,
-        client,
-        *,
-        authoritative: bool = True,
-    ) -> int:
-        """Sync a connection's stored-procedure / function catalog (signatures
-        only) into `connection_routines`.
-
-        Routines are reference material, not queryable relations, so this is
-        deliberately decoupled from the ConnectionTable upsert and never raises
-        into the schema refresh: a discovery failure (or a source with no
-        routines at all) leaves the table catalog untouched. Bodies are not
-        stored — the agent fetches them live via the `read_routine` tool.
-
-        Pruning follows the same rule as tables: only an authoritative
-        (system-identity) crawl sees the whole catalog and may delete rows that
-        vanished; a per-user crawl is add/update only.
-
-        Returns the number of routines in the catalog after the sync, and also
-        stashes it on `self.last_routine_count` for the indexing runner.
-        """
-        from app.models.connection_routine import ConnectionRoutine
-        from app.data_sources.clients.base import DataSourceClient
-
-        # Short-circuit non-SQL sources (files, Mongo, metrics APIs, ...): they
-        # don't override get_routines, so there's nothing to sync. Skipping here
-        # avoids a needless catalog SELECT + commit on every one of their
-        # refreshes. (getattr: a bare test double may define neither method.)
-        if getattr(type(client), "get_routines", None) is DataSourceClient.get_routines:
-            self.last_routine_count = 0
-            return 0
-
-        try:
-            fresh = await client.aget_routines()
-        except NotImplementedError:
-            self.last_routine_count = 0
-            return 0
-        except Exception:
-            logger.warning(
-                "refresh_routines: discovery failed for connection %s (table "
-                "catalog is unaffected)", connection.id, exc_info=True,
-            )
-            self.last_routine_count = None
-            return 0
-
-        conn_id = str(connection.id)
-        existing_q = await db.execute(
-            select(ConnectionRoutine).where(
-                ConnectionRoutine.connection_id == conn_id,
-                ConnectionRoutine.deleted_at.is_(None),
-            )
-        )
-        existing = {r.name: r for r in existing_q.scalars().all()}
-
-        seen = set()
-        unreadable = 0
-        for r in fresh or []:
-            if not getattr(r, "name", None):
-                continue
-            seen.add(r.name)
-            if not r.definition_available:
-                unreadable += 1
-            params_json = [p.model_dump() for p in (r.params or [])] or None
-            row = existing.get(r.name)
-            if row is None:
-                row = ConnectionRoutine(connection_id=conn_id, name=r.name)
-                db.add(row)
-                # Record it in `existing` immediately: overloaded routines
-                # (same schema.name, different args — legal in Postgres/Oracle)
-                # arrive as several Routine objects with one name. Without this
-                # the second one would db.add a duplicate and the commit would
-                # violate uq_connection_routines_conn_name, failing the whole
-                # schema refresh. They collapse to one catalog entry (the name
-                # is the handle the agent reads).
-                existing[r.name] = row
-            row.schema_name = r.schema_name
-            row.routine_type = r.routine_type or "procedure"
-            row.language = r.language
-            row.params = params_json
-            row.arguments = r.arguments
-            row.returns = r.returns
-            row.description = r.description
-            row.definition_available = bool(r.definition_available)
-            row.metadata_json = r.metadata_json
-
-        deleted = 0
-        if authoritative:
-            for name, row in existing.items():
-                if name not in seen:
-                    await db.delete(row)
-                    deleted += 1
-
-        await db.commit()
-        if seen or deleted:
-            logger.info(
-                "refresh_routines: connection %s — %d routine(s) in catalog "
-                "(%d unreadable source, %d pruned)",
-                connection.id, len(seen), unreadable, deleted,
-            )
-        self.last_routine_count = len(seen)
-        return len(seen)
 
     async def construct_client(
         self,

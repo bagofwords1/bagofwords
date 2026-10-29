@@ -136,16 +136,7 @@ class Connection(BaseSchema):
         cascade="all, delete-orphan",
         passive_deletes=False,
     )
-
-    # Stored procedures / functions discovered from this connection (reference
-    # material; see ConnectionRoutine).
-    connection_routines = relationship(
-        "ConnectionRoutine",
-        back_populates="connection",
-        cascade="all, delete-orphan",
-        passive_deletes=False,
-    )
-
+    
     # M:N relationship to DataSource (Domain)
     data_sources = relationship(
         "DataSource",

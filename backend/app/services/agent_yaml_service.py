@@ -37,7 +37,6 @@ from app.core.permission_resolver import (
 )
 from app.models.connection import Connection
 from app.models.connection_table import ConnectionTable
-from app.models.connection_routine import ConnectionRoutine
 from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.models.data_source_connection_tool import DataSourceConnectionTool
@@ -61,7 +60,6 @@ from app.schemas.agent_manifest_schema import (
     ApplyWarningCode,
     MemberRef,
     TableRules,
-    RoutineRules,
     ToolsOverlay,
 )
 from app.schemas.data_source_schema import DataSourceCreate
@@ -442,9 +440,6 @@ class AgentYamlService:
             await self._apply_table_rules(db, ds, manifest.tables, resolved)
         )
         warnings.extend(
-            await self._apply_routine_rules(db, ds, manifest.routines, resolved)
-        )
-        warnings.extend(
             await self._apply_tool_rules(db, ds, manifest.tools, resolved)
         )
 
@@ -519,9 +514,6 @@ class AgentYamlService:
         # Tables
         tw = await self._apply_table_rules(db, ds, manifest.tables, resolved)
         warnings.extend(tw)
-
-        # Routines (procedure/function selection)
-        warnings.extend(await self._apply_routine_rules(db, ds, manifest.routines, resolved))
 
         # Tools
         tools_diff, tool_warnings = await self._apply_tool_rules_with_diff(
@@ -793,47 +785,6 @@ class AgentYamlService:
 
         return warnings
 
-    # ----- routines -------------------------------------------------------
-
-    async def _apply_routine_rules(
-        self,
-        db: AsyncSession,
-        ds: DataSource,
-        rules: Optional[RoutineRules],
-        resolved: _Resolved,
-    ) -> List[ApplyWarning]:
-        """Resolve include/exclude globs against ConnectionRoutine rows and set
-        ``DataSource.active_routine_ids`` (the procedure/function selection).
-
-        `routines` omitted entirely leaves the current selection untouched —
-        unlike tables, a missing section is "don't manage routines" rather than
-        "deactivate all", so an agent authored before routines existed keeps its
-        selection. An explicit (even empty) section is authoritative."""
-        warnings: List[ApplyWarning] = []
-        if rules is None or not ds.connections:
-            return warnings
-
-        include_globs = (rules.include if rules.include is not None else [])
-        exclude_globs = rules.exclude or []
-
-        active_ids: List[str] = []
-        for conn in ds.connections:
-            rt_q = await db.execute(
-                select(ConnectionRoutine).where(
-                    ConnectionRoutine.connection_id == str(conn.id),
-                    ConnectionRoutine.deleted_at.is_(None),
-                )
-            )
-            for r in rt_q.scalars().all():
-                fqn = _routine_fqn(conn.name, r)
-                if any(_glob_match(g, fqn) for g in include_globs) and \
-                        not any(_glob_match(g, fqn) for g in exclude_globs):
-                    active_ids.append(str(r.id))
-
-        ds.active_routine_ids = sorted(set(active_ids))
-        db.add(ds)
-        return warnings
-
     # ----- tools ----------------------------------------------------------
 
     async def _apply_tool_rules(
@@ -1044,22 +995,6 @@ class AgentYamlService:
             if include_list:
                 rules = TableRules(include=sorted(set(include_list)), exclude=[])
 
-        # Routines — emit the active procedure/function selection as include FQNs
-        # (mirrors tables). Nothing selected → no section emitted.
-        routine_rules: Optional[RoutineRules] = None
-        active_rt = {str(x) for x in (ds.active_routine_ids or [])}
-        if active_rt and ds.connections:
-            rt_include: List[str] = []
-            for conn in ds.connections:
-                rt_q = await db.execute(
-                    select(ConnectionRoutine).where(ConnectionRoutine.connection_id == str(conn.id))
-                )
-                for r in rt_q.scalars().all():
-                    if str(r.id) in active_rt:
-                        rt_include.append(_routine_fqn(conn.name, r))
-            if rt_include:
-                routine_rules = RoutineRules(include=sorted(set(rt_include)), exclude=[])
-
         # Tools overlay → ToolsOverlay by connection name
         tools: Dict[str, ToolsOverlay] = {}
         if ds.connections:
@@ -1086,7 +1021,6 @@ class AgentYamlService:
             use_llm_sync=bool(ds.use_llm_sync),
             connections=connections,
             tables=rules,
-            routines=routine_rules,
             tools=tools,
             conversation_starters=starters,
             members=members,
@@ -1335,14 +1269,6 @@ def _suggest(value: str, candidates: Sequence[str]) -> Optional[str]:
     lookup = {c.lower(): c for c in cands}
     matches = difflib.get_close_matches(value.lower(), list(lookup.keys()), n=1, cutoff=0.5)
     return lookup[matches[0]] if matches else None
-
-
-def _routine_fqn(conn_name: str, routine: ConnectionRoutine) -> str:
-    """Canonical glob-match name for a routine: ``{connection}.{schema.name}``.
-
-    ``ConnectionRoutine.name`` already carries the schema prefix (e.g.
-    ``dbo.usp_load``), so this is just the connection joined to it."""
-    return f"{conn_name}.{routine.name}"
 
 
 def _table_fqn(conn_name: str, ct: ConnectionTable) -> str:

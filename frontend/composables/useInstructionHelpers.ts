@@ -387,7 +387,6 @@ export function useInstructionHelpers() {
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
     if (type === 'memory') return 'i-heroicons-book-open'
     if (type === 'connection_tool') return 'i-heroicons-wrench-screwdriver'
-    if (type === 'connection_routine') return 'i-heroicons-command-line'
     return 'i-heroicons-circle'
   }
 

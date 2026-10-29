@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "Sin procedimientos activos",
-    "title": "Procedimientos y funciones",
-    "note": "Referencia de solo lectura: la lógica de negocio de la base de datos. No son tablas consultables.",
-    "procedure": "procedimiento",
-    "function": "función",
-    "notReadable": "código no accesible"
-  },
   "agentLanding": {
     "actions": "Acciones del agente",
     "countTasks": "{n} tarea | {n} tareas",
@@ -6145,6 +6137,15 @@
     "editQuery": "Editar {name}",
     "rowFiltered": "Filtrado por filas",
     "refreshFailed": "Error de actualización",
+    "routineProcedure": "procedimiento",
+    "routineFunction": "función",
+    "routineHint": "Rutina almacenada: el agente lee su lógica y la aplica en sus propias consultas. Nunca la ejecuta.",
+    "routineParameter": "Parámetro",
+    "routineParameterType": "Tipo",
+    "routineSource": "Código",
+    "routineSourceTruncated": "Truncado",
+    "routineSourceHidden": "código no visible",
+    "routineSourceHiddenHint": "La cuenta de la conexión no puede leer el código de esta rutina (necesita VIEW DEFINITION o el equivalente de la base de datos). El agente solo ve la firma.",
     "successful": "Correctas",
     "failed": "Fallidas",
     "lastRefreshed": "Última actualización",

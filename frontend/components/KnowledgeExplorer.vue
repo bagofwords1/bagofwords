@@ -231,19 +231,11 @@
                    (below) stays reachable for managers — deleting or reconfiguring
                    an agent must not require personal credentials to it. -->
               <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
-                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
+                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" :icon="t.routine ? ROUTINE_ICON : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
-                <!-- Stored procedures / functions live in the SAME Tables node,
-                     distinguished only by a different icon (not a separate node).
-                     They behave like table rows: expand to show linked instructions,
-                     "+" attaches a new instruction to the procedure. -->
-                <TreeGroup v-for="r in activeRoutines(agent.id)" :key="'routine-' + r.id" :label="r.name" icon="i-heroicons-command-line" :count="listForRoutine(agent.id, r.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('routine:' + agent.id + ':' + r.id)" @toggle="expand('routine:' + agent.id + ':' + r.id)" @add="openCreate({ agentId: agent.id, routineId: r.id, routineName: r.name })">
-                  <InstrLeaf v-for="ins in listForRoutine(agent.id, r.id)" :key="ins.id" :ins="ins" :indent="3" />
-                  <EmptyHint v-if="loadedGroups.has(agent.id) && listForRoutine(agent.id, r.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, routineId: r.id, routineName: r.name })" :pad="62" />
-                </TreeGroup>
-                <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0 && activeRoutines(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
+                <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
 
               <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
@@ -667,7 +659,6 @@
                 :show-save="panelCanUpdate"
                 :show-stats="true"
                 max-height="calc(100vh - 240px)"
-                @saved="onAgentKnowledgeSaved(panelView.agentId)"
               >
                 <template #reload-left>
                   <button type="button" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.manageConnections')" @click="openConnModal(panelView.agentId)"><UIcon name="i-heroicons-link" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.connections') }}</button>
@@ -1238,6 +1229,7 @@ import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import { isRoutine, ROUTINE_ICON } from '~/utils/routines'
 const BuildExplorerModal = defineAsyncComponent(() => import('~/components/instructions/BuildExplorerModal.vue'))
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
@@ -1370,15 +1362,12 @@ watch(search, (q) => {
 const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSource = ref<string[]>([]); const fCategory = ref<string[]>([])
 
 const expanded = ref<Set<string>>(new Set())
-const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
+const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean; routine?: boolean }[]>>({})
 // Active-table totals from the paginated response — the fetched rows are
 // capped at one page, so counts must not rely on array length.
 const agentTableTotals = ref<Record<string, number>>({})
 const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
-// Stored procedures / functions per agent, for the read-only Procedures tree
-// node. Selection still happens in the Tables panel; this reflects it.
-const agentRoutines = ref<Record<string, { id: string; name: string; routine_type: string; is_active: boolean }[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
 const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
@@ -1978,7 +1967,6 @@ const refOptions = computed(() => {
     // brand logo and a custom agent emoji still wins — passing only `type` left
     // both rendering the generic type asset.
     for (const t of (agentTables.value[aid] || [])) opts.push({ value: t.id, label: t.name, type: a?.type, connectorKey: a?.connector_key, iconToken: a?.icon, objectType: 'datasource_table' })
-    for (const r of (agentRoutines.value[aid] || [])) opts.push({ value: r.id, label: r.name, heroicon: h.getRefIcon('connection_routine'), objectType: 'connection_routine' })
     for (const tool of (agentTools.value[aid] || [])) {
       if (tool.is_enabled === false) continue
       // A tool is not a data source, so it gets a heroicon rather than none.
@@ -2491,13 +2479,6 @@ const reloadTables = async (id: string) => {
   agentLoaded.value.delete(id); await loadAgentMeta(id)
   tablesRefreshKey.value++  // force the open TablesSelector panel to re-fetch
   toast.add({ title: t('agentsPage.toastTablesReloaded'), color: 'green' })
-}
-// After a Tables-panel Save (tables + routine selection), refresh the tree so
-// the Tables and Procedures nodes reflect the new active sets.
-const onAgentKnowledgeSaved = async (id: string) => {
-  if (!id) return
-  agentLoaded.value.delete(id)
-  await loadAgentMeta(id)
 }
 const reloadTools = async (id: string) => {
   for (const c of (agents.value.find(a => a.id === id)?.connections || [])) { try { await useMyFetch(`/connections/${c.id}/refresh-tools`, { method: 'POST' }) } catch {} }
@@ -3620,16 +3601,9 @@ const loadAgentMeta = async (id: string) => {
     const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema?page=1&page_size=500&selected_state=selected&sort_by=name&sort_dir=asc`, { method: 'GET' })
     const v: any = data.value
     const items = Array.isArray(v) ? v : (v?.tables || v?.items || [])
-    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false }))
+    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false, routine: isRoutine(t) }))
     agentTableTotals.value[id] = typeof v?.total === 'number' ? v.total : agentTables.value[id].length
   } catch { agentTables.value[id] = []; delete agentTableTotals.value[id] }
-  try {
-    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/routines`, { method: 'GET' })
-    agentRoutines.value[id] = (data.value || []).flatMap((g: any) =>
-      (g.routines || []).map((r: any) => ({
-        id: String(r.id), name: r.name, routine_type: r.routine_type, is_active: r.is_active !== false,
-      })))
-  } catch { agentRoutines.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
   // File-source connections + their glob rules (shown in the Files tree).
@@ -3643,7 +3617,7 @@ const loadAgentMeta = async (id: string) => {
       }))
     agentFileConns.value = { ...agentFileConns.value }
   } catch { agentFileConns.value[id] = [] }
-  agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }; agentRoutines.value = { ...agentRoutines.value }
+  agentTables.value = { ...agentTables.value }; agentTools.value = { ...agentTools.value }; agentFiles.value = { ...agentFiles.value }
 }
 
 // ── File preview ────────────────────────────────────────
@@ -3751,20 +3725,10 @@ const tableRefIds = (ins: any): string[] => {
     .map((r: any) => String(r.object_id))
 }
 const listForTable = (agentId: string, tableId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && tableRefIds(i).includes(tableId)))
-// Instructions linked to a stored procedure / function (object_type='connection_routine').
-const routineRefIds = (ins: any): string[] => {
-  const light = (ins?.routine_ref_ids || []) as string[]
-  if (light.length) return light.map(String)
-  return (ins?.references || [])
-    .filter((r: any) => r.object_type === 'connection_routine')
-    .map((r: any) => String(r.object_id))
-}
-const listForRoutine = (agentId: string, routineId: string) => applyFilters(allInstructions.value.filter(i => (i.data_sources || []).some(d => d.id === agentId) && routineRefIds(i).includes(routineId)))
 // The tree only surfaces ACTIVE (in-scope) tables — the lean working set the
 // agent actually reasons with. The full catalog (active + inactive) lives on the
 // agent's Tables page; the tree is not a schema browser.
 const activeTables = (agentId: string) => (agentTables.value[agentId] || []).filter((t: any) => t.is_active)
-const activeRoutines = (agentId: string) => (agentRoutines.value[agentId] || []).filter((r: any) => r.is_active)
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
@@ -3832,7 +3796,7 @@ const syncDraft = (ins: Instruction) => {
 // the agent whose pane is open, else the one whose sub-panel is. Read BEFORE
 // closeAgentView() below clears it.
 const currentAgentId = () => agentView.value?.agentId || panelView.value?.agentId || null
-const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string; routineId?: string; routineName?: string; global?: boolean }) => {
+const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string; global?: boolean }) => {
   // An explicit agent wins; `global: true` (the Global instructions group's own
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
@@ -3844,11 +3808,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   showAdvanced.value = false
   draft.data_source_ids = agentId ? [agentId] : []
   draft.label_ids = []
-  draft.references = scope?.tableId
-    ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }]
-    : scope?.routineId
-      ? [{ object_type: 'connection_routine', object_id: scope.routineId, relation_type: 'scope', display_text: scope.routineName }]
-      : []
+  draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
   draft.data_source_ids.forEach(id => loadAgentMeta(id))
 }
 // Let any metadata autosave land first: syncing from `detail` while one is

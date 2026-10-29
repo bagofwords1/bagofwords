@@ -991,68 +991,7 @@ class SchemaContextBuilder:
             except Exception as exc:
                 logger.warning("agent list tables skipped: %s", exc)
 
-        # Stored procedures / functions (reference material) for the connections
-        # whose tables made it into each agent's section — reusing the access
-        # decisions already applied above rather than re-deriving them.
-        try:
-            await self._attach_routines(ds_sections)
-        except Exception as exc:
-            logger.warning("routine context skipped: %s", exc)
-
         return TablesSchemaContext(data_sources=ds_sections)
-
-    async def _attach_routines(self, ds_sections) -> None:
-        """Populate `section.routines` from the agent's ACTIVE routine selection
-        (DataSource.active_routine_ids).
-
-        Scoping is by the selection, not by the section's tables: routine
-        selection is independent of table selection, so an agent with a
-        procedure active but no active tables must still surface it. The run's
-        data sources are already access-filtered, so querying by the selected
-        ids is safe. NULL selection = none active (mirrors tables). Signatures
-        only — bodies are fetched on demand by the read_routine tool.
-        """
-        from app.models.connection_routine import ConnectionRoutine
-
-        ds_by_id = {str(d.id): d for d in (self.data_sources or [])}
-
-        # The active routine ids per section, and the union to load in one query.
-        section_active: dict = {}
-        all_active: set = set()
-        for section in ds_sections or []:
-            ds = ds_by_id.get(str(getattr(section.info, "id", "")))
-            active = getattr(ds, "active_routine_ids", None) if ds is not None else None
-            ids = {str(x) for x in (active or [])}
-            if ids:
-                section_active[str(section.info.id)] = ids
-                all_active |= ids
-        if not all_active:
-            return
-
-        rows = (await self.db.execute(
-            select(ConnectionRoutine)
-            .where(
-                ConnectionRoutine.id.in_(list(all_active)),
-                ConnectionRoutine.deleted_at.is_(None),
-            )
-        )).scalars().all()
-        by_id = {str(r.id): r for r in rows}
-
-        for section in ds_sections or []:
-            ids = section_active.get(str(getattr(section.info, "id", "")))
-            if not ids:
-                continue
-            prompt_routines = []
-            for rid in ids:
-                r = by_id.get(rid)
-                if r is None:
-                    continue
-                pr = r.to_prompt_routine()
-                pr.connection_id = str(r.connection_id)
-                prompt_routines.append(pr)
-            if prompt_routines:
-                prompt_routines.sort(key=lambda p: p.name)
-                section.routines = prompt_routines
 
     async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
         from app.schemas.bow_source_schema import SOURCE_ID

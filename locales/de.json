@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "Keine aktiven Prozeduren",
-    "title": "Prozeduren & Funktionen",
-    "note": "Schreibgeschützte Referenz – die Geschäftslogik der Datenbank. Dies sind keine abfragbaren Tabellen.",
-    "procedure": "Prozedur",
-    "function": "Funktion",
-    "notReadable": "Quelle nicht lesbar"
-  },
   "agentLanding": {
     "actions": "Agentenaktionen",
     "countTasks": "{n} Aufgabe | {n} Aufgaben",
@@ -5922,6 +5914,15 @@
     "editQuery": "{name} bearbeiten",
     "rowFiltered": "Zeilengefiltert",
     "refreshFailed": "Aktualisierung fehlgeschlagen",
+    "routineProcedure": "Prozedur",
+    "routineFunction": "Funktion",
+    "routineHint": "Gespeicherte Routine: Der Agent liest ihre Logik und wendet sie in eigenen Abfragen an. Er führt sie nie aus.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Typ",
+    "routineSource": "Quellcode",
+    "routineSourceTruncated": "Gekürzt",
+    "routineSourceHidden": "Quellcode nicht sichtbar",
+    "routineSourceHiddenHint": "Das Konto der Verbindung kann den Quellcode dieser Routine nicht lesen (VIEW DEFINITION oder das Gegenstück der Datenbank ist nötig). Der Agent sieht nur die Signatur.",
     "successful": "Erfolgreich",
     "failed": "Fehlgeschlagen",
     "lastRefreshed": "Zuletzt aktualisiert",

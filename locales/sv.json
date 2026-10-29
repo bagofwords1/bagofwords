@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "Inga aktiva procedurer",
-    "title": "Procedurer och funktioner",
-    "note": "Skrivskyddad referens – databasens affärslogik. Dessa är inte frågebara tabeller.",
-    "procedure": "procedur",
-    "function": "funktion",
-    "notReadable": "källkod ej tillgänglig"
-  },
   "agentLanding": {
     "actions": "Agentåtgärder",
     "countTasks": "{n} uppgift | {n} uppgifter",
@@ -5922,6 +5914,15 @@
     "editQuery": "Redigera {name}",
     "rowFiltered": "Radfiltrerad",
     "refreshFailed": "Uppdateringen misslyckades",
+    "routineProcedure": "procedur",
+    "routineFunction": "funktion",
+    "routineHint": "Lagrad rutin: agenten läser dess logik och tillämpar den i sina egna frågor. Den körs aldrig.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Typ",
+    "routineSource": "Källkod",
+    "routineSourceTruncated": "Avkortad",
+    "routineSourceHidden": "källkod ej synlig",
+    "routineSourceHiddenHint": "Anslutningens konto kan inte läsa rutinens källkod (VIEW DEFINITION eller databasens motsvarighet krävs). Agenten ser bara signaturen.",
     "successful": "Lyckade",
     "failed": "Misslyckade",
     "lastRefreshed": "Senast uppdaterad",

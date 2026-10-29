@@ -278,10 +278,6 @@ class InstructionListItemSchema(BaseModel):
     #: each instruction under the tables it references. The reference rows
     #: themselves stay off the light row; open the instruction for those.
     table_ref_ids: List[str] = []
-    #: Ids of the `connection_routine` objects this instruction references — the
-    #: light-list counterpart used to file instructions under procedures/functions
-    #: in the tree, same rationale as `table_ref_ids`.
-    routine_ref_ids: List[str] = []
 
     data_sources: List[DataSourceMinimalSchema] = []
     labels: List[InstructionLabelSchema] = []

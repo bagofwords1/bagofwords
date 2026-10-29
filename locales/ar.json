@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "لا توجد إجراءات نشطة",
-    "title": "الإجراءات والدوال",
-    "note": "مرجع للقراءة فقط — منطق العمل الخاص بقاعدة البيانات. هذه ليست جداول قابلة للاستعلام.",
-    "procedure": "إجراء",
-    "function": "دالة",
-    "notReadable": "المصدر غير متاح"
-  },
   "agentLanding": {
     "actions": "إجراءات الوكيل",
     "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",
@@ -5922,6 +5914,15 @@
     "editQuery": "تعديل {name}",
     "rowFiltered": "تصفية الصفوف",
     "refreshFailed": "فشل التحديث",
+    "routineProcedure": "إجراء",
+    "routineFunction": "دالة",
+    "routineHint": "روتين مخزّن: يقرأ الوكيل منطقه ويطبّقه في استعلاماته الخاصة، ولا يشغّله أبدًا.",
+    "routineParameter": "معامل",
+    "routineParameterType": "النوع",
+    "routineSource": "الشيفرة المصدرية",
+    "routineSourceTruncated": "مقتطع",
+    "routineSourceHidden": "المصدر غير مرئي",
+    "routineSourceHiddenHint": "لا يستطيع حساب الاتصال قراءة شيفرة هذا الروتين (يلزم إذن VIEW DEFINITION أو ما يعادله في قاعدة البيانات). يرى الوكيل التوقيع فقط.",
     "successful": "ناجحة",
     "failed": "فاشلة",
     "lastRefreshed": "آخر تحديث",

@@ -7,8 +7,6 @@ from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .wait import WaitInput, WaitOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
-from .read_routine import ReadRoutineInput, ReadRoutineOutput
-from .list_routines import ListRoutinesInput, ListRoutinesOutput, RoutineListItem
 from .describe_entity import DescribeEntityInput, DescribeEntityOutput
 from .read_resources import ReadResourcesInput, ReadResourcesOutput
 from .create_instruction import CreateInstructionInput, CreateInstructionOutput
@@ -78,11 +76,6 @@ __all__ = [
     "WaitInput",
     "WaitOutput",
     "DescribeTablesInput",
-    "ReadRoutineInput",
-    "ReadRoutineOutput",
-    "ListRoutinesInput",
-    "ListRoutinesOutput",
-    "RoutineListItem",
     "DescribeTablesOutput",
     "DescribeEntityInput",
     "DescribeEntityOutput",

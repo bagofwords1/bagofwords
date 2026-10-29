@@ -14,7 +14,6 @@ from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._routines_sql import sql_str
 from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
@@ -304,6 +303,7 @@ class OracledbClient(DataSourceClient):
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
+
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(

@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "No active procedures",
-    "title": "Procedures & functions",
-    "note": "Read-only reference — the database's business logic. These are not queryable tables.",
-    "procedure": "procedure",
-    "function": "function",
-    "notReadable": "source not readable"
-  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",
@@ -6174,6 +6166,15 @@
     "editQuery": "Edit {name}",
     "rowFiltered": "Row filtered",
     "refreshFailed": "Refresh failed",
+    "routineProcedure": "procedure",
+    "routineFunction": "function",
+    "routineHint": "Stored routine: the agent reads its logic and applies it in its own queries. It never runs it.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Type",
+    "routineSource": "Source",
+    "routineSourceTruncated": "Truncated",
+    "routineSourceHidden": "source not visible",
+    "routineSourceHiddenHint": "The connection's account can't read this routine's source (it needs VIEW DEFINITION or the database's equivalent). The agent sees the signature only.",
     "successful": "Successful",
     "failed": "Failed",
     "lastRefreshed": "Last refreshed",

@@ -1,12 +1,4 @@
 {
-  "routines": {
-    "noneActive": "Нет активных процедур",
-    "title": "Процедуры и функции",
-    "note": "Справочный материал только для чтения — бизнес-логика базы данных. Это не таблицы для запросов.",
-    "procedure": "процедура",
-    "function": "функция",
-    "notReadable": "исходный код недоступен"
-  },
   "agentLanding": {
     "actions": "Действия агента",
     "countTasks": "{n} задач | {n} задача | {n} задачи | {n} задач",
@@ -5922,6 +5914,15 @@
     "editQuery": "Изменить {name}",
     "rowFiltered": "Фильтрация строк",
     "refreshFailed": "Ошибка обновления",
+    "routineProcedure": "процедура",
+    "routineFunction": "функция",
+    "routineHint": "Хранимая процедура: агент читает её логику и применяет её в своих запросах. Он никогда её не запускает.",
+    "routineParameter": "Параметр",
+    "routineParameterType": "Тип",
+    "routineSource": "Исходный код",
+    "routineSourceTruncated": "Обрезано",
+    "routineSourceHidden": "код недоступен",
+    "routineSourceHiddenHint": "Учётная запись подключения не может прочитать код этой процедуры (нужно право VIEW DEFINITION или его аналог в базе). Агент видит только сигнатуру.",
     "successful": "Успешные",
     "failed": "Неудачные",
     "lastRefreshed": "Последнее обновление",

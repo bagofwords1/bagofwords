@@ -1544,7 +1544,6 @@ const getRefIcon = (type: string) => {
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
     if (type === 'instruction') return 'i-heroicons-cube'
     if (type === 'connection_tool') return 'i-heroicons-wrench-screwdriver'
-  if (type === 'connection_routine') return 'i-heroicons-command-line'
     return 'i-heroicons-circle'
 }
 
