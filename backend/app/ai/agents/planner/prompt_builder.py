@@ -362,7 +362,8 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
     @staticmethod
     def _format_artifact_chat_context(ctx) -> str:
         """Context for shared-artifact viewer chat: the bubble (/r/{id}, /d/{ref}),
-        or an app's conversation when ``ctx["surface"] == "conversation"``.
+        or an app's conversation when ``ctx["surface"] == "conversation"``
+        (which adds the results-display rules).
 
         In data-only scope the dashboard's visualization data is inlined here —
         it is the ONLY data surface the conversation has. In agents scope the
@@ -374,9 +375,10 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         lines: List[str] = ['<artifact_chat_context>']
         if ctx.get('surface') == 'conversation':
             # An app's conversation (bow.conversations): the app shows each
-            # create_data result as a table, and a chart when it fits.
+            # create_data result as a table, and a chart when it fits. The
+            # agent must not claim where or how results are displayed.
             lines.append('  You are answering a VIEWER through an app built on this artifact, not its owner. Keep answers concise and grounded in the data.')
-            lines.append('  RESULTS SURFACE: the viewer sees your text replies, and the app shows each successful create_data result to them as a table, with a chart when the chart type you chose fits the data. Nothing else is shown: the output of other tools (such as run_query, read_query or inspect_data) and any dashboard data in this context are not visible to the viewer, so state the numbers you use from them in your text, or use create_data when the viewer should see the rows. Never say that a chart, table, widget, dashboard or report was created, saved, added or is available anywhere: the viewer cannot open the report behind this conversation, and whether a chart is drawn depends on the data, so refer to "the results", not "the chart". When the viewer asks for a chart, create the data with a fitting chart type. Do not restate a create_data result as a long markdown table: give the key findings with the few numbers that matter (a short table of at most ~10 rows is fine for a comparison).')
+            lines.append('  RESULTS SURFACE: the viewer sees your text replies, and the app shows each successful create_data result to them as a table, with a chart when the chart type you chose fits the data. Nothing else is shown: the output of other tools (such as run_query, read_query or inspect_data) and any dashboard data in this context are not visible to the viewer, so state the numbers you use from them in your text, or use create_data when the viewer should see the rows. Never say that a chart, table, widget, dashboard or report was created, saved, added or is available anywhere: the viewer cannot open the report behind this conversation, and whether a chart is drawn depends on the data, so refer to "the results", not "the chart". Never say where or in what form the results are displayed — the app decides its own layout and may draw no chart at all — so do not write phrases such as "shown above", "below the chart", "as a bar chart", "in the chart" or "in the table", in any language. Comparing values is fine ("above $40", "below average"). Lead with the finding instead, for example "Two warehouses hold most of the stock." When the viewer asks for a chart, create the data with a fitting chart type. Do not restate a create_data result as a long markdown table: give the key findings with the few numbers that matter (a short table of at most ~10 rows is fine for a comparison).')
         else:
             lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
             lines.append('  TEXT-ONLY SURFACE: the viewer chats in a small text bubble and sees ONLY your text replies — tool outputs, tables, and widgets you produce are NOT visible to them. Every answer must be self-contained: present the relevant data inline as short markdown lists or tables. NEVER refer to a table or result as "above", "available", or "shown" — nothing but your text is shown. For large results, include the most relevant rows (up to ~20) inline and say how many rows the full result has.')

@@ -11,6 +11,12 @@ against prompt_builder.py (``_format_artifact_chat_context``, the two viewer
 lines, the title line, the data-only scope with a visualization, a withheld
 visualization, and the agents scope), line by line: they are the intended
 bubble text, not merely the current output.
+
+Conversation messages also carry a RESULTS SURFACE sentence forbidding claims
+about where or in what form results are displayed, and no conversation-only
+LANGUAGE rule (it made answers narrate their language choice; the global
+language rule applies instead). The bubble snapshot is unchanged since
+b6363c4f1, on V2 and on both V3 paths (transcript and legacy).
 """
 from __future__ import annotations
 
@@ -19,6 +25,7 @@ import re
 import pytest
 
 from app.ai.agents.planner.prompt_builder import PromptBuilder
+from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
 from app.schemas.ai.planner import PlannerInput
 
 VIEWER = ('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise '
@@ -62,8 +69,8 @@ BUBBLE = {
 }
 
 
-def _block(ctx) -> str:
-    prompt = PromptBuilder.build_prompt(PlannerInput(
+def _block(ctx, builder=PromptBuilder) -> str:
+    prompt = builder.build_prompt(PlannerInput(
         user_message="Show total revenue per month", organization_name="Acme", organization_ai_analyst_name="Analyst",
         external_platform="artifact_chat", platform_context=ctx))
     found = re.findall(r"<artifact_chat_context>.*?</artifact_chat_context>", prompt, re.S)
@@ -92,3 +99,35 @@ def test_a_conversation_message_is_told_which_results_the_viewer_sees(name):
 
 def test_an_unknown_surface_is_the_bubble():
     assert _block({**CONTEXTS["agents"], "surface": "bubble"}) == BUBBLE["agents"]
+
+
+def _line(block: str, marker: str) -> str:
+    found = [x for x in block.split("\n") if marker in x]
+    assert len(found) == 1, f"exactly one line with {marker!r}"
+    return found[0]
+
+
+@pytest.mark.parametrize("name", sorted(CONTEXTS))
+def test_a_conversation_message_has_no_language_line(name):
+    # A conversation-only language rule made answers narrate their language choice ("I'll reply in English").
+    block = _block({**CONTEXTS[name], "surface": "conversation"})
+    assert not [x for x in block.split("\n") if "LANGUAGE" in x]
+    for part in ("language of the viewer's most recent message", "narration, tool titles"):
+        assert part not in block
+
+
+@pytest.mark.parametrize("name", sorted(CONTEXTS))
+def test_a_conversation_message_is_told_not_to_say_where_or_how_results_are_displayed(name):
+    line = _line(_block({**CONTEXTS[name], "surface": "conversation"}), "RESULTS SURFACE")
+    for part in ("Never say where or in what form the results are displayed", '"shown above"', '"as a bar chart"',
+                 "in any language", '"below average"'):
+        assert part in line
+
+
+@pytest.mark.parametrize("transcript", ["1", "0"])
+@pytest.mark.parametrize("name", sorted(CONTEXTS))
+def test_the_default_planner_sends_the_same_blocks(name, transcript, monkeypatch):
+    monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", transcript)
+    assert _block(CONTEXTS[name], PromptBuilderV3) == BUBBLE[name]
+    conversation = {**CONTEXTS[name], "surface": "conversation"}
+    assert _block(conversation, PromptBuilderV3) == _block(conversation)
