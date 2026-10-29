@@ -16,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user, current_user_optional
+from app.core.embed_auth import viewer_optional
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
@@ -62,7 +63,7 @@ async def _general(db, organization_id) -> PublicGeneralSettings | None:
 async def get_published_dashboard(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     from app.services.dashboard_lifecycle import fork_eligibility
     from app.services.dashboard_runs import release_data_sources
@@ -485,7 +486,7 @@ async def _audit_export(db, artifact, user, fmt, request, *, step=None, row_coun
 async def get_published_content(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     artifact, release = await dashboard_access.open_published(db, ref, user)
     return _with_compiled({"mode": artifact.mode, "content": release.content or {}})
@@ -512,7 +513,7 @@ def _with_compiled(body: dict) -> dict:
 async def list_published_queries(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     from app.schemas.query_schema import PublicQuerySchema
     from app.services import dashboard_data
@@ -526,7 +527,7 @@ async def get_published_step(
     ref: str,
     query_id: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     from app.services import dashboard_data
 
@@ -554,7 +555,7 @@ async def _published_step(db, artifact, release, query, user):
 async def list_published_queries_with_steps(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """GET /d/{ref}/queries + each query's step in one response.
 
@@ -583,7 +584,7 @@ async def export_published_step(
     request: Request,
     format: str = Query("csv"),
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """The Data tab's download: the rows the reader sees on the page."""
     import io
@@ -626,7 +627,7 @@ async def get_published_file_embed_token(
     ref: str,
     file_id: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """A token for a file the published version embeds, and nothing else."""
     from app.core.file_tokens import file_embed_url, mint_file_token
@@ -647,7 +648,7 @@ async def get_published_file_embed_token(
 async def list_published_previews(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     artifact, release = await dashboard_access.open_published(db, ref, user)
     if await _withheld_from(db, artifact, release, user, baked=True):
@@ -660,7 +661,7 @@ async def get_published_preview(
     ref: str,
     index: int,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     from pathlib import Path
 
@@ -691,7 +692,7 @@ async def export_published_dashboard(
     fmt: str,
     request: Request,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """PDF, PowerPoint or standalone HTML of the published version, holding
     the rows this reader sees (PR #1304's rule for public outputs)."""
@@ -776,7 +777,7 @@ async def export_published_dashboard(
 async def get_dashboard_chat_status(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """Availability and scope for the chat bubble, as /r/{id}/chat answers
     it. Never creates anything."""
@@ -814,7 +815,7 @@ async def create_dashboard_chat_completion(
     ref: str,
     completion: CompletionCreate,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """A message into the reader's own thread on this dashboard. Streams SSE.
     Access, roster, model and context are re-resolved on every message."""
@@ -848,7 +849,7 @@ async def get_dashboard_chat_completions(
     limit: int = 20,
     before: str | None = None,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """The reader's own thread on this dashboard. Empty before the first message."""
     from app.models.organization import Organization
@@ -869,7 +870,7 @@ async def watch_dashboard_chat_completion(
     ref: str,
     completion_id: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """Re-attachable SSE watch for a completion in the reader's own thread."""
     from fastapi import HTTPException
@@ -915,7 +916,7 @@ async def fork_published_dashboard(
 async def refresh_published_dashboard_on_view(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """A reader opened the dashboard: refresh it as the owner, unless it is
     off, fresh, being published or already refreshing (phase 6)."""
@@ -929,7 +930,7 @@ async def refresh_published_dashboard_on_view(
 async def run_published_dashboard(
     ref: str,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """The reader re-runs the release's charts; results are theirs alone."""
     from app.services import dashboard_runs
@@ -946,7 +947,7 @@ async def run_published_query(
     query_id: str,
     payload: QueryRunRequest,
     db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
+    user: User | None = Depends(viewer_optional),
 ):
     """One chart with the reader's filter values, cached per reader and values."""
     from app.services import dashboard_data, dashboard_runs

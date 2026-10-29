@@ -2,7 +2,7 @@
  * `recordViews: false` keeps the page's resources working but counts no view
  * (a dashboard's draft preview: editors at work are not readers). */
 export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElement | null)[], artifactId?: string, readOnly?: boolean, recordViews?: boolean }) {
-  const { token } = useAuth()
+  const token = useApiAuthorization()
   const { getErrorMessage } = useErrorMessage()
   const countedViews = new Set<string>()
   const sessions = new Map<Window, { nonce: string, port: MessagePort, controllers: Set<AbortController>, cleanups: (()=>void)[] }>()

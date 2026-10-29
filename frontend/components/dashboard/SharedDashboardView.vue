@@ -397,7 +397,12 @@ import {
 // The shared dashboard page: a conversation's /r/{id}, a published
 // dashboard's /d/{id}, or its draft for its editors (/d/{id}/draft) -- the
 // same page over each one's endpoints (utils/sharedDashboardApi).
-const props = defineProps<{ source: SharedDashboardSource; id: string }>();
+// hostContext: set inside a host application (/d/{ref}?host=, EmbeddedArtifactGate).
+const props = defineProps<{ source: SharedDashboardSource; id: string; hostContext?: Record<string, any> | null }>();
+const embedCredential = useEmbedCredential();
+// Inside a host application: the host's chrome surrounds the artifact, so no
+// bars of our own; the signed-in user is the host's.
+const inHostApplication = computed(() => !!embedCredential.value);
 // Start downloading the artifact iframe's libraries now, in parallel with the
 // page's data requests (see utils/artifactLibs.ts).
 ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
@@ -461,6 +466,10 @@ const artifact = ref<any>(null);
 // viewers (401) or any fetch failure — the artifact renders anonymously.
 const viewerContext = ref<any>(null);
 async function fetchViewerContext() {
+    if (embedCredential.value) {
+        viewerContext.value = embedCredential.value.viewer;
+        return;
+    }
     try {
         const { data } = await useMyFetch('/api/users/me/viewer_context');
         viewerContext.value = data.value || null;
@@ -551,7 +560,9 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-const showTopBar = ref(!embedded);
+const showTopBar = ref(!embedded && !inHostApplication.value);
+// The host page moved to another record: the artifact gets the new context.
+watch(() => props.hostContext, () => { if (artifactIframeLoaded.value) pushArtifactData(); }, { deep: true });
 const activeTab = ref<'report' | 'data'>('report');
 // The owner's "Include Data Tab" share setting. The report loads after mount,
 // so this is true until proven otherwise — anything but an explicit false
@@ -1527,6 +1538,7 @@ function pushArtifactData() {
             visualizations: visualizationsData.value,
             files: filesData.value,
             current_user: viewerContext.value,
+            host_context: props.hostContext ?? null,
             params: paramsPayload(),
             runtime: artifactRuntime()
         }))
@@ -1646,6 +1658,7 @@ const iframeSrcdoc = computed(() => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     };
@@ -1921,6 +1934,7 @@ onMounted(async () => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     }));

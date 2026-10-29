@@ -189,6 +189,32 @@ class LDAPConnectionManager:
         finally:
             conn.unbind()
 
+    def identity_by_guid(self, guid: str):
+        """The admitted identity of the AD object with this objectGUID, or None.
+
+        Used to admit a first-time embedded viewer whose host names them by
+        objectGUID: the directory, not the host, decides they exist, are
+        enabled and sit inside the admission group (read_identity)."""
+        raw = uuid.UUID(guid).bytes_le
+        guid_filter = "".join("\\%02x" % b for b in raw)
+        search_base = self.config.user_search_base or self.config.base_dn
+        conn = self.get_connection()
+        try:
+            conn.search(search_base=search_base, search_scope=self.ldap3.SUBTREE,
+                        search_filter=f"(&{self.config.user_search_filter}(objectGUID={guid_filter}))",
+                        attributes=["objectGUID"], size_limit=2)
+            if conn.result.get("result") not in (0, 4) or len(conn.entries) > 1:
+                raise LDAPSecurityError("Directory lookup was incomplete or ambiguous")
+            if not conn.entries:
+                return None
+            dn = str(conn.entries[0].entry_dn)
+        finally:
+            conn.unbind()
+        identity = self.read_identity(dn)
+        if identity["guid"] != str(uuid.UUID(guid)):
+            raise LDAPSecurityError("Directory object changed during lookup")
+        return identity
+
     def authenticate_identity(self, email: str, password: str):
         if not password:
             return None

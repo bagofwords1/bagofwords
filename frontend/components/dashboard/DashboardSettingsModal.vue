@@ -317,6 +317,10 @@
                     <div v-if="visited.access" v-show="tab === 'access'">
                         <DashboardAccessPanel :dashboard-id="dashboardId" :active="isOpen && tab === 'access'" />
                     </div>
+                    <div v-if="visited.embed" v-show="tab === 'embed'">
+                        <DashboardEmbedPanel :dashboard-id="dashboardId" :slug="savedSlug" :mode="artifactMode"
+                            :active="isOpen && tab === 'embed'" />
+                    </div>
                     <div v-if="visited.notes" v-show="tab === 'notes'" data-testid="settings-notes">
                         <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" :mode="artifactMode" />
                     </div>
@@ -356,6 +360,7 @@ import DashboardHistoryModal from './DashboardHistoryModal.vue'
 import HistoryNotes from './history/HistoryNotes.vue'
 import HistoryRefreshes from './history/HistoryRefreshes.vue'
 import DashboardAccessPanel from './DashboardAccessPanel.vue'
+import DashboardEmbedPanel from './DashboardEmbedPanel.vue'
 import HistoryOwner from './history/HistoryOwner.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
@@ -391,7 +396,7 @@ const loading = ref(false)
 
 // ---- Tabs ----
 type HistoryTab = 'versions' | 'conversations'
-type Tab = 'general' | 'viewers' | 'access' | 'notes' | 'data' | 'resources' | 'analytics' | 'refreshes' | HistoryTab
+type Tab = 'general' | 'viewers' | 'access' | 'embed' | 'notes' | 'data' | 'resources' | 'analytics' | 'refreshes' | HistoryTab
 const HISTORY_TABS: HistoryTab[] = ['versions', 'conversations']
 const tab = ref<Tab>('general')
 type TabItem = { key: Tab; group: number; icon: string; label: string; desc: string; groupLabel?: string }
@@ -401,6 +406,8 @@ const tabs = computed<TabItem[]>(() => {
         { key: 'viewers', group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
         // Who can edit and who can view, by name (read only; Share changes it).
         ...(capabilities.value?.includes('share') ? [{ key: 'access' as const, group: 1, icon: 'heroicons:user-group', label: t('dashboardSettings.tabAccess'), desc: tm('dashboardSettings.accessDesc', props.artifactMode) }] : []),
+        // Which host applications may show it, and their snippets.
+        ...(capabilities.value?.includes('settings') ? [{ key: 'embed' as const, group: 1, icon: 'heroicons:code-bracket-square', label: t('embed.tab.title'), desc: tm('embed.tab.desc', props.artifactMode) }] : []),
         // The README every editor's agent reads (collab01).
         ...(capabilities.value?.includes('edit') ? [{ key: 'notes' as const, group: 1, icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), desc: tm('dashboardSettings.notesDesc', props.artifactMode) }] : []),
         { key: 'data', group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
@@ -564,6 +571,8 @@ const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() &&
 
 // ---- Link name ----
 const slugDraft = ref('')
+// The saved link name: what an embed snippet names the artifact by.
+const savedSlug = ref<string | null>(null)
 const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/
 const slugValid = computed(() => !slugDraft.value || SLUG_RULE.test(slugDraft.value))
 watch(slugDraft, (v) => { if (v !== v.toLowerCase()) slugDraft.value = v.toLowerCase() })
@@ -663,6 +672,7 @@ async function load() {
         hasRls.value = !!report.has_rls
         hasUserScoped.value = !!report.has_user_scoped
         slugDraft.value = st.slug || ''
+        savedSlug.value = st.slug || null
         nameDraft.value = props.title || ''
         saved.value = current()
     } catch (e) {
