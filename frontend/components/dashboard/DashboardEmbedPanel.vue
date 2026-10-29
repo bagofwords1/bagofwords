@@ -49,9 +49,9 @@
                                  :variant="variant === v.key ? 'soft' : 'ghost'" @click="variant = v.key">{{ v.label }}</UButton>
                     </div>
                 </div>
-                <div class="relative mt-2">
+                <div class="relative mt-2" dir="ltr">
                     <pre class="overflow-x-auto rounded-lg bg-gray-950 p-3 text-2xs leading-5 text-gray-100" dir="ltr" data-testid="embed-snippet">{{ snippet }}</pre>
-                    <UButton class="absolute end-2 top-2" size="2xs" color="white" icon="i-heroicons-clipboard-document" @click="copy(snippet)">
+                    <UButton class="absolute right-2 top-2" size="2xs" color="white" icon="i-heroicons-clipboard-document" @click="copy(snippet)">
                         {{ $t('hostApps.copy') }}
                     </UButton>
                 </div>

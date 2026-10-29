@@ -152,7 +152,7 @@ As built (`backend/app/routes/artifact_conversations.py`, `services/artifact_con
 | `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, then exactly one `completed` or `error` |
 | `POST /{cid}/messages/{mid}/stop` | `update_completion_sigkill` |
 
-Viewer = `viewer_optional` (app session or embed session); policy = `dashboard_chat.open_chat` (published, readable, member, chat on), re-applied on every message. Rate limits: 6 messages/min per viewer per artifact, 60/min per organization, 240 reads/min. Not built yet: re-attach to a running answer (`watch`), MCP approvals and clarify responses (§10.2).
+Viewer = `viewer_optional` (app session or embed session). Policy (`artifact_conversations.open_for` / `allowed_agent_ids`), re-applied on every message: anyone who may read the published artifact and is a member (editors also on the unpublished draft); agents = the ones the artifact was built with plus any named in the chat settings, as the viewer may use them. **Independent of the chat bubble**: *Allow chat* off or its *dashboard data only* scope do not switch conversations off or empty their agents. Rate limits: 6 messages/min per viewer per artifact, 60/min per organization, 240 reads/min. Not built yet: re-attach to a running answer (`watch`), MCP approvals and clarify responses (§10.2).
 
 **Why not let the broker call `/api/reports` directly:** generated code would get the viewer's whole API (every report, settings, sharing), policy would live in the browser, and embed sessions would have to be accepted by the main API. Server-side runtime routes keep all three closed.
 
@@ -272,6 +272,7 @@ One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>
 5. Rate limits per viewer and per organization (§5.3); session creation 30/min per host + address, 600/min per host.
 
 ### Deviations from the plan
+- **Conversations are not governed by the chat bubble** (reported by the user while testing: *Allow chat* had to be on, and *Dashboard data only* made the app's own agent refused with "You can't use that agent here"). §5.1's "reuse the viewer-chat settings as the conversation policy" is dropped; see §5.3.
 - **Admin capability for the Embed tab** follows the dashboard's own Settings gate (`dashboard_for(..., CAP_SETTINGS)`): an organization admin who does not edit a dashboard cannot embed it (same as the rest of its Settings window).
 - **SSO mode** is handled inside the frame: the user clicks *Sign in* in the embedded page, BOW's own sign-in runs in a popup on the BOW origin and posts a one-time PKCE-bound code back to the frame (`pages/embed-signin.vue`). The host page configures nothing.
 - **Host context** reaches artifact code as `ARTIFACT_DATA.host_context` (updated on `embed.updateContext`), not as `bow.context.host`.
@@ -282,7 +283,7 @@ One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>
 ### Where it lives
 - Backend: `models/host_application.py`, migration `hostapp01`, `services/host_application_service.py` (keys, assertions, IdP tokens, SSO codes, sessions), `services/host_identity.py` (identity sources + JIT), `core/embed_auth.py` (`viewer_optional`), `routes/host_applications.py`, `routes/embed.py` (SDK, bootstrap, session, frame policy), `routes/artifact_conversations.py`, `static/embed/bow-embed.js`.
 - Frontend: `components/embed/HostApplication{Form,sPanel}.vue`, `components/dashboard/{DashboardEmbedPanel,EmbeddedArtifactGate}.vue`, `composables/{useEmbedCredential,useEmbedHost}.ts`, `pages/embed-signin.vue`, `server/middleware/embed-frame.ts`, `public/libs/artifact-sdk.js`.
-- Tests: `tests/e2e/dashboards/test_embed_host_applications.py` (39), `test_artifact_conversations.py` (6).
+- Tests: `tests/e2e/dashboards/test_embed_host_applications.py` (39), `test_embed_identity_sources.py` (6), `test_artifact_conversations.py` (7), `tests/e2e/test_embed_ldap.py` (5). Feedback loop: `docs/feedback-loops/embedded-artifacts.md`.
 - Live loop: `tools/agent/embed/` (stand-in back office on its own origin, admin and employee Playwright flows).
 
 ### Verified live (real Claude Haiku 5.5, unbiased prompts)
@@ -290,6 +291,6 @@ One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>
 - An analyst asked for "a sales assistant … with previous conversations on the side"; BOW chose `bow.conversations` unprompted. Two bugs surfaced in the generated app (a tool object rendered as a React child; a new conversation's messages overwritten by a reload) and were fixed by reporting them to BOW in plain words; the SDK reference was made explicit about the `tools` shape as a result.
 
 ### Left
-- Phase 4: e2e for IdP-token mode (mocked provider keys) and JIT per source (OIDC, SAML, LDAP), concurrent first sign-in; SSO popup browser loop.
+- SAML first-sign-in e2e (OIDC and Active Directory are covered; the SSO popup has a live browser loop).
 - MCP tools and approvals in conversations (§10.2); `watch` re-attach.
 - Regression suites (dashboard chat, LDAP, artifact chat), security review, user docs, release notes.
