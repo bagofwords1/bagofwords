@@ -369,12 +369,19 @@ async def test_summary_pending_build_clears_after_all_accepted():
     report_service = ReportService()
     instruction_service = InstructionService()
 
+    async def _summary():
+        async with async_session_maker() as db:
+            org = await db.get(Organization, org_id)
+            return await report_service.get_report_summary(db, report_id, org)
+
+    def _states(summary):
+        return {i.instruction_id: i.state for i in summary["instructions"]}
+
     # Before accepting anything: the pill is live with all three staged.
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is not None
     assert summary["pending_training_build"]["total_instructions"] == 3
-    assert len(summary["instructions"]) == 3
+    assert _states(summary) == {iid: "pending" for iid in iids}
 
     # Accept two of the three: the pill stays, now scoped to the remaining one.
     for iid in iids[:2]:
@@ -384,11 +391,10 @@ async def test_summary_pending_build_clears_after_all_accepted():
             await instruction_service.accept_staged_instruction(
                 db, iid, build_id=build_id, organization=org, current_user=user,
             )
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is not None
     assert summary["pending_training_build"]["total_instructions"] == 1
-    assert [i.instruction_id for i in summary["instructions"]] == [iids[2]]
+    assert _states(summary) == {iids[0]: "accepted", iids[1]: "accepted", iids[2]: "pending"}
 
     # Accept the last one: the draft is now an empty husk — no more pill.
     async with async_session_maker() as db:
@@ -397,12 +403,11 @@ async def test_summary_pending_build_clears_after_all_accepted():
         await instruction_service.accept_staged_instruction(
             db, iids[2], build_id=build_id, organization=org, current_user=user,
         )
-    async with async_session_maker() as db:
-        summary = await report_service.get_report_summary(db, report_id)
+    summary = await _summary()
     assert summary["pending_training_build"] is None, (
         "pill must retire once every staged instruction has been accepted"
     )
-    assert summary["instructions"] == []
+    assert _states(summary) == {iid: "accepted" for iid in iids}
 
 
 @pytest.mark.e2e

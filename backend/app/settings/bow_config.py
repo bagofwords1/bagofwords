@@ -401,6 +401,20 @@ class SecurityConfig(BaseModel):
     # working and only refuses system dirs (/, /etc, /proc, /root, /usr, …)
     # and the app's own dirs — see network_dir_client.check_network_dir_root.
     network_dir_allowed_roots: Optional[List[str]] = None
+    # Python 3.13 validates outbound TLS chains in OpenSSL's strict X.509 mode,
+    # which rejects any CA-issued certificate lacking an Authority Key
+    # Identifier ("certificate verify failed: Missing Authority Key
+    # Identifier"). TLS-inspecting corporate proxies that re-sign traffic with a
+    # hand-made CA are the usual offender; every outbound HTTPS call (OIDC
+    # discovery, Graph, LLM providers) then fails. Set false to fall back to
+    # the pre-3.13 checks: chains are still verified against the trust store and
+    # hostnames still checked, only the extension-presence rules are dropped.
+    # Env: BOW_TLS_STRICT_X509. Only an explicit false/0/no/off relaxes; a typo
+    # keeps strict mode. Prefer fixing the proxy CA; this is the bridge.
+    tls_strict_x509: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
+        not in ("0", "false", "no", "off")
+    )
 
 
 class BowConfig(BaseModel):

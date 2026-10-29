@@ -71,11 +71,21 @@ class Google(LLMClient):
         # Identity-forwarding headers resolve per request via an httpx hook on
         # the (sync) client this wrapper uses.
         sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
-        if default_headers or sync_hooks:
-            client_kwargs["http_options"] = types.HttpOptions(
-                headers=default_headers or None,
-                client_args={"event_hooks": sync_hooks} if sync_hooks else None,
-            )
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        # Our own httpx clients on the process-wide pool (app.core.llm_transport),
+        # so a message reuses the previous one's connection to Google.
+        import httpx
+        from app.core.llm_transport import shared_transports
+        from app.core.tls import shared_ssl_context
+        tls = shared_ssl_context()
+        sync_t, async_t = shared_transports(pinned=False)
+        client_kwargs["http_options"] = types.HttpOptions(
+            headers=default_headers or None,
+            httpx_client=httpx.Client(
+                transport=sync_t, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {})),
+            httpx_async_client=httpx.AsyncClient(
+                transport=async_t, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {})),
+        )
         self.client = genai.Client(**client_kwargs)
         # Admin-configured override, or the historical default.
         self.temperature = 0.3 if temperature is None else temperature
@@ -248,6 +258,14 @@ class Google(LLMClient):
             text_blocks = [b for b in blocks if b.get("type") == "text"]
             tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
+            # Tool images ride the transcript as image blocks hoisted into the
+            # tool-result turn (they are not on the side channel then), so
+            # dropping them here meant the model never saw a read_file page.
+            image_parts = [
+                p for p in (Google._image_part(b) for b in blocks if b.get("type") == "image")
+                if p is not None
+            ]
+            text = " ".join(b.get("text", "") for b in text_blocks if b.get("text"))
 
             if tool_results:
                 parts = []
@@ -262,6 +280,14 @@ class Google(LLMClient):
                         response={"output": content},
                     ))
                 out.append(types.Content(role="user", parts=parts))
+                # The images and the turn's own text (clock, steering, nudges)
+                # follow as their own user turn: a function-response turn
+                # carries function responses only.
+                extra = list(image_parts)
+                if text.strip():
+                    extra.append(types.Part.from_text(text=text))
+                if extra:
+                    out.append(types.Content(role="user", parts=extra))
             elif tool_uses:
                 parts = []
                 for tc in tool_uses:
@@ -279,9 +305,46 @@ class Google(LLMClient):
                     parts.append(part)
                 out.append(types.Content(role="model", parts=parts))
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
+                parts = list(image_parts)
+                if text.strip() or not parts:
+                    parts.append(types.Part.from_text(text=text))
+                out.append(types.Content(role=role, parts=parts))
         return out
+
+    @staticmethod
+    def _attach_images(contents: list, images: list) -> None:
+        """Side-channel images (user uploads; tool images on the legacy
+        planner path) into the request, ahead of the closing user text.
+
+        They join the last user turn unless that turn answers function calls —
+        then they go in a user turn of their own after it."""
+        parts = []
+        for img in images or []:
+            if img.source_type == "url":
+                parts.append(types.Part.from_uri(file_uri=img.data, mime_type=img.media_type))
+            elif img.data:
+                parts.append(types.Part.from_bytes(data=base64.b64decode(img.data), mime_type=img.media_type))
+        if not parts:
+            return
+        last = contents[-1] if contents else None
+        if (last is not None and last.role == "user"
+                and not any(getattr(p, "function_response", None) for p in (last.parts or []))):
+            last.parts = parts + list(last.parts or [])
+        else:
+            contents.append(types.Content(role="user", parts=parts))
+
+    @staticmethod
+    def _image_part(block: dict):
+        """A transcript ``{"type": "image", "source": {...}}`` block as a
+        Gemini Part; None when the source is empty."""
+        src = block.get("source") or {}
+        if src.get("type") == "url":
+            url = src.get("url") or ""
+            return types.Part.from_uri(file_uri=url, mime_type=src.get("media_type") or "image/png") if url else None
+        data = src.get("data")
+        if not data:
+            return None
+        return types.Part.from_bytes(data=base64.b64decode(data), mime_type=src.get("media_type") or "image/png")
 
     # Fields not accepted by Google's FunctionDeclaration schema validator
     _GOOGLE_SCHEMA_STRIP = frozenset({
@@ -373,6 +436,10 @@ class Google(LLMClient):
             config_kwargs["tools"] = self._translate_tools(tools)
 
         contents = self._translate_messages(messages)
+        # Without this the `images` argument was silently dropped: an image the
+        # user uploaded never reached Gemini on the native-tool path.
+        if images:
+            self._attach_images(contents, images)
         prompt_tokens = 0
         completion_tokens = 0
         stop_reason = "end_turn"

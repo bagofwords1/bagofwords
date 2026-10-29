@@ -155,6 +155,7 @@ async def stream_reports_activity(
     import asyncio as _asyncio
     from fastapi.responses import StreamingResponse
     from app.streaming.report_activity_hub import report_activity_hub, format_activity_event
+    from app.streaming.delivery import NO_BUFFER_HEADERS
 
     org_id = str(organization.id)
     user_id = str(current_user.id)
@@ -182,10 +183,7 @@ async def stream_reports_activity(
         finally:
             report_activity_hub.unsubscribe(org_id, sub)
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    })
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=NO_BUFFER_HEADERS)
 
 @router.post("/reports/{report_id}/viewed")
 @requires_permission('view_reports', model=Report)
@@ -197,7 +195,9 @@ async def mark_report_viewed(report_id: str, current_user: User = Depends(curren
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def update_report(report_id: str, report: ReportUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.update_report(db, report_id, report, current_user, organization)
+    from app.services import conversation_dashboard
+    updated = await report_service.update_report(db, report_id, report, current_user, organization)
+    return await conversation_dashboard.as_report_schema(db, updated)
 
 @router.get("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
@@ -228,6 +228,22 @@ async def delete_report(
     return result
 
 
+@router.get("/reports/{report_id}/delete_preview")
+@requires_permission('delete_reports', model=Report, owner_only=True)
+async def delete_report_preview(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What deleting this conversation does to each of its dashboards:
+    survives, loses_changes (published, with unpublished edits) or deleted
+    (never published). Changes nothing."""
+    from app.services.dashboard_lifecycle import delete_outcomes
+
+    return {"dashboards": await delete_outcomes(db, [report_id])}
+
+
 @router.post("/reports/bulk/archive")
 @requires_permission('delete_reports')
 async def bulk_archive_reports(
@@ -251,7 +267,8 @@ async def rerun_report(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id)
+    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id,
+                                                  refresh_trigger="manual", triggered_by_user_id=str(current_user.id))
 
 @router.post("/reports/{report_id}/publish", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
@@ -336,7 +353,7 @@ async def get_report_shares(
     """Get list of users a report is shared with for a given type."""
     if share_type not in ('artifact', 'conversation'):
         raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
-    return await report_service.get_shares(db, report_id, share_type)
+    return await report_service.get_shares(db, report_id, share_type, current_user=current_user)
 
 
 @router.get("/reports/{report_id}/artifact_chat/agents")
@@ -471,6 +488,20 @@ async def notify_report(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    if payload.type == NotificationType.SHARE_DASHBOARD:
+        # Phase 9: a conversation with a dashboard sends the dashboard's email
+        # (its /d link, its published version's PDF).
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.dashboard_of(db, report)
+        if dashboard is not None:
+            from app.routes.dashboard import notify_dashboard_share
+            from app.schemas.dashboard_schema import DashboardNotifyRequest
+            return await notify_dashboard_share(
+                dashboard_id=str(dashboard.id),
+                payload=DashboardNotifyRequest(channels=payload.channels, recipients=payload.recipients,
+                                               message=payload.message),
+                request=request, current_user=current_user, db=db, organization=organization)
 
     # Guard: schedule notifications only for published reports
     if payload.type == NotificationType.SCHEDULE_REPORT and report.status != "published":
@@ -678,16 +709,29 @@ async def get_public_file_embed_token(
     ):
         raise HTTPException(status_code=404, detail="File not found")
 
+    # Org members keep their access when public links are switched off;
+    # anyone else got here through the public link, and their token must
+    # lose access with it (see get_file_embed).
+    from app.models.membership import Membership as _Membership
+    is_member = user is not None and (await db.execute(
+        select(_Membership.id).where(
+            _Membership.user_id == str(user.id),
+            _Membership.organization_id == str(report_row.organization_id),
+            _Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+
     from app.core.file_tokens import mint_file_token, file_embed_url
     token = mint_file_token(
-        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id)
+        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id),
+        via_public_link=not is_member,
     )
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 
 # --- Public Query/Step Routes (for published reports) ---
 
-from app.schemas.query_schema import PublicQuerySchema
+from app.schemas.query_schema import PublicQuerySchema, PublicQueryWithStepSchema
 from app.schemas.step_schema import PublicStepSchema
 
 
@@ -720,6 +764,18 @@ async def get_public_queries(
 ):
     """Get queries for a shared report."""
     return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id, user=user)
+
+
+@router.get("/r/{report_id}/queries_with_steps", response_model=List[PublicQueryWithStepSchema])
+async def get_public_queries_with_steps(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Filter queries to only those used by this artifact"),
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Queries for a shared report, each with the default step this reader may
+    see — the list endpoint and every per-query step endpoint in one request."""
+    return await report_service.get_public_queries_with_steps(db, report_id, artifact_id=artifact_id, user=user)
 
 
 @router.get("/r/{report_id}/queries/{query_id}/step", response_model=PublicStepSchema)
@@ -756,7 +812,10 @@ async def get_public_artifact(
     user: User | None = Depends(current_user_optional),
 ):
     """Get a specific artifact for a shared report."""
-    return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    schema = await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    from app.services.artifact_precompile import attach_compiled
+    attach_compiled(schema)
+    return schema
 
 
 # One render per report at a time: each export launches a headless Chromium,
@@ -1099,6 +1158,7 @@ async def export_public_report_html(
 @router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
 async def refresh_public_report_on_view(
     report_id: str,
+    artifact_id: str | None = Query(None, description="The dashboard version open in the editor (phase 9)"),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -1109,7 +1169,7 @@ async def refresh_public_report_on_view(
     single-flight claim. A declined request returns 200 with skipped=true; the
     page simply renders the data it already has.
     """
-    return await report_service.refresh_on_view_rerun(db, report_id, user=user)
+    return await report_service.refresh_on_view_rerun(db, report_id, user=user, artifact_id=artifact_id)
 
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
@@ -1236,7 +1296,7 @@ async def get_report_summary(
     Unlike completions (which are paginated), this returns the full set so the
     summary sidebar is complete on first load.
     """
-    return await report_service.get_report_summary(db, report_id)
+    return await report_service.get_report_summary(db, report_id, organization, current_user)
 
 
 # --- Training Mode Instructions ---

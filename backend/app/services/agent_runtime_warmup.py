@@ -46,6 +46,8 @@ async def warm_agent_runtime() -> None:
                 connection_type,
             )
 
+    await _warm_llm_sdks()
+
     logger.info(
         "Agent runtime warmed in %.0fms (tools=%d, connector_types=%d/%d)",
         (time.perf_counter() - started_at) * 1000,
@@ -53,3 +55,48 @@ async def warm_agent_runtime() -> None:
         len(warmed_types),
         len(connection_types),
     )
+
+
+async def _warm_llm_sdks() -> None:
+    """Run each provider SDK's request preparation once, offline.
+
+    The SDKs import their resource modules and build their type-driven
+    request transforms lazily, so the first model call of a worker paid for
+    it (~300-450 ms measured for OpenAI chat: ``client.chat`` imports
+    ``openai.resources``). Nothing is sent: only imports and the transform
+    run, on a tiny request.
+    """
+    for module in ("openai.resources", "anthropic.resources"):
+        try:
+            __import__(module)
+        except Exception:
+            logger.debug("%s warmup import skipped", module, exc_info=True)
+    tool = {"name": "t", "description": "d", "input_schema": {"type": "object", "properties": {}}}
+    try:
+        from anthropic._utils._transform import async_maybe_transform as a_transform
+        from anthropic.types import message_create_params
+
+        await a_transform(
+            {"model": "m", "max_tokens": 1, "messages": [{"role": "user", "content": "hi"}],
+             "system": [{"type": "text", "text": "s"}], "tools": [tool], "stream": True},
+            message_create_params.MessageCreateParamsStreaming,
+        )
+    except Exception:
+        logger.debug("anthropic SDK warmup skipped", exc_info=True)
+    try:
+        from openai._utils._transform import async_maybe_transform as o_transform
+        from openai.types.chat import completion_create_params
+        from openai.types.responses import response_create_params
+
+        fn = {"type": "function", "function": {"name": "t", "description": "d", "parameters": {"type": "object"}}}
+        await o_transform(
+            {"model": "m", "messages": [{"role": "user", "content": "hi"}], "tools": [fn], "stream": True},
+            completion_create_params.CompletionCreateParamsStreaming,
+        )
+        await o_transform(
+            {"model": "m", "input": "hi", "stream": True,
+             "tools": [{"type": "function", "name": "t", "parameters": {"type": "object"}, "strict": False}]},
+            response_create_params.ResponseCreateParamsStreaming,
+        )
+    except Exception:
+        logger.debug("openai SDK warmup skipped", exc_info=True)

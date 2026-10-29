@@ -8,7 +8,7 @@
         {{ $t('agentsPage.fileBrowserOpenInSource') }}<UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5" />
       </a>
     </div>
-    <div v-else-if="loading" class="text-xs text-gray-400 dark:text-gray-500 py-6 flex items-center justify-center gap-1.5">
+    <div v-else-if="loading" class="text-xs text-ink-muted py-6 flex items-center justify-center gap-1.5">
       <UIcon name="i-heroicons-arrow-path" class="w-3.5 h-3.5 animate-spin" />{{ $t('agentsPage.fileBrowserPreviewLoading') }}
     </div>
     <div v-else-if="error !== null" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1.5 flex items-start justify-between gap-2">
@@ -24,7 +24,7 @@
       <template v-else-if="kind === 'table' && table">
         <div v-if="table.sheets.length > 1" class="flex items-center gap-1 mb-2 overflow-x-auto">
           <button v-for="s in table.sheets" :key="s" type="button"
-                  class="shrink-0 px-2 py-0.5 rounded text-[11px] border"
+                  class="shrink-0 px-2 py-0.5 rounded text-2xs border"
                   :class="s === table.sheet
                     ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
                     : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
@@ -35,7 +35,7 @@
         </div>
       </template>
       <template v-else-if="kind === 'text' && text !== null">
-        <pre dir="auto" class="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3">{{ text }}</pre>
+        <pre dir="auto" class="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-2xs font-mono text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3">{{ text }}</pre>
       </template>
       <!-- Source HTML is untrusted: an empty sandbox (no scripts, forms,
            popups or same-origin access) plus a CSP that blocks every remote
@@ -44,7 +44,7 @@
               class="w-full h-[65vh] rounded-md border border-gray-200 dark:border-gray-700 bg-white" />
       <!-- Under both views: a cut HTML page doesn't LOOK cut — the parser
            closes the open tags — so it needs saying even more than text. -->
-      <div v-if="truncatedAt" class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+      <div v-if="truncatedAt" class="mt-1 text-2xs text-ink-muted">
         {{ $t('agentsPage.fileBrowserPreviewTextTruncated', { n: truncatedAt.toLocaleString() }) }}
       </div>
     </template>

@@ -678,3 +678,79 @@ def test_trigger_runs_carry_each_run_verdict(
     runs = test_client.get(f"/api/triggers/{trig['id']}/runs",
                            headers=_headers(token, org_id)).json()["runs"]
     assert [r["status"] for r in runs] == ["success", "error"], "newest first"
+
+
+# ---------------------------------------------------------------------------
+# Spawned session titles
+# ---------------------------------------------------------------------------
+
+def _stub_agent_run_titling(monkeypatch, seen_titles, generated_title):
+    """Agent stub that records the title the run started with, then names the
+    report the way the real title generator does (only if still untitled)."""
+    from sqlalchemy import update
+
+    from app.models.completion import Completion
+    from app.models.report import Report
+    from app.services.completion_service import CompletionService
+
+    async def fake_create_completion(self, db, report_id, completion_data,
+                                     current_user, organization, background=False, **kw):
+        report = await db.get(Report, str(report_id))
+        seen_titles.append(report.title)
+        await db.execute(update(Report).where(Report.id == str(report_id),
+                                              Report.title == "").values(title=generated_title))
+        db.add(Completion(
+            prompt={"content": completion_data.prompt.content},
+            completion={"content": "done"}, model="stub", report_id=str(report_id),
+            turn_index=0, role="system", status="success", user_id=str(current_user.id),
+        ))
+        await db.commit()
+
+    monkeypatch.setattr(CompletionService, "create_completion", fake_create_completion)
+
+
+@pytest.mark.e2e
+def test_trigger_session_is_named_by_the_agent_not_the_payload(
+    monkeypatch, create_user, login_user, whoami, test_client, get_reports,
+):
+    """The spawned session reaches the agent untitled (so its LLM title
+    generator runs), and a generated title is kept over the summary fallback."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    seen = []
+    _stub_agent_run_titling(monkeypatch, seen, "Payments API Outage")
+    _deliver(trig["id"], {"type": "incident", "title": "raw payload text"}, "d-title-1")
+
+    assert seen and (seen[0] or "").strip() == "", "agent must start on an untitled report"
+    report = _find_spawned_reports(get_reports, token, org_id, trig["id"])[0]
+    assert report["title"] == "Payments API Outage"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("payload, readable", [
+    # ServiceNow-style reference fields: {value: sys_id, display_value: label}
+    ({"type": {"value": "2e0972", "display_value": "Incident"},
+      "name": {"value": "5e036f", "display_value": "IIS 10 Application"}},
+     ["Incident", "IIS 10 Application"]),
+    ({"event": {"name": "deploy"}, "short_description": "Web tier down"},
+     ["deploy", "Web tier down"]),
+    ({"action": "created", "subject": ["db-01", {"label": "db-02"}]},
+     ["created", "db-01, db-02"]),
+])
+def test_trigger_fallback_title_renders_nested_fields_as_text(
+    monkeypatch, create_user, login_user, whoami, test_client, get_reports,
+    payload, readable,
+):
+    """When the agent never titles the session, the fallback is readable text,
+    never a dict/list repr of the payload."""
+    token, org_id = _setup_user(create_user, login_user, whoami)
+    trig = _create_trigger(test_client, token, org_id).json()
+
+    _stub_agent_run(monkeypatch, [], status="error", error={"message": "boom"})
+    _deliver(trig["id"], payload, f"d-nested-{uuid.uuid4().hex[:6]}")
+
+    title = _find_spawned_reports(get_reports, token, org_id, trig["id"])[0]["title"]
+    for text in readable:
+        assert text in title
+    assert "{" not in title and "[" not in title

@@ -26,7 +26,7 @@
                 <div class="flex items-center space-x-4">
                     <div class="w-20 h-14 rounded border bg-white dark:bg-gray-900 overflow-hidden flex items-center justify-center">
                         <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
-                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-gray-400 dark:text-gray-400" />
+                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-ink-muted" />
                     </div>
                     <div class="space-x-2">
                         <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>

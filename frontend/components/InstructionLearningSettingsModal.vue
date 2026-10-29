@@ -7,11 +7,11 @@
                     <UIcon
                         :name="currentSavedMode === 'on' ? 'i-heroicons-bolt' : 'i-heroicons-bolt-slash'"
                         class="w-5 h-5"
-                        :class="currentSavedMode === 'on' ? 'text-amber-500' : 'text-gray-400'"
+                        :class="currentSavedMode === 'on' ? 'text-amber-500' : 'text-ink-muted'"
                     />
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">AI Suggestions</h3>
                 </div>
-                <button @click="close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-400">
+                <button @click="close" class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-400">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
@@ -37,7 +37,7 @@
                         <div class="flex flex-col items-start py-0.5">
                             <div class="flex items-center gap-2">
                                 <span class="font-medium">{{ selectedOption?.label }}</span>
-                                <span v-if="selectedOption?.recommended" class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                <span v-if="selectedOption?.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
                                     Recommended
                                 </span>
                             </div>
@@ -48,7 +48,7 @@
                         <div class="py-1.5">
                             <div class="flex items-center gap-2">
                                 <p class="text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</p>
-                                <span v-if="option.recommended" class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                                <span v-if="option.recommended" class="text-2xs font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
                                     Recommended
                                 </span>
                             </div>
@@ -56,7 +56,7 @@
                         </div>
                     </template>
                 </USelectMenu>
-                <p v-if="!canEdit" class="text-xs text-gray-400 dark:text-gray-500 mt-3">
+                <p v-if="!canEdit" class="text-xs text-ink-muted mt-3">
                     Only admins can change this setting.
                 </p>
             </div>

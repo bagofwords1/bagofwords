@@ -51,7 +51,7 @@
             class="w-full ps-7 pe-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:outline-none focus:border-gray-400 bg-white dark:bg-gray-900"
             @input="debouncedSearch"
           />
-          <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1.5 w-3.5 h-3.5 text-gray-400" />
+          <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1.5 w-3.5 h-3.5 text-ink-muted" />
         </div>
 
         <AuditFilterSelect
@@ -94,7 +94,7 @@
 
         <button
           v-if="hasActiveFilters"
-          class="text-xs text-gray-400 hover:text-gray-600"
+          class="text-xs text-ink-muted hover:text-gray-600"
           data-testid="audit-clear"
           @click="clearFilters"
         >
@@ -115,7 +115,7 @@
           <div v-if="showExport" class="absolute top-full end-0 mt-1 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-md z-20 py-1">
             <button type="button" data-testid="audit-export-json" class="w-full text-start px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="doExport('json')">{{ $t('settings.audit.export.json') }}</button>
             <button type="button" data-testid="audit-export-csv" class="w-full text-start px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="doExport('csv')">{{ $t('settings.audit.export.csv') }}</button>
-            <p class="px-3 pt-1 pb-1.5 text-[10px] text-gray-400 border-t border-gray-100 dark:border-gray-800 mt-1">{{ $t('settings.audit.export.hint') }}</p>
+            <p class="px-3 pt-1 pb-1.5 text-2xs text-ink-muted border-t border-gray-100 dark:border-gray-800 mt-1">{{ $t('settings.audit.export.hint') }}</p>
           </div>
         </div>
       </div>
@@ -145,7 +145,7 @@
             @keydown.enter.prevent="selected = log"
           >
             <!-- Time -->
-            <span class="w-[92px] shrink-0 text-gray-500 dark:text-gray-400 font-mono text-[11px] tabular-nums" :title="relativeTime(log.created_at)">
+            <span class="w-[92px] shrink-0 text-gray-500 dark:text-gray-400 font-mono text-2xs tabular-nums" :title="relativeTime(log.created_at)">
               {{ formatTimestamp(log.created_at) }}
             </span>
 
@@ -157,7 +157,7 @@
               <span
                 v-if="actorKind(log) === 'agent'"
                 data-testid="audit-actor-agent"
-                class="shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded text-[10px] bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                class="shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded text-2xs bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
               >
                 <UIcon name="i-heroicons-sparkles" class="w-2.5 h-2.5" />{{ $t('settings.audit.actorAgent') }}
               </span>
@@ -165,10 +165,10 @@
 
             <!-- Action: muted resource path + coloured verb; truncates, never overlaps -->
             <span data-testid="audit-action" class="flex-1 min-w-0 flex items-center gap-1 truncate" :title="log.action">
-              <span v-if="splitAction(log.action).path.length" class="truncate text-gray-400 dark:text-gray-500">
+              <span v-if="splitAction(log.action).path.length" class="truncate text-ink-muted">
                 {{ splitAction(log.action).path.join(' · ') }}
               </span>
-              <span class="shrink-0 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium" :class="verbClass(log.action)">
+              <span class="shrink-0 inline-flex px-1.5 py-0.5 rounded text-2xs font-medium" :class="verbClass(log.action)">
                 {{ splitAction(log.action).verb }}
               </span>
             </span>
@@ -176,7 +176,7 @@
             <!-- Target -->
             <span class="flex-1 min-w-0 truncate text-gray-500 dark:text-gray-400" :title="log.details?.title">
               <template v-if="log.resource_type">
-                <span class="text-gray-400">{{ log.resource_type }}</span>
+                <span class="text-ink-muted">{{ log.resource_type }}</span>
                 <template v-if="log.details?.title"> · <span class="text-gray-700 dark:text-gray-300">{{ log.details.title }}</span></template>
               </template>
             </span>
@@ -187,27 +187,27 @@
 
         <!-- Empty State -->
         <div v-else class="py-8 text-center">
-          <p class="text-xs text-gray-400 dark:text-gray-400">{{ $t('settings.audit.noActivity') }}</p>
+          <p class="text-xs text-ink-muted">{{ $t('settings.audit.noActivity') }}</p>
         </div>
       </div>
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="mt-2 flex items-center justify-between">
-        <span class="text-[11px] text-gray-400 dark:text-gray-400">
+        <span class="text-2xs text-ink-muted">
           {{ $t('settings.audit.rangeCount', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, total), total }) }}
         </span>
         <div class="flex items-center gap-0.5">
           <button
             :disabled="page <= 1"
-            class="px-1.5 py-0.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+            class="px-1.5 py-0.5 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
             @click="prevPage(buildFilters())"
           >
             {{ $t('settings.audit.prev') }}
           </button>
-          <span class="px-1.5 text-[11px] text-gray-400 dark:text-gray-400">{{ page }}/{{ totalPages }}</span>
+          <span class="px-1.5 text-2xs text-ink-muted">{{ page }}/{{ totalPages }}</span>
           <button
             :disabled="page >= totalPages"
-            class="px-1.5 py-0.5 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+            class="px-1.5 py-0.5 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
             @click="nextPage(buildFilters())"
           >
             {{ $t('settings.audit.next') }}

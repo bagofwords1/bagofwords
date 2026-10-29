@@ -18,9 +18,9 @@
                     <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
                 </template>
                 <template v-else-if="isThinking">
-                    <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                    <Spinner class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
                     <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                    <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>
+                    <span class="text-ink-muted tabular-nums">{{ thinkingElapsedLabel }}</span>
                 </template>
                 <!-- Background sub-agents: independent of the working label — the
                      parent can be idle while children run (docs/design/sub-agents.md A9). -->
@@ -43,13 +43,13 @@
                 class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
                 data-testid="queued-prompt-chip"
             >
-                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
                 <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
                 <!-- Native title tooltips here: UTooltip's popper can overlap and
                      intercept clicks on these small targets. -->
                 <button
                     v-if="latestInProgressCompletion"
-                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
                     :title="$t('prompt.steerNow')"
                     data-testid="queued-steer-button"
                     @click="emit('steerQueuedPrompt', qp.id)"
@@ -57,7 +57,7 @@
                     {{ $t('prompt.sendNow') }}
                 </button>
                 <button
-                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
                     :title="$t('prompt.removeFromQueue')"
                     data-testid="queued-remove-button"
                     @click="emit('removeQueuedPrompt', qp.id)"
@@ -80,7 +80,7 @@
                     <button
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
-                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-ink-muted" />
                         {{ props.queryList.length }} {{ props.queryList.length === 1 ? $t('prompt.query') : $t('prompt.queries') }}
                     </button>
                     <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
@@ -96,7 +96,7 @@
                                 @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
                             >
                                 <div class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ q.label }}</div>
-                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
+                                <div v-if="q.rowCount != null" class="text-2xs text-ink-muted mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
                             </div>
                         </div>
                         <!-- Invisible bridge to cover gap between dropdown and pill -->
@@ -113,7 +113,7 @@
                     <button
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
-                        <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                        <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-ink-muted" />
                         {{ props.scheduledPrompts.length }} {{ $t('prompt.scheduled') }}
                     </button>
                     <div
@@ -134,8 +134,8 @@
                                     />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-gray-400 dark:text-gray-500': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
-                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ sp.run_once_at ? sharedCronLabel(sp.cron_schedule, sp.run_once_at) : getCronLabel(sp.cron_schedule) }}</div>
+                                    <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-ink-muted': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
+                                    <div class="text-2xs text-ink-muted mt-0.5">{{ sp.run_once_at ? sharedCronLabel(sp.cron_schedule, sp.run_once_at) : getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
                             </div>
                         </div>
@@ -155,7 +155,7 @@
             <div v-else></div>
             <button
                 v-if="isExcel && excelSelection && !excelSelectionDismissed"
-                class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 text-2xs flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                 @click="addExcelSelectionToPrompt"
                 :title="excelSelectionTooltip"
             >
@@ -167,7 +167,8 @@
 
         <!-- Minimalist prompt container -->
         <div
-            class="border rounded-xl bg-white dark:bg-gray-900 transition-colors relative"
+            data-testid="composer-surface"
+            class="border rounded-composer shadow-sm bg-white dark:bg-gray-900 transition-colors relative"
             :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : mode === 'training' ? 'border-sky-300 focus-within:border-sky-400' : 'border-gray-200 dark:border-gray-800 focus-within:border-gray-300 dark:focus-within:border-gray-700', props.compact ? 'text-sm' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
@@ -178,7 +179,7 @@
             <!-- Drop overlay -->
             <div
                 v-if="isDraggingFiles"
-                class="absolute inset-0 bg-blue-50/80 rounded-xl flex items-center justify-center z-10 pointer-events-none"
+                class="absolute inset-0 bg-blue-50/80 rounded-composer flex items-center justify-center z-10 pointer-events-none"
             >
                 <div class="flex flex-col items-center text-blue-600">
                     <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
@@ -187,13 +188,13 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'">
                 <!-- Instructions -->
                 <button
                 class="hidden"
                     :class="props.compact
-                        ? 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
-                        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
+                        ? 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
+                        : 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
                     <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 me-1.5' : 'w-4 h-4 me-1.5'" />
@@ -203,7 +204,7 @@
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500 dark:text-gray-400"
                 >
-                    <Spinner class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                    <Spinner class="w-4 h-4 text-ink-muted" />
                     <span>{{ $t('prompt.loadingReportContext') }}</span>
                 </div>
                 <MentionInput
@@ -219,7 +220,7 @@
             </div>
 
             <!-- Inline file chips -->
-            <div v-if="uploadedFiles.length > 0" class="px-3 pb-2 flex flex-wrap gap-2">
+            <div v-if="uploadedFiles.length > 0" :class="[props.compact ? 'px-3' : 'px-4', 'pb-2 flex flex-wrap gap-2']">
                 <!-- Image files - show thumbnail preview -->
                 <div
                     v-for="file in visibleInlineFiles.filter(f => isImageFile(f))"
@@ -244,7 +245,7 @@
                             img-class="w-full h-full object-cover"
                         />
                         <div v-else class="w-full h-full flex items-center justify-center">
-                            <Icon name="heroicons-photo" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                            <Icon name="heroicons-photo" class="w-5 h-5 text-ink-muted" />
                         </div>
                         <!-- Processing overlay -->
                         <div v-if="file.status === 'processing'" class="absolute inset-0 flex items-center justify-center bg-white/60">
@@ -277,7 +278,7 @@
                     <span class="truncate max-w-[110px]">{{ file.filename }}</span>
                     <button
                         @click="removeInlineFile(file)"
-                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -296,7 +297,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-4 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
@@ -352,10 +353,10 @@
                             :ui="{ width: 'w-auto', container: 'z-[90]' }"
                         >
                             <div
-                                class="text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
+                                class="text-ink-muted hover:text-gray-900 dark:hover:text-white rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
                             >
                                 <span class="sr-only">{{ usageIndicatorTooltip }}</span>
-                                <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                                <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-ink-muted" />
                                 <UIcon
                                     v-else
                                     :name="contextIndicatorIcon"
@@ -366,14 +367,14 @@
                                 <div class="w-72 p-3 text-xs text-gray-700 dark:text-gray-300">
                                     <div class="flex items-center justify-between mb-2">
                                         <div class="font-medium text-gray-900 dark:text-white">{{ $t('prompt.usageThisMonth') }}</div>
-                                        <Spinner v-if="isRefreshingQuota" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                                        <Spinner v-if="isRefreshingQuota" class="w-3.5 h-3.5 text-ink-muted" />
                                     </div>
 
                                     <div class="space-y-2">
                                         <div>
                                             <div class="flex items-center justify-between gap-3">
                                                 <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.context') }}</span>
-                                                <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ contextUsageValue }}</span>
+                                                <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ contextUsageValue }}</span>
                                             </div>
                                             <div class="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                                                 <div
@@ -387,18 +388,18 @@
                                                     class="text-gray-500 dark:text-gray-400"
                                                     data-testid="compacted-total"
                                                 >
-                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
+                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
                                                 </span>
                                                 <span v-else />
                                                 <button
                                                     type="button"
                                                     data-testid="compact-button"
-                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-2xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                                     :disabled="isCompacting || !compactionState?.can_compact"
                                                     :title="compactionState?.can_compact ? $t('prompt.compactTooltip') : $t('prompt.compactNothing')"
                                                     @click="compactContext"
                                                 >
-                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-gray-400" />
+                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-ink-muted" />
                                                     <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3 h-3" />
                                                     {{ isCompacting ? $t('prompt.compacting') : $t('prompt.compact') }}
                                                 </button>
@@ -409,7 +410,7 @@
                                             <div>
                                                 <div class="flex items-center justify-between gap-3">
                                                     <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.tokens') }}</span>
-                                                    <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.tokens) }}</span>
+                                                    <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.tokens) }}</span>
                                                 </div>
                                                 <div class="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                                                     <div
@@ -423,16 +424,16 @@
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.queries') }}</div>
-                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.queries) }}</div>
+                                                    <div class="mt-0.5 font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.queries) }}</div>
                                                 </div>
                                                 <div>
                                                     <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.data') }}</div>
-                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.data_bytes, 'bytes') }}</div>
+                                                    <div class="mt-0.5 font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.data_bytes, 'bytes') }}</div>
                                                 </div>
                                             </div>
 
                                             <div v-if="quotaConnections.length" class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
-                                                <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400">{{ $t('prompt.connections') }}</div>
+                                                <div class="text-2xs font-medium text-gray-500 dark:text-gray-400">{{ $t('prompt.connections') }}</div>
                                                 <div
                                                     v-for="connection in quotaConnections"
                                                     :key="connection.id"
@@ -442,15 +443,15 @@
                                                     <div class="grid grid-cols-2 gap-2">
                                                         <div>
                                                             <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.queries') }}</div>
-                                                            <div class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.queries) }}</div>
+                                                            <div class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.queries) }}</div>
                                                         </div>
                                                         <div>
                                                             <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.data') }}</div>
-                                                            <div class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.data_bytes, 'bytes') }}</div>
+                                                            <div class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.data_bytes, 'bytes') }}</div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-if="hiddenQuotaConnectionCount > 0" class="text-[11px] text-gray-400 dark:text-gray-500">
+                                                <div v-if="hiddenQuotaConnectionCount > 0" class="text-2xs text-ink-muted">
                                                     {{ $t('prompt.moreConnections', { count: hiddenQuotaConnectionCount }) }}
                                                 </div>
                                             </div>
@@ -490,7 +491,7 @@
                                     <span class="flex-1 truncate text-start">{{ proj.name }}</span>
                                     <Icon v-if="currentProject?.id === proj.id" name="heroicons-check" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                 </button>
-                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-gray-400 dark:text-gray-500">
+                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-ink-muted">
                                     {{ $t('projects.moveNoProjects') }}
                                 </div>
                                 <template v-if="currentProject">
@@ -501,7 +502,7 @@
                                         :disabled="isMovingProject"
                                         @click="pickProject(null, close)"
                                     >
-                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
                                         <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
                                     </button>
                                     <NuxtLink
@@ -509,7 +510,7 @@
                                         class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200"
                                         @click="close()"
                                     >
-                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
                                         <span class="flex-1 truncate text-start">{{ $t('projects.openProject') }}</span>
                                     </NuxtLink>
                                 </template>
@@ -537,7 +538,7 @@
                                 <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :model="selectedModelLabel" :icon="true" class="w-4 h-4 flex-shrink-0" />
                                 <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
-                                <span v-if="selectedEffort" data-testid="effort-badge" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
+                                <span v-if="selectedEffort" data-testid="effort-badge" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
@@ -1185,8 +1186,10 @@ async function loadModels() {
                     // router actually engages (sends model_id=null).
                     selectedModel.value = AUTO
                 } else {
-                // Personal default first, then the org-wide default
-                const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
+                // Personal default first, then the inherited one (group → org), then the org default
+                const defaultModel = models.value.find(m => m.is_user_default)
+                    || models.value.find(m => m.is_inherited_default)
+                    || models.value.find(m => m.is_default)
                 if (defaultModel) {
                     selectedModel.value = defaultModel.id
                 } else {

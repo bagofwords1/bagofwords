@@ -5,7 +5,7 @@ links; every existing list is linked to the agent it was created on, which
 stays recorded as its home agent (``agent_lists.data_source_id``).
 
 Revision ID: sharedlists01
-Revises: submsg02
+Revises: refhist01
 Create Date: 2026-10-18
 """
 from alembic import op
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 revision = "sharedlists01"
-down_revision = "submsg02"
+down_revision = "refhist01"
 branch_labels = None
 depends_on = None
 

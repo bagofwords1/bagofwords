@@ -427,7 +427,12 @@ class CustomApiClient(ToolProviderClient):
                 )
 
             needs_csrf = self.csrf_token_flow and method in self._WRITE_METHODS
-            with pinned_client(Policy.ADMIN, timeout=self._timeout_for(ep), follow_redirects=True) as client:
+            # Pinned like before, on the process-wide pool, so repeated calls
+            # to the same API reuse a connection instead of a new TCP + TLS
+            # setup each (app.core.llm_transport). Cookies stay per call.
+            from app.core.llm_transport import shared_transports
+            with httpx.Client(transport=shared_transports(pinned=True)[0],
+                              timeout=self._timeout_for(ep), follow_redirects=True) as client:
                 if needs_csrf:
                     token = self._fetch_csrf_token(client, headers, query_params)
                     if token:

@@ -55,6 +55,39 @@ async def _build_viewer_context(
     }
 
 
+async def _open_release(db: AsyncSession, ref: str, user: User, organization: Organization):
+    """(dashboard, live release) when `user` may open it in this organization
+    -- the /d rules (phase 4) -- else None."""
+    from app.errors import AppError
+    from app.services.dashboard_access import open_published
+
+    try:
+        artifact, release = await open_published(db, ref, user)
+    except AppError:
+        return None
+    if str(artifact.organization_id) != str(organization.id):
+        return None
+    return artifact, release
+
+
+async def _release_chart(db: AsyncSession, viz: Visualization, artifact, release, user: User) -> Dict[str, Any]:
+    """One chart of a release, with the rows this reader may see."""
+    from app.services.dashboard_data import default_step, resolve_release_step
+
+    query = await db.get(Query, viz.query_id) if viz.query_id else None
+    step = await default_step(db, query) if query is not None else None
+    resolution = await resolve_release_step(db, step, artifact, release, user) if step is not None else None
+    data = resolution.data if resolution is not None else {}
+    withheld = resolution is not None and resolution.withheld
+    # Code follows the reader's role, as on /d.
+    from app.core.code_visibility import can_view_code
+    from app.core.permission_resolver import resolve_permissions
+
+    code_visible = can_view_code(await resolve_permissions(db, str(user.id), str(artifact.organization_id)))
+    return {"step": step, "query": query, "rows": (data or {}).get("rows", []),
+            "columns": (data or {}).get("columns", []), "hide_code": withheld or not code_visible}
+
+
 class GetVisualizationMCPTool(MCPTool):
     """Fetch full visualization data including query results and code.
 
@@ -103,6 +136,29 @@ class GetVisualizationMCPTool(MCPTool):
             .execution_options(populate_existing=True)
         )
         viz = result.scalar_one_or_none()
+
+        if viz is not None and viz.artifact_release_id:
+            # A published dashboard's chart: only its live release's, for who
+            # may open that dashboard (phase 4).
+            from app.models.artifact import Artifact
+            artifact_id = (await db.execute(
+                select(Artifact.id).where(Artifact.published_release_id == str(viz.artifact_release_id),
+                                          Artifact.deleted_at.is_(None))
+            )).scalar_one_or_none()
+            opened = await _open_release(db, str(artifact_id), user, organization) if artifact_id else None
+            if opened is None or viz.deleted_at is not None:
+                return {"error": f"Visualization {visualization_id} not found"}
+            chart = await _release_chart(db, viz, *opened, user)
+            step = chart["step"]
+            return {
+                "id": str(viz.id),
+                "title": viz.title or "",
+                "view": viz.view or {},
+                "code": "" if chart["hide_code"] or step is None else step.code,
+                "data": {"rows": chart["rows"], "columns": chart["columns"]},
+                "data_model": step.data_model if step else {},
+                "step_status": step.status if step else None,
+            }
 
         # Same not-found answer for a foreign id as for a missing one.
         if not viz or not await self._assert_can_view_report(
@@ -153,10 +209,13 @@ class GetArtifactDataMCPTool(MCPTool):
             "properties": {
                 "artifact_id": {
                     "type": "string",
-                    "description": "The artifact ID to fetch data for.",
+                    "description": "The artifact (version) ID to fetch data for.",
+                },
+                "dashboard_id": {
+                    "type": "string",
+                    "description": "A published dashboard's id or name: its live release is fetched instead.",
                 },
             },
-            "required": ["artifact_id"],
         }
 
     async def execute(
@@ -166,6 +225,9 @@ class GetArtifactDataMCPTool(MCPTool):
         user: User,
         organization: Organization,
     ) -> Dict[str, Any]:
+        dashboard_id = args.get("dashboard_id")
+        if dashboard_id:
+            return await self._published(db, str(dashboard_id), user, organization)
         artifact_id = args.get("artifact_id")
         if not artifact_id:
             return {"error": "artifact_id is required"}
@@ -230,6 +292,43 @@ class GetArtifactDataMCPTool(MCPTool):
             },
             "runtime": {"version": int(content.get("runtime_version") or 0)},
             "code": code,
+            "mode": artifact.mode or "page",
+            "visualizations": visualizations,
+            "current_user": await _build_viewer_context(db, user, organization),
+        }
+
+    async def _published(self, db: AsyncSession, ref: str, user: User, organization: Organization):
+        """The live release of a published dashboard, as /d serves it."""
+        opened = await _open_release(db, ref, user, organization)
+        if opened is None:
+            return {"error": f"Dashboard {ref} not found"}
+        artifact, release = opened
+        content = release.content or {}
+        viz_ids = [str(v) for v in content.get("visualization_ids") or []]
+        charts = (await db.execute(
+            select(Visualization).where(Visualization.artifact_release_id == str(release.id),
+                                        Visualization.deleted_at.is_(None))
+        )).scalars().all()
+        order = {vid: i for i, vid in enumerate(viz_ids)}
+        charts = sorted((v for v in charts if not viz_ids or str(v.id) in order),
+                        key=lambda v: order.get(str(v.id), len(order)))
+        visualizations: List[Dict[str, Any]] = []
+        for viz in charts:
+            chart = await _release_chart(db, viz, artifact, release, user)
+            step = chart["step"]
+            visualizations.append({
+                "id": str(viz.id),
+                "title": viz.title or (chart["query"].title if chart["query"] else None) or "Untitled",
+                "view": viz.view or {},
+                "rows": chart["rows"],
+                "columns": chart["columns"],
+                "dataModel": step.data_model or {} if step else {},
+                "stepStatus": step.status if step else None,
+            })
+        return {
+            "report": {"id": str(artifact.id), "title": artifact.title or ""},
+            "runtime": {"version": int(content.get("runtime_version") or 0)},
+            "code": content.get("code", ""),
             "mode": artifact.mode or "page",
             "visualizations": visualizations,
             "current_user": await _build_viewer_context(db, user, organization),

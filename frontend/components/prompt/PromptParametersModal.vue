@@ -8,7 +8,7 @@
 
       <div class="mt-4 space-y-3 max-h-[60vh] overflow-auto pe-1">
         <div v-for="name in paramNames" :key="name">
-          <label class="block text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">{{ name }}</label>
+          <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-0.5">{{ name }}</label>
           <UInput v-model="values[name]" type="text" size="sm" :placeholder="name" />
         </div>
 

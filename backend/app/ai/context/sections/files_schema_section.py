@@ -54,7 +54,12 @@ class FilesSchemaContext(ContextSection):
                     'Files marked detail="index" show structure only. Before using '
                     "one, read its content on demand: read_file(file_id=...) for "
                     "text/PDF/images, inspect_data for tabular files. Do not guess "
-                    "cell values from the index line.",
+                    "cell values from the index line. To look something up in a "
+                    "LARGE text file (a catalogue, glossary, YAML/JSON reference), "
+                    "grep it first: grep_files(file_ids=[...], pattern=..., "
+                    "ignore_case=true) returns just the matching lines — read_file "
+                    "shows only a few thousand characters per call. Never infer an "
+                    "entry you did not find in the file.",
                 )
             )
         return xml_tag(self.tag_name, body)

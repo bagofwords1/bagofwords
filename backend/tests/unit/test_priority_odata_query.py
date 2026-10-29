@@ -184,6 +184,22 @@ def test_since_goes_to_the_top_level_form():
     assert levels[0]["$since"] == "2026-01-01T00:00:00Z"
 
 
+@pytest.mark.parametrize("orderby,parent_orderby,ties", [
+    ("CURDATE desc", [("CURDATE", True)], False),
+    ("CURDATE desc,KLINE", [("CURDATE", True)], True),
+    ("CURDATE desc,ORDNAME desc,KLINE", [("CURDATE", True), ("ORDNAME", True)], False),
+    ("ORDERS_STATDES,PRICE desc", [("STATDES", False)], True),
+    ("PRICE desc,CURDATE", None, False),
+])
+def test_parents_are_sorted_by_the_leading_parent_columns(orderby, parent_orderby, ties):
+    """Priority can sort the parents by the columns the sort starts with; a
+    line column after them only orders lines among parents tied on those
+    columns, which cannot happen once the parent's key is among them."""
+    _, _, post, _ = _request(_route(), f"$orderby={orderby}&$top=5")
+    assert post.parent_orderby == parent_orderby
+    assert post.parent_ties is ties
+
+
 @pytest.mark.parametrize("qs", [
     "$expand=ORDERITEMSTEXT_SUBFORM",
     "$apply=groupby((PARTNAME))",

@@ -26,7 +26,7 @@
                             {{ connectionStatusLabel }}
                         </span>
                         <!-- Last checked time -->
-                        <span v-if="lastCheckedDisplay" class="text-[10px] text-gray-400 dark:text-gray-600">
+                        <span v-if="lastCheckedDisplay" class="text-2xs text-ink-muted">
                             {{ lastCheckedDisplay }}
                         </span>
                         <!-- Test/Refresh button -->
@@ -39,7 +39,7 @@
                             <Spinner v-if="isTesting" class="w-4 h-4" />
                             <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                         </button>
-                        <!-- Edit button - only for users with manage_connections permission -->
+                        <!-- Edit button - only for users who can manage this connection -->
                         <UButton 
                             v-if="canManageConnections"
                             color="gray" 
@@ -135,7 +135,10 @@ import type { Ref } from 'vue'
 
 const route = useRoute()
 const dsId = computed(() => String(route.params.id || ''))
-const canManageConnections = computed(() => useCan('manage_connections'))
+// Edit needs `manage_connection` on THIS connection — org connection admins
+// hold it on every connection, a connection's owner on their own.
+const canManageConnections = computed(() =>
+  !!connectionId.value && useCan('manage_connection', { type: 'connection', id: String(connectionId.value) }))
 const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 

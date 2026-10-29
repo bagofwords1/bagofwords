@@ -819,7 +819,13 @@ class CreateDataTool(Tool):
                 # the visualization instructions silently).
                 _lock = runtime_ctx.get("tool_db_lock")
                 async with (_lock if _lock is not None else nullcontext()):
-                    viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
+                    viz_section = await context_hub.instruction_builder.build(
+                        categories=["visualizations", "visualization", "general"],
+                    )
+                # On demand (org setting) smart rules aren't inlined and this
+                # step can't read the catalog, so it gets what the agent read.
+                # Off: nothing is recorded, so this adds nothing.
+                viz_section.read_items = list(getattr(context_hub, "read_instruction_items", {}).values())
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""
@@ -1431,6 +1437,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
     async def _run_stream_traced(self, run_span, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateDataInput(**tool_input)
+        if not data.user_prompt:
+            # The model no longer restates the question; the turn's own message is it.
+            from app.ai.tools.implementations._memory_common import user_message
+            data.user_prompt = user_message(runtime_ctx) or data.interpreted_prompt
         yield ToolStartEvent(type="tool.start", payload={"title": data.title})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 

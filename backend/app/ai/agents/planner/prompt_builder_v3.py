@@ -234,6 +234,8 @@ class PromptBuilderV3:
                 "approved, its submit_<slug> tool is available immediately — go on and fill it.\n"
                 "- A list that already exists (you can see its submit_* tool) is changed with "
                 "edit_list, never re-created; keep edits additive unless the user asks otherwise.\n"
+                "- Rows are removed with delete_list_rows (by _row_id, key, or all) — only when the "
+                "user asks; they confirm on a card. Never delete and re-create a list to empty it.\n"
                 "- A list is also readable: create_data on builtin:bow with its list_id (named in "
                 "its submit_* tool description). For batch extraction query it first and skip keys "
                 "already present.\n\n"
@@ -349,7 +351,7 @@ class PromptBuilderV3:
         mcp_directives_text = ""
         if getattr(planner_input, "tools_context", None):
             mcp_directives_text = (
-                "- **MCP / external tools** (<mcp_tools> in context): if a <tool> entry lists <arg> elements, that IS its complete schema — call execute_mcp directly; call search_mcps only when a tool's args are not shown or it is not listed. Follow execute_mcp's description for argument typing and result files.\n"
+                "- **MCP / external tools** (<mcp_tools> in context): call each by its own name (mcp__<connection>__<tool>) with its schema; match declared types exactly (a string arg takes a string even when its content is JSON). A tool listed in <mcp_tools> but missing from your tool list: search_tools, then call_tool. Every result is saved as a file (file_id); `preview` holds what fits — if `preview_truncated` is true, never answer from the partial list: read_file(file_id, offset) for more records, or create_data(source_file_ids=[file_id]) to aggregate or chart.\n"
                 "- MCP servers may expose business rules/definitions/schemas as resources — list_mcp_resources, then read_mcp_resource on relevant ones BEFORE querying (read_resources only covers indexed dbt/LookML/docs, not MCP URIs).\n"
             )
 
@@ -494,6 +496,7 @@ DASHBOARDS
 - **Warm start**: demonstratives bind to past_observations — "this data", "the above", "what we have", "great/nice + make a dashboard" mean USE the existing visualizations. Scan past_observations for viz_ids FIRST; if they cover the ask, call `create_artifact` directly with them. Call create_data first ONLY when a column the user needs exists in no prior viz. Do not spin up "supporting" KPI/trend/top-N queries the artifact can derive client-side.
 - Generic dashboard ask with multiple candidate vizs, open-ended intent ("something interesting"), or data covering only part of the ask → clarify with 2-3 concrete options. Unambiguous coverage (one wide table + "build a dashboard from this") → skip the clarify.
 - YOU author all artifact source (see ARTIFACT AUTHORING REFERENCE). `create_artifact` = brand-new artifact or an explicit from-scratch rebuild: write a compact APP BRIEF (task, primary surface, data bindings, interactions, visual direction, and states) as `prompt`, then COMPLETE source in `code` and the viz IDs. Use custom React/CSS or optional kit components; no mandatory hero, KPI row, or subject-based theme. `edit_artifact` = the ONLY edit path: author exact find/replace ops against `<current_artifact>.<code>` — mechanical, atomic, no second model; a failed op returns the closest match to correct, and an edit may carry many ops (size is never a reason to rebuild; call `create_data` first only if the edit needs new data). `read_artifact` when the current code was omitted from context for size. The tools gate and render-validate; on failure fix your code/ops and call again — nothing was persisted.
+- Change an artifact ONLY when the user asks for a change to it (add, remove, restyle, fix, rebuild, "put this on the dashboard"). A question — about the data, about the dashboard, or about what changed in it — is answered in `final_answer`, with `create_data`/`run_query` if the data needs it, but never `create_artifact`/`edit_artifact`; offer to add the answer to the dashboard instead. "What changed" / "who changed X" about the dashboard is answered from `<current_artifact>.<collaboration>` (its change log and notes), not with a new query.
 - After create/edit succeeds, follow verification_hint: complex parameterized apps need focused interaction checks through the existing browser tools. Simple static dashboards finish normally. Do not issue extra create_data queries just to validate; inspect the viewer-run evidence returned automatically by browser_act. Then deliver actual findings and clearly bound what was checked.
 
 DOCUMENTS

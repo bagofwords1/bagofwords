@@ -96,7 +96,13 @@ class ArtifactResources:
         self.actor = str(user.id) if user else None
         self.groups = set(groups)
         self.member = member
-        self.owner = bool(user and str(report.user_id) == self.actor)
+        # The conversation's owner, as before; and the dashboard's, whose page
+        # it is once the conversation is gone (phase 8) -- the latter only while
+        # still in the organization, as dashboard_access.counts_as_owner says.
+        owners = {str(report.user_id) if report else None}
+        if artifact.owner_id and member:
+            owners.add(str(artifact.owner_id))
+        self.owner = bool(user and self.actor in owners)
 
     @classmethod
     async def open(cls, db, artifact_id, user=None, organization_id=None, manage=False, resources=True):
@@ -122,16 +128,9 @@ class ArtifactResources:
                 )
             )
         ).scalar_one_or_none()
-        if report is None or report.status == "archived":
-            fail("NOT_FOUND", "Artifact not found", 404)
-        try:
-            await ReportService()._check_visibility(db, report, "artifact_visibility", user)
-        except (HTTPException, AppError) as exc:
-            # 401/403 here would confirm that a private artifact with this id
-            # exists (and hint at its visibility mode); answer like an unknown id.
-            if exc.status_code in (401, 403, 404):
-                fail("NOT_FOUND", "Artifact not found", 404)
-            raise
+        await cls._admit(db, artifact, report, user)
+        if report is not None and report.status == "archived":
+            report = None  # let in as the dashboard's reader: no conversation to speak of
         # resources=False: visibility only (view counting and analytics have no switch).
         if resources:
             from app.services.artifact_resource_policy import require_artifact_resources
@@ -153,6 +152,13 @@ class ArtifactResources:
                     ).scalars()
                 )
         result = cls(db, artifact, report, user, groups, member)
+        if result.owner and artifact.owner_id and result.actor != str(artifact.owner_id):
+            # A dashboard with an owner (collab01): owning its conversation is
+            # no longer authority over the page once the dashboard's edit
+            # access was taken away, as dashboard_access.assert_may_write says.
+            from app.services.dashboard_access import can_edit
+
+            result.owner = await can_edit(db, artifact, user)
         if manage:
             if not result.owner:
                 fail("FORBIDDEN", "Only the report owner can configure resources", 403)
@@ -160,6 +166,41 @@ class ArtifactResources:
 
             await require_org_permission(db, result.actor, str(artifact.organization_id), "update_reports")
         return result
+
+    @staticmethod
+    async def _admit(db, artifact, report, user):
+        """The conversation's sharing lets its readers in, as before; the
+        dashboard's lets in its /d readers too, also once the conversation
+        is deleted. Refused by both: the dashboard's answer once it is
+        published, else the conversation's."""
+        from fastapi import HTTPException
+        from app.services import dashboard_access
+        from app.services.report_service import ReportService
+
+        live = report is not None and report.status != "archived"
+        # A dashboard with an owner (collab01) whose conversation owner is no
+        # longer one of its editors: the conversation they keep lets them in
+        # no more -- only the dashboard's own sharing does.
+        revoked = (live and user is not None and artifact.owner_id
+                   and str(report.user_id) == str(user.id) != str(artifact.owner_id)
+                   and not await dashboard_access.can_edit(db, artifact, user))
+        try:
+            if not live or revoked:
+                fail("NOT_FOUND", "Artifact not found", 404)
+            await ReportService()._check_visibility(db, report, "artifact_visibility", user)
+            return
+        except (HTTPException, AppError) as refused:
+            conversation_refusal = refused
+        try:
+            await dashboard_access.admit_reader(db, artifact, user)
+        except (HTTPException, AppError) as refused:
+            if live and not revoked and await dashboard_access.published_release(db, artifact) is None:
+                refused = conversation_refusal
+            # 401/403 here would confirm that a private artifact with this id
+            # exists (and hint at its visibility mode); answer like an unknown id.
+            if refused.status_code in (401, 403, 404):
+                fail("NOT_FOUND", "Artifact not found", 404)
+            raise refused
 
     def audience(self, rule):
         if getattr(rule, "any_of", None):

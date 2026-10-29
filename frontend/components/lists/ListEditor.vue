@@ -10,17 +10,17 @@
   <div class="flex flex-col h-full min-h-0" data-testid="list-editor">
     <div class="shrink-0 flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800">
       <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('cancel')">
-        <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
-        <span class="text-[13px] text-gray-500 dark:text-gray-400 truncate">{{ list ? list.name : $t('lists.back') }}</span>
+        <UIcon name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-ink-muted shrink-0 rtl:rotate-180" />
+        <span class="text-sm text-gray-500 dark:text-gray-400 truncate">{{ list ? list.name : $t('lists.back') }}</span>
       </button>
-      <span class="text-[13px] font-medium text-gray-900 dark:text-white">{{ list ? $t('lists.editor.editTitle') : $t('lists.editor.newTitle') }}</span>
+      <span class="text-sm font-medium text-gray-900 dark:text-white">{{ list ? $t('lists.editor.editTitle') : $t('lists.editor.newTitle') }}</span>
       <div class="ms-auto flex items-center gap-2">
         <button type="button" class="h-8 px-3 rounded-md text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="$emit('cancel')">{{ $t('lists.cancel') }}</button>
         <button
           type="button"
           data-testid="list-editor-save"
           :disabled="saving || !canSave"
-          class="h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600 disabled:opacity-50 inline-flex items-center gap-1.5"
+          class="h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1.5"
           @click="save"
         >
           <Spinner v-if="saving" class="w-3 h-3" />
@@ -45,11 +45,11 @@
         <div>
           <div class="flex items-center justify-between mb-2">
             <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('lists.editor.fields') }}</span>
-            <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('lists.editor.nameRule') }}</span>
+            <span class="text-2xs text-ink-muted">{{ $t('lists.editor.nameRule') }}</span>
           </div>
 
           <div class="rounded-lg border border-gray-200 dark:border-gray-800 divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
-            <div class="hidden sm:grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto_auto_28px] gap-2 px-3 py-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+            <div class="hidden sm:grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_auto_auto_28px] gap-2 px-3 py-1.5 text-2xs text-ink-muted">
               <span>{{ $t('lists.editor.name') }}</span>
               <span>{{ $t('lists.editor.type') }}</span>
               <span class="w-16 text-center">{{ $t('lists.editor.required') }}</span>
@@ -84,7 +84,7 @@
                     @click="form.key = form.key === f._k ? null : f._k"
                   />
                 </label>
-                <button type="button" :title="$t('lists.editor.removeField')" :disabled="form.fields.length === 1" class="h-7 w-7 flex items-center justify-center rounded text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent" @click="removeField(i)">
+                <button type="button" :title="$t('lists.editor.removeField')" :disabled="form.fields.length === 1" class="h-7 w-7 flex items-center justify-center rounded text-ink-muted hover:text-red-600 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent" @click="removeField(i)">
                   <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -132,7 +132,7 @@ const { t } = useI18n()
 const toast = useToast()
 const TYPES: ListFieldType[] = ['string', 'number', 'integer', 'boolean', 'date', 'enum']
 const KEYABLE: ListFieldType[] = ['string', 'integer', 'enum', 'date']
-const inputCls = 'w-full h-8 px-2.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 placeholder:text-gray-400 dark:placeholder:text-gray-500'
+const inputCls = 'w-full h-8 px-2.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 placeholder:text-ink-subtle dark:placeholder:text-gray-500'
 
 type FormField = ListField & { _k: string; enumText: string }
 let seq = 0

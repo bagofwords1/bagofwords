@@ -54,7 +54,7 @@
             </span>
             <span class="truncate text-gray-700 dark:text-gray-200">{{ o.label }}</span>
           </button>
-          <div v-if="filtered.length === 0" class="px-2 py-3 text-center text-[11px] text-gray-400 italic">
+          <div v-if="filtered.length === 0" class="px-2 py-3 text-center text-2xs text-ink-muted italic">
             {{ $t('allInstructions.filterNoMatch') }}
           </div>
         </div>
@@ -63,11 +63,11 @@
           v-if="selected.length"
           class="flex items-center justify-between pt-1.5 mt-1 border-t border-gray-100 dark:border-gray-800 px-1"
         >
-          <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
+          <span class="text-2xs text-ink-muted tabular-nums">
             {{ $t('allInstructions.nSelected', { n: selected.length }) }}
           </span>
           <button
-            class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
             @click="clear"
           >{{ $t('allInstructions.clear') }}</button>
         </div>

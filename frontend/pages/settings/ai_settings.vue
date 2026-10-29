@@ -33,7 +33,7 @@
                     <div class="min-w-0">
                         <div class="font-medium text-gray-900 dark:text-white flex items-center">
                             {{ $t(`settings.aiSettingsPage.sections.${section.id}.title`) }}
-                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                            <Icon v-if="section.hasLocked" name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
                         </div>
                         <div class="text-sm text-gray-500 dark:text-gray-400 truncate">
                             {{ $t(`settings.aiSettingsPage.sections.${section.id}.description`) }}
@@ -45,7 +45,7 @@
                         </span>
                         <Icon
                             name="heroicons:chevron-down"
-                            :class="['w-5 h-5 text-gray-400 transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
+                            :class="['w-5 h-5 text-ink-muted transition-transform', isOpen(section.id) ? 'rotate-180' : '']"
                         />
                     </div>
                 </button>
@@ -59,7 +59,7 @@
                                     <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
                                     {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
                                     <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
-                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
+                                        <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
                                     </UTooltip>
                                 </div>
                                 <UToggle
@@ -126,7 +126,7 @@
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactAccuracy') }}</span>
                             </li>
                             <li class="flex items-start gap-2">
-                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 dark:text-gray-400 mt-0.5 flex-shrink-0" />
+                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-ink-muted mt-0.5 flex-shrink-0" />
                                 <span>{{ $t('settings.aiSettingsPage.llmImpactColumns') }}</span>
                             </li>
                             <li class="mt-2 text-xs">
@@ -224,8 +224,6 @@ const FEATURE_PARENT: Record<string, string> = {
     checkins_max_per_user_per_week: 'enable_agent_checkins',
     checkins_max_runs_per_org_per_day: 'enable_agent_checkins',
     ai_suggestion_expiry_days: 'enable_agent_dreaming',
-    mcp_native_tools_threshold: 'enable_mcp_native_tools',
-    mcp_native_tools_max: 'enable_mcp_native_tools',
     max_webhooks: 'allow_report_webhooks',
     webhook_rate_limit_per_min: 'allow_report_webhooks',
 }
@@ -238,10 +236,10 @@ const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
     { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
-    { id: 'tools', keys: ['enable_mcp_tools', 'enable_mcp_native_tools', 'mcp_result_inline_chars'] },
+    { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
-    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
-    { id: 'workspace', keys: ['allow_report_webhooks', 'allow_forks', 'step_retention_days'] },
+    { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
+    { id: 'workspace', keys: ['allow_public_sharing', 'allow_report_webhooks', 'allow_forks', 'step_retention_days'] },
 ]
 
 // Org settings that have a dedicated control elsewhere (LLM page: router and

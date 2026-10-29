@@ -6,17 +6,17 @@
       class="flex flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/40 py-8 px-4"
     >
       <Icon name="heroicons:chart-bar" class="w-5 h-5 text-gray-300 dark:text-gray-600" />
-      <span class="text-xs text-gray-400 dark:text-gray-500">
+      <span class="text-xs text-ink-muted">
         {{ !viz ? $t('docViewer.vizUnavailable') : $t('docViewer.vizRenderFailed') }}
       </span>
-      <span v-if="viz?.title" class="text-[11px] text-gray-300 dark:text-gray-600">{{ viz.title }}</span>
+      <span v-if="viz?.title" class="text-2xs text-gray-300 dark:text-gray-600">{{ viz.title }}</span>
     </div>
 
     <template v-else>
       <div
         class="rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden"
       >
-        <div v-if="viz.title" class="px-4 pt-3 pb-1 text-[13px] font-medium text-gray-700 dark:text-gray-300">
+        <div v-if="viz.title" class="px-4 pt-3 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ viz.title }}
         </div>
         <!-- Chart types -->
@@ -73,7 +73,7 @@
           <RenderTable :widget="widgetShim" :step="tableStepShim" />
         </div>
       </div>
-      <figcaption v-if="caption" class="mt-1.5 text-center text-[11px] text-gray-400 dark:text-gray-500">
+      <figcaption v-if="caption" class="mt-1.5 text-center text-2xs text-ink-muted">
         {{ caption }}
       </figcaption>
     </template>

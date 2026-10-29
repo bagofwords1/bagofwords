@@ -1,18 +1,18 @@
 <template>
   <div class="mb-2">
     <div
-      class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+      class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
       @click="toggleOpen"
     >
       <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
-        <Spinner class="w-3 h-3 me-1.5 text-gray-400" />
+        <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
         {{ t('tools.readInstruction.reading') }}
       </span>
       <template v-else>
         <Icon
           v-if="succeeded"
           :name="open ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 me-1 text-gray-400 flex-shrink-0"
+          class="w-3 h-3 me-1 text-ink-muted flex-shrink-0"
         />
         <Icon v-else name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500 flex-shrink-0" />
         <Icon :name="isSkill ? 'heroicons-sparkles' : 'heroicons-cube'" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
@@ -28,7 +28,7 @@
     <Transition name="fade">
       <div
         v-if="open && succeeded && text"
-        class="mt-1 ms-4 px-2 py-1.5 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 text-[11px] leading-snug text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto"
+        class="mt-1 ms-4 px-2 py-1.5 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 text-2xs leading-snug text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto"
       >{{ text }}</div>
     </Transition>
   </div>

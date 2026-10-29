@@ -172,6 +172,10 @@ class EntityContextBuilder:
                     data=data or None,
                     data_model=(getattr(e, 'original_data_model', None) or getattr(e, 'view', None)),
                     ds_names=ds_names,
+                    # Declared ParamSpec dicts: the section renders them so the
+                    # reader can pass VALUES to describe_entity instead of
+                    # regenerating the code.
+                    parameters=list(getattr(e, 'parameters', None) or []) or None,
                 )
             )
         return EntitiesSection(items=items, allow_llm_see_data=allow_llm_see_data)

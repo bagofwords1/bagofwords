@@ -1,5 +1,5 @@
-"""Shared plumbing for the training-mode list schema tools (create_list,
-edit_list): resolve the agent, validate the schema through the same
+"""Shared plumbing for the list tools that pause on a review card (create_list,
+edit_list, delete_list_rows): resolve the agent, validate the schema through the same
 ``ListSchemaIn`` contract the REST API uses, pause on the review card, and
 shape the output.
 
@@ -90,6 +90,26 @@ def pick_agent(agents: List[Any], agent_id: Optional[str]) -> Tuple[Optional[Any
     if len(agents) == 1:
         return agents[0], None
     return None, "needs_agent"
+
+
+def find_list(lists, ref: str):
+    """Resolve by id, then slug, exact name (case-insensitive) or submit_<slug> tool name."""
+    ref = (ref or "").strip()
+    if not ref:
+        return None
+    for l in lists:
+        if str(l.id) == ref:
+            return l
+    low = ref.casefold()
+    for l in lists:
+        if l.slug == low or l.name.strip().casefold() == low:
+            return l
+    if low.startswith("submit_"):
+        rest = low[len("submit_"):]
+        hits = [l for l in lists if rest == l.slug or rest.startswith(l.slug + "_")]
+        if len(hits) == 1:
+            return hits[0]
+    return None
 
 
 def fields_out(fields: List[Dict[str, Any]], key_field_id: Optional[str]) -> List[ListFieldOut]:

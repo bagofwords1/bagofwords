@@ -7,24 +7,24 @@
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h2 class="text-base font-semibold leading-6 text-gray-900 dark:text-white break-words">{{ agent?.name }}</h2>
-              <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium" :class="stageStyle.badge">
+              <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium" :class="stageStyle.badge">
                 <span class="h-1.5 w-1.5 rounded-full" :class="stageStyle.dot" />
                 {{ $t(`agentsPage.stage.${stage}`) }}
               </span>
             </div>
           </div>
-          <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
+          <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
         </div>
-        <p v-if="agent?.description" class="mt-4 mb-1 text-[13px] leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
+        <p v-if="agent?.description" class="mt-4 mb-1 text-sm leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
       </header>
 
       <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">
-        <h3 class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">{{ $t('data.connectionsTitle') }}</h3>
+        <h3 class="mb-1 text-2xs font-medium text-ink-muted">{{ $t('data.connectionsTitle') }}</h3>
         <p v-if="!connections.length" class="py-3 text-xs text-gray-500">{{ $t('data.noLinkedConnections') }}</p>
         <div v-for="row in rows" :key="row.connection.id" class="connection-row border-t border-gray-100 py-2.5 last-of-type:border-b dark:border-gray-800" :data-connection-id="row.connection.id">
           <div class="connection-name flex min-w-0 items-center gap-2">
             <DataSourceIcon :type="row.connection.type" :connector-key="row.connection.connector_key" class="h-4 w-4 shrink-0" />
-            <span :id="`agent-connection-${row.connection.id}`" class="min-w-0 text-[13px] leading-[18px] font-medium text-gray-800 dark:text-gray-200 break-words">{{ row.connection.name }}</span>
+            <span :id="`agent-connection-${row.connection.id}`" class="min-w-0 text-sm leading-[18px] font-medium text-gray-800 dark:text-gray-200 break-words">{{ row.connection.name }}</span>
           </div>
           <div class="connection-count space-y-1 text-xs text-gray-500 dark:text-gray-400 tabular-nums" :title="row.configured ? $t('agentCard.configuredCountsHint') : undefined">
             <span v-for="count in row.counts" :key="count.key" class="block">{{ $t(count.key, { n: formatNumber(count.value) }, count.value) }}</span>
@@ -41,11 +41,11 @@
                 <Spinner v-else-if="row.status === 'indexing'" class="h-3 w-3" />
                 {{ row.signedIn ? $t('agentCard.signedIn') : $t(statusLabelKey(row.status)) }}
               </span>
-              <time v-if="row.signedIn && row.signedInDate" :datetime="row.connection.user_status.signed_in_at" class="mt-1 block text-[11px] text-gray-400">{{ row.signedInDate }}</time>
+              <time v-if="row.signedIn && row.signedInDate" :datetime="row.connection.user_status.signed_in_at" class="mt-1 block text-2xs text-ink-muted">{{ row.signedInDate }}</time>
             </template>
           </div>
         </div>
-        <p v-if="rows.some(row => row.configured)" class="mt-3 text-[11px] leading-4 text-gray-400 dark:text-gray-500">{{ $t('agentCard.configuredCountsHint') }}</p>
+        <p v-if="rows.some(row => row.configured)" class="mt-3 text-2xs leading-4 text-ink-muted">{{ $t('agentCard.configuredCountsHint') }}</p>
       </section>
     </div>
   </UModal>

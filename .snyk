@@ -8,27 +8,11 @@
 version: v1.0.0
 # Open-source vulnerability ignores (client-side policy applied by `snyk test`).
 ignore:
-  # Timing Attack in oauthlib (High). Fixed only in oauthlib 4.0.0, but that
-  # version is NOT installable in this tree: databricks-sql-connector hard-caps
-  # oauthlib<4.0.0,>=3.1.0 on every published version up to and including the
-  # latest (4.6.0), so no upgrade can remediate it without dropping the
-  # Databricks connector. The vulnerable code path is server-side OAuth
-  # signature/token *verification* (constant-time comparison when validating
-  # inbound requests). This backend uses oauthlib only as an OAuth1 *client* —
-  # requests_oauthlib.OAuth1 signs outbound requests in
-  # app/data_sources/clients/netsuite_client.py — and never verifies inbound
-  # OAuth signatures, so the vulnerable path is not reached. Databricks auth in
-  # this deployment uses a personal access token, not the oauthlib OAuth flow.
-  # Time-boxed; re-review when databricks-sql-connector relaxes its oauthlib cap.
-  SNYK-PYTHON-OAUTHLIB-20305255:
-    - '*':
-        reason: >-
-          No installable fix (fixed in oauthlib 4.0.0; databricks-sql-connector
-          hard-caps oauthlib<4.0.0 on all versions incl. latest 4.6.0). Vuln is
-          in server-side OAuth verification; this backend uses oauthlib only as
-          an OAuth1 client (outbound request signing in netsuite_client.py), so
-          the path is not reached. Re-review when the databricks cap relaxes.
-        expires: 2026-12-21T00:00:00.000Z
+  # NOTE: the former SNYK-PYTHON-OAUTHLIB-20305255 (Timing Attack in oauthlib,
+  # High) ignore was removed once it became remediable. databricks-sql-connector
+  # relaxed its oauthlib cap to <5.0.0 (4.7.0, the pinned floor, already allows
+  # it) and requests-oauthlib 2.0.0 allows oauthlib>=3.0.0, so oauthlib was
+  # upgraded 3.3.1 -> 4.0.0 (the fix version) in uv.lock. No ignore needed.
   # Command Injection in simple-git / @simple-git/argv-parser (Critical). Pulled
   # in ONLY as a dev/build-tooling transitive:
   #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
@@ -223,6 +207,33 @@ ignore:
           DoS is in TNonblockingServer; this backend runs no Thrift server and uses
           thrift only as a client via the Databricks connector, so the path is not
           reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  # Regular Expression Denial of Service (ReDoS) in picomatch (High, CVSS 8.7).
+  # Reached ONLY through build-time glob/auto-import tooling in the frontend
+  # (Nuxt), never the shipped browser bundle or the production .output server.
+  # All 47 introduction paths run picomatch inside Nuxt build/dev machinery, e.g.:
+  #   nuxt > unimport > picomatch                 (build-time auto-imports)
+  #   nuxt > unplugin-vue-router > picomatch       (build-time route generation)
+  #   @nuxt/ui|nuxt-echarts|... > @nuxt/kit > tinyglobby > picomatch
+  #                                                (build-time file globbing)
+  #   @nuxt/ui > @nuxt/icon > picomatch            (build-time icon resolution)
+  # The ReDoS is driven by adversarial glob patterns; the only inputs picomatch
+  # sees here are the project's own globs / module paths during `nuxt build`,
+  # never attacker-controlled runtime request data, and picomatch does not run
+  # in the production .output server. picomatch 4.0.4 is the latest release and
+  # every version is flagged (fixedIn: []), so no upgrade remediates it; the
+  # upgradable paths require major bumps (nuxt 4.x / nuxt-tiptap-editor 3.x) and
+  # are resolved by the Nuxt 4 upgrade. Mirrors the frontend/.snyk entry.
+  # Time-boxed for re-review.
+  SNYK-JS-PICOMATCH-21248802:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Nuxt auto-imports / route generation /
+          file globbing via unimport, unplugin-vue-router, tinyglobby and
+          @nuxt/icon); not in the production .output runtime request path. No
+          fixed picomatch version exists (4.0.4 is latest, all versions
+          affected). Re-review on expiry or when the Nuxt 4 upgrade drops the
+          chain.
         expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:

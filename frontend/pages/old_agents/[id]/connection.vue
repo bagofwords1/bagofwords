@@ -43,7 +43,7 @@
                                     {{ getStatusLabel(conn) }}
                                 </span>
                                 <!-- Last checked time -->
-                                <span v-if="getLastChecked(conn)" class="text-[10px] text-gray-400">
+                                <span v-if="getLastChecked(conn)" class="text-2xs text-ink-muted">
                                     {{ getLastChecked(conn) }}
                                 </span>
                                 <!-- Test button (admin only) -->
@@ -139,7 +139,7 @@
 
                     <!-- Empty state -->
                     <div v-if="connections.length === 0" class="text-center py-8 text-gray-500">
-                        <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-gray-400" />
+                        <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-ink-muted" />
                         <p class="text-sm">No connections linked to this agent.</p>
                         <UButton
                             v-if="canLinkConnections"

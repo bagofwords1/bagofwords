@@ -24,13 +24,13 @@
         <span class="text-sm font-medium" :style="{ color: trendColor }">
           {{ formattedComparison }}
         </span>
-        <span v-if="comparisonLabel" class="text-sm text-gray-400">
+        <span v-if="comparisonLabel" class="text-sm text-ink-muted">
           {{ comparisonLabel }}
         </span>
       </div>
       
       <!-- Subtitle / Description -->
-      <div v-if="subtitle" class="text-sm text-gray-400 mt-2 truncate">
+      <div v-if="subtitle" class="text-sm text-ink-muted mt-2 truncate">
         {{ subtitle }}
       </div>
     </div>

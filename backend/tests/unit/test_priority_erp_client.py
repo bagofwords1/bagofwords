@@ -566,6 +566,61 @@ def test_skip_applies_after_ordering(client):
     assert list(df["PRICE"]) == [1200.0, 1150.0]
 
 
+def test_trailing_line_sort_still_reads_a_sample(client):
+    """"The latest lines" sorts on the order date, then the line number. The
+    orders are paged in date order and the read stops once there are enough
+    lines, rather than reading every order because KLINE is in the sort."""
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=1&$select=ORDNAME,KLINE")
+    assert _rows(df, "ORDNAME", "KLINE") == [("SO25003", 1)]
+    sent = df.attrs["bow_sent_request"]
+    assert "$orderby=CURDATE desc,ORDNAME" in sent and "$top=1" in sent
+
+
+@pytest.fixture
+def tied_order(mock_module, monkeypatch):
+    """A second order on SO25003's date, so the two tie on CURDATE."""
+    monkeypatch.setitem(mock_module.ROWS, "ORDERS", mock_module.ROWS["ORDERS"] + [
+        {"ORDNAME": "SO25005", "CUSTNAME": "1012", "CDES": "Initech", "CURDATE": "2026-03-21T00:00:00Z",
+         "TOTPRICE": 90.0, "ORDSTATUSDES": "Approved", "STATDES": "Open"}])
+    monkeypatch.setitem(mock_module.ROWS, "ORDERITEMS", mock_module.ROWS["ORDERITEMS"] + [
+        {"_p": ("SO25005",), "KLINE": 1, "PARTNAME": "P-100", "PDES": "Widget", "TQUANT": 1,
+         "PRICE": 90.0, "STATDES": "Pending"}])
+
+
+def test_sample_reads_every_order_tied_with_the_last_one(client, tied_order):
+    """SO25003 and SO25005 share a date, so by date then line number the first
+    two lines are line 1 of each. SO25003 alone already has two lines; the
+    read must still go on to SO25005."""
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert sorted(_rows(df, "ORDNAME", "KLINE")) == [("SO25003", 1), ("SO25005", 1)]
+
+
+def test_sample_stops_once_past_the_tied_orders(client, tied_order, mock_module, monkeypatch):
+    """Ten older orders follow. Once a page reaches an order dated after the
+    tie, nothing later can belong in the result and the read ends there."""
+    older = [{"ORDNAME": f"SO24{n:03d}", "CUSTNAME": "1011", "CDES": "Globex",
+              "CURDATE": f"2025-12-{n + 1:02d}T00:00:00Z", "TOTPRICE": 10.0,
+              "ORDSTATUSDES": "Closed", "STATDES": "Final"} for n in range(10)]
+    monkeypatch.setitem(mock_module.ROWS, "ORDERS", mock_module.ROWS["ORDERS"] + older)
+    monkeypatch.setitem(mock_module.ROWS, "ORDERITEMS", mock_module.ROWS["ORDERITEMS"] + [
+        {"_p": (o["ORDNAME"],), "KLINE": 1, "PARTNAME": "P-100", "PDES": "Widget", "TQUANT": 1,
+         "PRICE": 10.0, "STATDES": "Pending"} for o in older])
+    df = client.execute_query("ORDERITEMS?$orderby=CURDATE desc,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert sorted(_rows(df, "ORDNAME", "KLINE")) == [("SO25003", 1), ("SO25005", 1)]
+    # page 1: SO25004 (no lines), SO25003 — enough lines, tied on its date;
+    # page 2: SO25005, SO25002, SO25001, SO24009 — past the tie, so it stops
+    assert "2 pages, 6 ORDERS rows read" in df.attrs["bow_notice"]
+
+
+def test_sample_with_the_order_key_in_the_sort_stops_at_once(client, tied_order):
+    """With ORDNAME before KLINE no two orders tie, so the first page that has
+    enough lines ends the read."""
+    df = client.execute_query(
+        "ORDERITEMS?$orderby=CURDATE desc,ORDNAME,KLINE&$top=2&$select=ORDNAME,KLINE")
+    assert _rows(df, "ORDNAME", "KLINE") == [("SO25003", 1), ("SO25003", 2)]
+    assert "pages" not in df.attrs["bow_notice"]
+
+
 def test_max_rows_caps_the_flattened_rows(client):
     assert len(client.execute_query("ORDERITEMS", max_rows=3)) == 3
 

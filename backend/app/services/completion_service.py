@@ -60,6 +60,7 @@ from app.services.data_source_service import DataSourceService
 from app.services.sub_agent_locks import lock_report
 
 from app.streaming.completion_event_bus import websocket_manager
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from app.settings.database import create_async_session_factory
 
 # Per-worker cap on concurrently *executing* agent runs. Excess streaming
@@ -321,6 +322,63 @@ class CompletionService:
         except asyncio.CancelledError:
             pass
 
+    # Off in the test suite: its client runs each request on its own event
+    # loop, which would cancel the post-answer tail with the request.
+    RETURN_ON_ANSWER_ENABLED = True
+
+    @staticmethod
+    def _caller_wants_tail(completion_data, report) -> bool:
+        """True when the caller explicitly asked for something the post-answer
+        tail produces (follow-ups, instruction suggestions), on the prompt or
+        on the conversation: their response waits for the whole run."""
+        prompt = getattr(completion_data, "prompt", None)
+        return any(
+            getattr(prompt, key, None) is True or getattr(report, key, None) is True
+            for key in ("follow_ups", "suggest_instructions")
+        )
+
+    async def _respond_when_answer_ready(self, run_task, answer_ready, run_outcome, *, report_id, head_completion_id):
+        """Wait for the run's answer to be saved (or the run to end), then
+        build the response on a fresh session: the run writes on its own."""
+        waiter = asyncio.create_task(answer_ready.wait())
+        try:
+            await asyncio.wait({run_task, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waiter.cancel()
+        if not answer_ready.is_set() and run_outcome.get("error") is not None:
+            e = run_outcome["error"]
+            raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
+        async with create_async_session_factory()() as s:
+            return await self._build_v2_response(s, head_completion_id=head_completion_id, report_id=report_id)
+
+    async def _build_v2_response(self, db, *, head_completion_id, report_id) -> CompletionsV2Response:
+        """The response for one message: the head completion's children, with totals."""
+        res = await db.execute(
+            select(Completion.id)
+            .where(Completion.parent_id == head_completion_id)
+            .where(Completion.report_id == report_id)
+            .order_by(Completion.created_at.asc())
+        )
+        v2_list = await self._assemble_v2_for_completion_ids(db, list(res.scalars().all()))
+        total_widgets = total_steps = 0
+        for c in v2_list:
+            for b in (c.completion_blocks or []):
+                te = getattr(b, 'tool_execution', None)
+                if te and getattr(te, 'created_widget', None):
+                    total_widgets += 1
+                if te and getattr(te, 'created_step', None):
+                    total_steps += 1
+        return CompletionsV2Response(
+            report_id=report_id,
+            completions=v2_list,
+            total_completions=len(v2_list),
+            total_blocks=sum(len(c.completion_blocks or []) for c in v2_list),
+            total_widgets_created=total_widgets,
+            total_steps_created=total_steps,
+            earliest_completion=min((c.created_at for c in v2_list), default=None),
+            latest_completion=max((c.updated_at for c in v2_list), default=None),
+        )
+
     async def _run_agent_with_heartbeat(self, completion_id: str, agent: AgentV2) -> None:
         """Keep a row's lease fresh across arbitrarily long planner/tool calls."""
         heartbeat = self._start_completion_lease(completion_id)
@@ -520,7 +578,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
             org_settings = await organization.get_settings(db)
 
@@ -662,6 +720,7 @@ class CompletionService:
         scheduled_prompt_id: str = None,
         webhook_id: str = None,
         trigger_source: str = None,
+        return_on_answer: bool = False,
     ):
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
@@ -674,6 +733,7 @@ class CompletionService:
                     scheduled_prompt_id=scheduled_prompt_id,
                     webhook_id=webhook_id,
                     trigger_source=trigger_source,
+                    return_on_answer=return_on_answer,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -699,6 +759,7 @@ class CompletionService:
         scheduled_prompt_id: str = None,
         webhook_id: str = None,
         trigger_source: str = None,
+        return_on_answer: bool = False,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -749,7 +810,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
 
             span.set_attribute("llm.model_id", model.model_id)
@@ -872,8 +933,22 @@ class CompletionService:
             org_settings = await organization.get_settings(db)
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
 
-            if background:
+            # A non-streaming HTTP caller gets its response once the final
+            # answer is saved; the post-answer work (instruction-suggestion
+            # check + knowledge harness, follow-ups, final context snapshot,
+            # late scoring) finishes on the run's own session afterwards.
+            # A caller that explicitly asked for follow-ups or instruction
+            # suggestions waits for them.
+            defer_tail = (
+                not background
+                and return_on_answer
+                and self.RETURN_ON_ANSWER_ENABLED
+                and not self._caller_wants_tail(completion_data, report)
+            )
+            if background or defer_tail:
                 logging.info("CompletionService: Scheduling background agent (non-stream API)")
+                answer_ready = asyncio.Event() if defer_tail else None
+                run_outcome: dict = {}
 
                 # Capture primitive IDs — ORM objects cannot cross session boundaries.
                 # Reading any attribute (even .id) on an expired/detached instance from the
@@ -940,11 +1015,14 @@ class CompletionService:
                                 build_id=resolved_build_id,
                                 routing_meta=routing_meta,
                             )
+                            agent.answer_ready = answer_ready
                             # The outer background task owns the completion
                             # lease for the full lifecycle, including session
                             # setup and semaphore waits.
                             await agent.main_execution()
+                            run_outcome["finished"] = True
                         except Exception as e:
+                            run_outcome["error"] = e
                             logging.exception("Agent background execution failed")
                             # Mark the completion as errored on a fresh session — the
                             # current one may be poisoned (e.g. after IntegrityError or a
@@ -966,10 +1044,28 @@ class CompletionService:
                     try:
                         await run_agent_task()
                     finally:
+                        # Every way a run ends passes here (success, crash,
+                        # early return, cancellation), so this is where the
+                        # Teams 1:1 progress bubble learns the run is over.
+                        # Anything short of main_execution returning counts as
+                        # failed, so an unclaimed bubble never says "Done."
+                        # for a question that got no answer.
+                        if external_platform == "teams" and external_channel_id:
+                            from app.core.fire_and_forget import spawn
+                            from app.services.platform_adapters import teams_stream
+                            spawn(teams_stream.end_run(
+                                external_channel_id, str(_system_completion_id),
+                                failed=not run_outcome.get("finished"),
+                            ))
                         await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
 
-                asyncio.create_task(run_agent_task_then_drain_queue())
+                run_task = asyncio.create_task(run_agent_task_then_drain_queue())
+                if defer_tail:
+                    return await self._respond_when_answer_ready(
+                        run_task, answer_ready, run_outcome,
+                        report_id=_report_id, head_completion_id=_head_completion_id,
+                    )
                 # Return minimal v2 response with just created placeholders
                 v2_list = await self._assemble_v2_for_completion_ids(db, [head_completion.id, system_completion.id])
                 return CompletionsV2Response(
@@ -1031,35 +1127,9 @@ class CompletionService:
 
                     # Assemble v2 for the new message pair (user + system children)
                     with tracer.start_as_current_span("completion.assemble_v2_response"):
-                        response_completions = await self._get_response_completions(db, head_completion, current_user, organization)
-                        ids = [c.id for c in response_completions]
-                        v2_list = await self._assemble_v2_for_completion_ids(db, ids)
-
-                    # Compute aggregates similar to get_completions_v2 but for this set
-                    earliest = min((c.created_at for c in v2_list), default=None)
-                    latest = max((c.updated_at for c in v2_list), default=None)
-                    total_blocks = sum(len(c.completion_blocks or []) for c in v2_list)
-                    # Best-effort counts from tool_execution created artifacts
-                    total_widgets = 0
-                    total_steps = 0
-                    for c in v2_list:
-                        for b in (c.completion_blocks or []):
-                            te = getattr(b, 'tool_execution', None)
-                            if te and getattr(te, 'created_widget', None):
-                                total_widgets += 1
-                            if te and getattr(te, 'created_step', None):
-                                total_steps += 1
-
-                    return CompletionsV2Response(
-                        report_id=report.id,
-                        completions=v2_list,
-                        total_completions=len(v2_list),
-                        total_blocks=total_blocks,
-                        total_widgets_created=total_widgets,
-                        total_steps_created=total_steps,
-                        earliest_completion=earliest,
-                        latest_completion=latest,
-                    )
+                        return await self._build_v2_response(
+                            db, head_completion_id=head_completion.id, report_id=report.id,
+                        )
                 except Exception as e:
                     # str(e) alone can be empty (e.g. bare Exception subclasses) —
                     # keep the traceback, it's the only record of what killed the run.
@@ -2347,7 +2417,7 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                    detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
                 )
             _log("model_resolved")
             _log("small_model_resolved")
@@ -2845,10 +2915,9 @@ class CompletionService:
                 completion_stream_generator(),
                 media_type="text/event-stream",
                 headers={
-                    "Cache-Control": "no-cache",
+                    **NO_BUFFER_HEADERS,
                     "Connection": "keep-alive",
                     "Transfer-Encoding": "chunked",
-                    "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                     "X-Content-Type-Options": "nosniff",
                 }
             )
@@ -3031,24 +3100,13 @@ class CompletionService:
             watch_stream_generator(),
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                **NO_BUFFER_HEADERS,
                 "Connection": "keep-alive",
                 "Transfer-Encoding": "chunked",
-                "X-Accel-Buffering": "no",  # Disable nginx/ingress buffering
                 "X-Content-Type-Options": "nosniff",
             },
         )
 
-    async def _get_response_completions(self, db: AsyncSession, head_completion: Completion, current_user: User, organization: Organization):
-        response_completions = await db.execute(
-            select(Completion)
-            .where(Completion.parent_id == head_completion.id)
-            .where(Completion.report_id == head_completion.report_id)
-            .order_by(Completion.created_at.asc())
-        )
-        response_completions = response_completions.scalars().all()
-        return response_completions
-    
     async def submit_tool_result(
         self,
         db: AsyncSession,
@@ -3431,7 +3489,7 @@ class CompletionService:
         if not model:
             raise HTTPException(
                 status_code=400,
-                detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
+                detail="No LLM model is available to you. Ask an admin to set a default model for your organization or group (Settings > LLM)."
             )
 
         prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}

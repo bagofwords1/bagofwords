@@ -191,8 +191,11 @@ async def test_data_source_connection(
         persist=await _can_manage_data_source(db, current_user, organization, data_source_id),
     )
 
+# Tests unsaved connection params (no stored credentials). The connection form
+# calls it before both building an agent and creating a bare connection, so a
+# connection creator needs it as much as an agent builder.
 @router.post("/data_sources/test_connection", response_model=dict)
-@requires_permission('create_data_source')
+@requires_permission(['create_data_source', 'create_connections'])
 async def test_new_data_source_connection(
     data_source: DataSourceCreate,
     current_user: User = Depends(current_user),
@@ -571,7 +574,8 @@ async def get_domain_connections(
     def _catalog_shape(conn):
         try:
             entry = get_entry(conn.type)
-            return {"data_shape": entry.data_shape, "catalog_ownership": entry.catalog_ownership}
+            from app.schemas.data_source_registry import connection_catalog_ownership
+            return {"data_shape": entry.data_shape, "catalog_ownership": connection_catalog_ownership(conn)}
         except Exception:
             return {"data_shape": "tables", "catalog_ownership": "shared"}
 

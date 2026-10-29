@@ -2,7 +2,7 @@
   <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-3" data-testid="member-identity">
     <div>
       <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.memberIdentity.title') }}</div>
-      <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('data.memberIdentity.hint') }}</p>
+      <p class="text-2xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('data.memberIdentity.hint') }}</p>
     </div>
 
     <div v-for="field in fields" :key="field.field_name" class="space-y-1" :data-testid="`member-binding-${field.field_name}`">
@@ -32,27 +32,27 @@
           :data-testid="`member-binding-key-${field.field_name}`"
           @input="setKey(field.field_name, ($event.target as HTMLInputElement).value)"
         />
-        <span v-else class="flex-1 min-w-0 text-[11px] text-gray-500 dark:text-gray-400 truncate">
+        <span v-else class="flex-1 min-w-0 text-2xs text-gray-500 dark:text-gray-400 truncate">
           {{ fixedValue(field.field_name) ? $t('data.memberIdentity.usesValue', { value: fixedValue(field.field_name) }) : $t('data.memberIdentity.usesValueAbove') }}
         </span>
       </div>
-      <p v-if="keyError(field.field_name)" class="text-[11px] text-red-500">{{ keyError(field.field_name) }}</p>
+      <p v-if="keyError(field.field_name)" class="text-2xs text-red-500">{{ keyError(field.field_name) }}</p>
     </div>
     <datalist :id="datalistId">
       <option v-for="k in attributeKeys" :key="k" :value="k" />
     </datalist>
 
-    <p v-if="!hasBinding" class="text-[11px] text-amber-600" data-testid="member-identity-need-one">{{ $t('data.memberIdentity.needOne') }}</p>
+    <p v-if="!hasBinding" class="text-2xs text-amber-600" data-testid="member-identity-need-one">{{ $t('data.memberIdentity.needOne') }}</p>
 
     <!-- Who acts as whom (full admins: it reveals member attributes). -->
     <div v-if="connectionId && canPreview" class="space-y-1.5" data-testid="member-identity-preview">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('data.memberIdentity.previewTitle') }}</span>
-        <span v-if="preview && hasBinding" class="text-[11px] text-gray-500" data-testid="member-identity-counts">
+        <span v-if="preview && hasBinding" class="text-2xs text-gray-500" data-testid="member-identity-counts">
           {{ $t('data.memberIdentity.previewCounts', { ok: preview.ok_count, blocked: preview.blocked_count }) }}
         </span>
       </div>
-      <p v-if="previewError" class="text-[11px] text-red-500">{{ previewError }}</p>
+      <p v-if="previewError" class="text-2xs text-red-500">{{ previewError }}</p>
       <div v-else-if="preview && hasBinding" class="max-h-56 overflow-y-auto border border-gray-100 dark:border-gray-800 rounded-md divide-y divide-gray-100 dark:divide-gray-800">
         <div v-for="row in preview.members" :key="row.membership_id" class="px-2 py-1.5 text-xs" :data-testid="`member-identity-row-${row.email}`">
           <div class="flex items-center gap-2">
@@ -67,7 +67,7 @@
             <button
               v-if="row.status === 'ok'"
               type="button"
-              class="text-[11px] text-blue-600 hover:underline disabled:opacity-50 shrink-0"
+              class="text-2xs text-blue-600 hover:underline disabled:opacity-50 shrink-0"
               :disabled="!!testing[row.user_id]"
               :data-testid="`member-identity-test-${row.email}`"
               @click="testMember(row)"
@@ -75,7 +75,7 @@
           </div>
           <p
             v-if="testResults[row.user_id]"
-            class="ps-5 pt-0.5 text-[11px] break-words"
+            class="ps-5 pt-0.5 text-2xs break-words"
             :class="testResults[row.user_id].success ? 'text-green-700 dark:text-green-500' : 'text-red-600'"
             :data-testid="`member-identity-test-result-${row.email}`"
           >

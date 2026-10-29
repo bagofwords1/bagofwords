@@ -1,6 +1,6 @@
 <template>
   <div class="p-1">
-    <div v-if="loading" class="py-10 text-center text-gray-400 text-sm">Loading…</div>
+    <div v-if="loading" class="py-10 text-center text-ink-muted text-sm">Loading…</div>
 
     <template v-else>
       <!-- File connections → scope view (one card per file connection) -->

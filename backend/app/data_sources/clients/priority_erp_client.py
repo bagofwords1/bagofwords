@@ -672,11 +672,13 @@ class PriorityErpClient(DataSourceClient):
 
         Priority returns lines only inside their parent, and `$top`/`$orderby`
         inside an `$expand` act per parent, so the parent form is what gets
-        limited. With a row limit and no sort on line columns, parents are read
-        in pages (in the requested parent order, keys breaking ties) until
-        there are enough lines. Otherwise every matching parent is needed: it
-        is read in pages within the query budget, and when the budget runs out
-        the error says why the read was large and how to narrow it.
+        limited. With a row limit and a sort that starts with parent columns,
+        parents are read in pages (in that parent order, keys breaking ties)
+        until there are enough lines, plus any parents tied with the last one
+        when line columns come later in the sort. Otherwise every matching
+        parent is needed: it is read in pages within the query budget, and
+        when the budget runs out the error says why the read was large and how
+        to narrow it.
         """
         route = SubformRoute.from_metadata(name.upper(), meta)
         if route is None:
@@ -708,6 +710,12 @@ class PriorityErpClient(DataSourceClient):
         first_sent = None
         page = max(1, min(limit, _MAX_PAGE)) if sample else _SCAN_PAGE
         partial = False
+        # Once a sample has enough lines with `parent_ties`: the leading sort
+        # values of the last parent read, which later parents may still share.
+        tied_on = None
+
+        def sort_values(row: dict) -> tuple:
+            return tuple(row.get(c) for c, _ in post.parent_orderby or [])
         read_started = time.monotonic()
         with self.connect() as session:
             while True:
@@ -726,8 +734,12 @@ class PriorityErpClient(DataSourceClient):
                 rows.extend(flatten_subform(parents, route))
                 if len(parents) < page:
                     break  # the last page of matching parents
-                if sample and len(rows) >= limit:
-                    break
+                if tied_on is not None and sort_values(parents[-1]) != tied_on:
+                    break  # past the parents tied with the last one needed
+                if sample and tied_on is None and len(rows) >= limit:
+                    if not post.parent_ties:
+                        break
+                    tied_on = sort_values(parents[-1])
                 if sample:
                     page = min(page * 2, _MAX_PAGE)
                 elif requests_sent == 1:
@@ -747,7 +759,14 @@ class PriorityErpClient(DataSourceClient):
         notice = f"Priority request ({route.name} is a subform of {parent.form}): {first_sent}"
         if requests_sent > 1:
             notice += f" — {requests_sent} pages, {parents_read} {parent.form} rows read"
-        if partial:
+        if partial and tied_on is not None:
+            notice += (
+                f". Stopped at the time limit while reading {parent.form} rows with the same "
+                f"{', '.join(c for c, _ in post.parent_orderby)} as the last one; lines of "
+                f"those not read may belong in the result — add {', '.join(parent.keys)} to "
+                f"$orderby after {post.parent_orderby[-1][0]} so it cannot tie"
+            )
+        elif partial:
             notice += (
                 f". Stopped at the time limit with {len(df)} of the {post.top or max_rows} "
                 f"rows asked for; add a $filter on {parent.form} columns to find the rest faster"
@@ -812,10 +831,11 @@ class PriorityErpClient(DataSourceClient):
                     f"{parent} rows match")
         if post.top is None:
             why = f"it has no $top, so it reads every {parent} row with all its lines"
+        elif post.parent_orderby is None:
+            why = (f"it sorts on {post.orderby[0][0]} first, a column of the lines, so it "
+                   f"reads every {parent} row with all its lines")
         else:
-            sorted_on = ", ".join(c for c, _ in post.orderby)
-            why = (f"it sorts on {sorted_on}, a column of the lines, so it reads every "
-                   f"{parent} row with all its lines")
+            why = f"too few of the {parent} rows read had matching lines"
         why += f" (a filter on line columns does not reduce that: {route.name} is read through {parent})"
         return why, self._parent_filter_hint(route) + f" to read fewer {parent} rows"
 
@@ -1093,11 +1113,13 @@ not how many lines come back:
 - A `$filter` on a **parent** column (a date range, the customer, the order
   number) narrows the read. A filter on a **line** column (PRICE, PARTNAME)
   does not: every order is still read, then its lines are filtered.
-- `$top` with no `$orderby`, or with `$orderby` on parent columns only, reads
-  just enough orders to fill it — a quick sample.
-- `$orderby` on a line column, or no `$top` at all, needs every matching
-  order: include a `$filter` on a parent column (or `$since`). Without one it
-  reads the whole form, which on a large company runs out of time.
+- `$top` with no `$orderby`, or with `$orderby` that starts with parent
+  columns (line columns only after them, as in `CURDATE desc,ORDNAME desc,KLINE`),
+  reads just enough orders to fill it — a quick sample.
+- `$orderby` that starts with a line column, or no `$top` at all, needs every
+  matching order: include a `$filter` on a parent column (or `$since`).
+  Without one it reads the whole form, which on a large company runs out of
+  time.
 
 ```
 ORDERITEMS?$top=5&$select=ORDNAME,PARTNAME,TQUANT,PRICE

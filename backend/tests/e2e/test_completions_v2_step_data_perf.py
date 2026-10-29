@@ -403,7 +403,9 @@ def test_write_csv_duplicate_rows_are_bounded_in_report_read_payloads():
                     db, seeded["report_id"], seeded["org"], seeded["user"], limit=10
                 )
                 summary = ReportSummaryResponse.model_validate(
-                    await report_service.get_report_summary(db, seeded["report_id"])
+                    await report_service.get_report_summary(
+                        db, seeded["report_id"], seeded["org"], seeded["user"]
+                    )
                 )
 
             completion_body = completions.model_dump_json()

@@ -71,11 +71,19 @@ async def _viz_steps(db, artifact) -> list[tuple[Any, Any, Any]]:
     from app.models.query import Query
     from app.models.step import Step
 
+    # A published dashboard's release (dashboard_data.ReleaseRender) owns its
+    # copies; a version reads its conversation's charts.
+    release_id = getattr(artifact, "artifact_release_id", None)
+    owner = (Visualization.artifact_release_id == release_id if release_id
+             else Visualization.report_id == artifact.report_id)
+    # The rows one reader may see, when the caller knows the reader (a /d
+    # export); otherwise the stored snapshot.
+    rows_for = getattr(artifact, "rows_for", None)
     viz_stmt = (
         select(Visualization)
         .options(selectinload(Visualization.query))
         .where(
-            Visualization.report_id == artifact.report_id,
+            owner,
             # Soft-deleted queries take their visualizations with them —
             # exports and thumbnails must not keep serving deleted data
             Visualization.deleted_at.is_(None),
@@ -93,9 +101,13 @@ async def _viz_steps(db, artifact) -> list[tuple[Any, Any, Any]]:
             continue
 
         step = None
-        if query.default_step_id:
+        if rows_for is not None:
+            # For a reader, the step their step route serves (successful only).
+            from app.services.dashboard_data import default_step
+            step = await default_step(db, query)
+        elif query.default_step_id:
             step = await db.get(Step, query.default_step_id)
-        if not step:
+        if not step and rows_for is None:
             step_result = await db.execute(
                 select(Step)
                 .where(Step.query_id == query.id)
@@ -114,18 +126,26 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
     (see UNSCOPED)."""
     from app.models.report import Report
 
-    report = await db.get(Report, artifact.report_id) if viewer is not UNSCOPED else None
+    report = (await db.get(Report, artifact.report_id)
+              if viewer is not UNSCOPED and getattr(artifact, "report_id", None) else None)
+    # A published dashboard's render (dashboard_data.ReleaseRender) carries the
+    # rows its one reader may see; it decides them itself.
+    rows_for = getattr(artifact, "rows_for", None)
 
     viz_data: list[dict[str, Any]] = []
     for viz, query, step in await _viz_steps(db, artifact):
-        data, withheld = await _resolve_rows(db, step, report, viewer)
-        applied = getattr(step, "applied_params", None) or {}
-        if viewer is not UNSCOPED:
-            from app.services.viewer_data_policy import redact_applied_params
+        if rows_for is not None and step is not None:
+            seen = await rows_for(db, step, query)
+            data, applied = seen["data"], seen["applied_params"] or {}
+            withheld = seen["withheld"]
+        else:
+            data, withheld = await _resolve_rows(db, step, report, viewer)
+            applied = getattr(step, "applied_params", None) or {}
+            if viewer is not UNSCOPED:
+                from app.services.viewer_data_policy import redact_applied_params
 
-            applied = redact_applied_params(applied, query.parameters, withheld=withheld) or {}
-
-        viz_data.append({
+                applied = redact_applied_params(applied, query.parameters, withheld=withheld) or {}
+        entry = {
             "id": str(viz.id),
             # Carried so an offline host can tell which visualizations a
             # declared query param is scoped to (declaration.query_ids).
@@ -137,7 +157,13 @@ async def collect_visualizations(db, artifact, *, viewer: Any = UNSCOPED) -> lis
             "rows": data.get("rows", []) if data else [],
             "columns": data.get("columns", []) if data else [],
             "dataModel": step.data_model or {} if step else {},
-        })
+        }
+        if viewer is not UNSCOPED:
+            # Reader-scoped callers (the chat context, the public export) must
+            # be able to tell "this reader may not see these rows" from "the
+            # query returned nothing" — an empty `rows` means both.
+            entry["withheld"] = withheld
+        viz_data.append(entry)
 
     return viz_data
 
@@ -228,17 +254,16 @@ async def collect_artifact_payload(db, artifact, *, viewer: Any = UNSCOPED) -> O
     """
     from app.models.report import Report
 
-    report = await db.get(Report, artifact.report_id)
-    if not report:
-        return None
+    report_payload = getattr(artifact, "report_payload", None)  # a release has no conversation
+    if report_payload is None:
+        report = await db.get(Report, artifact.report_id)
+        if not report:
+            return None
+        report_payload = {"id": str(report.id), "title": report.title, "theme": report.theme_name}
 
     visualizations = await collect_visualizations(db, artifact, viewer=viewer)
     return {
-        "report": {
-            "id": str(report.id),
-            "title": report.title,
-            "theme": report.theme_name,
-        },
+        "report": report_payload,
         "visualizations": [{k: v for k, v in viz.items() if k != "applied_params"} for viz in visualizations],
         "files": await collect_files(db, artifact),
         "current_user": None,
@@ -293,7 +318,8 @@ def build_params_payload(visualizations: list[dict[str, Any]]) -> dict[str, Any]
             "options": options, "ack": 0}
 
 
-async def _options_from_source(db, source, viewer: Any = UNSCOPED) -> list[dict[str, Any]]:
+async def _options_from_source(db, source, viewer: Any = UNSCOPED, rows_for=None,
+                               release_id=None) -> list[dict[str, Any]]:
     """Resolve an options_source (another query's column) to stable choices.
 
     Mirrors resolveParamOptions in ArtifactFrame.vue: the choices come from
@@ -307,9 +333,15 @@ async def _options_from_source(db, source, viewer: Any = UNSCOPED) -> list[dict[
     query = await db.get(Query, source.query_id)
     if not query:
         return []
+    if release_id and str(query.artifact_release_id or "") != str(release_id):
+        return []  # a release reads its own copies only
 
-    step = await db.get(Step, query.default_step_id) if query.default_step_id else None
-    if not step:
+    if rows_for is not None:
+        from app.services.dashboard_data import default_step
+        step = await default_step(db, query)
+    else:
+        step = await db.get(Step, query.default_step_id) if query.default_step_id else None
+    if not step and rows_for is None:
         result = await db.execute(
             select(Step)
             .where(Step.query_id == query.id)
@@ -317,7 +349,10 @@ async def _options_from_source(db, source, viewer: Any = UNSCOPED) -> list[dict[
             .limit(1)
         )
         step = result.scalar_one_or_none()
-    if viewer is not UNSCOPED:
+    if step is not None and rows_for is not None:
+        # The option list is rows too: a /d reader gets the ones they may see.
+        data = (await rows_for(db, step, query))["data"]
+    elif viewer is not UNSCOPED:
         # Option lists are another query's rows — same withholding applies.
         from app.models.report import Report
 
@@ -358,7 +393,9 @@ async def collect_params(
     for viz in visualizations:
         for spec in parse_param_specs(viz.get("parameters")):
             if spec.options_source:
-                resolved = await _options_from_source(db, spec.options_source, viewer)
+                resolved = await _options_from_source(db, spec.options_source, viewer,
+                                                      getattr(artifact, "rows_for", None),
+                                                      getattr(artifact, "artifact_release_id", None))
                 if resolved:
                     payload["options"][spec.name] = resolved
     return payload

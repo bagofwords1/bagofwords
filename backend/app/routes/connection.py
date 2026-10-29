@@ -19,7 +19,9 @@ from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
-from app.core.permissions_decorator import requires_permission, requires_resource_permission
+from app.core.permissions_decorator import (
+    requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
+)
 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 from app.models.membership import Membership
 from app.schemas.connection_schema import (
@@ -378,8 +380,11 @@ async def list_connections(
     return result
 
 
+# `create_connections` lets a member create connections; the creator owns what
+# they create (manage it + build/manage agents on it). Org `manage_connections`
+# implies it.
 @router.post("", response_model=ConnectionSchema)
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections'])
 async def create_connection(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),
@@ -452,8 +457,14 @@ async def get_connection(
     """Get connection details. Non-admins get a redacted view (no config/credentials) and must have access to at least one linked data source."""
     connection = await connection_service.get_connection(db, connection_id, organization)
 
+    # Two tiers. Connection managers (org connection admin, or a per-connection
+    # `manage_connection` grant — which includes the member who created the
+    # connection) can PUT its config, so they see it to edit it. Saved
+    # credential identifiers (credentials_meta / has_credentials) stay with
+    # org-level admins only.
     is_admin = await _is_org_admin(db, current_user, organization)
-    if not is_admin:
+    can_manage = is_admin or await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         if not await _user_can_access_connection(db, current_user, connection):
             raise HTTPException(status_code=403, detail="Access denied to this connection")
 
@@ -466,11 +477,14 @@ async def get_connection(
         except:
             config = {}
 
-    # Strip sensitive fields for non-admins
+    # Strip sensitive fields for non-managers; credential metadata is admin-only.
     credentials_meta = None
-    if not is_admin:
+    if not can_manage:
         config = {}
         allowed_user_auth_modes = []
+        has_credentials = False
+    elif not is_admin:
+        allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = False
     else:
         allowed_user_auth_modes = connection.allowed_user_auth_modes
@@ -506,7 +520,7 @@ async def get_connection(
     )
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
-    query_limits = await _query_limit_fields(db, organization, config if is_admin else {})
+    query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -514,7 +528,7 @@ async def get_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
-        member_bindings=(connection.member_bindings or None) if is_admin else None,
+        member_bindings=(connection.member_bindings or None) if can_manage else None,
         config=config or {},
         last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
@@ -665,7 +679,7 @@ async def delete_connection(
 
 
 @router.post("/test-params")
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections'])
 async def test_connection_params(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),
@@ -682,15 +696,28 @@ async def test_connection_params(
 
 
 @router.post("/test-tool", response_model=ConnectionToolTestResult)
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections', 'manage_connection'], resource_scoped=True)
 async def test_connection_tool(
     data: ConnectionToolTestRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Run one tool (endpoint) with sample arguments — pre- or post-save."""
+    """Run one tool (endpoint) with sample arguments — pre- or post-save.
+
+    Pre-save (no ``connection_id``) is part of creating a connection; against a
+    saved connection it needs ``manage_connection`` on THAT connection, since it
+    runs with the connection's stored credentials."""
     import json as _json
+    if data.connection_id:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", [str(data.connection_id)], "manage_connection",
+        )
+    else:
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "create_connections",
+        )
     config = data.config or {}
     credentials = data.credentials or {}
     if data.connection_id and not credentials:
@@ -834,7 +861,7 @@ async def test_connection_member_identity(
 
 
 @router.get("/{connection_id}/kerberos-access")
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def list_kerberos_access(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -1232,6 +1259,9 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     if FULL_ADMIN in resolved.org_permissions or resolved.has_org_permission("manage_connections"):
         return
     if resolved.has_resource_permission("connection", str(connection.id), "view"):
+        return
+    # Connection managers (incl. its owner) can read what they manage.
+    if resolved.has_resource_permission("connection", str(connection.id), "manage_connection"):
         return
     granted_ds_ids = {
         rid for (rtype, rid) in resolved.resource_permissions if rtype == "data_source"
@@ -1691,7 +1721,7 @@ async def preview_custom_query_as_user(
 # ==================== Tool Management Routes (MCP / Custom API) ====================
 
 @router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def refresh_connection_tools(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -1743,7 +1773,7 @@ async def get_connection_tools_list(
 
 
 @router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def batch_update_connection_tools(
     connection_id: str,
     data: BatchToolUpdate,
@@ -1754,7 +1784,9 @@ async def batch_update_connection_tools(
 ):
     """Batch enable/disable tools."""
     await connection_service.get_connection(db, connection_id, organization)
-    tools = await connection_service.batch_update_tools(db, data.tool_ids, data.is_enabled)
+    tools = await connection_service.batch_update_tools(
+        db, data.tool_ids, data.is_enabled, connection_id=str(connection_id),
+    )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="connection.tools_batch_updated",
@@ -1780,7 +1812,7 @@ async def batch_update_connection_tools(
 
 
 @router.put("/{connection_id}/tools/{tool_id}", response_model=ConnectionToolSchema)
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def update_tool(
     connection_id: str,
     tool_id: str,
@@ -1793,7 +1825,8 @@ async def update_tool(
     """Enable/disable a tool or update its policy."""
     await connection_service.get_connection(db, connection_id, organization)
     tool = await connection_service.update_connection_tool(
-        db, tool_id, is_enabled=data.is_enabled, policy=data.policy
+        db, tool_id, is_enabled=data.is_enabled, policy=data.policy,
+        connection_id=str(connection_id),
     )
     try:
         await audit_service.log(

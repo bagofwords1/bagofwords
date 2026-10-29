@@ -24,6 +24,15 @@ args, _ = parser.parse_known_args()
 if args.config:
     os.environ['BOW_CONFIG_PATH'] = args.config
 
+# Process-wide TLS verification policy. Must run after --config is exported
+# above (settings are built on first import) and before any other app import:
+# aiohttp (pulled in by the route modules) builds and caches its SSL context
+# at import, and the shared httpx context is cached on first use. Loading
+# settings here imports nothing that builds a context.
+from app.settings.config import settings
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
+
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
@@ -39,6 +48,7 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
+from app.core.swagger import mount_swagger_ui
 from app.core.request_hardening import (
     ControlCharGuardMiddleware,
     traceback_pages_enabled,
@@ -55,6 +65,7 @@ from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
 from app.routes import (
+    dashboard,
     report,
     artifact_chat,
     project,
@@ -137,7 +148,9 @@ app = FastAPI(
     # debug off, unhandled errors go to the sanitized handler in app.errors.
     debug=traceback_pages_enabled(settings),
     dependencies=[Depends(validate_id_path_params)],
-    docs_url="/swagger" if swagger_enabled else None,
+    # /swagger is mounted below by mount_swagger_ui so it can use vendored
+    # assets instead of the CDN (air-gapped deployments).
+    docs_url=None,
     redoc_url=None,
     openapi_url="/openapi.json" if swagger_enabled else None,
     openapi_tags=[
@@ -155,6 +168,8 @@ app = FastAPI(
     ],
     swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
+if swagger_enabled:
+    mount_swagger_ui(app)
 
 # Instrument FastAPI with OpenTelemetry
 instrument_app(app, settings.bow_config.otel)
@@ -266,6 +281,9 @@ app.include_router(review.router, prefix="/api")
 app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(artifact_chat.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
+from app.routes import dashboard_collab as _dashboard_collab_routes  # noqa: E402
+app.include_router(_dashboard_collab_routes.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
@@ -518,6 +536,23 @@ async def startup_event():
             logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
+        # A dashboard's refresh history keeps 30 days (refhist01).
+        try:
+            from app.services.dashboard_refresh_history import purge_old_runs
+            scheduler.add_job(
+                purge_old_runs,
+                trigger="cron",
+                hour=3,
+                minute=30,
+                id="purge_dashboard_refresh_runs_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_old_runs (dashboard refresh history) @ 03:30 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule refresh history purge job: {e}")
 
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:
@@ -737,10 +772,28 @@ async def startup_event():
     scheduler.start()
 
     if is_scheduler_leader:
-        # Re-register scheduled prompt jobs (only the leader flushes these to
-        # the jobstore; non-leaders would duplicate the set).
+        # Re-register scheduled prompt jobs and move dashboard refresh jobs onto
+        # their org timezone (only the leader flushes these to the jobstore;
+        # non-leaders would duplicate the set).
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
+        # Best effort: a failure here must not stop the app from starting.
+        try:
+            from app.services.report_service import ReportService
+            await ReportService().register_schedule_timezones()
+        except Exception as e:
+            logger.error(f"Failed to move dashboard refresh jobs to their org timezone: {e}")
+        # Published dashboards' schedules (phase 6), rebuilt from the table.
+        try:
+            from app.services.dashboard_refresh import register_all_jobs as register_dashboard_jobs
+            await register_dashboard_jobs()
+        except Exception:
+            logger.warning("Dashboard schedules were not registered", exc_info=True)
+        # And kept: a server on an older version (a rolling upgrade) drops the
+        # jobs it cannot load; the leader puts missing ones back.
+        import asyncio as _asyncio_keep
+        from app.services.dashboard_refresh import keep_jobs as keep_dashboard_jobs
+        app.state.dashboard_jobs_task = _asyncio_keep.create_task(keep_dashboard_jobs())
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to
@@ -844,6 +897,9 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    dashboard_jobs_task = getattr(app.state, "dashboard_jobs_task", None)
+    if dashboard_jobs_task is not None:
+        dashboard_jobs_task.cancel()
     stop_event = getattr(app.state, "email_poller_stop", None)
     if stop_event is not None:
         stop_event.set()

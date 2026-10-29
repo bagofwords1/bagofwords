@@ -29,6 +29,11 @@ from app.ai.context.parts import (
 # just took in full, plus the one before it for continuity.
 PROTECT_LAST_TURNS = 4
 
+# Head-only cut applied to a single rendered tool result (see to_model_messages).
+# Named because tools that must fit their own payload under it budget against
+# this constant rather than a copy of the number.
+MAX_RESULT_CHARS = 100_000
+
 # Tool-supplied images (rendered PDF pages, screenshots): only the newest
 # MAX_RETAINED_IMAGES stay in context, counted across the whole run whatever
 # step they came from. Older results keep their text plus a note saying how to
@@ -324,7 +329,7 @@ class Transcript:
         self,
         *,
         provider_name: Optional[str] = None,
-        max_result_chars: int = 100_000,
+        max_result_chars: int = MAX_RESULT_CHARS,
         supports_images: bool = True,
     ) -> list:
         """Render to provider-agnostic ``Message`` objects.

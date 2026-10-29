@@ -29,7 +29,7 @@
     <div class="mt-1 space-y-0.5">
       <!-- Data source selector -->
       <div class="flex items-center gap-2">
-        <div class="text-[11px] text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">Agents</div>
+        <div class="text-2xs text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">Agents</div>
         <div class="flex-1 min-w-[460px] flex items-center min-h-[32px]">
           <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" :permission="permission" />
         </div>
@@ -37,14 +37,14 @@
 
       <!-- Model selector -->
       <div class="flex items-center gap-2">
-        <div class="text-[11px] text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">LLM</div>
+        <div class="text-2xs text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">LLM</div>
         <div class="flex-1">
           <UPopover :popper="popperLegacy">
             <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
               <button class="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 text-xs flex items-center border border-gray-200 dark:border-gray-800 h-8">
                 <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
                 <span class="ms-1 truncate max-w-[260px] text-start">{{ selectedModelLabel }}</span>
-                <span v-if="selectedEffort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
+                <span v-if="selectedEffort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
               </button>
             </UTooltip>
             <template #panel="{ close }">
@@ -63,7 +63,7 @@
 
       <!-- File upload -->
       <div class="flex items-center gap-2">
-        <div class="text-[11px] text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">Files</div>
+        <div class="text-2xs text-gray-500 dark:text-gray-400 flex-none w-28 whitespace-nowrap">Files</div>
         <div class="flex-1 flex items-center min-h-[32px]">
           <FileUploadComponent :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
         </div>
@@ -158,7 +158,7 @@ async function loadModels() {
     const list = ((data as any)?.value || []).filter((m: any) => !m?.supports_image_generation)
     models.value = list
     // Prefer the user's personal default, then regular default, then small default, then first
-    const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_default)
+    const regular = list.find((m: any) => m.is_user_default) || list.find((m: any) => m.is_inherited_default) || list.find((m: any) => m.is_default)
     const small = list.find((m: any) => m.is_small_default)
     // Only default when nothing was handed down. An explicit choice must
     // survive the models list arriving after mount.

@@ -39,7 +39,7 @@
               <UIcon
                 v-else
                 name="i-heroicons-cube"
-                class="w-5 h-5 text-gray-400"
+                class="w-5 h-5 text-ink-muted"
               />
             </div>
             <div>
@@ -82,7 +82,7 @@
             <dt class="text-gray-500 dark:text-gray-400">{{ $t('settings.licensePage.fieldExpires') }}</dt>
             <dd :class="isExpiringSoon || isExpired ? 'text-amber-600 font-medium' : 'text-gray-700 dark:text-gray-300'">
               {{ formatDate(expiresAt) }}
-              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-gray-400 dark:text-gray-600">
+              <span v-if="daysUntilExpiry !== null && daysUntilExpiry > 0" class="text-ink-muted">
                 · {{ $t('settings.licensePage.inDays', { days: daysUntilExpiry }) }}
               </span>
             </dd>
@@ -132,7 +132,7 @@
           <span v-if="keyStatus?.masked_key" class="font-mono text-gray-600 dark:text-gray-300">
             {{ keyStatus.masked_key }}
           </span>
-          <span v-if="keyUpdatedAt" class="text-gray-400 dark:text-gray-600">
+          <span v-if="keyUpdatedAt" class="text-ink-muted">
             · {{ $t('settings.licensePage.lastUpdated') }} {{ formatDate(keyUpdatedAt) }}
           </span>
         </div>
@@ -184,7 +184,7 @@
             type="button"
             data-testid="license-key-save"
             :disabled="saving || !keyInput.trim()"
-            class="bg-blue-500 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
+            class="bg-blue-600 text-white border border-transparent text-xs px-2.5 py-1 rounded-md disabled:opacity-50"
             @click="save"
           >
             {{ saving ? $t('settings.licensePage.activating') : $t('settings.licensePage.activate') }}

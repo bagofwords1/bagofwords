@@ -7,7 +7,7 @@
       >
         <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
         <span class="ms-1 truncate">{{ selectedLabel }}</span>
-        <span v-if="effort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-[10px] leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${effort}`) }}</span>
+        <span v-if="effort" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${effort}`) }}</span>
       </button>
     </UTooltip>
     <template #panel="{ close }">

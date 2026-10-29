@@ -16,9 +16,13 @@ from .list_agent_tools import ListAgentToolsMCPTool
 from .execute_mcp import ExecuteMCPMCPTool
 from .instructions import (
     ListInstructionsMCPTool,
+    ReadInstructionMCPTool,
     CreateInstructionMCPTool,
+    EditInstructionMCPTool,
     DeleteInstructionMCPTool,
 )
+from .entities import DescribeEntityMCPTool, ListEntitiesMCPTool
+from .schema_tools import DescribeTablesMCPTool, EditSchemaMCPTool
 from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
 
 MCP_TOOLS = {
@@ -35,8 +39,16 @@ MCP_TOOLS = {
     "execute_mcp": ExecuteMCPMCPTool,
     # Instruction management tools
     "list_instructions": ListInstructionsMCPTool,
+    "read_instruction": ReadInstructionMCPTool,
     "create_instruction": CreateInstructionMCPTool,
+    "edit_instruction": EditInstructionMCPTool,
     "delete_instruction": DeleteInstructionMCPTool,
+    # Saved queries (catalog entities)
+    "list_entities": ListEntitiesMCPTool,
+    "describe_entity": DescribeEntityMCPTool,
+    # Agent schema tools (read: anyone who can see the agent; write: agent managers)
+    "describe_tables": DescribeTablesMCPTool,
+    "edit_schema": EditSchemaMCPTool,
     # App-only tools (hidden from LLM, used by MCP App UIs)
     "get_visualization": GetVisualizationMCPTool,
     "get_artifact_data": GetArtifactDataMCPTool,

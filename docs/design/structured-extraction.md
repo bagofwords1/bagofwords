@@ -420,6 +420,12 @@ scheduled runs.
   not removals) and are classified additive / breaking with `classify_schema_change`; the card
   shows the per-field diff and the breaking warning. Both tools are `allowed_modes=["training"]`
   and require MANAGE on the owning agent.
+- **Deleting rows from chat:** `delete_list_rows` (chat and training) removes rows picked by
+  `_row_id` (from the bow table), by key value, or all of them. It matches first — nothing
+  matched means no card — then pauses on a confirmation card listing the rows; approval deletes
+  exactly the rows shown (a row added meanwhile stays), through the same `delete_rows` service as
+  the rows panel. Same gate as the REST delete (MANAGE on the owning agent); not offered to
+  sub-agents or in shared-artifact chat.
 
 This supersedes the "schema pinned on a Step" idea above. The Step remains how a list
 is charted or put on a dashboard, through the queryable table.

@@ -991,8 +991,6 @@ class SchemaContextBuilder:
             except Exception as exc:
                 logger.warning("agent list tables skipped: %s", exc)
 
-        self._apply_native_mcp_decision(ds_sections)
-
         return TablesSchemaContext(data_sources=ds_sections)
 
     async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
@@ -1034,29 +1032,6 @@ class SchemaContextBuilder:
             ),
             tables=tables,
         ))
-
-    def _apply_native_mcp_decision(self, ds_sections) -> bool:
-        """Tell each agent section where its MCP tools' schemas will live.
-
-        Native registration is decided once for the whole report, so the count
-        driving it has to be the report-wide one. Deciding per agent would
-        disagree with the planner whenever a report spans several agents, and
-        the tools would then carry their schema in both places or in neither.
-
-        Falls back to False (inline the schemas) on any error — a schema sent
-        twice is wasteful, a schema sent nowhere costs a discovery round trip.
-        """
-        try:
-            from app.ai.tools.mcp_tool_registry import native_tools_enabled
-            native_on = native_tools_enabled(
-                self.organization_settings,
-                sum(len(s.mcp_tools or []) for s in ds_sections),
-            )
-        except Exception:
-            native_on = False
-        for s in ds_sections:
-            s.native_mcp = native_on
-        return native_on
 
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {

@@ -31,7 +31,9 @@ class StepUserResult(BaseSchema):
     user_id = Column(String(36), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     # Denormalized for cheap per-report invalidation/cleanup
-    report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
+    # Nullable since dashfc01: a viewer's result on a published release has no
+    # conversation. Every writer still passes one today.
+    report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
 
     # 'success' | 'error'
     status = Column(String(20), nullable=False, default='success')

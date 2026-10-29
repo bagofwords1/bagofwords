@@ -106,9 +106,9 @@ class ObservationContextBuilder:
                         "content was shown when this call ran)"
                     )
             elif prev_obs["tool_name"] == "execute_mcp":
-                # An MCP result is inlined up to `mcp_result_inline_chars`
-                # (50k by default) so the agent can answer from it without a
-                # second round trip. That budget is priced for ONE observation:
+                # An MCP result is inlined whole when it fits the window
+                # (execute_mcp._inline_budget) so the agent can answer from it
+                # without a second round trip. That budget is priced for ONE observation:
                 # left alone, five sequential calls stack five full payloads
                 # into every subsequent prompt, and the last-5-full window in
                 # the prompt builder is too late to catch it — this is the same

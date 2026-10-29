@@ -1,9 +1,9 @@
 <template>
   <div class="mt-1">
     <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
+      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
+          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : `Listing ${noun.many}…` }}</span>
         </span>
         <span
@@ -12,11 +12,11 @@
           @click="expanded = !expanded"
           :aria-expanded="expanded"
         >
-          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
+          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-folder" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+          <Icon v-else name="heroicons-folder" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ modelTitle || `Listed ${noun.many}` }}</span>
-          <span v-if="files.length" class="ms-2 text-gray-400 dark:text-gray-500">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? noun.one : noun.many }}</span>
+          <span v-if="files.length" class="ms-2 text-ink-muted">{{ files.length }}{{ truncated ? '+' : '' }} {{ files.length === 1 ? noun.one : noun.many }}</span>
         </span>
       </div>
     </Transition>
@@ -30,24 +30,24 @@
               @click="toggleItem(idx)"
               :aria-expanded="isExpanded(idx)"
             >
-              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-400 dark:text-gray-500 me-1 rtl-flip" />
-              <Icon name="heroicons-document" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500" />
+              <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
+              <Icon name="heroicons-document" class="w-3 h-3 me-1 text-ink-muted" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || noun.one }}</div>
-              <span v-if="f.path && f.path !== f.name" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
-              <span v-if="f.size" class="ms-2 text-[10px] text-gray-400 dark:text-gray-500 shrink-0">{{ formatBytes(f.size) }}</span>
+              <span v-if="f.path && f.path !== f.name" class="ms-2 text-2xs text-ink-muted truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
+              <span v-if="f.size" class="ms-2 text-2xs text-ink-muted shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
-                <div v-if="f.path" class="text-[11px]"><span class="text-gray-400 dark:text-gray-500">Path:</span> {{ f.path }}</div>
-                <div v-if="f.mime_type" class="text-[11px]"><span class="text-gray-400 dark:text-gray-500">Type:</span> {{ f.mime_type }}</div>
-                <div v-if="f.modified_at" class="text-[11px]"><span class="text-gray-400 dark:text-gray-500">Modified:</span> {{ f.modified_at }}</div>
-                <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-[11px] text-blue-600 hover:underline inline-flex items-center gap-1">
+                <div v-if="f.path" class="text-2xs"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
+                <div v-if="f.mime_type" class="text-2xs"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
+                <div v-if="f.modified_at" class="text-2xs"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
+                <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-2xs text-blue-600 hover:underline inline-flex items-center gap-1">
                   Open <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                 </a>
               </div>
             </Transition>
           </li>
-          <li v-if="files.length > 10" class="ps-1 text-[11px] text-gray-400 dark:text-gray-500">+{{ files.length - 10 }} more</li>
+          <li v-if="files.length > 10" class="ps-1 text-2xs text-ink-muted">+{{ files.length - 10 }} more</li>
         </ul>
         <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>

@@ -136,6 +136,14 @@ async def build_rich_context(
     # Prime static context with the user's prompt for intelligent instruction search
     # This loads: schemas, instructions, resources, files in parallel
     await context_hub.prime_static(query=prompt)
+
+    # Saved queries (published catalog entities) on these agents. The agent
+    # loop gets these from refresh_warm, which no MCP tool runs — without this
+    # the coder re-derives a metric the organization has already agreed on.
+    await context_hub.prime_entities(
+        user_text=prompt,
+        data_source_ids=[str(ds.id) for ds in data_sources] or None,
+    )
     
     # Get the context view
     view = context_hub.get_view()
@@ -148,6 +156,14 @@ async def build_rich_context(
         except Exception:
             pass
     
+    # Render saved queries
+    entities_text = ""
+    if view.warm.entities:
+        try:
+            entities_text = view.warm.entities.render()
+        except Exception:
+            pass
+
     # Render resources
     resources_text = ""
     if view.static.resources:
@@ -219,6 +235,7 @@ async def build_rich_context(
         tables_by_source=tables_by_source,
         schemas_excerpt=schemas_excerpt,
         instructions_text=instructions_text,
+        entities_text=entities_text,
         resources_text=resources_text,
         files_text=files_text,
         connected_sources=connected_sources,

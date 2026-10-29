@@ -22,7 +22,7 @@
           :style="panelStyle"
         >
           <div v-if="loadingDetails" class="flex items-center justify-center py-8">
-            <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
+            <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
 
           <div v-else class="px-4 py-3.5">
@@ -42,14 +42,14 @@
               <NuxtLink
                 v-if="agentId"
                 :to="`/agents/${agentId}`"
-                class="text-[11px] font-medium text-gray-400 hover:text-indigo-600 flex-shrink-0 whitespace-nowrap"
+                class="text-2xs font-medium text-ink-muted hover:text-indigo-600 flex-shrink-0 whitespace-nowrap"
               >
                 {{ $t('agentFlyout.openAgent') }}
               </NuxtLink>
             </div>
 
             <!-- Connections | counts -->
-            <div v-if="connectionNames || countsLabel" class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 truncate">
+            <div v-if="connectionNames || countsLabel" class="mt-1.5 text-2xs text-ink-muted truncate">
               <span v-if="connectionNames">{{ connectionNames }}</span>
               <span v-if="connectionNames && countsLabel" class="mx-1.5 text-gray-300 dark:text-gray-600">|</span>
               <span v-if="countsLabel">{{ countsLabel }}</span>

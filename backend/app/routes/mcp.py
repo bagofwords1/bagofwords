@@ -19,6 +19,7 @@ from typing import Any, Optional, Union, Tuple
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.responses import StreamingResponse
+from app.streaming.delivery import NO_BUFFER_HEADERS
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
@@ -138,6 +139,13 @@ def _mcp_response(content: Any, status_code: int = 200) -> JSONResponse:
 
 
 router = APIRouter(tags=["mcp"])
+
+
+async def _holds_permission_anywhere(db: AsyncSession, user: User, organization: Organization, permission: str) -> bool:
+    """True if the user holds ``permission`` org-wide or on at least one agent."""
+    from app.core.permission_resolver import get_ds_ids_with_permission
+    is_org_wide, ds_ids = await get_ds_ids_with_permission(db, str(user.id), str(organization.id), permission)
+    return is_org_wide or bool(ds_ids)
 
 
 class JsonRpcRequest(BaseModel):
@@ -332,13 +340,9 @@ async def mcp_endpoint(
         # Filter tools whose required_ds_permission the user doesn't hold
         required_perms = {t["required_ds_permission"] for t in tools if t.get("required_ds_permission")}
         if required_perms:
-            from app.core.permission_resolver import get_ds_ids_with_permission
             denied_perms: set[str] = set()
             for perm in required_perms:
-                is_full_admin, ds_ids = await get_ds_ids_with_permission(
-                    db, str(user.id), str(organization.id), perm
-                )
-                if not is_full_admin and not ds_ids:
+                if not await _holds_permission_anywhere(db, user, organization, perm):
                     denied_perms.add(perm)
             if denied_perms:
                 tools = [t for t in tools if t.get("required_ds_permission") not in denied_perms]
@@ -380,6 +384,17 @@ async def mcp_endpoint(
         logger.info(f"MCP tools/call Accept header: '{accept_header}', use_sse={use_sse}")
 
         tool = tool_class()
+
+        # Same gate as tools/list, enforced at call time: hiding a tool is not
+        # access control, a client can call any name it likes. Each tool still
+        # checks the specific agent/instruction it's handed.
+        required = tool.required_ds_permission
+        if required and not await _holds_permission_anywhere(db, user, organization, required):
+            logger.warning("MCP tools/call %s refused for user %s: lacks %s", tool_name, user.id, required)
+            return _mcp_response(jsonrpc_response(request.id, {
+                "content": [{"type": "text", "text": f"Permission denied: {tool_name} needs '{required}' on at least one agent."}],
+                "isError": True,
+            }))
 
         if not use_sse:
             # Non-streaming fallback: return plain JSON as before
@@ -431,7 +446,7 @@ async def mcp_endpoint(
         return StreamingResponse(
             _sse_tool_stream(),
             media_type="text/event-stream",
-            headers={"MCP-Protocol-Version": MCP_PROTOCOL_VERSION, "Cache-Control": "no-cache"},
+            headers={**NO_BUFFER_HEADERS, "MCP-Protocol-Version": MCP_PROTOCOL_VERSION},
         )
 
     elif request.method == "resources/list":

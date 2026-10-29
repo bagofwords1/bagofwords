@@ -1042,6 +1042,15 @@ class DataSourceService:
             user_status=connections_list[0].user_status if connections_list else None,
         )
 
+    async def _default_model_for(self, db: AsyncSession, organization: Organization, current_user: User | None):
+        """The model generation runs on: the caller's group/org default, gated
+        by their model access. A restricted org default must not run for a
+        member whose group can't use it. No user (system jobs, or the blank
+        ``User()`` llm_sync passes) keeps the plain org default."""
+        from app.services.llm_service import LLMService
+        user = current_user if getattr(current_user, "id", None) else None
+        return await LLMService().get_default_model(db, organization, user)
+
     async def generate_data_source_items(self, db: AsyncSession, item: str, data_source_id: str, organization: Organization, current_user: User):
         # get data source by id
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
@@ -1049,7 +1058,7 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        model = await organization.get_default_llm_model(db)
+        model = await self._default_model_for(db, organization, current_user)
         if not model:
             raise HTTPException(status_code=400, detail="No default LLM model found")
 
@@ -1125,7 +1134,7 @@ class DataSourceService:
         """
         result: dict = {}
 
-        model = await organization.get_default_llm_model(db)
+        model = await self._default_model_for(db, organization, current_user)
 
         # Load the data source model instance for context and schema sync
         ds_q = await db.execute(
@@ -2044,7 +2053,16 @@ class DataSourceService:
                 "setup_guide": meta.get("setup_guide"),
                 "auth": {
                     "default": entry.credentials_auth.default,
-                    "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},
+                    # scopes + catalog_ownership let a form tell a shared
+                    # (service) option from a per-user one without a type list.
+                    "by_auth": {
+                        k: {
+                            "title": v.title,
+                            "scopes": list(v.scopes or []),
+                            "catalog_ownership": v.catalog_ownership or entry.catalog_ownership,
+                        }
+                        for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)
+                    },
                     "policy": auth_policy or "system_only",
                 },
                 # False when no variant has the `user` scope: the form hides the
@@ -2499,8 +2517,17 @@ class DataSourceService:
                     all_success = False
                     last_status = {"success": False, "message": str(e)}
 
-            # Reflect connectivity on org-wide flag only for system creds
-            if persist and getattr(data_source, "auth_policy", "system_only") == "system_only":
+            # Reflect connectivity on the org-wide flag only when every
+            # connection is shared (system_only): then a failed probe means the
+            # agent is broken for everybody. On a per-user connection it says
+            # something about the caller only (not signed in, an expired
+            # token). The policy lives on the connection; the agent no longer
+            # carries one, so reading it there always saw the default.
+            shared_only = all(
+                (getattr(conn, "auth_policy", None) or "system_only") == "system_only"
+                for conn in data_source.connections
+            )
+            if persist and shared_only:
                 if not all_success:
                     data_source.is_active = False
                 elif data_source.is_active == False:
@@ -2585,6 +2612,7 @@ class DataSourceService:
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
+                config=config,
             )
             return {
                 "success": True,
@@ -2674,7 +2702,9 @@ class DataSourceService:
         
         # user_required → require per-user credentials
         if not current_user:
-            raise HTTPException(status_code=403, detail="User credentials required")
+            from app.services.access_errors import CredentialsRequiredError
+
+            raise CredentialsRequiredError("User credentials required")
         from app.services.member_identity import member_mapped
         if member_mapped(conn):
             # Admin-mapped identity: stored per-user rows never apply.
@@ -3073,7 +3103,20 @@ class DataSourceService:
         if failed:
             if len(failed) == len(active_connections):
                 # Nothing usable: the same data-source-level failure as before.
-                raise failed[0]["error"]
+                # The stand-ins ride along, so a caller that still runs this
+                # source's charts (a reader's run) hands their code a client
+                # that fails with this cause, not a missing-key error.
+                error = failed[0]["error"]
+                stand_ins = dict(clients)
+                if len(active_connections) == 1:
+                    only_key = f"{data_source.name}:{active_connections[0].name}"
+                    if only_key in stand_ins:
+                        stand_ins[data_source.name] = stand_ins[only_key]
+                try:
+                    error.unavailable_clients = stand_ins
+                except Exception:
+                    pass
+                raise error
             connection_errors.extend(failed)
 
         # Backward compatibility: add legacy key aliases for single-connection domains
@@ -4932,7 +4975,7 @@ class DataSourceService:
         e.g. Power BI / Fabric OBO) and per_user-owned (OneDrive, personal
         Drive). A system_only warehouse on the same agent has one shared
         catalog and is not synced per user."""
-        from app.schemas.data_source_registry import get_entry
+        from app.schemas.data_source_registry import connection_catalog_ownership
 
         out = []
         for conn in (getattr(data_source, "connections", None) or []):
@@ -4940,7 +4983,7 @@ class DataSourceService:
                 out.append(conn)
                 continue
             try:
-                if get_entry(conn.type).catalog_ownership == "per_user":
+                if connection_catalog_ownership(conn) == "per_user":
                     out.append(conn)
             except Exception:
                 continue
@@ -5409,7 +5452,9 @@ class DataSourceService:
             # only for legacy single-connection callers that pass none.
             conn = connection or (data_source.connections or [None])[0]
             if conn is not None:
-                is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
+                from app.schemas.data_source_registry import connection_catalog_ownership
+                get_entry(conn.type)  # unknown type → fall through to the except
+                is_per_user_catalog = connection_catalog_ownership(conn) == "per_user"
                 is_delegated = (conn.auth_policy or "system_only") == "user_required"
                 union_user_discovery = is_per_user_catalog or is_delegated
         except Exception:
@@ -6019,7 +6064,9 @@ class DataSourceService:
                     continue
                 ownership = "shared"
                 try:
-                    ownership = get_entry(conn.type).catalog_ownership
+                    from app.schemas.data_source_registry import connection_catalog_ownership
+                    get_entry(conn.type)  # unknown type → "shared" via the except
+                    ownership = connection_catalog_ownership(conn)
                 except Exception:
                     ownership = "shared"
                 (per_user_conns if ownership == "per_user" else shared_conns).append(conn)
