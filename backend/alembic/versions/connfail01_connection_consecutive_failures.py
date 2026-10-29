@@ -22,7 +22,15 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_column() -> bool:
+    return 'consecutive_test_failures' in {c['name'] for c in sa.inspect(op.get_bind()).get_columns('connections')}
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboard test corpus applies it unstamped
+    # (tests/fixtures/dashboard_corpus/alembic_at.py).
+    if _has_column():
+        return
     op.add_column(
         'connections',
         sa.Column('consecutive_test_failures', sa.Integer(), nullable=False, server_default='0'),

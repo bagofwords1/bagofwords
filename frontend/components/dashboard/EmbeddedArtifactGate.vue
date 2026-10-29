@@ -22,6 +22,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
+import { createAuthGuard, renewDelay } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -43,6 +44,8 @@ let allowedOrigins: string[] = [];
 let renewTimer: ReturnType<typeof setTimeout> | null = null;
 // Renew this long before expiry, so a running request never straddles it.
 const RENEW_LEAD_MS = 5 * 60 * 1000;
+// Logout and unmount make every in-flight sign-in stale (see accept()).
+const auth = createAuthGuard();
 
 const api = (path: string) => `${config.public.baseURL}/embed/${encodeURIComponent(props.hostApplication)}${path}`;
 
@@ -78,18 +81,29 @@ async function exchange(body: Record<string, string>) {
     return payload;
 }
 
-function accept(session: any) {
+// Revokes a session nobody will use (its sign-in was overtaken by a logout).
+function revoke(token: string | undefined) {
+    if (!token) return;
+    fetch(api('/session'), { method: 'DELETE', credentials: 'omit', headers: { Authorization: `Bearer ${token}` } })
+        .catch(() => { /* it expires server-side */ });
+}
+
+/** Installs a session, unless the attempt that produced it was invalidated
+ *  (logout or unmount while it was in flight): then it is revoked. */
+function accept(session: any, ticket: number): boolean {
+    if (!auth.isCurrent(ticket)) { revoke(session?.token); return false; }
     credential.value = {
         token: session.token,
         organizationId: session.organization_id,
         hostApplication: session.host_application,
+        userId: session.user?.id ?? null,
         viewer: session.viewer || null,
     };
     status.value = 'ready';
     host.post('bow:auth', { status: 'authenticated', user: { name: session.user?.name, email: session.user?.email } });
     if (renewTimer) clearTimeout(renewTimer);
-    const wait = new Date(session.expires_at).getTime() - Date.now() - RENEW_LEAD_MS;
-    renewTimer = setTimeout(() => renew(), Math.max(wait, 15_000));
+    renewTimer = setTimeout(() => renew(), renewDelay(session.expires_at, Date.now(), RENEW_LEAD_MS));
+    return true;
 }
 
 async function renew() {
@@ -101,14 +115,17 @@ async function renew() {
 let inflight: Promise<void> | null = null;
 function signIn(): Promise<void> {
     if (inflight) return inflight;
+    const ticket = auth.ticket();
     inflight = (async () => {
         if (mode.value === 'sso') { fail('sign_in_required', t('embed.gate.signInRequired')); return; }
         if (status.value !== 'ready') { status.value = 'signing_in'; message.value = t('embed.gate.signingIn'); }
         try {
             const kind = mode.value === 'idp_token' ? 'id_token' : 'assertion';
             const value = await host.requestCredential(kind);
-            accept(await exchange({ [kind]: value }));
+            if (!auth.isCurrent(ticket)) return;  // logged out while the host answered
+            accept(await exchange({ [kind]: value }), ticket);
         } catch (e: any) {
+            if (!auth.isCurrent(ticket)) return;  // the logout already decided the state
             credential.value = null;
             retryable.value = !PERMANENT.includes(e?.data?.error_code);
             fail('failed', e?.data ? getErrorMessage(e) : (e?.message || t('embed.gate.failed')));
@@ -128,6 +145,7 @@ async function signInWithPopup() {
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const state = crypto.randomUUID();
+    const ticket = auth.ticket();
     const url = `/embed-signin?host=${encodeURIComponent(props.hostApplication)}&challenge=${challenge}&state=${state}`;
     const popup = window.open(url, 'bow-embed-signin', 'popup,width=480,height=640');
     if (!popup) { fail('sign_in_required', t('embed.gate.popupBlocked')); return; }
@@ -139,16 +157,19 @@ async function signInWithPopup() {
         if (data?.type !== 'bow:sso-code' || data.state !== state) return;
         window.removeEventListener('message', onMessage);
         try { popup.close(); } catch { /* already closed */ }
+        if (!auth.isCurrent(ticket)) return;  // logged out while the popup was open
         try {
-            accept(await exchange({ sso_code: String(data.code || ''), code_verifier: verifier }));
+            accept(await exchange({ sso_code: String(data.code || ''), code_verifier: verifier }), ticket);
         } catch (e: any) {
-            fail('failed', getErrorMessage(e));
+            if (auth.isCurrent(ticket)) fail('failed', getErrorMessage(e));
         }
     };
     window.addEventListener('message', onMessage);
 }
 
 async function signOut() {
+    auth.invalidate();
+    inflight = null;
     if (renewTimer) clearTimeout(renewTimer);
     const had = credential.value?.token;
     credential.value = null;
@@ -180,6 +201,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+    auth.invalidate();
     host.stop();
     if (renewTimer) clearTimeout(renewTimer);
     credential.value = null;

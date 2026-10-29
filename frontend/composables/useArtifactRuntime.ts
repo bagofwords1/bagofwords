@@ -1,3 +1,4 @@
+import { runtimeIdentity } from '~/utils/embedSession'
 /** Trusted transport: fixed operation mapping, per-document channel, no tokens in frames.
  * `recordViews: false` keeps the page's resources working but counts no view
  * (a dashboard's draft preview: editors at work are not readers). */
@@ -205,6 +206,12 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
   }
   onMounted(()=>{window.addEventListener('message',listener);window.addEventListener('pagehide',activity.onHide)})
   onUnmounted(()=>{window.removeEventListener('message',listener);window.removeEventListener('pagehide',activity.onHide);activity.flush(true);dispose()})
-  watch(token, dispose)
+  // Reset the channels only when the person changes (signed out, someone
+  // else): a renewed token for the same person keeps the app connected, since
+  // every request reads the current token. The SDK connects once per frame.
+  const embed = useEmbedCredential()
+  const { token: appToken } = useAuth()
+  const identity = computed(() => runtimeIdentity(embed.value, appToken.value))
+  watch(identity, dispose)
   return { dispose, log: activity.log }
 }

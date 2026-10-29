@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 MAX_ORIGINS = 20
 IdentityMode = Literal["assertion", "idp_token", "sso"]
@@ -149,6 +149,13 @@ class EmbedSessionSchema(BaseModel):
     organization_id: str
     # ARTIFACT_DATA.current_user for the embedded artifact (users/me/viewer_context's shape).
     viewer: dict
+
+    @field_serializer("expires_at")
+    def _utc(self, value: datetime) -> str:
+        # Stored naive in UTC; sent with its zone so browsers don't read it as
+        # local time (the page schedules renewal from it).
+        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc) \
+            .isoformat().replace("+00:00", "Z")
 
 
 class EmbedBootstrapSchema(BaseModel):
