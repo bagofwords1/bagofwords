@@ -28,9 +28,8 @@
       <!-- Expand/collapse affordance — only when there are per-case rows to show -->
       <Icon
         v-if="canExpand"
-        name="heroicons-chevron-down"
-        class="w-3 h-3 ms-1 text-ink-muted transition-transform duration-200"
-        :class="{ '-rotate-90': !expanded }"
+        :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+        class="w-3 h-3 ms-1 text-ink-muted"
       />
     </div>
 
