@@ -6788,7 +6788,7 @@
       "starting": "Cargando…",
       "signingIn": "Iniciando sesión…",
       "signInRequired": "Inicia sesión para verlo.",
-      "signIn": "Iniciar sesión con {name}",
+      "signIn": "Iniciar sesión",
       "retry": "Reintentar",
       "failed": "No se pudo iniciar sesión.",
       "expired": "Tu sesión terminó. Vuelve a iniciar sesión.",

@@ -36,6 +36,8 @@ ISSUER = os.environ.get("BOW_HOST_ISSUER", "chinook-backoffice")
 KEY_FILE = os.environ.get("BOW_HOST_PRIVATE_KEY_FILE", "/tmp/bow-agent/host-private.pem")
 DASHBOARD = os.environ.get("BOW_ARTIFACT", "account-managers")
 ASSISTANT = os.environ.get("BOW_ASSISTANT", "")
+# A second host application in SSO mode: no backend step, people sign in to BOW.
+SSO_HOST_APP = os.environ.get("BOW_SSO_HOST_APP", "")
 
 # The back office's own directory; employee_id is what BOW maps to a member.
 USERS = {
@@ -149,6 +151,16 @@ async def assistant(request: Request):
 track(BOWEmbed.mount({{ baseUrl: '{BOW_ORIGIN}', hostApp: '{HOST_APP}', artifact: '{ASSISTANT}',
   container: '#bow-assistant', identity: {{ getAssertion }}, locale: LOCALE, title: 'Sales assistant' }}));"""
     return _page(request, "assistant", body, script)
+
+
+@app.get("/portal", response_class=HTMLResponse)
+async def portal(request: Request):
+    """The dashboard through an SSO-mode host application: no getAssertion."""
+    body = '<div class="card embed" id="bow-portal" data-testid="erp-portal"></div>'
+    script = f"""
+track(BOWEmbed.mount({{ baseUrl: '{BOW_ORIGIN}', hostApp: '{SSO_HOST_APP}', artifact: '{DASHBOARD}',
+  container: '#bow-portal', locale: LOCALE, title: 'Account dashboard' }}));"""
+    return _page(request, "customers", body, script)
 
 
 if __name__ == "__main__":

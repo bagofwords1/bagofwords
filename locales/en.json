@@ -6817,7 +6817,7 @@
       "starting": "Loading…",
       "signingIn": "Signing you in…",
       "signInRequired": "Sign in to see this.",
-      "signIn": "Sign in with {name}",
+      "signIn": "Sign in",
       "retry": "Try again",
       "failed": "Sign-in didn't work.",
       "expired": "Your session ended. Sign in again.",

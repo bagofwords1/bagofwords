@@ -9,7 +9,7 @@
                 <p class="text-sm text-gray-600 dark:text-gray-300" data-testid="embedded-artifact-message">{{ message }}</p>
                 <UButton v-if="status === 'sign_in_required' && mode === 'sso'" size="sm" color="blue"
                          data-testid="embedded-artifact-sign-in" @click="signInWithPopup">
-                    {{ $t('embed.gate.signIn', { name: hostName || 'BOW' }) }}
+                    {{ $t('embed.gate.signIn') }}
                 </UButton>
                 <UButton v-else-if="(status === 'failed' && retryable) || status === 'signed_out'" size="sm" variant="soft"
                          data-testid="embedded-artifact-retry" @click="signIn">
@@ -36,7 +36,6 @@ type Status = 'starting' | 'signing_in' | 'sign_in_required' | 'ready' | 'failed
 const status = ref<Status>('starting');
 const message = ref(t('embed.gate.starting'));
 const mode = ref<'assertion' | 'idp_token' | 'sso' | null>(null);
-const hostName = ref('');
 // Who BOW does not know (or knows twice, or deactivated) gains nothing from a retry.
 const PERMANENT = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive'];
 const retryable = ref(true);
@@ -172,7 +171,6 @@ onMounted(async () => {
         const boot = await res.json();
         allowedOrigins = boot.allowed_origins || [];
         mode.value = boot.identity_mode;
-        hostName.value = boot.name;
         if (!boot.enabled) { fail('unavailable', t("errors['host_app.disabled']")); return; }
     } catch (e: any) {
         fail('unavailable', getErrorMessage(e));
