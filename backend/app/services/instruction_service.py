@@ -1312,10 +1312,23 @@ class InstructionService:
         if not target_version or target_version.instruction_id != instruction.id:
             raise HTTPException(status_code=404, detail="Version not found for this instruction")
 
-        # Create a new version copying everything from the target version.
-        # Audit trail is preserved: the new version has its own version_number,
+        # Create a new version copying the target version's CONTENT. Audit trail
+        # is preserved: the new version has its own version_number,
         # created_by_user_id, and created_at — readers can see "v7 created by X
         # at time T with same content as v3".
+        #
+        # SCOPE (agents + table references) is NOT restored from the target: a
+        # text revert must not silently resurrect an agent that was detached
+        # since (the same hazard rollback avoids — reverting v3=[A,B] after B was
+        # removed should not re-share with B). Carry the CURRENT live scope
+        # forward instead, so promotion's scope delta is a no-op. A deliberate
+        # scope change stays an explicit, permission-checked action.
+        live_ds = [str(ds.id) for ds in (instruction.data_sources or [])] or None
+        live_refs = [
+            {"object_type": r.object_type, "object_id": str(r.object_id),
+             "column_name": r.column_name, "display_text": r.display_text}
+            for r in (instruction.references or [])
+        ] or None
         new_version = await self.version_service.create_version_from_data(
             db,
             instruction_id=instruction.id,
@@ -1326,8 +1339,8 @@ class InstructionService:
             formatted_content=target_version.formatted_content,
             status=target_version.status or 'published',
             load_mode=target_version.load_mode or 'always',
-            references_json=target_version.references_json,
-            data_source_ids=target_version.data_source_ids,
+            references_json=live_refs,
+            data_source_ids=live_ds,
             label_ids=target_version.label_ids,
             category_ids=target_version.category_ids,
             user_id=current_user.id,
@@ -1863,6 +1876,7 @@ class InstructionService:
             references_json=base_refs, data_source_ids=base_ds,
             label_ids=pver.label_ids, category_ids=pver.category_ids,
             user_id=getattr(pver, "created_by_user_id", None),
+            evidence=getattr(pver, "evidence", None),
         )
         content.instruction_version_id = str(reverted.id)
         content.is_change = await self.build_service._is_change_against_base(

@@ -159,15 +159,20 @@ def _scope_change(base: Optional[dict], proposed: dict, main: dict, resolved: se
     """The scope change this suggestion still proposes against the LIVE
     attachment, as one review row (agents + their table references), or [].
 
-    An empty live attachment is a global instruction: it already reaches every
-    agent, so a build-path scope change against it is inert — attaching an agent
-    would narrow 'every agent' to one, which the direct API (not a reviewed
-    build) owns. Promotion is kept consistent with this: _apply_scope_on_promote
-    skips a live-global instruction too, so the two never diverge."""
+    A live-global instruction (empty attachment) reaches every agent. A
+    build-path scope change against it is a real proposal ONLY when it NARROWS
+    the global — i.e. the suggestion itself started global (base scope empty)
+    and now names agents. A suggestion whose base was SCOPED is stale against an
+    independent move to global (the instruction was made global after this draft
+    forked): its intent was about specific agents, which is moot once the rule
+    is global, so it is dropped. _apply_scope_on_promote applies the same rule,
+    so review and promotion never diverge."""
     live_ds = tuple(main.get("scope_live") or ())
-    if not live_ds:
-        return []
     live_refs = main.get("scope_live_refs") or []
+    if not live_ds:
+        base_ds = base.get("scope_ds") if base else None
+        if base_ds:
+            return []  # base was scoped → predates the move to global → moot
     p_ds = proposed.get("scope_ds") or ()
     p_refs = proposed.get("scope_refs") or []
     # Intent is base -> proposed: a version that merely carries the live scope

@@ -376,13 +376,15 @@ class EditInstructionTool(Tool):
                 "instruction, or it is confirmed wrong as a whole. Do NOT delete its text to "
                 "achieve the same, and do not use load_mode for it. Not available in knowledge "
                 "mode.\n\n"
-                "SCOPING — table_names: sets WHICH TABLES the instruction is about; it changes "
-                "the table references ONLY and never which agents the instruction is attached to. "
-                "Pass ONLY when you want to change the table scope. Pass an empty list [] to make "
-                "the instruction GLOBAL — this drops every agent so it applies everywhere (an "
-                "org-level change a reviewer must approve). OMIT the field entirely to leave "
-                "scoping unchanged. Listing every table inspected is wrong — it scopes the "
-                "instruction and may prevent it from loading in unrelated queries.\n\n"
+                "SCOPING — table_names: sets WHICH TABLES the instruction is about. A NON-EMPTY "
+                "list changes the table references ONLY and never which agents the instruction is "
+                "attached to (use add_agents for that). OMIT the field entirely to leave tables "
+                "unchanged. The ONE EXCEPTION is an empty list []: it is the explicit 'make this "
+                "instruction global' gesture — it drops every agent so the rule applies to ALL of "
+                "them (an org-level change a reviewer must approve). So pass [] ONLY when you truly "
+                "mean global; to merely clear a stale table, pass the tables you DO want, not []. "
+                "Listing every table inspected is wrong — it scopes the instruction and may "
+                "prevent it from loading in unrelated queries.\n\n"
                 "SHARING WITH ANOTHER AGENT — add_agents: to make an existing instruction apply to "
                 "another agent of this conversation too, pass that agent's name in add_agents. "
                 "This is the ONLY way to change which agents an instruction is attached to; "
@@ -1087,7 +1089,12 @@ class EditInstructionTool(Tool):
                     new_references_json = None
                 else:
                     # Resolve the requested table list to references only; the
-                    # agent attachment is carried forward untouched.
+                    # agent attachment is carried forward untouched. Match tables
+                    # WITHIN the instruction's own agents, so a reference can only
+                    # point at a table the instruction can actually use — never a
+                    # table under an agent it is not attached to. A global
+                    # instruction (no agents) matches across the report's agents,
+                    # since it applies to all of them.
                     resolved_refs = []
                     conditions = []
                     for name in data.table_names:
@@ -1097,19 +1104,23 @@ class EditInstructionTool(Tool):
                         else:
                             conditions.append(func.lower(DataSourceTable.name) == name_lower)
                             conditions.append(func.lower(DataSourceTable.name).like(f'%.{name_lower}'))
+                    if current_ds_ids:
+                        match_ds = {str(d) for d in current_ds_ids}
+                        if allowed_data_source_ids is not None:
+                            match_ds &= {str(d) for d in allowed_data_source_ids}
+                    elif allowed_data_source_ids is not None:
+                        match_ds = {str(d) for d in allowed_data_source_ids}
+                    else:
+                        match_ds = None  # no restriction (admin, global, no report scope)
                     if conditions:
                         where_clauses = [
                             DataSource.organization_id == str(organization.id),
                             or_(*conditions),
                         ]
-                        if allowed_data_source_ids is not None:
-                            if not allowed_data_source_ids:
-                                # Report has no data sources — skip table resolution.
-                                where_clauses.append(DataSource.id.in_([]))
-                            else:
-                                where_clauses.append(
-                                    DataSource.id.in_(list(allowed_data_source_ids))
-                                )
+                        if match_ds is not None:
+                            # Empty set → nothing to match (global in a report with
+                            # no accessible agents, or no overlap).
+                            where_clauses.append(DataSource.id.in_(list(match_ds)))
                         table_stmt = (
                             select(DataSourceTable)
                             .join(DataSource, DataSourceTable.datasource_id == DataSource.id)

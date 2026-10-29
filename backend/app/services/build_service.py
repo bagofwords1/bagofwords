@@ -888,24 +888,47 @@ class BuildService:
                     ds_ids.add(str(ds.id))
         return list(ds_ids)
 
-    async def get_build_proposed_scopes(
+    async def get_build_scope_deltas(
         self, db: AsyncSession, build_id: str,
-    ) -> Dict[str, set]:
-        """{instruction_id: proposed agent ids} for each CHANGED row — the scope
-        its staged version would place the instruction on once published.
+    ) -> Dict[str, Dict[str, object]]:
+        """Per CHANGED instruction, the scope DELTA a publish would apply, as
+        ``{instruction_id: {"added": set[str], "global": bool}}``.
 
-        The authority counterpart to ``get_build_data_source_ids`` (which is the
-        LIVE scope): a publish must be authorized over what it WILL attach, so a
-        per-agent manager cannot stage a share to an agent they do not manage —
-        and an empty proposed set (going global) surfaces here so the gate can
-        require org-level authority."""
+        The authority counterpart to ``get_build_data_source_ids`` (the LIVE
+        scope). Measured base→proposed from the row's fork point, NOT the whole
+        proposed snapshot, so:
+          - a text-only edit whose snapshot still lists a detached or deleted
+            agent adds nothing and needs no new authority (no false 403);
+          - a NULL / carried-forward scope is not mistaken for a move to global;
+          - ``added`` are the agents the publish will newly attach (authorize
+            them), and ``global`` means the change empties a previously-scoped
+            instruction (→ org-level authority).
+        """
         from app.models.instruction_version import InstructionVersion as _IV
         rows = (await db.execute(
-            select(BuildContent.instruction_id, _IV.data_source_ids)
+            select(BuildContent.instruction_id, BuildContent.base_version_id, _IV.data_source_ids)
             .join(_IV, _IV.id == BuildContent.instruction_version_id)
             .where(BuildContent.build_id == str(build_id), BuildContent.is_change.is_(True))
         )).all()
-        return {str(iid): {str(d) for d in (ds or [])} for iid, ds in rows}
+        base_ids = sorted({str(b) for _i, b, _d in rows if b})
+        base_ds: dict = {}
+        if base_ids:
+            for vid, ds in (await db.execute(
+                select(_IV.id, _IV.data_source_ids).where(_IV.id.in_(base_ids))
+            )).all():
+                base_ds[str(vid)] = {str(d) for d in (ds or [])}
+        out: Dict[str, Dict[str, object]] = {}
+        for iid, bvid, p_ds in rows:
+            base = base_ds.get(str(bvid), set()) if bvid else set()
+            proposed = {str(d) for d in (p_ds or [])}
+            # base→proposed is a real change (is_change row); a move to global is
+            # proposed-empty while the base had agents. A NULL base (new
+            # instruction) with a proposed scope is a first attach, not global.
+            out[str(iid)] = {
+                "added": proposed - base,
+                "global": bool(base) and not proposed,
+            }
+        return out
 
     async def get_build_instruction_ids(self, db: AsyncSession, build_id: str) -> set[str]:
         """Every instruction pinned in ``build_id`` (the whole snapshot)."""
@@ -1328,12 +1351,15 @@ class BuildService:
             select(_DS.id).where(_DS.id.in_(sorted(want_add)), _DS.deleted_at.is_(None))
         )).all()} if want_add else set()
         for iid, base_vid, p_ds, p_refs in rows:
-            # Existing live-global instruction: a build-path scope change is
-            # inert (see live_global above). A new instruction (no base) is not
-            # skipped — its scope is a genuine first attach.
-            if base_vid and str(iid) in live_global:
-                continue
             b_ds, b_refs = base_scope.get(str(base_vid), (None, None)) if base_vid else (None, None)
+            # Existing live-global instruction (empty attachment, has a base):
+            # apply ONLY a narrowing whose base was itself global — the mirror of
+            # field_changes._scope_change. A change whose base was SCOPED is a
+            # stale proposal against an independent move to global, so skip it;
+            # a brand-new instruction (no base) is a genuine first attach, so it
+            # is never skipped.
+            if base_vid and str(iid) in live_global and b_ds:
+                continue
             added_ds, removed_ds, added_refs, removed_refs = scope_delta(b_ds, b_refs, p_ds, p_refs)
             added_ds = [d for d in added_ds if d in alive_add]
             if not (added_ds or removed_ds or added_refs or removed_refs):

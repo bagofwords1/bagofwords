@@ -36,7 +36,7 @@ async def _require_authority_over_instructions(
     user_id: str,
     org_id: str,
     *,
-    proposed_scopes=None,
+    scope_deltas=None,
 ) -> None:
     """``manage_instructions`` over every listed instruction.
 
@@ -45,19 +45,21 @@ async def _require_authority_over_instructions(
     per-agent grant is no authority over it. Same rule as
     ``_require_instruction_authority`` in ``app/routes/instruction.py``.
 
-    ``proposed_scopes`` ({instruction_id: proposed agent ids}) folds in the
-    scope a change would PRODUCE, so the gate authorizes both sides of a scope
-    change: the agents it adds (a share to a new agent), the agents it removes
-    (still in the live scope), and a move to global (a proposed empty set →
-    org-level, which managing the agents it drops does not confer).
+    ``scope_deltas`` ({instruction_id: {"added": set, "global": bool}}) folds in
+    what a scope change would DO — not the whole proposed snapshot — so the gate
+    authorizes both sides: the live agents (a removal/text edit on a scoped
+    rule), the agents the change ADDS (a share to a new agent), and a move to
+    global (``global`` → org-level, which managing the agents it drops does not
+    confer). Measuring the delta, not the snapshot, avoids a false 403 when a
+    text-only edit's version still lists a detached or deleted agent.
     """
     scopes = await build_service.get_instruction_scopes(db, instruction_ids)
     merged = {iid: set(ds) for iid, ds in scopes.items()}
     goes_global = False
-    for iid, proposed in (proposed_scopes or {}).items():
-        merged.setdefault(str(iid), set()).update(proposed)
-        if not proposed:
-            goes_global = True  # the change leaves this instruction with no agents
+    for iid, delta in (scope_deltas or {}).items():
+        merged.setdefault(str(iid), set()).update(delta.get("added") or set())
+        if delta.get("global"):
+            goes_global = True  # the change empties a previously-scoped rule
     ds_ids = sorted({d for ds in merged.values() for d in ds})
     if ds_ids:
         await check_resource_permissions(
@@ -95,16 +97,16 @@ async def _enforce_build_ds_access(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
             name_resource=False,
         )
-    # The proposed (staged) scope of each changed instruction authorizes what a
-    # publish WILL attach. Rollback passes its own change set and applies no
-    # scope delta (it restores the live set), so it skips the proposed side.
-    proposed_scopes = None
+    # The scope DELTA of each changed instruction authorizes what a publish WILL
+    # attach (and whether it goes global). Rollback passes its own change set and
+    # applies no scope delta (it restores the live set), so it skips this side.
+    scope_deltas = None
     if changed_instruction_ids is None:
         changed_instruction_ids = await build_service.get_build_changed_instruction_ids(db, build_id)
-        proposed_scopes = await build_service.get_build_proposed_scopes(db, build_id)
+        scope_deltas = await build_service.get_build_scope_deltas(db, build_id)
     if changed_instruction_ids:
         await _require_authority_over_instructions(
-            db, changed_instruction_ids, user_id, org_id, proposed_scopes=proposed_scopes,
+            db, changed_instruction_ids, user_id, org_id, scope_deltas=scope_deltas,
         )
     elif not ds_ids:
         await require_org_permission(db, user_id, org_id, "manage_instructions")

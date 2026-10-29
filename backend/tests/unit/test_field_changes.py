@@ -114,12 +114,29 @@ def test_scope_not_inferred_without_base_intent():
     assert field_changes_against_main(base, proposed, _main(live_ds=("a",))) == []
 
 
-def test_global_instruction_has_no_scope_change():
-    """Empty live attachment = global; a build-path scope change against it is
-    inert (the direct API, not a reviewed build, narrows a global), and
-    promotion skips it too, so review and promote stay consistent."""
+def test_narrowing_a_global_is_reviewable():
+    """A suggestion that itself started GLOBAL (base scope empty) and now names
+    agents is a real narrowing — shown as a scope row even though live is
+    global. The 'from' side reads as all agents (empty)."""
+    from app.services.field_changes import field_changes_against_main, SCOPE_FIELD
+    rows = field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=["b"]), _main(live_ds=()))
+    assert len(rows) == 1 and rows[0]["field"] == SCOPE_FIELD
+    assert rows[0]["from"] == [] and rows[0]["to"] == ["b"] and rows[0]["added"] == ["b"]
+
+
+def test_stale_share_on_a_now_global_instruction_is_moot():
+    """A suggestion whose base was SCOPED ([a]) proposing to add an agent is
+    stale once the instruction was made global independently: its intent was
+    about specific agents, which is moot against 'every agent'. No row."""
     from app.services.field_changes import field_changes_against_main
-    assert field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=["b"]), _main(live_ds=())) == []
+    assert field_changes_against_main(_vmeta(ds=["a"]), _vmeta(ds=["a", "b"]), _main(live_ds=())) == []
+
+
+def test_global_carried_forward_proposes_nothing():
+    """A global instruction that stays global (base global, proposed global,
+    live global) is a no-op: no scope row."""
+    from app.services.field_changes import field_changes_against_main
+    assert field_changes_against_main(_vmeta(ds=[]), _vmeta(ds=[]), _main(live_ds=())) == []
 
 
 def test_scope_change_carries_added_table_refs():

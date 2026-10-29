@@ -32,8 +32,23 @@ async def apply_scope_delta(
     expected to hold existing (non-deleted) agents only; the caller filters."""
     from app.models.instruction import instruction_data_source_association as idsa
     from app.models.instruction_reference import InstructionReference
+    from app.models.datasource_table import DataSourceTable
+    from app.models.data_source import DataSource
 
     iid = str(instruction_id)
+    # Drop references to tables whose data source was deleted since the change
+    # was staged — their rows (and FK targets) may be gone. Done HERE so both
+    # callers (reviewer accept and build promote) agree: promote used to add a
+    # dangling InstructionReference that accept filtered out.
+    added_refs = list(added_refs or [])
+    if added_refs:
+        ref_ids = sorted({str(r.get("object_id")) for r in added_refs if r.get("object_id")})
+        alive = {str(tid) for (tid,) in (await db.execute(
+            select(DataSourceTable.id)
+            .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+            .where(DataSourceTable.id.in_(ref_ids), DataSource.deleted_at.is_(None))
+        )).all()} if ref_ids else set()
+        added_refs = [r for r in added_refs if str(r.get("object_id")) in alive]
     add_ds = {str(d) for d in (added_ds or [])}
     rem_ds = {str(d) for d in (removed_ds or [])} - add_ds
     attached = {str(d) for (d,) in (await db.execute(

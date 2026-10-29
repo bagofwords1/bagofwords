@@ -608,9 +608,10 @@ async def test_a_rejected_share_is_not_re_proposed_and_does_not_linger(test_clie
 
 @pytest.mark.asyncio
 async def test_table_names_staged_earlier_in_the_session_survive_a_text_edit(test_client, world):
-    """Main's behaviour: a scoping edit carries over to later edits in the
-    same build. (Sharing moved to its own field precisely so this snapshot
-    could stay what it was.)"""
+    """A scoping edit carries over to later edits in the same build. The matched
+    tables are those WITHIN the instruction's own agents ([a] here), so a later
+    text edit keeps exactly a's Invoices — not b's, which the instruction is not
+    attached to (table_names changes tables, never agents)."""
     iid = _instruction(test_client, world, ["a"])
     bid, out = await _edit(world, {"instruction_id": iid, "table_names": ["Invoices"]})
     assert out["success"], out
@@ -624,7 +625,7 @@ async def test_table_names_staged_earlier_in_the_session_survive_a_text_edit(tes
         vid = (await db.execute(select(BuildContent.instruction_version_id).where(
             BuildContent.build_id == bid, BuildContent.instruction_id == iid))).scalar()
         v = await db.get(InstructionVersion, vid)
-    assert {str(r["object_id"]) for r in v.references_json} == {world["a"]["tables"]["Invoices"], world["b"]["tables"]["Invoices"]}
+    assert {str(r["object_id"]) for r in v.references_json} == {world["a"]["tables"]["Invoices"]}
 
 
 @pytest.mark.asyncio
@@ -880,6 +881,38 @@ async def test_a_rejected_share_does_not_come_back_in_the_next_session(test_clie
     bid3, out = await _edit(world, {"instruction_id": iid, "add_agents": [world["b"]["name"]]})
     assert out["success"], out
     assert _scope_change(_review(test_client, world, iid), bid3) is not None
+
+
+@pytest.mark.asyncio
+async def test_revert_to_version_keeps_current_scope_not_the_old_one(test_client, world):
+    """Reverting restores a version's TEXT but keeps the CURRENT live scope — it
+    must not resurrect an agent detached since (the same hazard rollback avoids:
+    revert to an [a,b] version after b was removed should stay on [a])."""
+    H = _hdr(world["admin"]["token"], world["org_id"])
+    iid = _instruction(test_client, world, ["a"], tables=())
+    bid, out = await _edit(world, {"instruction_id": iid, "old_text": "net of tax", "text": "net of VAT",
+                                   "add_agents": [world["b"]["name"]]})
+    assert out["success"], out
+    _accept(test_client, world, iid, bid)
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"], world["b"]["id"]}
+    # Detach b: scope back to [a].
+    r = test_client.put(f"/api/instructions/{iid}", headers=H, json={"data_source_ids": [world["a"]["id"]]})
+    assert r.status_code == 200, r.text
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"]}
+    # Revert to the [a,b] "net of VAT" version (look it up directly).
+    from sqlalchemy import select as _select
+    from app.dependencies import async_session_maker
+    from app.models.instruction_version import InstructionVersion as _IV
+    async with async_session_maker() as db:
+        target_id = (await db.execute(
+            _select(_IV.id).where(_IV.instruction_id == iid, _IV.text.contains("net of VAT"))
+            .order_by(_IV.version_number.desc()).limit(1))).scalar()
+    assert target_id
+    r = test_client.post(f"/api/instructions/{iid}/versions/{target_id}/revert", headers=H)
+    assert r.status_code == 200, r.text
+    # The point of Bug 2: reverting to a version whose snapshot was [a,b] must
+    # NOT re-attach b, which was detached since. Scope stays the current [a].
+    assert _live(test_client, world, iid)[0] == {world["a"]["id"]}
 
 
 @pytest.mark.asyncio
