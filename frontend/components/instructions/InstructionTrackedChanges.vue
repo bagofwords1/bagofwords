@@ -487,9 +487,14 @@ async function load(opts: { silent?: boolean; emitState?: boolean } = {}) {
 }
 defineExpose({ reload: (opts?: { silent?: boolean }) => load(opts), resolveAll: (mode: 'accept' | 'reject') => resolveAll(mode) })
 
-// Every unit on screen, as the resolve routes name them.
+// Every unit on screen, as the resolve routes name them, WITH the rendered text
+// the reviewer is seeing. `before`/`after` let the retry guards tell a drifted
+// hunk (same key, text re-anchored to main's current region) from the one that
+// was clicked; field changes bind their value into the key, so they carry none.
 function onScreenUnits(): ReviewUnit[] {
-  return [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, key: h.key }))
+  return [...actionableHunks.value, ...fieldChanges.value].map(h => ({
+    build_id: h.build_id, key: h.key, before: h.before, after: h.after,
+  }))
 }
 
 // POST a resolve naming the main build/version this pane last loaded. The
@@ -520,19 +525,38 @@ async function postResolve(
   })
   let { error } = await send()
   if (error.value && isReviewConflict(error.value)) {
+    // Reload to catch up to the new main, then resend ONCE — but only if the
+    // reload actually advanced main and the reviewer is still looking at the
+    // same units with the same text. `useMyFetch` dedupes in-flight GETs, so a
+    // reload can join an older request that predates the move and come back
+    // still stale; comparing main_build_id before/after is the retry's real
+    // precondition ("main moved, and we've now caught up") and guards that too.
+    const staleMain = mainBuildId.value
     await load({ silent: true, emitState: false })
+    const moved = mainBuildId.value !== staleMain
     const onScreen = onScreenUnits()
     const stillValid = opts.exact ? sameSelection(units, onScreen) : selectionStillValid(units, onScreen)
-    if (!loadError.value && stillValid) ({ error } = await send())
+    if (!loadError.value && moved && stillValid) ({ error } = await send())
   }
-  if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
+  if (error.value) {
+    // The retry reload ran with `emitState: false`, so the host never heard the
+    // state it would have emitted. We are about to throw (the caller toasts and
+    // does NOT reload again), so emit the pane's true state now — otherwise a
+    // host card sits "pending" over a pane that has already reloaded to empty or
+    // error, and the toast tells the reviewer to refresh something that already
+    // refreshed. If hunks remain, the pane stays pending and the `loaded` emit
+    // `load` always fires is the correct signal, so emit neither here.
+    if (loadError.value) emit('error')
+    else if (!totalHunks.value) emit('empty')
+    throw new Error((error.value as any)?.data?.detail || 'Failed')
+  }
 }
 
 async function _resolve(seg: any, action: 'accept' | 'reject') {
   const top = scrollEl.value?.scrollTop ?? 0
   resolving.value = seg.key
   try {
-    const unit = { build_id: seg.build_id, key: seg.key }
+    const unit = { build_id: seg.build_id, key: seg.key, before: seg.before, after: seg.after }
     await postResolve(
       `/api/instructions/${props.instructionId}/hunks/${action}`,
       { build_id: seg.build_id, hunk_key: seg.key },

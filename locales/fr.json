@@ -3939,6 +3939,7 @@
     "instruction.version_mismatch": "La version n'appartient pas à cette instruction",
     "integration.not_found": "Intégration introuvable",
     "resource.conflict": "La ressource existe déjà ou entre en conflit avec l'état actuel",
+    "review.stale_main": "Ceci a changé depuis votre dernière consultation. Actualisez et réessayez.",
     "resource.duplicate": "Ressource en double",
     "setting.update_failed": "Échec de la mise à jour du paramètre",
     "query": {
