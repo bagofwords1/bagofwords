@@ -665,6 +665,7 @@ class AgentV2:
             self._sub_agent_id = None
         self._sub_agent = None                 # dict loaded from the sub_agents row at run start
         self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
+        self._artifact_check_run = None        # ArtifactCheckRun of the current execution (automatic artifact check)
         self._sub_agent_finished = False       # finish_subtask observed this run
         self._sub_agent_finish_nudges = 0
         self._sub_agent_tokens_used = 0          # LLM tokens summed over this child's planner calls
@@ -4382,6 +4383,27 @@ class AgentV2:
             logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
         return True
 
+    def _artifact_check_run_for_execution(self):
+        """Run state for the automatic artifact check, or None when this run may
+        not use browser_navigate (catalog after report.tools, sub-agent profile)."""
+        from app.ai.tools.artifact_verification import ArtifactCheckRun
+
+        names = {d.name for d in getattr(self, "_browser_catalog_candidates", [])}
+        profile = getattr(self, "_sub_agent_allowed_tools", None) if getattr(self, "_is_sub_agent", False) else None
+
+        def allowed(tool_name):
+            return tool_name in names and (profile is None or tool_name in profile)
+
+        if not allowed("browser_navigate"):
+            return None
+        execution = getattr(self, "current_execution", None)
+        execution_id = str(execution.id) if execution is not None else None
+        run = getattr(self, "_artifact_check_run", None)
+        if run is None or run.execution_id != execution_id:
+            run = ArtifactCheckRun(execution_id=execution_id, smoke_allowed=allowed("browser_act"))
+            self._artifact_check_run = run
+        return run
+
     async def _release_db_between_steps(self) -> None:
         """Commit the agent's main session so its pooled DB connection is returned
         to the pool during the upcoming long awaits (planner LLM call, tool /
@@ -6663,22 +6685,44 @@ class AgentV2:
                                     # narrates the whole turn as a failure and the
                                     # user reads a working dashboard as broken.
                                     _saved_version = last_artifact_state.get("version")
+                                    # An automatic browser check reported problems (or a
+                                    # chat send that got no reply) and no later check
+                                    # passed: the saved version is intact but NOT known
+                                    # to work, so no text may claim it works.
+                                    _problems = last_artifact_state.get("automatic_check_status") in (
+                                        "problems_found", "not_verified")
                                     _saved_txt = (
                                         f"v{_saved_version} is saved and working with all {total_artifact_calls} "
                                         "of this turn's applied change(s)"
                                         if _saved_version is not None else
                                         f"all {total_artifact_calls} change(s) that ran this turn are saved"
                                     )
+                                    if _problems:
+                                        _saved_txt = (
+                                            _saved_txt.replace(" is saved and working with ", " is saved with ")
+                                            + ", but the last automatic check found problems that are not confirmed fixed"
+                                        )
                                     _refusal_obs: Dict[str, Any] = {
                                         "summary": (
-                                            f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
-                                            f"'{tool_name}' was NOT executed and every further create/edit_artifact "
-                                            f"call this turn will also be refused. NOTHING IS BROKEN: {_saved_txt}. "
-                                            "Only this one further change was deferred — it was not applied. Do NOT "
-                                            "request artifact tools again. Write your final answer now: lead with what "
-                                            "IS done and saved, then name the single deferred change and tell the user "
-                                            "to ask again to continue it. Never describe a refused edit as completed, "
-                                            "and never describe the artifact as failed or broken — it is intact."
+                                            (
+                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                                f"'{tool_name}' was NOT executed and every further create/edit_artifact "
+                                                f"call this turn will also be refused. {_saved_txt}. Only this one further "
+                                                "change was deferred — it was not applied. Do NOT request artifact tools "
+                                                "again. Write your final answer now: say what IS saved, say plainly that "
+                                                "the problems the automatic check found are not confirmed fixed, "
+                                                "then name the deferred change and tell the user to ask again to continue. "
+                                                "Never describe a refused edit as completed."
+                                            ) if _problems else (
+                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                                f"'{tool_name}' was NOT executed and every further create/edit_artifact "
+                                                f"call this turn will also be refused. NOTHING IS BROKEN: {_saved_txt}. "
+                                                "Only this one further change was deferred — it was not applied. Do NOT "
+                                                "request artifact tools again. Write your final answer now: lead with what "
+                                                "IS done and saved, then name the single deferred change and tell the user "
+                                                "to ask again to continue it. Never describe a refused edit as completed, "
+                                                "and never describe the artifact as failed or broken — it is intact."
+                                            )
                                         ),
                                         "error": {
                                             "code": "artifact_budget_exhausted",
@@ -6700,13 +6744,25 @@ class AgentV2:
                                         _refusal_obs["final_answer"] = (
                                             f"I applied {total_artifact_calls} change(s) to the dashboard"
                                             + (
-                                                f" — it's saved and working at v{_saved_version} — and then hit"
-                                                if _saved_version is not None else ", then hit"
+                                                (
+                                                    f" (saved as v{_saved_version}), but the last automatic check "
+                                                    "found problems that are not confirmed fixed yet. I then hit"
+                                                    if _saved_version is not None else
+                                                    ", but the last automatic check found problems that "
+                                                    "are not confirmed fixed yet. I then hit"
+                                                ) if _problems else (
+                                                    f" — it's saved and working at v{_saved_version} — and then hit"
+                                                    if _saved_version is not None else ", then hit"
+                                                )
                                             )
                                             + f" this turn's limit of {max_total_artifact_calls} artifact "
                                             "updates, so the remaining requested change was deferred rather than "
-                                            "applied. Nothing is broken and nothing was lost. Ask me to continue and "
-                                            "I'll pick up the rest."
+                                            + (
+                                                "applied. Ask me to continue and I'll fix the reported problems."
+                                                if _problems else
+                                                "applied. Nothing is broken and nothing was lost. Ask me to continue and "
+                                                "I'll pick up the rest."
+                                            )
                                         )
                                     return await _refuse_before_dispatch(_refusal_obs)
 
@@ -6860,6 +6916,7 @@ class AgentV2:
                                         "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                         "usage_limit_context": self.usage_limit_context,
                                         "verification_group_id": tool_input.get("_verification_group_id"),
+                                        "artifact_check_run": self._artifact_check_run_for_execution(),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
                                         "sub_agent_can_review_messages": (
@@ -7407,6 +7464,19 @@ class AgentV2:
                                             _aid = _obs.get("artifact_id")
                                             if _aid:
                                                 last_artifact_state["artifact_id"] = _aid
+                                            # Unchanged when absent: a later cosmetic edit
+                                            # (no check) must not hide earlier problems.
+                                            # Nor may a check that could not run
+                                            # (unavailable: outage, time budget, skip,
+                                            # check_failed): it confirms nothing, so only a
+                                            # check that ran replaces recorded problems.
+                                            _auto = (_obs.get("verification_hint") or {}).get("automatic_check")
+                                            if isinstance(_auto, dict) and _auto.get("status") and (
+                                                _auto["status"] != "unavailable"
+                                                or last_artifact_state.get("automatic_check_status")
+                                                not in ("problems_found", "not_verified")
+                                            ):
+                                                last_artifact_state["automatic_check_status"] = _auto["status"]
 
                                 if _obs and _obs.get("analysis_complete"):
                                     analysis_done = True

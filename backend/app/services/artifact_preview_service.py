@@ -202,7 +202,15 @@ class ArtifactPreviewService:
             started = time.monotonic()
             try:
                 response = await self.client.post(path, json=body, headers={"X-Request-ID": request_id})
-                result = response.json()
+                try:
+                    result = response.json()
+                except ValueError:
+                    result = None
+                if not isinstance(result, dict):
+                    # A failed run (e.g. a non-JSON 500 page) is a failed viewer
+                    # query, not a transport failure of the preview.
+                    result = {"status": "error",
+                              "error": f"Query run failed (HTTP {response.status_code}) without a JSON result"}
                 self.record("query", action_id=action_id, query_id=match[1], request_id=request_id,
                             operation_kind="query", execution_mode="viewer_query",
                             submitted_params=body.get("params", {}), applied_params=result.get("applied_params"),
