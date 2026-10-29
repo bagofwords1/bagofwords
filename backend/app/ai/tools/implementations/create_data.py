@@ -1893,6 +1893,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
             current_user=runtime_ctx.get("user"),
             enable_load_step=_ls_enabled,
             step_max_age_seconds=_ls_max_age,
+            # This run's agents (Auto reports have none on the report row).
+            run_agent_ids=(
+                [str(d.id) for d in (getattr(context_hub, "data_sources", None) or [])]
+                if context_hub is not None and getattr(context_hub, "data_sources", None) else None
+            ),
         )
 
         async def _resolve_loadables(step_refs, entity_refs):

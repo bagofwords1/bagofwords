@@ -365,6 +365,10 @@ class ContextHub:
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
+        # Past mentions of a shared query are summarized for this run's agents
+        # (an Auto report has none attached) — the same set the entity and
+        # mention sections use.
+        self.message_builder.run_agent_ids = self._run_agent_ids()
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
         self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion, user=self.user, data_sources=self.data_sources)
@@ -692,6 +696,11 @@ class ContextHub:
         except Exception as e:
             _hub_logger.warning(f"[context_hub] _instruction_query failed: {e}")
             return query
+
+    async def _build_mentions(self):
+        # Mentioned saved queries are shown as they run on this run's agents.
+        self.mention_builder.run_agent_ids = self._run_agent_ids()
+        return await self.mention_builder.build()
 
     def _run_agent_ids(self) -> Optional[List[str]]:
         """Ids of the agents this run executes against. Entities are
@@ -1103,7 +1112,7 @@ class ContextHub:
         messages, queries, mentions, entities = await self._run_builders("refresh_warm", [
             ("messages", lambda: _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))),
             ("queries", lambda: _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))),
-            ("mentions", lambda: _timed("mentions", self.mention_builder.build())),
+            ("mentions", lambda: _timed("mentions", self._build_mentions())),
             ("entities", lambda: _timed("entities", self.entity_builder.build_for_turn(
                 top_k=5,
                 require_source_assoc=True,

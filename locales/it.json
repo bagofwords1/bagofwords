@@ -4022,6 +4022,12 @@
     "locale.invalid": "La lingua non è abilitata",
     "report.not_found": "Report non trovato",
     "entity.not_found": "Entità non trovata",
+    "entity.agent_no_connection_type": "L'agente \"{agent}\" non ha una connessione {type} attiva, quindi questa query non può essere eseguita su di esso.",
+    "entity.agent_ambiguous_connection": "L'agente \"{agent}\" ha più di una connessione {type} attiva, quindi questa query non può sapere quale usare.",
+    "entity.agent_not_attached": "Questa query non è condivisa con quell'agente.",
+    "entity.not_shareable": "Questa query legge insieme agenti specifici, quindi non può essere condivisa anche con \"{agent}\".",
+    "entity.unresolved_code": "Il codice di questa query fa riferimento a un agente o a una connessione che non esiste più. Modifica la query per correggerlo.",
+    "entity.no_agent": "Questa query non è collegata a nessun agente, quindi non c'è nulla su cui eseguirla.",
     "user.not_found": "Utente non trovato",
     "membership.not_found": "Appartenenza non trovata",
     "role.not_found": "Ruolo non trovato",
@@ -4083,7 +4089,8 @@
     "dashboard.join_no_access": "Ti serve l'accesso a {name} per modificare questa dashboard.",
     "dashboard.creator_publish_owner_only": "Questa dashboard viene eseguita con le credenziali del proprietario, quindi solo il proprietario può pubblicarla.",
     "dashboard.published_since": "{by} ha pubblicato questa dashboard da quando è iniziata la tua bozza.",
-    "dashboard.draft_name_taken": "Esiste già una bozza con questo nome."
+    "dashboard.draft_name_taken": "Esiste già una bozza con questo nome.",
+    "entity.share_run_failed": "Questa query non è riuscita sull'agente \"{agent}\", quindi non può essere condivisa con esso: {error}"
   },
   "email": {
     "dashboardShare": {

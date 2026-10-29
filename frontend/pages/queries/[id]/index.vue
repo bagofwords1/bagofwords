@@ -11,6 +11,10 @@ definePageMeta({ auth: true })
 const route = useRoute()
 onMounted(() => {
   const id = String(route.params.id || '')
-  navigateTo(id ? `/agents/queries/${id}` : '/agents', { replace: true })
+  // Forward the agent the link was made for: a query shared with several
+  // agents opens on that one.
+  const agent = typeof route.query.agent === 'string' && route.query.agent
+    ? `?agent=${encodeURIComponent(route.query.agent)}` : ''
+  navigateTo(id ? `/agents/queries/${id}${agent}` : '/agents', { replace: true })
 })
 </script>

@@ -1,8 +1,8 @@
-"""A saved entity attached to SEVERAL agents must run with parameter values
-through every path a user reaches it from: the entity run API (entity page)
-and the describe_entity tool (chat). Each run must build a client for every
-attached agent under the caller's credentials, and a member needs access to
-ALL of them.
+"""A saved entity attached to SEVERAL agents runs with parameter values on the
+agent it is run from, through every path a user reaches it from: the entity
+run API (entity page) and the describe_entity tool (chat). Each run builds
+clients for that one agent, under the caller's credentials, so its rows are
+that agent's alone; a member needs access to that agent, not to all of them.
 
 Run:
     cd backend && uv run pytest tests/e2e/test_entity_multi_agent_params.py -v
@@ -24,8 +24,8 @@ def _hdr(token, org_id):
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
 
 
-# Reads from BOTH agents by their "<agent name>:<connection>" keys, exactly
-# like agent-generated code does, and binds the parameter in each query.
+# Reaches every client it is given without naming an agent, and binds the
+# parameter in each query: run on one agent, it must see only that agent's.
 CODE_TEMPLATE = """
 def generate_df(ds_clients, excel_files, params):
     import pandas as pd
@@ -90,62 +90,66 @@ def _agents_in(rows):
 
 
 @pytest.mark.e2e
-def test_entity_run_api_binds_values_across_every_attached_agent(test_client, two_agents):
+def test_entity_run_api_binds_values_on_the_agent_it_is_run_from(test_client, two_agents):
     w = two_agents
     ent = _entity(test_client, w)
     year = 2022
-    resp = test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": year}}, headers=_hdr(w["admin"]["token"], w["org_id"]))
-    assert resp.status_code == 200, resp.text
-    rows = resp.json()["data"]["rows"]
-    assert {r["store"] for r in rows} == {"EU", "US"}, rows
-    assert all(int(r["year"]) == year for r in rows)
-    assert all(float(r["total"]) == 25.0 for r in rows)
-    assert _agents_in(rows) == {w["eu"]["name"], w["us"]["name"]}
-    assert resp.json()["applied_params"]["year"] == year
+    for ds, store in ((w["eu"], "EU"), (w["us"], "US")):
+        resp = test_client.post(
+            f"/api/entities/{ent['id']}/run",
+            json={"params": {"year": year}, "data_source_id": ds["id"]},
+            headers=_hdr(w["admin"]["token"], w["org_id"]),
+        )
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()["data"]["rows"]
+        assert {r["store"] for r in rows} == {store}, rows
+        assert all(int(r["year"]) == year for r in rows)
+        assert all(float(r["total"]) == 25.0 for r in rows)
+        assert _agents_in(rows) == {ds["name"]}
+        assert resp.json()["applied_params"]["year"] == year
 
 
 @pytest.mark.e2e
-def test_describe_entity_binds_values_across_every_attached_agent(test_client, two_agents):
+def test_describe_entity_binds_values_on_the_agent_asked_for(test_client, two_agents):
     from app.ai.tools.implementations.describe_entity import DescribeEntityTool
 
     w = two_agents
     ent = _entity(test_client, w)
     year = 2023
 
-    async def run():
+    async def run(agent_name):
         async with async_session_maker() as db:
             org = await db.get(Organization, w["org_id"])
             user = await db.get(User, w["admin"]["user_id"])
             settings = await org.get_settings(db)
             events = [e async for e in DescribeEntityTool().run_stream(
-                {"name_or_id": ent["id"], "should_create": True, "params": {"year": year}},
+                {"name_or_id": ent["id"], "should_create": True, "params": {"year": year}, "agent": agent_name},
                 {"db": db, "organization": org, "user": user, "settings": settings},
             )]
             return events[-1].payload["output"]
 
-    out = asyncio.run(run())
-    assert out["success"], out["errors"]
-    rows = out["data"]["rows"]
-    assert {r["store"] for r in rows} == {"EU", "US"}, rows
-    assert all(int(r["year"]) == year for r in rows)
-    assert _agents_in(rows) == {w["eu"]["name"], w["us"]["name"]}
-    assert out["applied_params"]["year"] == year
+    for ds, store in ((w["eu"], "EU"), (w["us"], "US")):
+        out = asyncio.run(run(ds["name"]))
+        assert out["success"], out["errors"]
+        rows = out["data"]["rows"]
+        assert {r["store"] for r in rows} == {store}, rows
+        assert all(int(r["year"]) == year for r in rows)
+        assert _agents_in(rows) == {ds["name"]}
+        assert out["applied_params"]["year"] == year
+        assert out["agent"] == ds["name"]
 
 
 @pytest.mark.e2e
-def test_member_needs_access_to_every_attached_agent(test_client, two_agents):
+def test_member_runs_values_on_the_agent_they_can_reach(test_client, two_agents):
     w = two_agents
     ent = _entity(test_client, w)
     h = _hdr(w["member"]["token"], w["org_id"])
 
-    # Access to one of the two agents is not enough.
     w["grant"](resource_type="data_source", resource_id=w["eu"]["id"], principal_type="user",
                principal_id=w["member"]["user_id"], permissions=["access"], user_token=w["admin"]["token"], org_id=w["org_id"])
-    partial = test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": 2021}}, headers=h)
-    assert partial.status_code in (403, 404), partial.text
+    reached = test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": 2021}, "data_source_id": w["eu"]["id"]}, headers=h)
+    assert reached.status_code == 200, reached.text
+    assert {r["store"] for r in reached.json()["data"]["rows"]} == {"EU"}
 
-    w["grant"](resource_type="data_source", resource_id=w["us"]["id"], principal_type="user",
-               principal_id=w["member"]["user_id"], permissions=["access"], user_token=w["admin"]["token"], org_id=w["org_id"])
-    full = test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": 2021}}, headers=h)
-    assert full.status_code == 200, full.text
-    assert {r["store"] for r in full.json()["data"]["rows"]} == {"EU", "US"}
+    unreached = test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": 2021}, "data_source_id": w["us"]["id"]}, headers=h)
+    assert unreached.status_code in (403, 404), unreached.text

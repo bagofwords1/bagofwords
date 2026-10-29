@@ -36,6 +36,10 @@ class DescribeEntityTool(Tool):
                 "**Research mode** (default): Returns SQL code, columns, and sample data. "
                 "Use for research, investigation, understanding how something was built, "
                 "or as a reference before writing similar code.\n\n"
+                "**Agents**: a saved query shared with several agents runs on ONE of them — "
+                "the agent in this conversation by default, or `agent`. The returned code "
+                "already uses that agent's ds_clients key; when adapting it, keep to the keys "
+                "listed in <connection_clients>.\n\n"
                 "**Create mode** (should_create=True): Materializes the entity as a tracked "
                 "query + visualization in this report. Use when the user wants an existing "
                 "entity displayed or refreshed rather than something new built.\n\n"
@@ -137,9 +141,33 @@ class DescribeEntityTool(Tool):
         )
         return result.scalar_one_or_none()
 
-    async def _check_user_access(self, db, entity: Entity, user) -> tuple[bool, str]:
-        """Check if user has access to all data sources attached to the entity.
-        
+    @staticmethod
+    def _run_agent_ids(context_hub, runtime_ctx) -> List[str]:
+        """This conversation's agents (the hub's, else the report's)."""
+        agents = list(getattr(context_hub, "data_sources", None) or []) if context_hub else []
+        if not agents:
+            report = runtime_ctx.get("report")
+            agents = list(getattr(report, "data_sources", None) or []) if report is not None else []
+        return [str(getattr(a, "id", a)) for a in agents]
+
+    @staticmethod
+    def _agent_id_for(entity: Entity, agent: Optional[str]) -> Optional[str]:
+        """Map the model's `agent` (a name or an id) to one of the entity's
+        agents; an unknown value passes through so pick_target reports it."""
+        if not agent:
+            return None
+        wanted = str(agent).strip()
+        for ds in entity.data_sources or []:
+            if wanted in (str(ds.id), str(ds.name or "")) or wanted.lower() == str(ds.name or "").lower():
+                return str(ds.id)
+        return wanted
+
+    async def _check_user_access(self, db, entity: Entity, user, target=None) -> tuple[bool, str]:
+        """Check the user may read the entity on the agent it runs on.
+
+        A published catalog query runs on one of its agents, so only that
+        agent (`target`) gates it; anything else needs every attached agent.
+
         Returns:
             (has_access: bool, error_message: str)
         """
@@ -151,10 +179,12 @@ class DescribeEntityTool(Tool):
             return True, ""
 
         from app.core.permission_resolver import user_can_access_data_source
+        from app.services.entity_service import is_per_agent_catalog_entity
 
+        gated = [target] if (target is not None and is_per_agent_catalog_entity(entity)) else list(entity.data_sources)
         inaccessible_ds: List[str] = []
         org_id = str(entity.organization_id)
-        for ds in entity.data_sources:
+        for ds in gated:
             if not await user_can_access_data_source(db, str(user.id), org_id, ds):
                 inaccessible_ds.append(ds.name or str(ds.id))
 
@@ -261,10 +291,35 @@ class DescribeEntityTool(Tool):
             payload={"stage": "entity_found", "entity_id": str(entity.id), "title": entity.title, "timing": False},
         )
 
+        # The agent the query runs on: the one asked for, else the one of this
+        # conversation's agents it is shared with, else its own.
+        from app.services import entity_runtime
+        from app.errors import AppError
+        run_agent_ids = self._run_agent_ids(context_hub, runtime_ctx)
+        requested = self._agent_id_for(entity, data.agent)
+        try:
+            target = entity_runtime.pick_target(entity, requested, run_agent_ids)
+        except AppError as e:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": DescribeEntityOutput(
+                        success=False, entity_id=str(entity.id), title=entity.title, errors=[e.message],
+                    ).model_dump(),
+                    "observation": {
+                        "summary": f"Saved query '{entity.title}' is not shared with agent '{data.agent}'",
+                        "error": {"type": "agent_not_attached", "message": e.message},
+                    },
+                },
+            )
+            return
+        target_id = str(target.id) if target is not None else None
+        target_name = getattr(target, "name", None)
+
         # Check user access to entity's data sources
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "checking_access"})
         user = context_hub.user if context_hub else runtime_ctx.get("user")
-        has_access, access_error = await self._check_user_access(db, entity, user)
+        has_access, access_error = await self._check_user_access(db, entity, user, target)
 
         if not has_access:
             yield ToolEndEvent(
@@ -290,14 +345,18 @@ class DescribeEntityTool(Tool):
         # reader gets no cached rows and the tool re-executes under THEIR
         # credentials instead.
         from app.services.viewer_data_policy import entity_data_withheld
-        snapshot_withheld = await entity_data_withheld(db, entity, user)
-        entity_data = {} if snapshot_withheld else (entity.data or {})
+        snapshot_withheld = await entity_data_withheld(db, entity, user, data_source_id=target_id)
+        snapshot = await entity_runtime.snapshot_of(db, entity, target_id)
+        entity_data = {} if snapshot_withheld else (snapshot.data or {})
         execution_log = None
         errors: List[str] = []
         declared_params = list(getattr(entity, "parameters", None) or []) or None
-        # The values the served rows were produced with: the shared
+        # The values the served rows were produced with: that agent's shared
         # snapshot's own record until a run below replaces it.
-        applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
+        applied_params = dict(snapshot.applied_params or {}) or None
+        # The code as it runs on that agent — what the model reads and what a
+        # created step keeps, so the report re-runs it on its own agent.
+        code_for_agent = entity_runtime.render_for(entity, target)
         request_values = dict(data.params or {})
 
         if request_values or data.should_rerun or snapshot_withheld:
@@ -314,6 +373,7 @@ class DescribeEntityTool(Tool):
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values,
                         force_refresh=bool(data.should_rerun),
+                        data_source_id=target_id,
                     )
                     entity_data = run["data"] or {}
                     applied_params = dict(run["applied_params"] or {}) or None
@@ -322,11 +382,11 @@ class DescribeEntityTool(Tool):
                         else "executed the entity's saved code"
                     )
             except Exception as e:
-                errors.append(f"Code execution failed: {str(e)}")
+                errors.append(f"Code execution failed: {getattr(e, 'message', None) or str(e)}")
                 # Fall back to cached data — but never to a snapshot the
                 # policy withholds from this reader, and never to a snapshot
                 # that answers different parameter values than asked.
-                entity_data = {} if (snapshot_withheld or request_values) else (entity.data or {})
+                entity_data = {} if (snapshot_withheld or request_values) else (snapshot.data or {})
 
         # Build data profile
         allow_llm_see_data = True
@@ -413,7 +473,8 @@ class DescribeEntityTool(Tool):
             entity_type=entity.type,
             title=entity.title,
             description=entity.description,
-            code=entity.code if allow_llm_see_data else "[code hidden]",
+            code=code_for_agent if allow_llm_see_data else "[code hidden]",
+            agent=target_name,
             data_profile=data_profile,
             data_preview=data_preview,
             stats=stats,
@@ -431,10 +492,12 @@ class DescribeEntityTool(Tool):
             output["data"] = entity_data
             # The step persists the REAL code regardless of the LLM-facing
             # redaction below: the created query must be re-runnable.
-            output["code"] = entity.code
+            output["code"] = code_for_agent
 
         # Build observation
         summary_parts = [f"Described entity '{entity.title}' (type={entity.type})"]
+        if target_name and len(entity.data_sources or []) > 1:
+            summary_parts.append(f"on agent '{target_name}'")
         if request_values:
             summary_parts.append(
                 "ran with parameters " + ", ".join(f"{k}={v!r}" for k, v in (applied_params or {}).items())
@@ -446,6 +509,7 @@ class DescribeEntityTool(Tool):
 
         observation: Dict[str, Any] = {
             "summary": ", ".join(summary_parts) + ".",
+            "agent": target_name,
             "entity_id": str(entity.id),
             "entity_type": entity.type,
             "title": entity.title,
@@ -472,6 +536,29 @@ class DescribeEntityTool(Tool):
 
         if errors:
             observation["errors"] = errors
+
+        # The query is shared with more than one agent of this conversation and
+        # this result is ONE agent's — whether the model named it or not (it
+        # cannot tell a user's choice from its own). Say which others remain so
+        # the answer covers each, labeled by agent, unless the user asked about
+        # this one.
+        if target is not None:
+            from app.services.entity_code import SHAREABLE_MODES
+            if entity_runtime.code_mode(entity) in SHAREABLE_MODES:
+                others = [
+                    str(ds.name) for ds in (entity.data_sources or [])
+                    if str(ds.id) in run_agent_ids and str(ds.id) != target_id
+                ]
+                if others:
+                    observation["agent"] = target_name
+                    observation["also_shared_with"] = others
+                    observation["next_step_hint"] = (
+                        f"This result is agent '{target_name}' only. The query is also shared with "
+                        f"{', '.join(repr(o) for o in others)} in this conversation, each with its own data. "
+                        f"Unless the user asked about '{target_name}' specifically, call describe_entity "
+                        "again with agent=<name> for each of those before answering, and label every "
+                        "number with its agent. Do not choose one agent on the user's behalf."
+                    )
 
         yield ToolEndEvent(
             type="tool.end",

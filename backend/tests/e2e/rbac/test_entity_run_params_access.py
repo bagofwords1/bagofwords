@@ -79,9 +79,29 @@ def test_admin_runs_values_and_refreshes(test_client, world):
     assert test_client.post(f"/api/entities/{ent['id']}/run", json={}, headers=h).status_code == 200
 
 
+DSLESS_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    client = ds_clients["pub_agent"]
+    return pd.DataFrame({"year": [params.get("year")], "clients": [1 if client is not None else 0]})
+"""
+
+
 @pytest.mark.e2e
 def test_dsless_snapshot_refresh_stays_an_admin_capability(test_client, world):
-    ent = _entity(test_client, world["admin"]["token"], world["org_id"], [])
+    # A query saved from an Auto report carries no agent rows; its code names
+    # the agent it was written on, which is what it runs against.
+    resp = test_client.post(
+        "/api/entities/global",
+        json={
+            "type": "model", "title": "Sales by year", "slug": f"sales-{uuid.uuid4().hex[:8]}",
+            "code": DSLESS_CODE, "data": {}, "status": "published",
+            "parameters": [YEAR_SPEC], "data_source_ids": [],
+        },
+        headers=_hdr(world["admin"]["token"], world["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+    ent = resp.json()
     h = _hdr(world["member"]["token"], world["org_id"])
     assert test_client.post(f"/api/entities/{ent['id']}/run", json={}, headers=h).status_code == 403
     assert test_client.post(f"/api/entities/{ent['id']}/run", json={"params": {"year": 2020}}, headers=h).status_code == 200

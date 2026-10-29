@@ -4022,6 +4022,12 @@
     "locale.invalid": "اللغة غير مفعّلة",
     "report.not_found": "التقرير غير موجود",
     "entity.not_found": "الكيان غير موجود",
+    "entity.agent_no_connection_type": "لا يملك الوكيل \"{agent}\" اتصال {type} نشطًا، لذا لا يمكن تشغيل هذا الاستعلام عليه.",
+    "entity.agent_ambiguous_connection": "يملك الوكيل \"{agent}\" أكثر من اتصال {type} نشط، لذا لا يستطيع هذا الاستعلام تحديد أيّها يستخدم.",
+    "entity.agent_not_attached": "هذا الاستعلام غير مُشارَك مع ذلك الوكيل.",
+    "entity.not_shareable": "يقرأ هذا الاستعلام من وكلاء محددين معًا، لذا لا يمكن مشاركته أيضًا مع \"{agent}\".",
+    "entity.unresolved_code": "تشير شيفرة هذا الاستعلام إلى وكيل أو اتصال لم يعد موجودًا. عدّل الاستعلام لإصلاح ذلك.",
+    "entity.no_agent": "هذا الاستعلام غير مرتبط بأي وكيل، لذا لا يوجد ما يُشغَّل عليه.",
     "user.not_found": "المستخدم غير موجود",
     "membership.not_found": "العضوية غير موجودة",
     "role.not_found": "الدور غير موجود",
@@ -4083,7 +4089,8 @@
     "dashboard.join_no_access": "تحتاج إلى الوصول إلى {name} لتحرير لوحة المعلومات هذه.",
     "dashboard.creator_publish_owner_only": "تعمل لوحة المعلومات هذه ببيانات اعتماد مالكها، لذا لا يمكن نشرها إلا لمالكها.",
     "dashboard.published_since": "نشر {by} لوحة المعلومات هذه منذ بدء مسودتك.",
-    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل."
+    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل.",
+    "entity.share_run_failed": "فشل هذا الاستعلام على الوكيل \"{agent}\"، لذا لا يمكن مشاركته معه: {error}"
   },
   "email": {
     "dashboardShare": {

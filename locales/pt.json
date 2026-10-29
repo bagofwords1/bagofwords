@@ -4022,6 +4022,12 @@
     "locale.invalid": "O idioma não está ativado",
     "report.not_found": "Relatório não encontrado",
     "entity.not_found": "Entidade não encontrada",
+    "entity.agent_no_connection_type": "O agente \"{agent}\" não tem nenhuma conexão {type} ativa, então esta consulta não pode ser executada nele.",
+    "entity.agent_ambiguous_connection": "O agente \"{agent}\" tem mais de uma conexão {type} ativa, então esta consulta não consegue saber qual usar.",
+    "entity.agent_not_attached": "Esta consulta não está compartilhada com esse agente.",
+    "entity.not_shareable": "Esta consulta lê agentes específicos em conjunto, então não pode ser compartilhada também com \"{agent}\".",
+    "entity.unresolved_code": "O código desta consulta faz referência a um agente ou conexão que não existe mais. Edite a consulta para corrigir isso.",
+    "entity.no_agent": "Esta consulta não está vinculada a nenhum agente, então não há onde executá-la.",
     "user.not_found": "Usuário não encontrado",
     "membership.not_found": "Associação não encontrada",
     "role.not_found": "Função não encontrada",
@@ -4083,7 +4089,8 @@
     "dashboard.join_no_access": "Você precisa de acesso a {name} para editar este painel.",
     "dashboard.creator_publish_owner_only": "Este painel é executado com as credenciais do proprietário, por isso só o proprietário pode publicá-lo.",
     "dashboard.published_since": "{by} publicou este painel desde que o seu rascunho começou.",
-    "dashboard.draft_name_taken": "Já existe um rascunho com este nome."
+    "dashboard.draft_name_taken": "Já existe um rascunho com este nome.",
+    "entity.share_run_failed": "Esta consulta falhou no agente \"{agent}\", então não pode ser compartilhada com ele: {error}"
   },
   "email": {
     "dashboardShare": {

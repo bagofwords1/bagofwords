@@ -42,7 +42,9 @@ test('a query can be created by hand from the agent queries panel', async ({ pag
   await page.route(`**/api/entities/${created.id}/run`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ ...created, data: { columns: [{ field: 'example' }], rows: [{ example: 1 }], info: { total_rows: 1 } } }) }));
-  await page.route(`**/api/entities/${created.id}`, (route) =>
+  // The detail panel asks for the result of the agent it was opened under
+  // (`?data_source_id=`), so match the entity URL with or without a query.
+  await page.route(new RegExp(`/api/entities/${created.id}(\\?.*)?$`), (route) =>
     route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ ...created, data: { columns: [{ field: 'example' }], rows: [{ example: 1 }], info: { total_rows: 1 } } }) }));
   await page.route('**/api/data_sources/active**', (route) =>

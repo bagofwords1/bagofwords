@@ -4022,6 +4022,12 @@
     "locale.invalid": "Sprache ist nicht aktiviert",
     "report.not_found": "Bericht nicht gefunden",
     "entity.not_found": "Entität nicht gefunden",
+    "entity.agent_no_connection_type": "Der Agent „{agent}“ hat keine aktive {type}-Verbindung, daher kann diese Abfrage nicht auf ihm laufen.",
+    "entity.agent_ambiguous_connection": "Der Agent „{agent}“ hat mehr als eine aktive {type}-Verbindung, daher kann diese Abfrage nicht erkennen, welche sie nutzen soll.",
+    "entity.agent_not_attached": "Diese Abfrage ist nicht mit diesem Agenten geteilt.",
+    "entity.not_shareable": "Diese Abfrage liest bestimmte Agenten gemeinsam und kann daher nicht zusätzlich mit „{agent}“ geteilt werden.",
+    "entity.unresolved_code": "Der Code dieser Abfrage verweist auf einen Agenten oder eine Verbindung, die es nicht mehr gibt. Bearbeite die Abfrage, um das zu beheben.",
+    "entity.no_agent": "Diese Abfrage ist mit keinem Agenten verknüpft, daher gibt es nichts, worauf sie laufen kann.",
     "user.not_found": "Benutzer nicht gefunden",
     "membership.not_found": "Mitgliedschaft nicht gefunden",
     "role.not_found": "Rolle nicht gefunden",
@@ -4083,7 +4089,8 @@
     "dashboard.join_no_access": "Du brauchst Zugriff auf {name}, um dieses Dashboard zu bearbeiten.",
     "dashboard.creator_publish_owner_only": "Dieses Dashboard läuft mit den Zugangsdaten seines Eigentümers, daher kann nur der Eigentümer es veröffentlichen.",
     "dashboard.published_since": "{by} hat dieses Dashboard veröffentlicht, seit dein Entwurf begonnen hat.",
-    "dashboard.draft_name_taken": "Es gibt bereits einen Entwurf mit diesem Namen."
+    "dashboard.draft_name_taken": "Es gibt bereits einen Entwurf mit diesem Namen.",
+    "entity.share_run_failed": "Diese Abfrage ist auf dem Agenten „{agent}“ fehlgeschlagen und kann daher nicht mit ihm geteilt werden: {error}"
   },
   "email": {
     "dashboardShare": {

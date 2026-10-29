@@ -81,7 +81,7 @@ def _create_entity(test_client, token, org_id, title, data_source_ids):
             "type": "model",
             "title": title,
             "slug": f"{title.lower().replace(' ', '-')}-{uuid.uuid4().hex[:6]}",
-            "code": "select 1 as x",
+            "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'x': [1]})\n",
             "data_source_ids": data_source_ids,
         },
         headers=_auth(token, org_id),
