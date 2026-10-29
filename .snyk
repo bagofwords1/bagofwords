@@ -8,6 +8,59 @@
 version: v1.0.0
 # Open-source vulnerability ignores (client-side policy applied by `snyk test`).
 ignore:
+  # NOTE: the former SNYK-PYTHON-OAUTHLIB-20305255 (Timing Attack in oauthlib,
+  # High) ignore was removed once it became remediable. databricks-sql-connector
+  # relaxed its oauthlib cap to <5.0.0 (4.7.0, the pinned floor, already allows
+  # it) and requests-oauthlib 2.0.0 allows oauthlib>=3.0.0, so oauthlib was
+  # upgraded 3.3.1 -> 4.0.0 (the fix version) in uv.lock. No ignore needed.
+  # Command Injection in simple-git / @simple-git/argv-parser (Critical). Pulled
+  # in ONLY as a dev/build-tooling transitive:
+  #   nuxt > @nuxt/devtools > simple-git > @simple-git/argv-parser
+  # @nuxt/devtools is the local development UI; it uses simple-git to read repo
+  # info while running `nuxt dev` on a developer's machine. It is NOT part of the
+  # production runtime: `nuxt build` emits `.output/`, which the prod image runs
+  # directly, and @nuxt/devtools / simple-git never ship in that artifact. The
+  # injection requires attacker-controlled arguments to git commands; the only
+  # inputs here are the developer's own local repo during dev, never attacker-
+  # controlled production request data. No upgrade remediates it in this tree:
+  # the fix lands only in simple-git 4.0.0, but every @nuxt/devtools release
+  # (stable up to 3.4.2; latest tag 4.0.0-beta.2) pins simple-git ^3.x, and
+  # forcing simple-git 4.x breaks the build — @nuxt/devtools does
+  # `import Git from 'simple-git'` and simple-git 4 removed its default export.
+  # Resolved by the Nuxt 4 / @nuxt/devtools upgrade. Time-boxed for re-review.
+  SNYK-JS-SIMPLEGIT-20335524:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335531:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGIT-20335540:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools); not in the
+          production .output runtime. No fix installable: simple-git 4.0.0 fixes
+          it but all @nuxt/devtools releases pin simple-git ^3.x and v4 breaks
+          the build (default export removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-SIMPLEGITARGVPARSER-20335528:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev via @nuxt/devtools > simple-git);
+          not in the production .output runtime. No fix installable: the fix is
+          @simple-git/argv-parser 2.0.1 (simple-git 4.x), but all @nuxt/devtools
+          releases pin simple-git ^3.x and v4 breaks the build (default export
+          removed). Re-review on Nuxt 4 upgrade.
+        expires: 2026-12-21T00:00:00.000Z
   # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
   # Pulled in ONLY as a build/dev-tooling transitive:
   #   nuxt > @nuxt/cli > listhen > node-forge
@@ -78,6 +131,110 @@ ignore:
           in this deployment, so ioredis is never loaded at runtime. Only fix is
           a pre-release (6.0.0-beta.1). Re-review on expiry.
         expires: 2026-12-21T00:00:00.000Z
+  # Multiple HIGH-severity DoS-class advisories in the Apache Thrift Python
+  # library, all fixed only in thrift 0.25.0:
+  #   - Improper Handling of Length Parameter Inconsistency (SNYK-PYTHON-THRIFT-20417151)
+  #   - Allocation of Resources Without Limits/Throttling — unbounded recursion
+  #     on skipped unknown fields (SNYK-PYTHON-THRIFT-20417194)
+  #   - Allocation of Resources Without Limits/Throttling — TJSONProtocol string
+  #     length not enforced (SNYK-PYTHON-THRIFT-20571226)
+  #   - Data Amplification — TZlibTransport decompression limit not enforced
+  #     (SNYK-PYTHON-THRIFT-20571816)
+  #   - Infinite loop — TNonblockingServer frame-boundary busy-loop
+  #     (SNYK-PYTHON-THRIFT-20571817)
+  # Pulled in ONLY as a transitive of the Databricks connector:
+  #   databricks-sql-connector > thrift
+  # thrift is reached exclusively by app/data_sources/clients/databricks_sql_client.py,
+  # which opens a CLIENT connection to a customer-configured Databricks SQL
+  # Warehouse (server_hostname + http_path, authenticated with the customer's own
+  # access token over HTTPS) and deserializes that warehouse's Thrift responses.
+  # This backend runs NO Thrift server, so the TNonblockingServer infinite-loop
+  # path (20571817) is never instantiated; the remaining advisories are Thrift
+  # protocol/transport deserialization of data received from that peer — the
+  # customer's own trusted Databricks endpoint over TLS, never attacker-
+  # controlled inbound request data to this backend. No installable fix exists
+  # in this tree: fixed only in thrift 0.25.0, but EVERY published
+  # databricks-sql-connector release — including the latest 4.6.0 — hard-caps
+  # thrift>=0.24.0,<0.25.0, so no upgrade can remediate it without dropping the
+  # Databricks connector. Directly analogous to the oauthlib/databricks entry
+  # above. Time-boxed; re-review when databricks-sql-connector relaxes its
+  # thrift cap.
+  SNYK-PYTHON-THRIFT-20417151:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Reached
+          only via the Databricks connector deserializing responses from the
+          customer's own trusted Databricks SQL Warehouse over TLS, never
+          attacker-controlled inbound request data. Re-review when the databricks
+          cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20417194:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Reached
+          only via the Databricks connector deserializing responses from the
+          customer's own trusted Databricks SQL Warehouse over TLS, never
+          attacker-controlled inbound request data. Re-review when the databricks
+          cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571226:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). TJSONProtocol
+          string-length DoS reached only via the Databricks connector deserializing
+          responses from the customer's own trusted Databricks SQL Warehouse over
+          TLS, never attacker-controlled inbound request data. Re-review when the
+          databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571816:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). TZlibTransport
+          data-amplification DoS reached only via the Databricks connector
+          deserializing responses from the customer's own trusted Databricks SQL
+          Warehouse over TLS, never attacker-controlled inbound request data.
+          Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-PYTHON-THRIFT-20571817:
+    - '*':
+        reason: >-
+          No installable fix (fixed in thrift 0.25.0; databricks-sql-connector
+          hard-caps thrift<0.25.0 on all versions incl. latest 4.6.0). Infinite-loop
+          DoS is in TNonblockingServer; this backend runs no Thrift server and uses
+          thrift only as a client via the Databricks connector, so the path is not
+          reached. Re-review when the databricks cap relaxes.
+        expires: 2026-12-21T00:00:00.000Z
+  # Regular Expression Denial of Service (ReDoS) in picomatch (High, CVSS 8.7).
+  # Reached ONLY through build-time glob/auto-import tooling in the frontend
+  # (Nuxt), never the shipped browser bundle or the production .output server.
+  # All 47 introduction paths run picomatch inside Nuxt build/dev machinery, e.g.:
+  #   nuxt > unimport > picomatch                 (build-time auto-imports)
+  #   nuxt > unplugin-vue-router > picomatch       (build-time route generation)
+  #   @nuxt/ui|nuxt-echarts|... > @nuxt/kit > tinyglobby > picomatch
+  #                                                (build-time file globbing)
+  #   @nuxt/ui > @nuxt/icon > picomatch            (build-time icon resolution)
+  # The ReDoS is driven by adversarial glob patterns; the only inputs picomatch
+  # sees here are the project's own globs / module paths during `nuxt build`,
+  # never attacker-controlled runtime request data, and picomatch does not run
+  # in the production .output server. picomatch 4.0.4 is the latest release and
+  # every version is flagged (fixedIn: []), so no upgrade remediates it; the
+  # upgradable paths require major bumps (nuxt 4.x / nuxt-tiptap-editor 3.x) and
+  # are resolved by the Nuxt 4 upgrade. Mirrors the frontend/.snyk entry.
+  # Time-boxed for re-review.
+  SNYK-JS-PICOMATCH-21248802:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Nuxt auto-imports / route generation /
+          file globbing via unimport, unplugin-vue-router, tinyglobby and
+          @nuxt/icon); not in the production .output runtime request path. No
+          fixed picomatch version exists (4.0.4 is latest, all versions
+          affected). Re-review on expiry or when the Nuxt 4 upgrade drops the
+          chain.
+        expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'
@@ -107,3 +264,10 @@ exclude:
     - 'backend/email_sandbox/**'
     - 'tools'
     - 'tools/**'
+    # Feedback-loop harnesses: standalone reproduce/verify scripts (seed, launch,
+    # probe, and a localhost-only git/HTTP server) that drive a local BOW instance
+    # for a documented bug/feature loop. Not imported by the application
+    # (backend/app) and never shipped; the throwaway localhost servers here bind
+    # 127.0.0.1 with test fixtures, not production request handlers.
+    - 'docs/feedback-loops'
+    - 'docs/feedback-loops/**'

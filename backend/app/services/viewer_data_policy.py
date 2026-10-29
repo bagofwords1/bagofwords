@@ -65,10 +65,17 @@ async def resolve_step_data(
       as themselves.
 
     `report` may be None (report-level renders with no report loaded) — then
-    only the owner/snapshot vs. withheld decision is made via report_id on
-    the step's query, falling back to serving the snapshot.
+    the decision is made against the conversation the step belongs to
+    (app/services/row_owner.py). A step that belongs to no conversation — a
+    published dashboard's copy, or an orphan — is withheld.
     """
     from app.services.bow_source_access import step_access, can_read
+    step_report_id = None
+    if report is None:
+        from app.services.row_owner import step_report_id as _owner_report_id
+        step_report_id = await _owner_report_id(db, step)
+        if step_report_id is None:
+            return StepDataResolution(data={}, withheld=True)
     bow_access = await step_access(db, step)
     if bow_access and not await can_read(db, bow_access, requesting_user):
         return StepDataResolution(data={}, withheld=True)
@@ -81,26 +88,32 @@ async def resolve_step_data(
     viewer_result = None
     if requesting_user is not None:
         from app.models.step_user_result import StepUserResult
-        # A viewer can hold one cached result per parameter combination —
-        # serve their most recent successful slice for the initial render.
+        # A viewer can hold one cached result per parameter combination. The
+        # initial render shows the dashboard's DEFAULT values (that is what
+        # every host's controls start at), so serve the slice for those —
+        # serving whichever slice ran last showed e.g. one region's rows
+        # under a control reading "All". Other slices stay cached for when
+        # the viewer picks those values again.
+        stmt = select(StepUserResult).options(lazyload("*")).where(
+            StepUserResult.step_id == str(step.id),
+            StepUserResult.user_id == str(requesting_user.id),
+        )
+        default_fp = await _default_params_fingerprint(db, step, report, requesting_user)
+        if default_fp is not None:
+            # '' is the "no params / defaults" key (StepUserResult) — rows
+            # written before a query declared params, or without values.
+            stmt = stmt.where(StepUserResult.params_fingerprint.in_({default_fp, ""}))
         row = (await db.execute(
-            select(StepUserResult).options(lazyload("*")).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(requesting_user.id),
-            ).order_by(StepUserResult.last_run_at.desc())
+            stmt.order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
         if row is not None:
-            from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+            from app.services.access_errors import viewer_error_code
             viewer_result = {
                 "status": row.status,
                 "status_reason": row.status_reason,
                 # Machine-readable, so the dashboard can tell "you may not see
                 # this chart" from a query that broke — see access_errors.
-                "error_code": (
-                    NO_ACCESS_CODE
-                    if row.status == "error" and row.status_reason == NO_ACCESS_REASON
-                    else None
-                ),
+                "error_code": viewer_error_code(row.status, row.status_reason),
                 "executed_as": row.executed_as,
                 "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             }
@@ -133,18 +146,54 @@ async def resolve_step_data(
             )
         )
     else:
-        # Caller had no report in hand — resolve the policy from the step's
-        # own report_id.
-        report_id = getattr(step, "report_id", None) or (
-            getattr(step.query, "report_id", None) if getattr(step, "query", None) else None
-        )
-        withheld = report_id is not None and await report_snapshot_withheld(
-            db, str(report_id), code=step_code
-        )
+        # Caller had no report in hand — resolve the policy from the
+        # conversation the step belongs to.
+        withheld = await report_snapshot_withheld(db, str(step_report_id), code=step_code)
 
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
     return StepDataResolution(data=shared, viewer_result=viewer_result)
+
+
+async def _default_params_fingerprint(db: AsyncSession, step: Any, report: Any, user: Any) -> Optional[str]:
+    """params_fingerprint of this viewer's DEFAULT parameter values for the
+    step's query — the key the host's initial viewer run caches under (same
+    resolve_param_values + params_fingerprint as query_service's viewer run).
+
+    None when it can't be determined (no query, unresolvable defaults); the
+    caller then keeps the most-recent-slice behavior.
+    """
+    try:
+        from app.models.query import Query
+        from app.schemas.param_schema import parse_param_specs
+        from app.ai.code_execution.query_params import params_fingerprint, resolve_param_values
+
+        query_id = getattr(step, "query_id", None)
+        if not query_id:
+            return None
+        row = (await db.execute(
+            select(Query.parameters, Query.organization_id).where(Query.id == str(query_id))
+        )).first()
+        if row is None:
+            return None
+        specs = parse_param_specs(row[0])
+        if not specs:
+            return params_fingerprint({})
+        org_id = row[1] or getattr(report, "organization_id", None)
+        if not org_id:
+            return None
+        # One identity resolution per (viewer, org) per session: a dashboard
+        # resolves every step through here.
+        memo = db.info.setdefault("_default_params_identity", {})
+        key = (str(user.id), str(org_id))
+        identity = memo.get(key)
+        if identity is None:
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(db, user, str(org_id))
+            memo[key] = identity
+        return params_fingerprint(resolve_param_values(specs, {}, identity))
+    except Exception:
+        return None
 
 
 def redact_applied_params(

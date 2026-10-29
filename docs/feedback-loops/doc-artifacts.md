@@ -127,8 +127,10 @@ un-clipping + one-page fit + the doc branch) and
 placeholders) all pass.
 
 Note: the renderer loads the app's own page over HTTP. The standard image serves
-the SPA from the backend process (`SERVE_FRONTEND=1`), so `base_url` doubles as
-an internal address; a split deployment sets `BOW_RENDER_ORIGIN`.
+the SPA from the backend process (`SERVE_FRONTEND=1`), so it loads it from
+`http://127.0.0.1:3000` — never the public `base_url`, whose TLS proxy may use a
+certificate the bundled Chromium does not trust (`ERR_CERT_AUTHORITY_INVALID`).
+A split deployment sets `BOW_RENDER_ORIGIN`, which always wins.
 
 ## What this proves / regression notes
 

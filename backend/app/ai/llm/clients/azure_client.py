@@ -1,9 +1,10 @@
 import json
 
-from app.ai.llm.reasoning import selected_effort, is_openai_reasoning_model
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
-from openai import AzureOpenAI, AsyncAzureOpenAI
+from openai import AzureOpenAI, AsyncAzureOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 from app.ai.llm.clients.base import LLMClient
@@ -40,7 +41,8 @@ class AzureClient(LLMClient):
 
     def __init__(self, api_key: str | None, endpoint_url: str, temperature: float | None = None,
                  default_headers: dict | None = None,
-                 azure_ad_token_provider=None):
+                 azure_ad_token_provider=None,
+                 identity_headers: IdentityHeaders | None = None):
         super().__init__()
         # Admin-configured override; None keeps the per-call historical default
         # (see _default_temperature).
@@ -62,8 +64,16 @@ class AzureClient(LLMClient):
             client_kwargs["api_key"] = api_key
         if default_headers:
             client_kwargs["default_headers"] = default_headers
-        self.client = AzureOpenAI(**client_kwargs)
-        self.async_client = AsyncAzureOpenAI(**client_kwargs)
+        # endpoint_url is admin-configured: validate and pin every request to
+        # the checked address (app.core.egress), as for custom base_urls.
+        # Identity-forwarding headers resolve per request via an httpx hook.
+        from app.ai.llm.clients.openai_client import pinned_openai_http_clients
+
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        sync_http, async_http = pinned_openai_http_clients({}, sync_hooks, async_hooks)
+        self.client = AzureOpenAI(**client_kwargs, http_client=sync_http)
+        self.async_client = AsyncAzureOpenAI(**client_kwargs, http_client=async_http)
 
     def _resolve_temperature(self, model_id: str) -> float:
         """Admin-configured value when set, else the historical default
@@ -92,7 +102,7 @@ class AzureClient(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -105,60 +115,61 @@ class AzureClient(LLMClient):
         _msgs = [{"role": "user", "content": self._build_content(prompt, images)}]
         if system:
             _msgs = [{"role": "system", "content": system}] + _msgs
-        chat_completion = self.client.chat.completions.create(
-            messages=_msgs,
-            model=model_id,
-            temperature=temperature,
-        )
+        params = {"messages": _msgs, "model": model_id, "temperature": temperature}
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
         temperature = self._resolve_temperature(model_id)
 
-        stream = await self.async_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": self._build_content(prompt, images),
-                }
-            ],
-            model=model_id,
-            temperature=temperature,
-            stream=True
-        )
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        params = {"model": model_id, "messages": [{"role": "user", "content": self._build_content(prompt, images)}],
+                  "temperature": temperature, "stream": True}
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
-                # heartbeat/control packets; may still carry usage
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    # heartbeat/control packets; may still carry usage
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
+                    raise ValueError("Model output limit reached")
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
-            
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield delta.content
 
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
@@ -307,12 +318,7 @@ class AzureClient(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        capability_model = getattr(self, "reasoning_model_id", None) or model_id
-        if is_openai_reasoning_model(capability_model):
-            effort = selected_effort(thinking)
-            if effort:
-                request_kwargs["reasoning_effort"] = effort
-            request_kwargs.pop("temperature", None)
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
         reasoning_text = ""
         reasoning_active = False
 
@@ -323,7 +329,7 @@ class AzureClient(LLMClient):
         cache_read_tokens = 0
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             usage = self._extract_usage(getattr(chunk, "usage", None))
             if usage.reasoning_tokens:

@@ -27,6 +27,9 @@ services:
       BOW_LICENSE_KEY: ${BOW_LICENSE_KEY:-}
       BOW_BASE_URL: ${BOW_BASE_URL:-http://localhost}
       BOW_CONFIG_PATH: /app/bow-config.yaml
+      # Trust X-Forwarded-For from Caddy (this service publishes no port, so
+      # Caddy is its only HTTP peer). Narrow it if you publish port 3000.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-*}
     volumes:
       - ./bow-config.yaml:/app/bow-config.yaml:ro
       - uploads_data:/app/backend/uploads

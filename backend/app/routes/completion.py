@@ -21,6 +21,8 @@ from app.core.permissions_decorator import requires_permission
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.models.report import Report
+from app.schemas.stream_delivery_schema import StreamDeliveryReport, StreamDeliveryVerdict
+from app.streaming.delivery import analyze_client_delivery, instrument_stream
 
 router = APIRouter(tags=["completions"])
 
@@ -112,6 +114,10 @@ async def create_completion(
     - Streams if: body `stream: true`, or `Accept: text/event-stream`, or `?stream=true`
     - Otherwise returns JSON response
     """
+    # Best-effort delegated recovery uses the existing completion contract.
+    from app.services.obo_recovery_service import recover_report_connections
+    await recover_report_connections(db, current_user, organization, report_id)
+
     # Queue mode: persist the prompt as a queued row instead of starting a
     # second concurrent run; the dispatcher starts it when the current run
     # finishes. Never streams.
@@ -129,13 +135,16 @@ async def create_completion(
         or query_stream_flag
     )
     if wants_stream:
-        return await completion_service.create_completion_stream(
+        response = await completion_service.create_completion_stream(
             db,
             report_id,
             completion,
             current_user,
             organization,
         )
+        if isinstance(response, StreamingResponse):
+            response.body_iterator = instrument_stream(response.body_iterator, "kickoff", request=request)
+        return response
 
     # Default to no background execution unless explicitly overridden via `?background=true`
     background = request.query_params.get("background", "false").lower() == "true"
@@ -146,6 +155,7 @@ async def create_completion(
         current_user,
         organization,
         background=background,
+        return_on_answer=True,
     )
 
 @router.get("/api/reports/{report_id}/completions/{completion_id}/stream")
@@ -153,6 +163,7 @@ async def create_completion(
 async def watch_completion_stream(
     report_id: str,
     completion_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -163,9 +174,40 @@ async def watch_completion_stream(
     second tab) resume live progress. Idempotent and side-effect free, so it
     is safe to retry with backoff.
     """
-    return await completion_service.watch_completion_stream(
+    response = await completion_service.watch_completion_stream(
         db, report_id, completion_id, current_user, organization
     )
+    if isinstance(response, StreamingResponse):
+        response.body_iterator = instrument_stream(
+            response.body_iterator, "watch", completion_id=completion_id, request=request
+        )
+    return response
+
+
+@router.post(
+    "/api/reports/{report_id}/completions/{completion_id}/stream-diagnostics",
+    response_model=StreamDeliveryVerdict,
+)
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def report_stream_delivery(
+    report_id: str,
+    completion_id: str,
+    body: StreamDeliveryReport,
+    request: Request,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """The browser reports how a live stream reached it.
+
+    Sent only when the browser saw tokens held back on the way (the answer
+    appeared all at once). Logged as a warning so a buffering proxy in a
+    customer's network shows up in our logs instead of only on their screen.
+    Nothing is stored.
+    """
+    return StreamDeliveryVerdict(buffered=analyze_client_delivery(
+        body, report_id=report_id, completion_id=completion_id, request=request,
+    ))
 
 
 @router.get("/api/reports/{report_id}/completions.legacy")
@@ -178,8 +220,8 @@ async def get_completions(report_id: str, current_user: User = Depends(current_u
 # and the per-completion SSE watch stream, both of which are authenticated
 # and correct across uvicorn workers.
 
-@requires_permission('manage_settings')
 @router.get("/api/completions/{completion_id}/plans")
+@requires_permission('manage_settings')
 async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
 
@@ -201,10 +243,12 @@ async def get_completions_v2(
     """
     return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/sigkill")
+@requires_permission('create_reports')
 async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+    completion = await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)
+    # Not the ORM row: its relationship graph recurses in the JSON encoder.
+    return {"id": str(completion.id), "status": completion.status}
 
 
 @router.delete("/api/completions/{completion_id}/queued")
@@ -235,8 +279,8 @@ async def steer_completion(
     return await completion_service.steer_completion(db, completion_id, body, current_user, organization)
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool-results/{tool_call_id}")
+@requires_permission('create_reports')
 async def submit_tool_result(
     completion_id: str,
     tool_call_id: str,
@@ -250,8 +294,8 @@ async def submit_tool_result(
     return await completion_service.submit_tool_result(db, completion_id, tool_call_id, body, current_user, organization)
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/clarify_response")
+@requires_permission('create_reports')
 async def submit_clarify_response(
     completion_id: str,
     tool_execution_id: str,
@@ -297,6 +341,13 @@ async def respond_to_mcp_tool_confirmation(
 
     approved = bool(body.get("approved"))
     remember = bool(body.get("remember"))
+    # Optional structured answer for builtin-tool cards (e.g. which suggested
+    # agents stayed ticked). Bounded: it is user input that a tool reads back.
+    extra_response = body.get("response")
+    if extra_response is not None:
+        import json as _json
+        if not isinstance(extra_response, dict) or len(_json.dumps(extra_response, default=str)) > 20000:
+            raise HTTPException(status_code=400, detail="Invalid confirmation response")
 
     # Kinds answerable via this endpoint: MCP tool policy asks and builtin-tool
     # confirmations (e.g. set_report_agents expanding a manual agent selection).
@@ -371,6 +422,7 @@ async def respond_to_mcp_tool_confirmation(
             approved=approved,
             remember=remember,
             user_id=str(current_user.id),
+            response=extra_response,
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
@@ -385,6 +437,7 @@ async def respond_to_mcp_tool_confirmation(
             "remember": remember,
             "resolved_by_user_id": str(current_user.id),
             "resolved_by_name": getattr(current_user, "name", None) or None,
+            "response": extra_response,
         },
     )
     if row is None and not resolved_locally:
@@ -392,8 +445,8 @@ async def respond_to_mcp_tool_confirmation(
     return {"status": "ok", "approved": approved, "remembered": remember}
 
 
-@requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/tool_executions/{tool_execution_id}/cancel_wait")
+@requires_permission('create_reports')
 async def cancel_wait(
     completion_id: str,
     tool_execution_id: str,

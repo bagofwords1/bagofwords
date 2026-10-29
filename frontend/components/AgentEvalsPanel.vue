@@ -6,7 +6,7 @@
             <div v-if="!openRunId" class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-gray-500 dark:text-gray-400 mb-4">
                 <span v-if="!isGlobal" class="inline-flex items-center gap-1.5">
                     Status:
-                    <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium', reliabilityBadgeClass]">
+                    <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-2xs font-medium', reliabilityBadgeClass]">
                         <UIcon :name="reliabilityIcon" class="w-3 h-3" />{{ reliabilityLabel }}
                     </span>
                 </span>
@@ -14,10 +14,10 @@
                 <span><span class="font-semibold text-gray-900 dark:text-white">{{ agentRuns.length }}</span> runs</span>
                 <span class="inline-flex items-center gap-1.5">
                     Last result:
-                    <span v-if="lastRunStatus" :class="['inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium', statusClass(lastRunStatus)]">
+                    <span v-if="lastRunStatus" :class="['inline-flex items-center px-2 py-0.5 rounded-full text-2xs font-medium', statusClass(lastRunStatus)]">
                         {{ localizedStatus(lastRunStatus) }}
                     </span>
-                    <span v-else class="text-gray-400 dark:text-gray-500">—</span>
+                    <span v-else class="text-ink-muted">—</span>
                 </span>
             </div>
 
@@ -34,7 +34,7 @@
                         v-model="searchTerm"
                         type="text"
                         :placeholder="$t('evals.tests.search')"
-                        class="h-7 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-gray-400 w-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
+                        class="h-7 px-2 text-xs bg-gray-50 border border-gray-200 rounded-md outline-none focus:border-gray-400 focus:bg-white placeholder:text-ink-subtle w-40 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500"
                     />
                     <template v-if="activeTab === 'tests'">
                         <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">
@@ -51,7 +51,7 @@
             <div v-if="activeTab === 'tests'">
                 <table class="min-w-full text-xs">
                     <thead>
-                        <tr class="border-b border-gray-100 dark:border-gray-800 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                        <tr class="border-b border-gray-100 dark:border-gray-800 text-2xs font-semibold uppercase tracking-wider text-ink-muted">
                             <th class="py-2 pe-2 w-8 text-start">
                                 <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
                             </th>
@@ -63,7 +63,7 @@
                     </thead>
                     <tbody class="divide-y divide-gray-50 dark:divide-gray-800">
                         <tr v-if="loadingCases">
-                            <td colspan="5" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('common.loading') }}</td>
+                            <td colspan="5" class="text-center text-ink-muted text-xs py-8">{{ $t('common.loading') }}</td>
                         </tr>
                         <tr v-for="c in pagedCases" :key="c.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td class="py-2 pe-2 w-8 align-top">
@@ -71,9 +71,9 @@
                             </td>
                             <td class="py-2 pe-4">
                                 <div class="flex items-center gap-1.5 max-w-[360px]">
-                                    <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-[10px] font-medium px-2 py-0.5 shrink-0">Draft</span>
-                                    <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 text-[10px] font-medium px-2 py-0.5 shrink-0">Archived</span>
-                                    <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-400 text-[10px] font-medium px-2 py-0.5 shrink-0">Auto</span>
+                                    <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-2xs font-medium px-2 py-0.5 shrink-0">Draft</span>
+                                    <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 text-2xs font-medium px-2 py-0.5 shrink-0">Archived</span>
+                                    <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 dark:bg-purple-500/10 dark:text-purple-400 text-2xs font-medium px-2 py-0.5 shrink-0">Auto</span>
                                     <span class="truncate flex-1" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                 </div>
                             </td>
@@ -82,7 +82,7 @@
                                     <span
                                         v-for="cat in categoriesForCase(c)"
                                         :key="cat.key"
-                                        :class="['inline-flex items-center rounded-full border text-[10px] px-2 py-0.5', badgeClassesFor(cat.key)]"
+                                        :class="['inline-flex items-center rounded-full border text-2xs px-2 py-0.5', badgeClassesFor(cat.key)]"
                                     >{{ cat.label }}</span>
                                 </div>
                             </td>
@@ -97,7 +97,7 @@
                             </td>
                         </tr>
                         <tr v-if="!loadingCases && pagedCases.length === 0">
-                            <td colspan="5" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('evals.tests.empty') }}</td>
+                            <td colspan="5" class="text-center text-ink-muted text-xs py-8">{{ $t('evals.tests.empty') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -119,7 +119,7 @@
             <div v-else-if="activeTab === 'runs'">
                 <div class="flex items-center justify-between mb-3">
                     <div class="text-xs text-gray-500 dark:text-gray-400">Every eval run — manual checks and automation.</div>
-                    <UButton v-if="canManage && !isGlobal && agentCases.length > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
+                    <UButton v-if="canManage && !isGlobal && suiteGroups.size > 0" color="blue" size="xs" variant="soft" icon="i-heroicons-bolt"
                         @click="openRunEvalsModal">
                         Run evals
                     </UButton>
@@ -133,7 +133,7 @@
                 </div>
                 <table class="min-w-full text-xs">
                     <thead>
-                        <tr class="border-b border-gray-100 dark:border-gray-800 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                        <tr class="border-b border-gray-100 dark:border-gray-800 text-2xs font-semibold uppercase tracking-wider text-ink-muted">
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colTitle') }}</th>
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colStarted') }}</th>
                             <th class="py-2 pe-4 text-start">{{ $t('evals.runs.colTrigger') }}</th>
@@ -144,7 +144,7 @@
                     </thead>
                     <tbody class="divide-y divide-gray-50 dark:divide-gray-800">
                         <tr v-if="loadingRuns">
-                            <td colspan="6" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('common.loading') }}</td>
+                            <td colspan="6" class="text-center text-ink-muted text-xs py-8">{{ $t('common.loading') }}</td>
                         </tr>
                         <tr v-for="r in agentRuns" :key="r.id" class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td class="py-2 pe-4">
@@ -155,12 +155,12 @@
                             <td class="py-2 pe-4 text-gray-600 dark:text-gray-400 whitespace-nowrap">{{ formatDate(r.started_at) }}</td>
                             <td class="py-2 pe-4">
                                 <span class="capitalize text-gray-600 dark:text-gray-400">{{ r.trigger_reason || $t('evals.run.triggerManually') }}</span>
-                                <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-[10px] font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
+                                <span v-if="runOutcome(r.id)" class="ms-1.5 inline-flex px-1.5 py-0.5 rounded text-2xs font-medium align-middle" :class="runOutcome(r.id).cls" :title="runOutcome(r.id).title">
                                     {{ runOutcome(r.id).label }}
                                 </span>
                             </td>
                             <td class="py-2 pe-4">
-                                <span class="inline-flex px-2 py-0.5 text-[10px] font-medium rounded-full" :class="runStatusClass(r)">
+                                <span class="inline-flex px-2 py-0.5 text-2xs font-medium rounded-full" :class="runStatusClass(r)">
                                     {{ localizedStatus(derivedRunStatus(r)) || '—' }}
                                 </span>
                             </td>
@@ -170,7 +170,7 @@
                             <td class="py-2 text-gray-600 dark:text-gray-400">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                         </tr>
                         <tr v-if="!loadingRuns && agentRuns.length === 0">
-                            <td colspan="6" class="text-center text-gray-400 dark:text-gray-500 text-xs py-8">{{ $t('evals.runs.empty') }}</td>
+                            <td colspan="6" class="text-center text-ink-muted text-xs py-8">{{ $t('evals.runs.empty') }}</td>
                         </tr>
                     </tbody>
                 </table>
@@ -206,13 +206,16 @@
                     :ui="{ width: 'w-full' }"
                 >
                     <template #label>
-                        <span v-if="runEvalsAllSelected">All suites ({{ agentCases.length }} cases)</span>
+                        <span v-if="runEvalsAllSelected">All suites ({{ runEvalsCount }} cases)</span>
                         <span v-else-if="runEvalsSuiteIds.length">{{ runEvalsSuiteIds.length }} suite{{ runEvalsSuiteIds.length === 1 ? '' : 's' }} · {{ runEvalsCount }} cases</span>
-                        <span v-else class="text-gray-400 dark:text-gray-500">No suites selected</span>
+                        <span v-else class="text-ink-muted">No suites selected</span>
                     </template>
                 </USelectMenu>
-                <p class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+                <p class="mt-1.5 text-2xs text-ink-muted">
                     Runs every case in the selected suites as one test run.
+                </p>
+                <p v-if="runEvalsSkipped > 0" class="mt-1 text-2xs text-amber-600 dark:text-amber-400">
+                    {{ $t('evals.runEvals.notRun', { n: runEvalsSkipped }, runEvalsSkipped) }}
                 </p>
                 <div class="flex justify-end gap-2 mt-5">
                     <button class="px-3 py-1.5 text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="showRunEvals = false">Cancel</button>
@@ -674,13 +677,21 @@ function onSelfLearningSaved() { toast.add({ title: 'Self Learning settings save
 // --- Run-evals modal: pick a suite, run its cases as one test run ---
 const showRunEvals = ref(false)
 const runEvalsSuiteIds = ref<string[]>([])
-// This agent's cases grouped by suite → id list + resolved suite name.
+// This agent's runnable cases grouped by suite → id list + resolved suite name.
+// Built from allCases, not agentCases: the Tests-tab search box must not narrow
+// what "Run evals" runs. Only active cases are runnable, matching run_suite /
+// _get_cases(status='active'); drafts and archived cases are counted in
+// `skipped` so the modal can say what was left out.
 const suiteGroups = computed(() => {
-    const m = new Map<string, { name: string; ids: string[] }>()
-    for (const c of agentCases.value) {
-        const g = m.get(c.suite_id) || { name: suitesById.value[c.suite_id] || c.suite_name || '—', ids: [] }
-        g.ids.push(c.id); m.set(c.suite_id, g)
+    const m = new Map<string, { name: string; ids: string[]; skipped: number }>()
+    for (const c of allCases.value) {
+        const g = m.get(c.suite_id) || { name: suitesById.value[c.suite_id] || c.suite_name || '—', ids: [], skipped: 0 }
+        if (c.status === 'active') g.ids.push(c.id)
+        else g.skipped++
+        m.set(c.suite_id, g)
     }
+    // A suite with only drafts/archived cases has nothing to run — don't offer it.
+    for (const [sid, g] of m) if (!g.ids.length) m.delete(sid)
     return m
 })
 const runEvalsSuiteOptions = computed(() =>
@@ -688,6 +699,8 @@ const runEvalsSuiteOptions = computed(() =>
 const runEvalsAllSelected = computed(() => suiteGroups.value.size > 0 && runEvalsSuiteIds.value.length === suiteGroups.value.size)
 const runEvalsCount = computed(() =>
     runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.ids.length || 0), 0))
+const runEvalsSkipped = computed(() =>
+    runEvalsSuiteIds.value.reduce((n, sid) => n + (suiteGroups.value.get(sid)?.skipped || 0), 0))
 function openRunEvalsModal() {
     // Default: all suites selected.
     runEvalsSuiteIds.value = [...suiteGroups.value.keys()]
@@ -743,6 +756,8 @@ function triggerLabel(t?: string) {
         instruction_change: 'Instruction change',
         global_change: 'Global change',
         manual: 'Manual',
+        suggestion: 'Suggestion',
+        nightly: 'Nightly learning',
     } as Record<string, string>)[t || ''] || t || '—'
 }
 function autoStatusClass(s?: string) {

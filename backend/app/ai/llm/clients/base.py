@@ -17,8 +17,8 @@ class LLMClient(ABC):
 
     @abstractmethod
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None):
-        """One-shot completion.
+                  system: Optional[str] = None, thinking: Optional[dict] = None):
+        """One-shot completion; thinking uses the same policy as native streaming.
 
         ``system`` carries the run-invariant half of the prompt. Clients whose
         provider supports prompt caching mark it as a cache breakpoint, which is

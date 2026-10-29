@@ -62,7 +62,7 @@ Each of these is designed for but not built now. None changes the data model.
 - Live match count while typing.
 - Cost and tokens per tool call (`tool.cost`, `tool.tokens`).
 - Fields with a thin case: `models` (every model used), `cost.input/output`,
-  `tokens.cached`, `llm_calls`, `feedback.message`, `judge.tool_calls`.
+  `tokens.cache_write`, `llm_calls`, `feedback.message`, `judge.tool_calls`.
 - Server-side result cache. Indexes make it unnecessary at this scale.
 - A globally sorted list of tool calls across runs; a group-by UI; a full-text
   engine (bounded `ILIKE` over the time window is v1).
@@ -135,7 +135,7 @@ wildcard   := word containing "*"
 | `model` | text | `primary_model_id` ★ (the planner's model) |
 | `provider` | enum | `primary_provider` ★ |
 | `cost` | money | `total_cost_usd` ★ |
-| `tokens` `tokens.in` `tokens.out` | number | `total_tokens` ★ `prompt_tokens` ★ `completion_tokens` ★ |
+| `tokens` `tokens.in` `tokens.out` `tokens.cache_read` | number | `total_tokens` ★ `prompt_tokens` ★ `completion_tokens` ★ `cache_read_tokens` |
 | `duration` `thinking` `first_token` | duration | existing `*_ms` columns |
 | `tools` `tools.failed` | number | `tool_count` ★ `failed_tool_count` ★ |
 | `report` | text | join `reports.title` |

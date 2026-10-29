@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import uuid as _uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -98,6 +99,80 @@ async def _run_grep(tool_input, runtime_ctx):
 
 
 # ---------------------------------------------------- resolution & access
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture
+def default_upload_dir(monkeypatch):
+    """The real default install: cwd is ``backend/``, uploads land in
+    ``uploads/files/`` under it, and ``security.network_dir_allowed_roots`` is
+    unset — the configuration under which the connection-root policy refuses
+    the app's own directories. ``tmp_path`` never exercises this, which is how
+    the regression shipped. Files written here are removed afterwards."""
+    from app.settings.config import settings
+
+    monkeypatch.chdir(BACKEND_ROOT)
+    monkeypatch.setattr(settings.bow_config.security, "network_dir_allowed_roots", None)
+    upload_dir = BACKEND_ROOT / "uploads" / "files"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    written = []
+
+    def _write(name: str, data: bytes, *, relative: bool):
+        stored = f"{_uuid.uuid4()}_{name}"
+        (upload_dir / stored).write_bytes(data)
+        written.append(upload_dir / stored)
+        return f"uploads/files/{stored}" if relative else str(upload_dir / stored)
+
+    yield _write
+    for path in written:
+        path.unlink(missing_ok=True)
+
+
+def _mk_upload_row(path: str, name: str, content_type: str, org="ORG-1"):
+    """A File row as FileService.upload_file stores it: ``path`` is the
+    relative ``uploads/files/<uuid>_<name>`` (or an absolute path on installs
+    that configure one)."""
+    f = MagicMock()
+    f.id = str(_uuid.uuid4())
+    f.filename = name
+    f.path = path
+    f.content_type = content_type
+    f.organization_id = org
+    return f
+
+
+class TestDefaultUploadLocation:
+    """Reading an upload from the directory the app actually writes to.
+
+    ``check_network_dir_root`` refuses roots inside the backend checkout so a
+    user-configured network_dir connection cannot read the app's files. The
+    session-file shim rooted itself at ``uploads/files`` through the same
+    constructor, so on every default install ``read_file(file_id=<upload>)``
+    failed with "protected system or application directory"."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("relative", [True, False], ids=["relative-path", "absolute-path"])
+    async def test_upload_in_app_uploads_dir_is_readable(self, default_upload_dir, relative):
+        body = json.dumps({"verification_code": "CODE-UPLOAD-7F3A", "rows": list(range(40))})
+        path = default_upload_dir("rules.json", body.encode(), relative=relative)
+        f = _mk_upload_row(path, "rules.json", "application/json")
+        payload = await _run_read({"connection_id": "", "file_id": f.id}, _runtime_ctx([f]))
+        assert payload["output"]["success"] is True, payload["output"].get("error")
+        assert "CODE-UPLOAD-7F3A" in (payload["observation"].get("details") or "")
+
+    @pytest.mark.asyncio
+    async def test_windowed_read_of_upload_in_app_uploads_dir(self, default_upload_dir):
+        body = "".join(f"line {i:04d} MARK-{i:04d}\n" for i in range(400))
+        path = default_upload_dir("big.log", body.encode(), relative=True)
+        f = _mk_upload_row(path, "big.log", "text/plain")
+        payload = await _run_read(
+            {"connection_id": "", "file_id": f.id, "offset": 0, "length": 2048}, _runtime_ctx([f])
+        )
+        assert payload["output"]["success"] is True, payload["output"].get("error")
+        assert "MARK-0000" in json.dumps(payload["output"])
+        assert "MARK-0399" not in json.dumps(payload["output"])
 
 
 class TestSessionResolution:
@@ -359,3 +434,52 @@ class TestCatalogGating:
             "research", available_capabilities=set(),
         )}
         assert "read_file" not in names and "grep_files" not in names
+
+
+class TestProjectFilesOpenFileTools:
+    """A chat whose only files are its project's still gets read_file /
+    grep_files. Project files load async, after the catalog is built in
+    __init__, so the per-step refresh must pick them up."""
+
+    def _agent(self, report_files=()):
+        from types import SimpleNamespace
+        from app.ai.agent_v2 import AgentV2
+        from app.ai.registry import ToolRegistry
+        from app.schemas.ai.planner import ToolDescriptor
+
+        reg = ToolRegistry()
+        held = [
+            ToolDescriptor(**t)
+            for t in reg.get_catalog_for_plan_type(
+                "research", available_capabilities={"read_file", "grep_files"},
+            )
+            if t["name"] in ("read_file", "grep_files")
+        ]
+        agent = object.__new__(AgentV2)
+        agent.report = SimpleNamespace(files=list(report_files), data_sources=[])
+        agent.data_sources = []
+        agent.agent_files = []
+        agent.registry = reg
+        agent.planner = SimpleNamespace(tool_catalog=[])
+        agent._is_sub_agent = False
+        agent._capability_tool_candidates = held
+        agent._capability_pool_key = agent._run_pool_key()
+        return agent
+
+    def _names(self, agent):
+        return {t.name for t in agent.planner.tool_catalog}
+
+    def test_project_files_add_read_and_grep(self, tmp_path):
+        agent = self._agent()
+        agent._refresh_capability_tools()
+        assert not ({"read_file", "grep_files"} & self._names(agent))
+
+        agent._project_files_cache = [_mk_file(tmp_path, "catalogue.yaml", b"a: 1", "text/yaml")]
+        agent._refresh_capability_tools()
+        assert {"read_file", "grep_files"} <= self._names(agent)
+
+    def test_no_files_adds_nothing(self):
+        agent = self._agent()
+        agent._project_files_cache = []
+        agent._refresh_capability_tools()
+        assert not ({"read_file", "grep_files"} & self._names(agent))

@@ -13,6 +13,11 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
+from app.services.instruction_authority import (
+    require_delete_authority,
+    require_instruction_authority,
+    require_scope_authority,
+)
 from app.services.skill_catalog_service import SkillCatalogService
 from app.services.instruction_activity_service import (
     ACTIVITY_SOURCES,
@@ -66,43 +71,9 @@ instruction_label_service = InstructionLabelService()
 instruction_directory_service = InstructionDirectoryService()
 
 
-async def _require_instruction_authority(
-    db: AsyncSession, current_user: User, organization: Organization, existing,
-    *, allow_owner: bool = False,
-) -> None:
-    """Authority to mutate or review ``existing``.
-
-    - Attached to agents → ``manage_instructions`` on EVERY one of them.
-      Managing one agent an instruction is shared with is not authority over
-      the others.
-    - Attached to NO agent → org-level ``manage_instructions``. A scope-less
-      instruction reaches every agent in the org, so a per-agent grant confers
-      no authority over it; this mirrors the /instructions/global create gate.
-
-    The empty-scope branch matters: without it, these routes skipped the check
-    entirely for global instructions, letting any per-agent manager edit,
-    accept or reject org-wide rules.
-
-    ``allow_owner`` keeps the pre-existing carve-out on the edit path: the author
-    of a scope-less instruction may still edit it (the service then restricts
-    them to content fields — governance on a scope-less rule stays org-level).
-    Review actions do NOT pass it: authoring a rule is not authority to approve
-    changes to it.
-    """
-    ds_ids = [str(ds.id) for ds in (getattr(existing, "data_sources", None) or [])]
-    if ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", ds_ids, "manage_instructions",
-        )
-        return
-    if allow_owner:
-        owner_id = getattr(existing, "user_id", None)
-        if owner_id is not None and str(owner_id) == str(current_user.id):
-            return
-    await require_org_permission(
-        db, str(current_user.id), str(organization.id), "manage_instructions",
-    )
+# Authority rules live in one place so the REST routes and the MCP tools can't
+# drift apart — see app/services/instruction_authority.py.
+_require_instruction_authority = require_instruction_authority
 
 
 # CREATE INSTRUCTIONS
@@ -621,12 +592,17 @@ async def delete_instruction_label(
 # reading the tree is open to any org member (parity with the instruction list,
 # which is permission-filtered rather than decorated).
 async def _assert_manage_scope(db, current_user, organization, data_source_id):
-    """Require manage_instructions on the scope agent (skip for the Global group,
-    which the route-level @requires_permission already gates org-wide)."""
+    """Require manage_instructions on the scope agent, or org-level
+    manage_instructions for the Global group. The routes are resource_scoped,
+    so the decorator alone admits anyone managing a single agent."""
     if data_source_id:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", [data_source_id], "manage_instructions",
+        )
+    else:
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "manage_instructions",
         )
 
 
@@ -934,16 +910,7 @@ async def update_instruction(
     # their own rule to global (applies to every agent in the org) by removing
     # the one agent from it, which is precisely what the /instructions/global
     # gate exists to prevent.
-    if instruction.data_source_ids is not None:
-        if instruction.data_source_ids:
-            await check_resource_permissions(
-                db, str(current_user.id), str(organization.id),
-                "data_source", instruction.data_source_ids, "manage_instructions",
-            )
-        else:
-            await require_org_permission(
-                db, str(current_user.id), str(organization.id), "manage_instructions",
-            )
+    await require_scope_authority(db, current_user, organization, instruction.data_source_ids)
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
     )
@@ -993,32 +960,10 @@ async def delete_instruction(
         except Exception:
             pass
         return {"message": "Instruction deleted successfully"}
-    existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "manage_instructions",
-        )
-    else:
-        # Global instruction (no attached agents) applies to every agent, so
-        # deleting it stays an org-level capability — mirrors the create_global
-        # gate. Without this, the resource_scoped decorator would let any
-        # per-agent manager delete a global (they can't create or edit one).
-        #
-        # Exception: the owner may always delete their OWN global. Deleting your
-        # own instruction is strictly de-escalating (it removes a rule), and it
-        # prevents "zombie" globals — an owner who created a global (e.g. while
-        # they were an admin, or via the AI/MCP path) but later lost org-level
-        # rights could otherwise never clean it up. This mirrors the update
-        # path, where the owner can already edit their own global. AI-orphan
-        # globals (no owner) stay admin-only — no owner to retract them.
-        # Ported from PR #732.
-        is_owner = getattr(existing, "user_id", None) is not None and \
-            str(getattr(existing, "user_id")) == str(current_user.id)
-        if not is_owner:
-            await require_org_permission(
-                db, str(current_user.id), str(organization.id), "manage_instructions",
-            )
+    # Attached agents → manage_instructions on each; a global → org-level,
+    # except the author may always delete their own global (de-escalating, and
+    # it prevents "zombie" globals an ex-admin could never clean up; PR #732).
+    await require_delete_authority(db, current_user, organization, existing)
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")

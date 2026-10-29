@@ -1,7 +1,7 @@
 """saved queries run per agent
 
 Revision ID: entagent01
-Revises: pbiidentity01
+Revises: refhist01
 
 A saved query (entity) shared with several agents now runs against the agent
 it is run from, not against whichever agent its code was written for:
@@ -26,7 +26,7 @@ from app.core.migrations.entity_per_agent_v1 import backfill, restore_code
 
 
 revision: str = 'entagent01'
-down_revision: Union[str, None] = 'pbiidentity01'
+down_revision: Union[str, None] = 'refhist01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel
@@ -132,7 +133,6 @@ from app.schemas.data_sources.configs import (
     # Qlik Sense Enterprise on Windows (on-prem)
     QlikSenseOnPremConfig,
     QlikSenseOnPremCertCredentials,
-    QlikSenseOnPremUserIdentityCredentials,
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
@@ -148,6 +148,7 @@ from app.schemas.data_sources.configs import (
     OutlookMailConfig,
     GoogleDriveConfig,
     GoogleDriveCredentials,
+    GoogleDriveServiceAccountCredentials,
     GmailConfig,
     GmailCredentials,
     # Sybase SQL Anywhere
@@ -173,6 +174,11 @@ from app.schemas.data_sources.configs import (
     InforOlapConfig,
     InforOlapCredentials,
     InforOlapIonCredentials,
+    # Infor EPM (Application Engine REST API)
+    InforEpmConfig,
+    InforEpmIonCredentials,
+    InforEpmServiceAccountCredentials,
+    InforEpmTokenCredentials,
     # Microsoft Analysis Services (SSAS — XMLA)
     AnalysisServicesConfig,
     AnalysisServicesCredentials,
@@ -242,6 +248,11 @@ class AuthVariant(BaseModel):
     # keeps the secret on the connection, the user contributes only their
     # identity fields. Only meaningful on user-scoped variants.
     overlay: bool = False
+    # Override the entry's `catalog_ownership` when a connection uses this
+    # variant. Lets one connector offer both a per-user mode (each user signs
+    # in) and a shared mode (one service identity, one admin-side catalog) —
+    # e.g. Google Drive via user OAuth vs. a service account.
+    catalog_ownership: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -296,6 +307,11 @@ class DataSourceRegistryEntry(BaseModel):
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
     dev_only: bool = False
+    # Optional Python module the client needs but we don't ship (e.g. a driver
+    # whose license forbids redistribution). When it isn't importable the entry
+    # is hidden from the new-connection catalog; existing connections still
+    # resolve and surface the client's own "install the driver" error.
+    requires_module: Optional[str] = None
     # Legacy flag — derived from `data_shape != "tables"`. Kept for backwards
     # compatibility with callers reading `client.is_document_based`. New code
     # should branch on `data_shape` directly.
@@ -433,6 +449,8 @@ def _is_dev_environment() -> bool:
 
 
 def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
+    if entry.requires_module and importlib.util.find_spec(entry.requires_module) is None:
+        return False
     if not entry.dev_only:
         return True
     return _is_dev_environment()
@@ -585,6 +603,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SapHanaCredentials, scopes=["system", "user"])
         }),
         client_path="app.data_sources.clients.sap_hana_client.SapHanaClient",
+        # hdbcli is under the SAP Developer License (proprietary, not
+        # redistributable), so it isn't bundled — self-hosters install it.
+        requires_module="hdbcli",
     ),
     "sap_datasphere": DataSourceRegistryEntry(
         type="sap_datasphere",
@@ -894,7 +915,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
         version="beta",
-        requires_license="enterprise",
     ),
     "brocade": DataSourceRegistryEntry(
         type="brocade",
@@ -965,7 +985,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.splunk_client.SplunkClient",
-        requires_license="enterprise",
         version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(
@@ -1354,7 +1373,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description=(
             "Browse, search and read files from a directory — a local folder or "
             "a mounted network share (SMB/NFS). Searches inside PDF, Word, "
-            "PowerPoint, Excel and CSV, and can attach files to a report."
+            "PowerPoint, Excel, CSV and email files (.eml/.msg, including their "
+            "attachments), and can attach files to a report."
         ),
         config_schema=NetworkDirConfig,
         credentials_auth=AuthOptions(
@@ -1381,7 +1401,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Amazon S3",
         description=(
             "Browse and read files from an Amazon S3 bucket. Reads inside PDF, "
-            "Word, PowerPoint, Excel and CSV, and can attach objects to a report. "
+            "Word, PowerPoint, Excel, CSV and email files (.eml/.msg with their "
+            "attachments), and can attach objects to a report. "
             "Large objects can be read in byte-range windows."
         ),
         config_schema=S3Config,
@@ -1526,18 +1547,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=QlikSenseOnPremCertCredentials,
                     scopes=["system"],
                 ),
-                # Per-user auth: the user contributes only their Qlik identity;
-                # the admin's certificate is merged underneath at query time
-                # (overlay). Qlik then evaluates their queries with their own
-                # stream access and Section Access rules.
-                "identity": AuthVariant(
-                    title="Qlik Identity (uses the connection's certificate)",
-                    schema=QlikSenseOnPremUserIdentityCredentials,
-                    scopes=["user"],
-                    overlay=True,
-                ),
             },
         ),
+        # Per-user auth is "member_mapped": the admin binds User Directory /
+        # User ID to member attributes on this form, and each member acts as
+        # their own Qlik account with the connection's certificate. Members
+        # never name the account themselves (services/member_identity.py).
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
         requires_license="enterprise",
     ),
@@ -1691,7 +1706,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "onenote": DataSourceRegistryEntry(
         type="onenote",
@@ -1764,7 +1778,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
@@ -1793,7 +1806,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
-        requires_license="enterprise",
     ),
     "google_drive": DataSourceRegistryEntry(
         type="google_drive",
@@ -1814,6 +1826,15 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=OAuthDelegatedCredentials,
                     scopes=["user"],
                 ),
+                # Purely shared: one Google identity for everyone. Users see
+                # whatever was shared with the service account's email; no
+                # per-user sign-in and no per-user Drive permissions.
+                "service_account": AuthVariant(
+                    title="Service Account (shared)",
+                    schema=GoogleDriveServiceAccountCredentials,
+                    scopes=["system"],
+                    catalog_ownership="shared",
+                ),
             },
         ),
         client_path="app.data_sources.clients.google_drive_client.GoogleDriveClient",
@@ -1821,7 +1842,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="per_user",
         ui_form="integration",
-        requires_license="enterprise",
     ),
     "ms_fabric": DataSourceRegistryEntry(
         type="ms_fabric",
@@ -1956,6 +1976,38 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
+        requires_license="enterprise",
+    ),
+    "infor_epm": DataSourceRegistryEntry(
+        type="infor_epm",
+        category="bi",
+        title="Infor EPM (Application Engine)",
+        description=(
+            "Query Infor d/EPM OLAP cubes via MDX through Application Engine processes published on the "
+            "ION API Gateway. Uses IFS/OAuth2 authentication — no OLAP Basic credentials required."
+        ),
+        config_schema=InforEpmConfig,
+        credentials_auth=AuthOptions(
+            default="ion_oauth",
+            by_auth={
+                "ion_oauth": AuthVariant(
+                    title="ION API Gateway",
+                    schema=InforEpmIonCredentials,
+                    scopes=["system"],
+                ),
+                "ion_service_account": AuthVariant(
+                    title="ION Service Account",
+                    schema=InforEpmServiceAccountCredentials,
+                    scopes=["system"],
+                ),
+                "bearer_token": AuthVariant(
+                    title="Bearer Token (testing)",
+                    schema=InforEpmTokenCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.infor_epm_client.InforEpmClient",
         requires_license="enterprise",
     ),
     "analysis_services": DataSourceRegistryEntry(
@@ -2261,6 +2313,34 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     return entry
 
 
+def catalog_ownership_for(ds_type: str, config=None) -> str:
+    """The catalog ownership of a connection of `ds_type` with `config`.
+
+    Honors a per-auth-variant override (AuthVariant.catalog_ownership), so a
+    Google Drive connection on a service account is "shared" while one on
+    user OAuth stays "per_user". Unknown types read as "shared".
+    """
+    entry = REGISTRY.get(ds_type)
+    if not entry:
+        return "shared"
+    if isinstance(config, str):
+        try:
+            import json as _json
+            config = _json.loads(config)
+        except ValueError:
+            config = None
+    auth_type = (config or {}).get("auth_type") if isinstance(config, dict) else None
+    variant = (entry.credentials_auth.by_auth or {}).get(auth_type or entry.credentials_auth.default)
+    if variant and variant.catalog_ownership:
+        return variant.catalog_ownership
+    return entry.catalog_ownership
+
+
+def connection_catalog_ownership(connection) -> str:
+    """`catalog_ownership_for` for a Connection row."""
+    return catalog_ownership_for(getattr(connection, "type", None), getattr(connection, "config", None))
+
+
 def is_overlay_auth(ds_type: str, auth_mode: str) -> bool:
     """True when this auth variant's credentials extend the connection's system
     credentials rather than replace them (see AuthVariant.overlay)."""
@@ -2444,7 +2524,30 @@ def supports_user_auth(ds_type: str) -> bool:
         variants = get_entry(ds_type).credentials_auth.by_auth or {}
     except ValueError:
         return True
-    return any("user" in (v.scopes or []) for v in variants.values())
+    if any("user" in (v.scopes or []) for v in variants.values()):
+        return True
+    # Admin-mapped identity: per-user auth binds credential fields to member
+    # attributes instead of asking members for credentials.
+    return bool(member_bindable_fields(ds_type))
+
+
+def member_bindable_fields(ds_type: str, auth_type: Optional[str] = None) -> list[str]:
+    """Credential fields an admin may bind to a member attribute under
+    "Require user authentication" (``ui:memberBindable`` in the schema of
+    ``auth_type``, default variant when None). [] for most types."""
+    try:
+        entry = get_entry(ds_type)
+    except ValueError:
+        return []
+    variant = entry.credentials_auth.by_auth.get(auth_type or entry.credentials_auth.default)
+    if variant is None:
+        return []
+    return [
+        name
+        for name, field in variant.schema.model_fields.items()
+        if isinstance(field.json_schema_extra, dict)
+        and field.json_schema_extra.get("ui:memberBindable") is True
+    ]
 
 
 def default_credentials_schema_for(ds_type: str) -> Type[BaseModel]:

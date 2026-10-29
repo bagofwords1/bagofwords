@@ -48,7 +48,7 @@ class ToolCallVerdict(BaseModel):
 
 class ToolCallJudge:
     def __init__(self, model, usage_session_maker=None):
-        self.llm = LLM(model, usage_session_maker=usage_session_maker)
+        self.llm = LLM(model, reasoning_effort="off", usage_session_maker=usage_session_maker)
 
     async def judge(
         self,

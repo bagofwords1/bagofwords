@@ -14,33 +14,68 @@
     <div v-if="!hideHeader" class="flex items-center justify-between border-b border-gray-100 dark:border-gray-800" :class="compact ? 'px-3 py-1.5' : 'px-6 py-3'">
       <div class="flex items-center gap-2 min-w-0">
         <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-[11px]' : 'text-xs'">{{ $t('agentsPage.pendingReview') }}</span>
-        <span class="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">· {{ totalHunks === 1 ? $t('agentsPage.changeCountOne', { n: totalHunks }) : $t('agentsPage.changeCountMany', { n: totalHunks }) }}</span>
-        <button v-if="collapseContext && totalHunks" class="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? $t('agentsPage.collapse') : $t('agentsPage.expandAll') }}</button>
+        <span class="font-medium text-gray-700 dark:text-gray-300" :class="compact ? 'text-2xs' : 'text-xs'">{{ $t('agentsPage.pendingReview') }}</span>
+        <span class="text-2xs text-ink-muted tabular-nums shrink-0">· {{ totalHunks === 1 ? $t('agentsPage.changeCountOne', { n: totalHunks }) : $t('agentsPage.changeCountMany', { n: totalHunks }) }}</span>
+        <button v-if="collapseContext && totalHunks" class="text-2xs text-ink-muted hover:text-gray-700 dark:hover:text-gray-300 shrink-0" @click="expandedAll = !expandedAll">{{ expandedAll ? $t('agentsPage.collapse') : $t('agentsPage.expandAll') }}</button>
       </div>
       <div v-if="canApprove && totalHunks" class="flex items-center gap-1.5 shrink-0">
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.rejectAll') }}</button>
-        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.rejectAll') }}</button>
+        <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click="resolveAll('accept')"><UIcon :name="busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
       </div>
     </div>
     <div class="relative min-h-0" :class="compact ? '' : 'flex-1'">
       <div ref="scrollEl" class="min-h-0 overflow-auto" :class="compact ? 'px-3 py-2 max-h-80' : 'h-full px-8 py-6 max-w-3xl'" @scroll.passive="onReviewScroll">
-        <div v-if="loading" class="text-center text-xs text-gray-400 dark:text-gray-500 py-10">Loading…</div>
+        <div v-if="loading" class="text-center text-xs text-ink-muted py-10">{{ $t('common.loading') }}</div>
       <!-- A failed fetch is NOT "all resolved". Reporting zero hunks because the
            request errored tells a reviewer their pending changes were dealt
            with when this component has no idea either way — so the error gets
            its own state, and the empty state below now only means the server
            really returned no hunks. -->
         <div v-else-if="loadError" class="text-center text-xs py-6">
-          <div class="text-gray-500 dark:text-gray-400">Couldn’t load pending changes.</div>
-          <button class="mt-1 text-gray-400 dark:text-gray-500 underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">Retry</button>
+          <div class="text-gray-500 dark:text-gray-400">{{ $t('agentsPage.loadPendingFailed') }}</div>
+          <button class="mt-1 text-ink-muted underline hover:text-gray-700 dark:hover:text-gray-300" @click="load()">{{ $t('common.retry') }}</button>
         </div>
-        <div v-else-if="!totalHunks" class="text-center text-xs text-gray-400 dark:text-gray-500 py-6">No pending changes — all resolved.</div>
+        <div v-else-if="!totalHunks" class="text-center text-xs text-ink-muted py-6">{{ $t('agentsPage.allPendingResolved') }}</div>
+        <!-- Field changes (status, load mode) have no text to mark up, so they
+             get their own rows above the text — each its own decision, with
+             its own Accept/Reject, independent of the text hunks below. -->
+        <div v-if="!loading && !loadError && fieldChanges.length" class="space-y-1.5" :class="compact ? 'mb-2' : 'mb-4'">
+          <div
+            v-for="fc in fieldChanges"
+            :key="`${fc.build_id}:${fc.key}`"
+            class="flex items-start gap-2.5 rounded-md border border-amber-200/70 dark:border-amber-500/20 bg-amber-50/60 dark:bg-amber-500/5 px-2.5 py-2 transition-opacity"
+            :class="resolving === fc.key ? 'opacity-60' : ''"
+            data-testid="field-change"
+            :data-field="fc.field"
+          >
+            <UIcon :name="fc.field === 'status' ? 'i-heroicons-power' : 'i-heroicons-bolt'" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="fc.field === 'status' && fc.to === 'draft' ? 'text-gray-500 dark:text-gray-400' : 'text-emerald-600 dark:text-emerald-400'" />
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5" :class="compact ? 'text-xs' : 'text-sm'">
+                <span class="font-medium text-gray-700 dark:text-gray-200">{{ fieldLabel(fc.field) }}</span>
+                <del class="text-rose-500/80 line-through decoration-rose-300 decoration-1">{{ fieldValueLabel(fc.field, fc.from) }}</del>
+                <UIcon name="i-heroicons-arrow-right" class="w-3 h-3 text-ink-muted rtl-flip" />
+                <ins class="no-underline font-medium text-emerald-700 dark:text-emerald-400">{{ fieldValueLabel(fc.field, fc.to) }}</ins>
+              </div>
+              <div v-if="fieldHint(fc)" class="mt-0.5 text-2xs leading-snug text-gray-500 dark:text-gray-400">{{ fieldHint(fc) }}</div>
+              <div class="mt-1 flex items-center gap-1.5 min-w-0">
+                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="fc.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
+                <span class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ fc.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="fc.created_by"> · {{ fc.created_by.name }}</template><template v-if="fc.created_at"> · {{ fmtWhen(fc.created_at) }}</template></span>
+              </div>
+              <div v-if="fc.evidence" dir="auto" class="mt-0.5 text-2xs leading-snug text-ink-muted italic line-clamp-2">{{ fc.evidence }}</div>
+            </div>
+            <div v-if="canApprove" class="flex items-center gap-1.5 shrink-0">
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-accept" @click.stop="_resolve(fc, 'accept')"><UIcon :name="resolving === fc.key ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': resolving === fc.key }]" />{{ $t('agentsPage.accept') }}</button>
+              <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy || !!resolving" data-testid="field-change-reject" @click.stop="_resolve(fc, 'reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.reject') }}</button>
+            </div>
+          </div>
+        </div>
         <!-- dir=auto + plaintext: per-line bidi, same policy as the read view
-             (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR. -->
-        <div v-else ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="compact ? 'text-[12px] leading-[1.55]' : 'text-[13px] leading-[1.6]'">
+             (KnowledgeExplorer), so Hebrew prose lays out RTL while code lines stay LTR.
+             Muted while the only pending change switches the instruction off:
+             the text is kept, but it is about to stop being used. -->
+        <div v-if="!loading && !loadError && totalHunks" ref="contentEl" dir="auto" style="unicode-bidi: plaintext; text-align: start;" class="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200" :class="[compact ? 'text-xs leading-[1.55]' : 'text-sm leading-[1.6]', pendingDeactivation && !actionableHunks.length ? 'opacity-60' : '']">
           <template v-for="(seg, si) in displaySegments" :key="si">
-            <span v-if="seg.kind === 'gap'" class="block my-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines }} unchanged line{{ seg.lines === 1 ? '' : 's' }} ···</span>
+            <span v-if="seg.kind === 'gap'" class="block my-1 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 cursor-pointer select-none" @click="expandedAll = true">··· {{ seg.lines === 1 ? $t('agentsPage.unchangedLineOne', { n: seg.lines }) : $t('agentsPage.unchangedLineMany', { n: seg.lines }) }} ···</span>
             <template v-else-if="seg.kind === 'context'">
               <template v-for="(pt, pi) in mentionParts(seg.text)" :key="pi"><span v-if="pt.mention" class="instr-mention">@{{ pt.mention }}</span><template v-else>{{ pt.t }}</template></template>
             </template>
@@ -89,13 +124,13 @@
         <div class="w-max max-w-xs rounded-lg bg-white dark:bg-gray-900 shadow-md ring-1 ring-gray-200/70 dark:ring-gray-700 p-2">
           <div class="flex items-center gap-1.5 mb-1.5">
             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="hoverCard.seg.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
-            <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? 'AI suggestion' : 'Proposed' }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template><template v-if="hoverCard.seg.created_at"> · {{ fmtWhen(hoverCard.seg.created_at) }}</template></span>
+            <span class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ hoverCard.seg.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="hoverCard.seg.created_by"> · {{ hoverCard.seg.created_by.name }}</template><template v-if="hoverCard.seg.created_at"> · {{ fmtWhen(hoverCard.seg.created_at) }}</template></span>
           </div>
           <!-- Brief evidence stamped by the AI when it proposed this change -->
-          <div v-if="hoverCard.seg.evidence" class="mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ hoverCard.seg.evidence }}</div>
+          <div v-if="hoverCard.seg.evidence" class="mb-1.5 text-2xs leading-snug text-ink-muted italic line-clamp-3">{{ hoverCard.seg.evidence }}</div>
           <div class="flex items-center gap-1.5">
-            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-[11px] font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('accept')"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />Accept</button>
-            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-[11px] font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />Reject</button>
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('accept')"><UIcon name="i-heroicons-check" class="w-3.5 h-3.5" />{{ $t('agentsPage.accept') }}</button>
+            <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="busy" @click.stop="resolveFromCard('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.reject') }}</button>
           </div>
         </div>
       </div>
@@ -105,6 +140,7 @@
 
 <script setup lang="ts">
 import { ref, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -128,6 +164,8 @@ const props = defineProps<{ instructionId: string; buildId?: string; canApprove?
 // a better fallback than this component's inline error (the agent panel and the
 // Knowledge Explorer both fall back to showing the instruction itself) listen
 // for it; hosts that don't just render the retry state.
+const { t } = useI18n()
+
 const emit = defineEmits<{ (e: 'changed'): void; (e: 'empty'): void; (e: 'error'): void; (e: 'loaded'): void; (e: 'state', s: { total: number; busy: boolean }): void }>()
 
 const loading = ref(false)
@@ -262,6 +300,44 @@ const enrichedHunks = computed(() => suggestions.value.flatMap((s: any) =>
   })),
 ))
 
+// Field-level changes (status, load mode) — one action unit each, carrying
+// the same provenance as a hunk so the row can say who proposed it and why.
+const fieldChanges = computed(() => suggestions.value.flatMap((s: any) =>
+  (s.field_changes || []).map((f: any) => ({
+    ...f,
+    build_id: s.build_id,
+    source: s.source,
+    created_by: s.created_by,
+    created_at: s.created_at,
+    evidence: s.evidence,
+  })),
+))
+const pendingDeactivation = computed(() =>
+  fieldChanges.value.some((f: any) => f.field === 'status' && f.to === 'draft'),
+)
+
+function fieldLabel(field: string): string {
+  if (field === 'status') return t('agentsPage.fieldStatus')
+  if (field === 'load_mode') return t('agentsPage.fieldLoadMode')
+  return field
+}
+function fieldValueLabel(field: string, value: string): string {
+  if (field === 'status') {
+    if (value === 'published') return t('agentsPage.optStatusActive')
+    if (value === 'draft') return t('agentsPage.optStatusInactive')
+  }
+  if (field === 'load_mode') {
+    if (value === 'always') return t('agentsPage.optLoadAlways')
+    if (value === 'intelligent') return t('agentsPage.optLoadSmart')
+    if (value === 'disabled') return t('agentsPage.optLoadOff')
+  }
+  return value
+}
+function fieldHint(fc: any): string {
+  if (fc.field !== 'status') return ''
+  return fc.to === 'draft' ? t('agentsPage.fieldDeactivateHint') : t('agentsPage.fieldActivateHint')
+}
+
 function rangesOverlap(a: any, b: any): boolean {
   const as = Number(a.start), ae = Math.max(Number(a.end), as)
   const bs = Number(b.start), be = Math.max(Number(b.end), bs)
@@ -283,7 +359,7 @@ const actionableHunks = computed(() => {
   return kept.sort((a, b) => a.start - b.start)
 })
 
-const totalHunks = computed(() => actionableHunks.value.length)
+const totalHunks = computed(() => actionableHunks.value.length + fieldChanges.value.length)
 
 // Mirror what the header shows to a `hide-header` host, so it can render the
 // count and drive Accept/Reject all (via the exposed `resolveAll`) from its own
@@ -420,7 +496,7 @@ async function _resolve(seg: any, action: 'accept' | 'reject') {
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = top
   } catch (e: any) {
-    useToast?.().add?.({ title: 'Couldn’t apply change', description: e?.message, color: 'red' })
+    useToast?.().add?.({ title: t('agentsPage.toastApplyFailed'), description: e?.message, color: 'red' })
   } finally { resolving.value = null }
 }
 async function resolveAll(mode: 'accept' | 'reject') {
@@ -435,7 +511,7 @@ async function resolveAll(mode: 'accept' | 'reject') {
     const body = {
       against_main_build_id: mainBuildId.value,
       against_main_version_id: mainVersionId.value,
-      hunks: actionableHunks.value.map(h => ({ build_id: h.build_id, hunk_key: h.key })),
+      hunks: [...actionableHunks.value, ...fieldChanges.value].map(h => ({ build_id: h.build_id, hunk_key: h.key })),
     }
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, get_current_organization
@@ -16,6 +16,8 @@ from app.schemas.llm_schema import (
     LLMProviderCreate,
     LLMProviderUpdate,
     LLMProviderTestConnection,
+    ModelReasoningUpdate,
+    ModelReasoningTest,
     LLMModelSchema,
     LLMModelCreate,
     LLMModelUpdate,
@@ -114,8 +116,22 @@ async def get_models(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get all LLM models, optionally filtered by status"""
-    return await llm_service.get_models(db, organization, current_user, is_enabled)
+    """Get all LLM models, optionally filtered by status.
+
+    Every member needs the model list (model picker, chat), but the nested
+    provider's ``additional_config`` (custom header values, endpoints) and
+    ``credentials`` are admin-only: they are returned only to callers holding
+    ``manage_llm``, the permission that gates the rest of the LLM admin API.
+    """
+    from app.core.permission_resolver import resolve_permissions
+    models = await llm_service.get_models(db, organization, current_user, is_enabled)
+    out = [LLMModelSchemaWithProvider.model_validate(m) for m in models]
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    if not resolved.has_org_permission("manage_llm"):
+        for m in out:
+            m.provider.additional_config = None
+            m.provider.credentials = None
+    return out
 
 @router.post("/llm/models", response_model=LLMModelSchema)
 @requires_permission('manage_llm')
@@ -296,6 +312,34 @@ async def set_model_pricing(
     )
 
 
+@router.post("/llm/models/{model_id}/reasoning")
+@requires_permission('manage_llm')
+async def set_model_reasoning(
+    model_id: str,
+    body: ModelReasoningUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a model's reasoning settings: mode (auto / behaves like / generic /
+    custom / off), its default level, and raw request fields per level."""
+    return await llm_service.set_reasoning(db, organization, current_user, model_id, body)
+
+
+@router.post("/llm/models/{model_id}/test_reasoning")
+@requires_permission('manage_llm')
+async def test_model_reasoning(
+    model_id: str,
+    body: ModelReasoningTest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Send one tool-calling request at the given level with the model's saved
+    reasoning settings, and report what it ran as and what came back."""
+    return await llm_service.test_reasoning(db, organization, current_user, model_id, body.effort)
+
+
 class RoutingHintUpdate(BaseModel):
     hint: Optional[str] = None
 
@@ -351,7 +395,7 @@ async def set_llm_fallback_order(
 
 class ModelAccessAdd(BaseModel):
     principal_type: str  # "user" | "group" | "role"
-    principal_id: str
+    principal_id: str = Field(min_length=1, max_length=36)  # user/group/role id (String(36) column)
 
 
 class ModelRestrictionUpdate(BaseModel):
@@ -429,3 +473,54 @@ async def remove_model_access(
 ):
     """Revoke a model access grant."""
     return await llm_service.remove_model_access(db, organization, current_user, model_id, grant_id)
+
+
+# ── Group-level default models (EE llm_access_control) ──────────────────────
+
+class GroupLLMDefaultsUpdate(BaseModel):
+    default_llm_model_id: Optional[str] = None
+    small_default_llm_model_id: Optional[str] = None
+    default_llm_priority: Optional[int] = None
+
+
+@router.get("/llm/group-defaults")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def list_group_llm_defaults(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Every group with its default / small default model and priority."""
+    return await llm_service.list_group_defaults(db, organization, current_user)
+
+
+@router.put("/llm/group-defaults/{group_id}")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def set_group_llm_defaults(
+    group_id: str,
+    payload: GroupLLMDefaultsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a group's default models. Only the fields sent are changed; send a
+    model id as null to clear it (the group then inherits the org default).
+    A group's default is usable by its members even when restricted."""
+    return await llm_service.set_group_defaults(
+        db, organization, current_user, group_id, payload.model_dump(exclude_unset=True)
+    )
+
+
+@router.get("/llm/default-coverage")
+@require_enterprise(feature="llm_access_control")
+@requires_permission('manage_llm')
+async def get_llm_default_coverage(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Members who inherit no group or org default (e.g. the org default is
+    restricted and none of their groups has a default)."""
+    return await llm_service.get_default_coverage(db, organization, current_user)

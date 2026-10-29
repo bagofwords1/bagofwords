@@ -42,10 +42,10 @@ async def _seed():
             ConnectionTool(name="get_contract_deliverable", connection_id=conn_mcp.id,
                            description="Retrieve contract details", is_enabled=True, policy="allow"),
             ConnectionTool(name="query_production_orders_with_prompt", connection_id=conn_mcp.id,
-                           description="Query LN ERP production orders", is_enabled=True, policy="allow"),
+                           description="Query ERP production orders", is_enabled=True, policy="allow"),
         ])
 
-        ds = DataSource(name=f"LNTesting-{suffix}",
+        ds = DataSource(name=f"SampleAgent-{suffix}",
                         organization_id=org.id, is_public=True)
         db.add(ds)
         await db.flush()

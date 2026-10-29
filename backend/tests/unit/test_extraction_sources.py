@@ -415,3 +415,171 @@ def test_the_widened_value_survives_a_round_trip_into_duckdb():
     con.register("t", tbl)
     assert round(con.execute("SELECT avg_amt FROM t").fetchone()[0], 3) == 2.333
     con.close()
+
+
+# --------------------------------------------------------------------------
+# ClickHouse's native source
+# --------------------------------------------------------------------------
+
+class _ChResult:
+    def __init__(self, column_names=(), result_rows=(), column_types=()):
+        self.column_names = list(column_names)
+        self.result_rows = list(result_rows)
+        self.column_types = list(column_types)
+
+
+class _ChStream:
+    def __init__(self, batches):
+        self._batches = batches
+
+    def __enter__(self):
+        return iter(self._batches)
+
+    def __exit__(self, *a):
+        return False
+
+
+class _FakeCh:
+    """Answers the handful of statements ClickHouseSource issues."""
+
+    def __init__(self, describe=(("a", "Int64"),), batches=(), estimate=None,
+                 parts=(1000, 4000), fail_explain=False):
+        self.describe = list(describe)
+        self.batches = list(batches)
+        self.estimate_rows = estimate or [("db", "t", 2, 500, 10)]
+        self.parts = parts
+        self.fail_explain = fail_explain
+        self.queries, self.settings, self.commands = [], [], []
+
+    def query(self, sql, parameters=None, settings=None):
+        self.queries.append(sql)
+        self.settings.append(settings)
+        if sql.startswith("EXPLAIN ESTIMATE"):
+            if self.fail_explain:
+                raise RuntimeError("syntax error")
+            return _ChResult(["database", "table", "parts", "rows", "marks"], self.estimate_rows)
+        if "system.parts" in sql:
+            return _ChResult(result_rows=[self.parts])
+        if sql.startswith("DESCRIBE"):
+            return _ChResult(result_rows=[(n, t) for n, t in self.describe])
+        return _ChResult(["a"], [[1], [2], [3]], [type("T", (), {"name": "Int64"})()])
+
+    def query_arrow_stream(self, sql, settings=None):
+        self.queries.append(sql)
+        self.settings.append(settings)
+        return _ChStream(self.batches)
+
+    def command(self, sql, parameters=None):
+        self.commands.append((sql, parameters))
+
+
+def _ch_source(fake):
+    from app.data_sources.fast.clickhouse_source import ClickHouseSource
+
+    src = ClickHouseSource(object())
+    src._ch = fake
+    return src
+
+
+def test_clickhouse_client_declares_its_native_source():
+    from app.data_sources.clients.clickhouse_client import ClickhouseClient
+    from app.data_sources.fast.clickhouse_source import ClickHouseSource
+
+    assert isinstance(sources.source_for(ClickhouseClient.__new__(ClickhouseClient)),
+                      ClickHouseSource)
+
+
+def test_clickhouse_is_offered_custom_tables():
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert is_accelerable_type("clickhouse")
+
+
+def test_clickhouse_estimate_prices_rows_read_as_scan_bytes():
+    """500 of the table's 1000 rows at 4 bytes/row compressed → 2000 bytes.
+    Reported as cost, never as result size."""
+    src = _ch_source(_FakeCh())
+    est = src.estimate("SELECT a FROM t;")
+    assert est.supported
+    assert est.scan_bytes == 2000
+    assert est.rows is None and est.total_bytes is None
+    assert "500 rows read" in est.note
+
+
+def test_clickhouse_estimate_failure_degrades_rather_than_raising():
+    est = _ch_source(_FakeCh(fail_explain=True)).estimate("SELECT")
+    assert est.supported is False
+    assert "EXPLAIN ESTIMATE failed" in est.note
+
+
+def test_clickhouse_preview_bounds_on_the_server_not_in_the_sql():
+    fake = _FakeCh()
+    cols, rows = _ch_source(fake).preview("SELECT a FROM t ORDER BY a DESC", 2)
+    assert fake.queries[-1] == "SELECT a FROM t ORDER BY a DESC"
+    assert fake.settings[-1]["max_result_rows"] == 2
+    assert fake.settings[-1]["result_overflow_mode"] == "break"
+    assert rows == [[1], [2]]
+    assert cols == [{"name": "a", "dtype": "Int64"}]
+
+
+def test_clickhouse_enum_columns_are_materialized_as_labels():
+    """Arrow has no enum type; without the cast a status column lands as 1/2/3."""
+    fake = _FakeCh(describe=[("id", "UInt64"), ("status", "Enum8('new' = 1, 'paid' = 2)"),
+                             ("kind", "Nullable(Enum16('a' = 1))")])
+    _ch_source(fake).preview("SELECT * FROM t", 5)
+    q = fake.queries[-1]
+    assert "toString(`status`) AS `status`" in q
+    assert "toString(`kind`) AS `kind`" in q
+    assert "`id`" not in q
+
+
+def test_clickhouse_kills_the_query_when_extraction_stops_early():
+    import pyarrow as pa
+
+    batches = [pa.record_batch([pa.array([1, 2])], names=["a"]) for _ in range(5)]
+    fake = _FakeCh(batches=batches)
+    gen = _ch_source(fake).stream_batches("SELECT a FROM t", 2)
+    next(gen)
+    gen.close()
+    qid = fake.settings[-1]["query_id"]
+    assert qid.startswith("bow-extract-")
+    assert fake.commands and fake.commands[0][1] == {"qid": qid}
+
+
+def test_clickhouse_does_not_kill_a_query_it_read_to_completion():
+    import pyarrow as pa
+
+    fake = _FakeCh(batches=[pa.record_batch([pa.array([1])], names=["a"])])
+    assert len(list(_ch_source(fake).stream_batches("SELECT a FROM t", 10))) == 1
+    assert fake.commands == []
+
+
+def test_clickhouse_zero_rows_still_yields_the_shape():
+    fake = _FakeCh(describe=[("region", "String")], batches=[])
+    (tbl,) = list(_ch_source(fake).stream_batches("SELECT region FROM t WHERE 0", 10))
+    assert tbl.num_rows == 0 and tbl.column_names == ["region"]
+
+
+def test_clickhouse_widens_decimal256_for_duckdb():
+    import decimal
+    import pyarrow as pa
+
+    wide = pa.record_batch([pa.array([decimal.Decimal("1.5")], pa.decimal256(40, 2))], names=["d"])
+    (tbl,) = list(_ch_source(_FakeCh(batches=[wide])).stream_batches("SELECT d", 10))
+    assert tbl.schema.field("d").type == pa.float64()
+
+
+def test_clickhouse_client_does_not_connect_until_used(monkeypatch):
+    """get_client runs three round-trips on construction. A turn answered from
+    a custom table's local copy must not wake (and bill) a ClickHouse service."""
+    import clickhouse_connect
+
+    from app.data_sources.clients.clickhouse_client import ClickhouseClient
+
+    calls = []
+    monkeypatch.setattr(clickhouse_connect, "get_client", lambda **kw: calls.append(kw) or object())
+    c = ClickhouseClient(host="h", port=8123, user="u", password="p", database="shop", secure=False)
+    assert calls == []
+    c.client
+    c.client
+    assert len(calls) == 1 and calls[0]["database"] == "shop"

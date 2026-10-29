@@ -1,8 +1,9 @@
+from app.schemas.artifact_resource_schema import ResourceDefinition
 """MCP API schemas - request/response models for MCP endpoints."""
 
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List, TYPE_CHECKING
+from typing import Dict, Any, Literal, Optional, List, TYPE_CHECKING
 
 # Reuse existing schemas
 from app.ai.tools.schemas.create_widget import TablesBySource
@@ -35,6 +36,10 @@ class MCPRichContext:
     instructions_text: str = ""
     resources_text: str = ""
     files_text: str = ""
+    # Published saved queries (catalog entities) on the agents in play, as the
+    # planner sees them — so generated code reuses a saved definition instead
+    # of inventing one.
+    entities_text: str = ""
     
     # Data source connection status
     connected_sources: List[str] = field(default_factory=list)
@@ -93,6 +98,21 @@ class ResourceInfo(BaseModel):
     description: Optional[str] = None
 
 
+class EntityInfo(BaseModel):
+    """Summary of a published saved query (catalog entity).
+
+    Title, description and declared parameters only — the SQL and the rows come
+    from ``describe_entity``.
+    """
+    id: str
+    slug: Optional[str] = None
+    type: str
+    title: str
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list, description="Names of the agents (data sources) this saved query reads.")
+    parameters: List[str] = Field(default_factory=list, description="Names of the parameters describe_entity accepts for it.")
+
+
 class GetContextInput(BaseModel):
     """Input for get_context MCP tool."""
     report_id: str = Field(..., description="Session ID from create_report. Required.")
@@ -104,7 +124,9 @@ class GetContextOutput(BaseModel):
     report_id: str
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
+    entities: List[EntityInfo] = Field(default_factory=list, description="Published saved queries available on these agents.")
     tools_hint: Optional[str] = Field(default=None, description="Set when agents expose tools: how to get their full input schemas.")
+    entities_hint: Optional[str] = Field(default=None, description="Set when saved queries exist: use them instead of writing a definition from scratch.")
 
 
 # === list_agent_tools (gateway discovery) ===
@@ -273,6 +295,165 @@ class MCPDeleteInstructionOutput(BaseModel):
     error_message: Optional[str] = None
 
 
+# === read_instruction / edit_instruction ===
+
+class MCPReadInstructionInput(BaseModel):
+    """Input for read_instruction MCP tool."""
+    instruction_id: str = Field(..., description="ID of the instruction (from list_instructions)")
+
+
+class MCPInstructionAgentRef(BaseModel):
+    id: str
+    name: Optional[str] = None
+
+
+class MCPInstructionDetail(BaseModel):
+    id: str
+    title: Optional[str] = None
+    text: str
+    category: Optional[str] = None
+    status: Optional[str] = None
+    load_mode: Optional[str] = None
+    kind: Optional[str] = None
+    state: Optional[str] = Field(default=None, description="active or inactive — what edit_instruction's status takes")
+    agents: List[MCPInstructionAgentRef] = Field(
+        default_factory=list, description="Agents this applies to. Empty means global (every agent).",
+    )
+    pending_review: bool = Field(default=False, description="True while a change waits for admin review")
+    can_edit: bool = Field(default=False, description="Whether the caller may edit or delete it")
+
+
+class MCPReadInstructionOutput(BaseModel):
+    success: bool
+    instruction: Optional[MCPInstructionDetail] = None
+    error_message: Optional[str] = None
+
+
+class MCPEditInstructionInput(BaseModel):
+    """Input for edit_instruction MCP tool — the in-app agent's anchored edit contract.
+
+    Omitted fields stay unchanged. Unlike the in-app agent (which stages edits
+    as suggestions for review), an MCP edit is published directly, exactly as
+    if the caller saved it in the web app — so the caller needs the same rights.
+    """
+    instruction_id: str = Field(..., description="ID of the instruction to edit")
+    old_text: Optional[str] = Field(
+        default=None,
+        description=(
+            "REQUIRED whenever you pass `text`: an exact snippet of the CURRENT text, which `text` "
+            "replaces. Must match exactly once — use a short unique phrase or sentence, not the "
+            "whole instruction. \"\" is not an anchor. To ADD a rule, anchor the sentence it "
+            "belongs after and repeat it verbatim at the start of `text`, then your addition. "
+            "Several small anchored edits beat one rewrite."
+        ),
+    )
+    replace_entire_text: bool = Field(
+        default=False,
+        description=(
+            "Opt in to replacing the WHOLE instruction with `text`. Only for an explicit rewrite "
+            "request; everything else uses `old_text`."
+        ),
+    )
+    text: Optional[str] = Field(
+        default=None, max_length=20000,
+        description="Replacement for `old_text` (or the whole text with replace_entire_text). Write only the change asked for.",
+    )
+    title: Optional[str] = Field(default=None, max_length=200, description="New title")
+    category: Optional[str] = Field(
+        default=None, description="general, code_gen, visualization, dashboard or system",
+    )
+    load_mode: Optional[str] = Field(
+        default=None,
+        description="'always' or 'intelligent' (load when its tables are relevant). Not an off switch — use status.",
+    )
+    status: Optional[Literal["active", "inactive"]] = Field(
+        default=None,
+        description="Turn the instruction on ('active') or off ('inactive', kept but no longer loaded). Omit to leave unchanged.",
+    )
+    data_source_ids: Optional[List[str]] = Field(
+        default=None,
+        description="New agent scope (replaces it). [] makes it global, which needs org-level instruction admin.",
+    )
+
+
+class MCPEditInstructionOutput(BaseModel):
+    success: bool
+    instruction_id: Optional[str] = None
+    build_status: Optional[str] = Field(default=None, description="approved (live) or pending_approval")
+    requires_approval: bool = False
+    previous_text: Optional[str] = None
+    new_text: Optional[str] = Field(default=None, description="Full text after the edit — anchor your next edit on it")
+    previous_status: Optional[str] = None
+    new_status: Optional[str] = None
+    instruction: Optional[MCPInstructionDetail] = None
+    rejected_reason: Optional[str] = Field(
+        default=None,
+        description="anchor_required, anchor_not_found, ambiguous_anchor, result_too_short, invalid_*, "
+                    "no_change, status_change_not_allowed, not_found, permission_denied",
+    )
+    current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
+    error_message: Optional[str] = None
+
+
+# === describe_tables / edit_schema ===
+
+class MCPDescribeTablesInput(BaseModel):
+    """Input for describe_tables MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    search: Optional[str] = Field(default=None, description="Filter tables by name")
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=50, ge=1, le=200)
+    include_columns: bool = Field(default=True, description="Include column names and types")
+
+
+class MCPTableColumn(BaseModel):
+    name: str
+    dtype: Optional[str] = None
+    description: Optional[str] = None
+
+
+class MCPTableItem(BaseModel):
+    id: Optional[str] = None
+    name: str
+    is_active: bool
+    rows: Optional[int] = None
+    connection_name: Optional[str] = None
+    columns: Optional[List[MCPTableColumn]] = None
+    excluded_columns: Optional[List[str]] = None
+
+
+class MCPDescribeTablesOutput(BaseModel):
+    success: bool
+    data_source_id: Optional[str] = None
+    can_edit_schema: bool = False
+    tables: List[MCPTableItem] = Field(default_factory=list)
+    total: int = 0
+    selected_count: int = 0
+    page: int = 1
+    has_more: bool = False
+    error_message: Optional[str] = None
+
+
+class MCPEditSchemaInput(BaseModel):
+    """Input for edit_schema MCP tool."""
+    data_source_id: str = Field(..., description="Agent (data source) ID")
+    activate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should use")
+    deactivate: List[str] = Field(default_factory=list, description="Table names (or ids) the agent should stop using")
+    excluded_columns: Dict[str, List[str]] = Field(
+        default_factory=dict,
+        description="Table id → COMPLETE list of column names to hide from the agent (replaces; [] shows all)",
+    )
+
+
+class MCPEditSchemaOutput(BaseModel):
+    success: bool
+    activated_count: int = 0
+    deactivated_count: int = 0
+    columns_updated_count: int = 0
+    selected_count: Optional[int] = None
+    error_message: Optional[str] = None
+
+
 # === create_artifact ===
 
 class MCPCreateArtifactInput(BaseModel):
@@ -281,7 +462,10 @@ class MCPCreateArtifactInput(BaseModel):
     Creates a dashboard or slide presentation from existing visualizations.
     Automatically selects all successful visualizations in the report (up to 10).
     """
-    report_id: str = Field(..., description="Report ID (required). Must have visualizations created via create_data.")
+    resources: Optional[List[ResourceDefinition]] = Field(default=None, max_length=50, description='Optional artifact resource definitions, configured through the same policy service as in-app authoring.')
+    code: Optional[str] = Field(default=None, description='Optional complete artifact source; supplied code is validated by the standard authoring tool.')
+    visualization_ids: List[str] = Field(default_factory=list)
+    report_id: str = Field(..., description="Report ID (required). Visualizations are optional for static pages and resource-backed apps.")
     prompt: str = Field(..., description="Goal for the dashboard/presentation. Describe what insights to highlight, layout preferences, or specific visualizations to feature.")
     title: Optional[str] = Field(default=None, description="Title for the artifact. If not provided, one will be generated.")
     mode: str = Field(default="page", description="Artifact mode: 'page' for interactive dashboards, 'slides' for presentation decks (exportable to PPTX).")
@@ -291,6 +475,7 @@ class MCPCreateArtifactOutput(BaseModel):
     """Output for create_artifact MCP tool."""
     report_id: str
     artifact_id: Optional[str] = None
+    resource_artifact_id: Optional[str] = None
     success: bool
     visualization_count: Optional[int] = Field(default=None, description="Number of visualizations included in the artifact.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="IDs of visualizations included.")
@@ -309,7 +494,9 @@ class MCPEditArtifactInput(BaseModel):
     """
     report_id: str = Field(..., description="Report ID containing the artifact.")
     artifact_id: str = Field(..., description="ID of the existing artifact to edit.")
-    edit_instruction: str = Field(..., description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
+    edits: Optional[List[Dict[str, str]]] = Field(default=None, description='Optional exact find/replace edits, using the standard validated editing tool.')
+    expected_latest_version: Optional[int] = Field(default=None, ge=1)
+    edit_instruction: str = Field(default='', description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add. Existing ones are kept automatically.")
     title: Optional[str] = Field(default=None, description="Updated title. If not provided, existing title is kept.")
 
@@ -317,6 +504,7 @@ class MCPEditArtifactInput(BaseModel):
 class MCPEditArtifactOutput(BaseModel):
     """Output for edit_artifact MCP tool."""
     report_id: str
+    resource_artifact_id: Optional[str] = None
     artifact_id: Optional[str] = None
     success: bool
     version: Optional[int] = Field(default=None, description="New version number after edit.")
@@ -384,3 +572,71 @@ class MCPSendEmailOutput(BaseModel):
     attachments: List[SendEmailAttachmentResult] = Field(default_factory=list)
     rejected: List[str] = Field(default_factory=list, description="Requested addresses that are not org members and were skipped.")
     error: Optional[str] = None
+
+
+# === list_entities / describe_entity (saved queries) ===
+
+MCP_ENTITY_DEFAULT_PREVIEW_ROWS = 20
+MCP_ENTITY_MAX_PREVIEW_ROWS = 200
+
+
+class MCPEntityParameter(BaseModel):
+    """A parameter a saved query declares, as describe_entity accepts it."""
+    name: str
+    type: str = "string"
+    source: Optional[str] = None
+    default: Optional[Any] = None
+    required: bool = False
+    options: List[Any] = Field(default_factory=list, description="Allowed values, when the parameter declares a fixed list.")
+
+
+class MCPEntityItem(BaseModel):
+    """A published saved query in the catalog listing."""
+    id: str
+    slug: Optional[str] = None
+    type: str = Field(..., description="'metric' or 'model'.")
+    title: str
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list)
+    parameters: List[MCPEntityParameter] = Field(default_factory=list)
+
+
+class MCPListEntitiesInput(BaseModel):
+    """Input for the list_entities MCP tool."""
+    report_id: Optional[str] = Field(default=None, description="Scope to the agents attached to this report. Without it, every agent you can see is searched.")
+    search: Optional[str] = Field(default=None, description="Optional text matched against title and description.")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum saved queries to return.")
+
+
+class MCPListEntitiesOutput(BaseModel):
+    """Output for the list_entities MCP tool."""
+    entities: List[MCPEntityItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class MCPDescribeEntityInput(BaseModel):
+    """Input for the describe_entity MCP tool."""
+    name_or_id: str = Field(..., description="The saved query's id, slug or title (a partial title also matches).")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Values for the parameters the saved query declares. Passing any value runs the saved code with them.")
+    run: bool = Field(default=False, description="Re-execute the saved code instead of serving the stored snapshot.")
+    limit: Optional[int] = Field(default=None, ge=1, le=MCP_ENTITY_MAX_PREVIEW_ROWS, description="Maximum preview rows to return.")
+
+
+class MCPDescribeEntityOutput(BaseModel):
+    """Output for the describe_entity MCP tool."""
+    success: bool
+    entity_id: Optional[str] = None
+    slug: Optional[str] = None
+    type: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    agents: List[str] = Field(default_factory=list)
+    code: Optional[str] = Field(default=None, description="The saved query's code — the definition to reuse rather than rewrite.")
+    parameters: List[MCPEntityParameter] = Field(default_factory=list)
+    applied_params: Optional[Dict[str, Any]] = Field(default=None, description="The parameter values the returned rows were produced with.")
+    columns: List[str] = Field(default_factory=list)
+    rows: List[Dict[str, Any]] = Field(default_factory=list)
+    total_rows: int = 0
+    truncated: bool = False
+    data_source: Optional[str] = Field(default=None, description="Where the rows came from: 'snapshot', 'executed', 'cache', or 'withheld'.")
+    error_message: Optional[str] = None

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from app.dependencies import get_async_db
+from app.dependencies import get_async_db, ensure_path_organization_matches
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
@@ -15,7 +15,7 @@ from app.core.permissions_decorator import requires_permission
 from app.schemas.user_schema import UserSchema
 from app.ee.audit.service import audit_service
 
-router = APIRouter(tags=["organizations"])
+router = APIRouter(tags=["organizations"], dependencies=[Depends(ensure_path_organization_matches)])
 organization_service = OrganizationService()
 
 @router.post("/organizations", response_model=OrganizationSchema)
@@ -33,7 +33,10 @@ async def add_member(
     db: AsyncSession = Depends(get_async_db)
 ):
     membership.organization_id = organization_id
-    result = await organization_service.add_member(db, membership, current_user.id)
+    if membership.custom_attributes:
+        from app.services.member_attributes import require_attribute_admin
+        await require_attribute_admin(db, current_user.id, organization_id)
+    result = await organization_service.add_member(db, membership, current_user)
     await audit_service.log(
         db=db,
         organization_id=organization_id,
@@ -41,7 +44,11 @@ async def add_member(
         user_id=current_user.id,
         resource_type="membership",
         resource_id=result.id,
-        details={"email": membership.email, "role": membership.role},
+        details={
+            "email": membership.email,
+            "role": membership.role,
+            **({"custom_attributes": result.custom_attributes} if result.custom_attributes else {}),
+        },
         request=request,
     )
     return result
@@ -84,12 +91,11 @@ async def force_member_sign_out(
 ):
     """Revoke every session token held by a member.
 
-    The break-glass control for a leaked bearer token: session JWTs are only
-    accepted while they carry the user's current `session_epoch`, so bumping it
-    invalidates all of them at once, on every device. Before this existed the
-    only lever was deactivating the account.
+    Invalidates session JWTs, custom OAuth access/refresh tokens and pending
+    authorization codes across organizations. Does not revoke Entra sessions
+    or stored downstream credentials.
     """
-    from app.core.auth import bump_session_epoch
+    from app.core.session_revocation import revoke_user_sessions
 
     # Scope the lookup to the org the caller was actually authorized against
     # (the resolved `organization`), not the org id in the path — those are
@@ -101,7 +107,7 @@ async def force_member_sign_out(
     if membership is None or not membership.user_id:
         raise HTTPException(status_code=404, detail="Member not found")
 
-    await bump_session_epoch(membership.user_id)
+    await revoke_user_sessions(db, membership.user_id)
 
     await audit_service.log(
         db=db,
@@ -126,7 +132,34 @@ async def update_member(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    if membership.custom_attributes is not None:
+        from app.services.member_attributes import require_attribute_admin
+        await require_attribute_admin(db, current_user.id, organization_id)
+    previous = await organization_service.get_member(db, membership_id, organization_id, current_user)
+    previous_attributes = dict(getattr(previous, "custom_attributes", None) or {}) if previous else {}
     result = await organization_service.update_member(db, membership_id, organization_id, membership, current_user, organization)
+    if membership.custom_attributes is not None and (result.custom_attributes or {}) != previous_attributes:
+        # Attributes can name the account a member acts as in another system,
+        # so every change is audited with before/after values.
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization_id,
+                action="member.attributes_changed",
+                user_id=current_user.id,
+                resource_type="membership",
+                resource_id=membership_id,
+                details={
+                    "target_user_id": str(result.user_id) if result.user_id else None,
+                    "before": previous_attributes,
+                    "after": result.custom_attributes or {},
+                },
+                request=request,
+            )
+        except Exception:
+            pass
+    if membership.role is None and membership.custom_attributes is not None:
+        return result
     try:
         await audit_service.log(
             db=db,
@@ -170,7 +203,7 @@ async def resend_invite(
     return result
 
 
-@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link")
+@router.get("/organizations/{organization_id}/members/{membership_id}/invite-link", dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def get_invite_link(
     organization_id: str,
@@ -226,7 +259,8 @@ async def import_members(
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.get_user_organizations(db, current_user)
 
-@requires_permission('manage_members')
+# Member directory for share/recipient pickers: readable by any member of the
+# org (get_current_organization enforces membership). Intentionally ungated.
 @router.get("/organization/members", response_model=List[UserSchema])
 async def get_organization_members(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     return await organization_service.get_organization_members(db, current_user, organization)

@@ -1,0 +1,8 @@
+{
+  "refresh_token_present": true,
+  "directory_sync": "FAIL",
+  "error": "EntraReauthRequired",
+  "fabric_assertion_preserved": true,
+  "powerbi_query_http": 200,
+  "separate_clients": true
+}

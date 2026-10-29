@@ -3,7 +3,6 @@ import hashlib
 import os
 import time
 import uuid
-import urllib.parse
 
 from typing import Optional, Dict, Any, Tuple
 
@@ -19,6 +18,7 @@ from app.settings.bow_config import brand_for_issuer
 from app.core.auth import get_jwt_strategy
 
 import logging as _logging
+from app.errors.redact import redact_error
 
 _auth_logger = _logging.getLogger(__name__)
 
@@ -217,24 +217,29 @@ async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     return response
 
 
-def _friendly_error_message(detail: Any) -> str:
-    """Extract a user-facing message from an HTTPException detail.
+def _error_code_for(detail: Any) -> str:
+    """Map an HTTPException detail to a fixed error code for the sign-in page.
 
-    OAuth/OIDC errors (missing invite, bad state, token exchange failures, etc.)
-    should be surfaced to the user on the sign-in page rather than rendered as a
-    raw JSON error response.
+    Only a code from a closed set ever reaches the browser: the page renders its
+    own localized message for it. Reflecting provider- or exception-supplied
+    text into the URL let anyone put arbitrary content (and, via the old
+    ``v-html`` sink, script) on the sign-in page.
     """
-    if isinstance(detail, dict):
-        return detail.get("message") or "Sign-in failed. Please try again or contact your admin."
-    if isinstance(detail, str) and detail:
-        return detail
-    return "Sign-in failed. Please try again or contact your admin."
+    if isinstance(detail, dict) and detail.get("code") in _CALLBACK_ERROR_CODES:
+        return detail["code"]
+    if isinstance(detail, str) and detail.startswith("Could not determine email"):
+        return "oauth_email_missing"
+    return "oauth_login_failed"
 
 
-def _error_redirect(message: str) -> RedirectResponse:
-    """Redirect back to the sign-in page with a visible error message."""
-    msg = urllib.parse.quote(message)
-    return RedirectResponse(f"/users/sign-in?error={msg}", status_code=303)
+_CALLBACK_ERROR_CODES = {"invitation_required", "oauth_email_missing", "oauth_login_failed"}
+
+
+def _error_redirect(code: str) -> RedirectResponse:
+    """Redirect back to the sign-in page with a fixed, non-reflective error code."""
+    if code not in _CALLBACK_ERROR_CODES:
+        code = "oauth_login_failed"
+    return RedirectResponse(f"/users/sign-in?error_code={code}", status_code=303)
 
 
 async def handle_callback(
@@ -253,8 +258,9 @@ async def handle_callback(
     instead of being shown on the sign-in/sign-up screen.
     """
     # The provider may redirect back with an OAuth error (e.g. Entra AADSTS500011)
-    # instead of a code. Surface that message rather than the misleading
-    # "Missing code/state" that a bare code/state check would produce.
+    # instead of a code. Log the provider's message for the admin; the browser
+    # only gets a fixed code (this branch runs before any state check, so the
+    # text is attacker-controllable).
     if error:
         message = error_description or error
         _auth_logger.warning(f"OAuth callback error for provider={provider}: {message}")
@@ -263,16 +269,16 @@ async def handle_callback(
             request=request,
             details={"provider": provider, "reason": "provider_error", "error": error},
         )
-        return _error_redirect(message)
+        return _error_redirect("oauth_login_failed")
 
     try:
         return await _handle_callback(provider, request, code, state, user_manager)
     except HTTPException as e:
         _auth_logger.warning(f"OAuth callback failed for provider={provider}: {e.detail}")
-        return _error_redirect(_friendly_error_message(e.detail))
+        return _error_redirect(_error_code_for(e.detail))
     except Exception as e:
         _auth_logger.error(f"Unexpected error in OAuth callback for provider={provider}: {e}", exc_info=True)
-        return _error_redirect("Sign-in failed due to an unexpected error. Please try again or contact your admin.")
+        return _error_redirect("oauth_login_failed")
 
 
 async def _handle_callback(provider: str, request: Request, code: Optional[str], state: Optional[str], user_manager) -> RedirectResponse:
@@ -317,7 +323,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
                 request=request,
                 details={"provider": provider, "reason": "user_info_fetch_failed"},
             )
-            raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {redact_error(e)}")
 
         # Use user manager to link/create. Any failure (e.g. missing invite) is
         # handled by the outer wrapper and surfaced on the sign-in page.
@@ -400,7 +406,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
             request=request,
             details={"provider": provider, "reason": "token_exchange_failed"},
         )
-        raise HTTPException(status_code=400, detail=f"Token exchange failed: {e}")
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {redact_error(e)}")
 
     access_token = token.get("access_token")
     refresh_token = token.get("refresh_token")
@@ -439,7 +445,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
                     request=request,
                     details={"provider": provider, "reason": "user_info_fetch_failed"},
                 )
-                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to fetch user info: {redact_error(e)}")
 
     if not account_email:
         await _audit_auth_event(
@@ -467,6 +473,17 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         user_id=str(user.id),
         details={"provider": provider, "email": str(account_email)},
     )
+
+    # Record immutable identity for optional external-app exchange. Failure does
+    # not change ordinary SSO behavior; exchange stays unavailable until linked.
+    if id_token_raw and _is_entra_provider(provider):
+        try:
+            from app.services.entra_token_exchange import link_sso_identity
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as identity_db:
+                await link_sso_identity(identity_db, user.id, cfg, account_id, id_token_raw)
+        except Exception as exc:
+            _auth_logger.warning("Entra identity binding unavailable (%s)", type(exc).__name__)
 
     # OIDC group sync — sync group claims from id_token into BOW Groups
     if getattr(cfg, 'sync_groups', False):
@@ -537,7 +554,8 @@ async def _record_login(user) -> None:
     from app.models.user import User as UserModel
     from sqlalchemy import update
     try:
-        now = datetime.now(timezone.utc)
+        # users.last_login is TIMESTAMP WITHOUT TIME ZONE; asyncpg rejects aware values.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         async with async_session_maker() as db:
             await db.execute(
                 update(UserModel).where(UserModel.id == str(user.id)).values(last_login=now)

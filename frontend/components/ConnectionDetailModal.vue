@@ -12,12 +12,12 @@
             <span v-if="headerCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: headerCheckedDisplay }) }}</span></span>
           </div>
         </div>
-        <button :aria-label="$t('common.close')" @click="isOpen = false" class="-me-2 -mt-2 p-2 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><UIcon name="heroicons-x-mark" class="w-4 h-4" /></button>
+        <button :aria-label="$t('common.close')" @click="isOpen = false" class="-me-2 -mt-2 p-2 rounded-md text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800"><UIcon name="heroicons-x-mark" class="w-4 h-4" /></button>
       </header>
       <p v-if="headerStatus === 'error' && !canUpdateDataSource" class="access-meta mt-3 text-gray-600 dark:text-gray-400">{{ $t('data.contactConnectionAdmin') }}</p>
       <div class="access-meta mt-3 flex items-start gap-2" data-testid="connection-used-by">
         <span class="shrink-0 text-gray-500">{{ $t('data.usedBy') }}</span>
-        <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-gray-400" />
+        <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-ink-muted" />
         <span v-else-if="agentsError" class="text-gray-500">{{ $t('data.requestFailed') }}</span>
         <span v-else-if="!accessibleAgents.length" class="text-gray-500">{{ $t('data.noAccessibleAgents') }}</span>
         <span v-else class="min-w-0 text-gray-700 dark:text-gray-300">
@@ -45,7 +45,7 @@
                   <span v-if="personalCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: personalCheckedDisplay }) }}</span></span>
                 </div>
                 <div class="flex flex-wrap items-center gap-3 mt-3">
-                  <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-500 text-white hover:bg-blue-600"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
+                  <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-600 text-white hover:bg-blue-700"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
                   <template v-else>
                     <button @click="reloadMySchema" :disabled="reloadingMySchema || isIndexingActive(indexingState) || switchingIdentity" class="access-button border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"><Spinner v-if="reloadingMySchema || isIndexingActive(indexingState)" class="w-3.5 h-3.5" />{{ reloadingMySchema || isIndexingActive(indexingState) ? $t('data.refreshing') : $t('data.refreshAccess') }}</button>
                     <button @click="disconnect" :disabled="disconnecting || switchingIdentity" class="access-meta font-medium text-gray-500 hover:text-red-600 disabled:opacity-50">{{ disconnecting ? $t('data.disconnecting') : $t('data.signOut') }}</button>
@@ -432,6 +432,7 @@ const editFormValues = computed(() => {
     name: connectionDetails.value.name,
     config: connectionDetails.value.config || {},
     auth_policy: connectionDetails.value.auth_policy,
+    member_bindings: connectionDetails.value.member_bindings,
     has_credentials: connectionDetails.value.has_credentials,
     credentials: connectionDetails.value.credentials_meta || {}
   }

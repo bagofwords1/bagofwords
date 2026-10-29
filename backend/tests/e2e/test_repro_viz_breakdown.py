@@ -182,7 +182,6 @@ def test_metric_breakdown_survives_to_chart(
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
-    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
 
     _install_anthropic_haiku(test_client, user_token=token, org_id=org_id)
     print(f"[repro] using model: {REPRO_MODEL_ID}", flush=True)
@@ -205,10 +204,18 @@ def test_metric_breakdown_survives_to_chart(
         background=False,
     )
 
-    # Inspect what got persisted on the report's widgets.
-    resp = test_client.get(f"/api/reports/{report['id']}/widgets", headers=headers)
-    assert resp.status_code == 200, resp.text
-    widgets = resp.json()
+    # Inspect what got persisted on the report's widgets (read straight from
+    # the DB — the legacy /reports/{id}/widgets HTTP route was removed).
+    import asyncio as _asyncio_w
+    from app.dependencies import async_session_maker as _sm_w
+    from app.services.widget_service import WidgetService as _WidgetService
+
+    async def _load_widgets():
+        async with _sm_w() as s:
+            rows = await _WidgetService().get_published_widgets_for_report(s, str(report["id"]))
+            return [w.model_dump(mode="json") for w in rows]
+
+    widgets = _asyncio_w.run(_load_widgets())
 
     analyses = []
     for w in widgets:

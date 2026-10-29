@@ -28,6 +28,9 @@ from app.models.user import User
 from app.project_manager import ProjectManager
 from app.schemas.ai.planner import Action, PlannerDecision
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 async def _seed_execution(db) -> AgentExecution:
     user = User(

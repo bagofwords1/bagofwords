@@ -341,3 +341,101 @@ def test_knowledge_mode_never_uses_the_transcript(monkeypatch):
         PlannerInput(user_message="x", mode="knowledge", use_transcript=True)) is False
     # Every other mode still gets the transcript.
     assert transcript_bridge.enabled(PlannerInput(user_message="x", mode="chat")) is True
+
+
+# --- rendering must not mutate the live transcript ------------------------
+
+_FULL_ROWS = "r," * 600  # one full result body; decayed tiers never contain it
+
+
+def _live_with_steps(n):
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart, estimate_tokens
+
+    live = Transcript()
+    for i in range(n):
+        live.add_assistant_step(calls=[ToolCallPart(id=f"c{i}", tool_name="create_data", args={"i": i})])
+        body = json.dumps({"summary": f"step {i}", "rows": _FULL_ROWS})
+        live.add_tool_results([ToolResultPart(
+            call_id=f"c{i}", tool_name="create_data", content=body,
+            digest=f"create_data — step {i}", tokens=estimate_tokens(body),
+        )])
+    return live
+
+
+@pytest.mark.parametrize("iterations", [2, 5])
+def test_history_appears_once_per_request_however_many_iterations(iterations):
+    """Each planner iteration renders the head (conversation history included)
+    onto the newest turn. That must not accumulate: iteration N's request holds
+    exactly one copy of the history, not N."""
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    live = _live_with_steps(1)
+    pi = _input(use_transcript=True, transcript=live,
+                messages_context="<conversation>HISTORY_MARKER</conversation>")
+    for i in range(iterations):
+        live.add_assistant_step(calls=[ToolCallPart(id=f"n{i}", tool_name="read_file")])
+        live.add_tool_results([ToolResultPart(call_id=f"n{i}", tool_name="read_file", content="{}", tokens=1)])
+        blob = _blob(PromptBuilderV3.build(pi))
+        assert blob.count("HISTORY_MARKER") == 1
+
+    live_text = json.dumps([[vars(p) for p in t.parts] for t in live.turns], default=str)
+    assert "HISTORY_MARKER" not in live_text, "the head must never be written into the live transcript"
+
+
+def test_render_time_decay_does_not_stick_to_the_live_transcript(monkeypatch):
+    """A tight budget trims the request, not the run's record: the next
+    iteration (with a different budget) must still see what the loop recorded."""
+    from app.ai.context.parts import ToolResultPart, Tier
+
+    live = _live_with_steps(6)
+    monkeypatch.setenv("BOW_TRANSCRIPT_BUDGET_TOKENS", "50")
+    trimmed = _blob(PromptBuilderV3.build(_input(use_transcript=True, transcript=live)))
+    assert trimmed.count(_FULL_ROWS) < 6, "the request itself must be trimmed"
+    tiers = {p.tier for t in live.turns for p in t.parts if isinstance(p, ToolResultPart)}
+    assert tiers == {Tier.FULL}
+
+    monkeypatch.delenv("BOW_TRANSCRIPT_BUDGET_TOKENS")
+    full = _blob(PromptBuilderV3.build(_input(use_transcript=True, transcript=live)))
+    assert full.count(_FULL_ROWS) == 6, "every recorded result must be back at full size"
+
+
+def test_decay_applied_by_the_loop_is_carried_into_the_request():
+    """The context-overflow path decays the live transcript on purpose; copying
+    the turns for rendering must preserve that, not quietly restore the bodies."""
+    from app.ai.context.parts import ToolResultPart, Tier
+
+    live = _live_with_steps(6)
+    live.fit_to_budget(1)
+    dropped = [p for t in live.turns for p in t.parts
+               if isinstance(p, ToolResultPart) and p.tier is not Tier.FULL]
+    assert dropped
+    results = [b for m in PromptBuilderV3.build(_input(use_transcript=True, transcript=live)).messages
+               if isinstance(m["content"], list) for b in m["content"] if b.get("type") == "tool_result"]
+    assert sum(_FULL_ROWS in json.dumps(r, default=str) for r in results) == 6 - len(dropped)
+
+
+# --- the current artifact must not break the cacheable prefix -------------
+
+def _artifact(version, code):
+    return {"artifact_id": f"art-{version}", "title": "Revenue", "version": version,
+            "visualizations": [], "code": code}
+
+
+def test_artifact_edits_leave_the_cacheable_head_unchanged():
+    """Every create/edit changes the artifact's id, version and code. Turn 0 is
+    the cache prefix for the whole transcript, so it must not change with it —
+    yet the planner must still see the current version."""
+    before = PromptBuilderV3.build(_input(use_transcript=True, active_artifact=_artifact(2, "CODE_V2")))
+    after = PromptBuilderV3.build(_input(use_transcript=True, active_artifact=_artifact(3, "CODE_V3")))
+
+    assert json.dumps(before.messages[0], default=str) == json.dumps(after.messages[0], default=str)
+    assert "CODE_V3" in _blob(after) and "CODE_V2" not in _blob(after)
+
+
+def test_token_estimate_prompt_includes_the_volatile_head():
+    """The pre-flight estimate must count what rides on the last turn too."""
+    pi = _input(use_transcript=True, active_artifact=_artifact(1, "ESTIMATE_ART_MARKER"),
+                messages_context="<conversation>ESTIMATE_CONV_MARKER</conversation>")
+    prompt = PromptBuilderV3.build_prompt(pi)
+    assert "ESTIMATE_ART_MARKER" in prompt and "ESTIMATE_CONV_MARKER" in prompt

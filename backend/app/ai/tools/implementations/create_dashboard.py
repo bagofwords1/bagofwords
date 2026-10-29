@@ -413,7 +413,8 @@ OUTPUT FORMAT:
                 return repr(blk)
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         buffer = ""
         async for chunk in llm.inference_stream(
             prompt,

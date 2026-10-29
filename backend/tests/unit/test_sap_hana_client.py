@@ -8,7 +8,7 @@ Covers:
   table+view union, system-schema exclusion, explicit schema filter, PKs)
 - test_connection() success / failure
 - get_schema() obsolete
-- registry wiring
+- registry wiring (catalog hides the connector unless hdbcli is installed)
 
 hdbcli is mocked via sys.modules, so these run without a real HANA instance
 or the hdbcli dependency installed.
@@ -229,6 +229,12 @@ class TestConnectionAndMisc:
         res = SapHanaClient(host="h", user="u", password="p").test_connection()
         assert res["success"] is False and "refused" in res["message"]
 
+    def test_missing_driver_fails_with_install_hint(self, monkeypatch):
+        # hdbcli isn't bundled (SAP license); a None entry makes the import fail.
+        monkeypatch.setitem(sys.modules, "hdbcli", None)
+        res = SapHanaClient(host="h", user="u", password="p").test_connection()
+        assert res["success"] is False and "pip install hdbcli" in res["message"]
+
     def test_get_schema_obsolete(self):
         with pytest.raises(NotImplementedError):
             SapHanaClient(host="h", user="u", password="p").get_schema("t")
@@ -286,3 +292,21 @@ class TestRegistryWiring:
         params = set(inspect.signature(SapHanaClient.__init__).parameters) - {"self"}
         fields = set(SapHanaConfig.model_fields) | set(SapHanaCredentials.model_fields)
         assert fields <= params
+
+    @pytest.mark.parametrize("installed", [True, False])
+    def test_catalog_lists_sap_hana_only_when_driver_installed(self, monkeypatch, installed):
+        import importlib.util
+        from app.schemas import data_source_registry
+
+        real_find_spec = importlib.util.find_spec
+
+        def fake_find_spec(name, *a, **kw):
+            if name == "hdbcli":
+                return object() if installed else None
+            return real_find_spec(name, *a, **kw)
+
+        monkeypatch.setattr(importlib.util, "find_spec", fake_find_spec)
+        types_ = {e["type"] for e in data_source_registry.list_available_data_sources()}
+        assert ("sap_hana" in types_) is installed
+        # Hiding it from the catalog must not break resolving existing connections.
+        assert data_source_registry.resolve_client_class("sap_hana") is SapHanaClient

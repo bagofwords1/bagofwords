@@ -29,7 +29,7 @@
           <span
             v-for="ds in selectedAgents"
             :key="ds.id"
-            class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium px-1.5 py-0.5 rounded"
+            class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-2xs font-medium px-1.5 py-0.5 rounded"
             data-testid="entity-edit-agent-chip"
           >
             <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="h-3" />
@@ -38,7 +38,7 @@
         </template>
         <button
           type="button"
-          class="ms-auto text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded p-1"
+          class="ms-auto text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 rounded p-1"
           :aria-label="$t('entityCreate.close')"
           @click="open = false"
         >
@@ -56,17 +56,17 @@
         <div class="flex-1 min-h-0 flex" :style="{ flexBasis: '55%' }">
           <section class="flex-1 min-w-0 flex flex-col">
             <div class="h-9 px-4 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex-shrink-0">
-              <span class="text-[11px] font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">{{ $t('queries.codeLabel') }}</span>
-              <span class="text-[11px] font-mono text-gray-400 dark:text-gray-500">generate_df · {{ editorLang || 'python' }}</span>
+              <span class="text-2xs font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">{{ $t('queries.codeLabel') }}</span>
+              <span class="text-2xs font-mono text-ink-muted">generate_df · {{ editorLang || 'python' }}</span>
               <span
-                class="text-[11px] text-gray-400 dark:text-gray-500 truncate"
+                class="text-2xs text-ink-muted truncate"
                 :title="$t('queries.agentKeyHint')"
                 data-testid="entity-agent-key-hint"
               >{{ $t('queries.agentKeyHint') }}</span>
               <button
                 type="button"
                 data-testid="entity-edit-params-toggle"
-                class="ms-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded border transition-colors"
+                class="ms-auto inline-flex items-center gap-1.5 px-2.5 py-1 text-2xs rounded border transition-colors"
                 :class="paramsOpen
                   ? 'bg-blue-50 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
                   : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
@@ -79,7 +79,7 @@
               <button
                 type="button"
                 data-testid="entity-edit-run"
-                class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 text-2xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="running || !code.trim()"
                 :title="$t('queries.runShortcut')"
                 @click="run"
@@ -87,7 +87,7 @@
                 <Icon v-if="running" name="heroicons-arrow-path" class="w-3 h-3 animate-spin" />
                 <Icon v-else name="heroicons-play" class="w-3 h-3" />
                 <span>{{ running ? $t('queries.running') : $t('queries.run') }}</span>
-                <kbd class="font-mono text-[10px] text-gray-400 dark:text-gray-500">{{ shortcutLabel }}</kbd>
+                <kbd class="font-mono text-2xs text-ink-muted">{{ shortcutLabel }}</kbd>
               </button>
             </div>
             <ClientOnly>
@@ -119,9 +119,9 @@
 
         <!-- Results, across the full width -->
         <section class="min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-700" :style="{ flexBasis: '45%' }" data-testid="entity-edit-results">
-          <div class="h-9 px-4 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-[11px] text-gray-600 dark:text-gray-300 flex-shrink-0">
+          <div class="h-9 px-4 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 text-2xs text-gray-600 dark:text-gray-300 flex-shrink-0">
             <span class="font-medium uppercase tracking-wide">{{ $t('queries.resultsHeading') }}</span>
-            <span v-if="lastRunAt" class="text-gray-400 dark:text-gray-500">{{ $t('queries.ranAt', { when: lastRunAt }) }}</span>
+            <span v-if="lastRunAt" class="text-ink-muted">{{ $t('queries.ranAt', { when: lastRunAt }) }}</span>
             <span v-if="result" class="ms-auto tabular-nums" data-testid="entity-edit-result-count">
               {{ $t('queries.previewRows', { n: result.info?.total_rows ?? result.rows?.length ?? 0 }) }}
               · {{ $t('queries.previewColumns', { n: result.columns?.length ?? 0 }) }}
@@ -132,7 +132,7 @@
             <table v-else-if="result && result.columns" class="min-w-full text-xs" data-testid="entity-edit-result">
               <thead class="bg-white dark:bg-gray-900 sticky top-0">
                 <tr>
-                  <th v-for="col in result.columns" :key="col.field" class="px-4 py-1.5 text-start text-[11px] font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">{{ col.headerName || col.field }}</th>
+                  <th v-for="col in result.columns" :key="col.field" class="px-4 py-1.5 text-start text-2xs font-medium text-gray-600 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap">{{ col.headerName || col.field }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,15 +140,15 @@
                   <td v-for="col in result.columns" :key="col.field" class="px-4 py-1 text-gray-800 dark:text-gray-200 whitespace-nowrap tabular-nums">{{ row[col.field] }}</td>
                 </tr>
                 <tr v-if="!(result.rows || []).length">
-                  <td :colspan="result.columns.length" class="px-4 py-6 text-center text-gray-400 dark:text-gray-500">{{ $t('queries.noRows') }}</td>
+                  <td :colspan="result.columns.length" class="px-4 py-6 text-center text-ink-muted">{{ $t('queries.noRows') }}</td>
                 </tr>
               </tbody>
             </table>
-            <div v-else class="h-full flex items-center justify-center text-xs text-gray-400 dark:text-gray-500" data-testid="entity-edit-empty">
+            <div v-else class="h-full flex items-center justify-center text-xs text-ink-muted" data-testid="entity-edit-empty">
               {{ $t('queries.runToPreview') }}
             </div>
           </div>
-          <div v-if="zeroRowsMessage" class="mx-4 mb-2 text-[11px] text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 border border-amber-200 dark:border-amber-700 rounded px-2 py-1" data-testid="zero-rows-hint">{{ zeroRowsMessage }}</div>
+          <div v-if="zeroRowsMessage" class="mx-4 mb-2 text-2xs text-amber-700 bg-amber-50 dark:bg-amber-900/30 dark:text-amber-200 border border-amber-200 dark:border-amber-700 rounded px-2 py-1" data-testid="zero-rows-hint">{{ zeroRowsMessage }}</div>
         </section>
       </div>
 

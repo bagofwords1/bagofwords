@@ -10,7 +10,7 @@
 			<div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
 				<GoBackChevron />
 				<h1 class="text-sm md:text-start text-center w-[500px]">
-					<span class="font-semibold text-sm p-1 text-gray-400 dark:text-gray-500">{{ $t('reports.newReport') }}</span>
+					<span class="font-semibold text-sm p-1 text-ink-muted">{{ $t('reports.newReport') }}</span>
 				</h1>
 			</div>
 		</header>
@@ -18,8 +18,19 @@
 		<!-- Where the conversation will go. Same scroll container and column as
 		     the report view, so the empty state lands in the same spot. -->
 		<div class="flex-1 overflow-y-auto mt-4 pb-4">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto">
+				<!-- The prompt just sent, shown while the report is created and
+				     opened, so the send lands on screen at once instead of after
+				     the round-trips. Same bubble and dots the report view renders,
+				     which takes over from here. -->
+				<div v-if="pendingPrompt" class="p-1">
+					<div class="flex justify-end mb-3">
+						<div class="user-bubble inline-block max-w-xl rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start whitespace-pre-wrap text-sm" dir="auto">{{ pendingPrompt.text }}</div>
+					</div>
+					<div class="simple-dots"></div>
+				</div>
 				<ReportEmptyState
+					v-else
 					:mode="currentMode"
 					:available-agents="availableAgents"
 					:current-agents="currentAgents"
@@ -32,7 +43,7 @@
 
 		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:project="draftProject"
@@ -47,6 +58,8 @@
 					@update:autoMode="(val: boolean) => agentsAreAuto = val"
 					@update:mode="(m: any) => currentMode = m"
 					@openInstructions="showInstructionsModal = true"
+					@reportCreating="(p: any) => pendingPrompt = p"
+					@reportCreateFailed="pendingPrompt = null"
 				/>
 			</div>
 		</div>
@@ -117,10 +130,16 @@ const draftProject = computed(() => {
 // Picks made here ride on the created report only; unlike the home page this
 // never writes back to the user's saved selection, since a draft opened for
 // one agent shouldn't repin their whole workspace.
+//
+// An id the cached agent list doesn't know yet stays as a bare { id }: that
+// list is loaded once per page load, so it is still in flight on a fresh load
+// and misses agents created since. Dropping the id would leave the selection
+// empty — which is Auto — and a prompt sent then would create an Auto report.
+// The selector fills in the full object from its own fetch (alignSelection).
 const initialAgents = computed(() => {
 	if (agentIds.value.length) {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
-		return agentIds.value.map(id => byId.get(String(id))).filter(Boolean)
+		return agentIds.value.map(id => byId.get(String(id)) || { id })
 	}
 	if (projectId.value) return []
 	return selectedAgentObjects.value
@@ -149,6 +168,9 @@ function handleExampleClick(starter: string) {
 }
 
 const showInstructionsModal = ref(false)
+// Set by the prompt box when a send starts creating the report; cleared if
+// the create fails (the box toasts and keeps the text for a retry).
+const pendingPrompt = ref<{ text: string } | null>(null)
 const instructionPanelAgents = computed(() => [
 	...(currentAgents.value.length ? currentAgents.value : (effectiveAgentObjects.value || [])),
 	{ id: '__global__', name: 'Global', isGlobal: true },
@@ -156,3 +178,8 @@ const instructionPanelAgents = computed(() => [
 
 onMounted(() => { if (projectId.value) fetchProjects() })
 </script>
+
+<style scoped>
+@keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
+.simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }
+</style>

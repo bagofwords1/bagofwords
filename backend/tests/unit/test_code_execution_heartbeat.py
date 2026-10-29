@@ -103,3 +103,24 @@ async def test_quiet_query_emits_heartbeat_without_replacing_stage(monkeypatch):
 
     release_query.set()
     await stream.aclose()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('recovers', [True, False])
+async def test_retry_history_does_not_turn_success_into_failure(recovers):
+    attempts = []
+    async def generate(**kwargs):
+        attempts.append(1)
+        if len(attempts) == 1 or not recovers:
+            return "def generate_df(ds_clients, excel_files):\n    raise ValueError('synthetic transient failure')\n"
+        return _CODE
+    request = CodeGenRequest(context=CodeGenContext(user_prompt='inspect', schemas_excerpt=''), retries=2)
+    events = [event async for event in StreamingCodeExecutor().generate_and_execute_stream_v2(
+        request=request, ds_clients={}, excel_files=[], code_generator_fn=generate)]
+    result = next(event['payload'] for event in events if event['type'] == 'done')
+    if recovers:
+        assert not result['df'].empty
+        assert result['errors'] == []
+        assert result['attempt_errors']
+    else:
+        assert result['df'] is None
+        assert result['errors']

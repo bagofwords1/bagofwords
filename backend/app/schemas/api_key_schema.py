@@ -1,10 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 
 
 class ApiKeyCreate(BaseModel):
-    name: str = "Default"
+    name: str = Field(default="Default", max_length=255)
     expires_at: Optional[datetime] = None
 
 

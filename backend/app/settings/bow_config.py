@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator
+from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator, model_validator
 from pydantic.alias_generators import to_camel
 import os
 import secrets
@@ -162,6 +162,70 @@ class OIDCProvider(BaseModel):
         return (self.name or "").replace("_", " ").replace("-", " ").strip().title() or self.name
 
 
+class SAMLIdP(BaseModel):
+    """Trust material supplied by the operator, never by a login response."""
+    metadata_url: Optional[str] = None
+    metadata_file: Optional[str] = None
+    entity_id: Optional[str] = None
+    sso_url: Optional[str] = None
+    certificates: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        from urllib.parse import urlsplit
+        if self.metadata_url and self.metadata_file:
+            raise ValueError("Choose one SAML metadata source")
+        if not (self.metadata_url or self.metadata_file or
+                (self.entity_id and self.sso_url and self.certificates)):
+            raise ValueError("SAML requires metadata or an issuer, SSO URL and certificates")
+        for url in (self.metadata_url, self.sso_url):
+            if url:
+                parsed = urlsplit(url)
+                if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+                    raise ValueError("SAML URLs must use HTTPS without credentials or fragments")
+        return self
+
+
+class SAMLSP(BaseModel):
+    entity_id: Optional[str] = None
+    certificate_file: Optional[str] = None
+    private_key_file: Optional[str] = None
+    sign_requests: bool = False
+    want_assertions_encrypted: bool = False
+    name_id_format: str = "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"
+
+    @model_validator(mode="after")
+    def validate_key_pair(self):
+        if bool(self.certificate_file) != bool(self.private_key_file):
+            raise ValueError("SAML SP certificate and private key must be supplied together")
+        if (self.sign_requests or self.want_assertions_encrypted) and not self.private_key_file:
+            raise ValueError("Signed requests/encrypted assertions require an SP key pair")
+        return self
+
+
+class SAMLAttributes(BaseModel):
+    # Use full attribute Names from the assertion; short names work for IdPs
+    # that emit them. name_id is a reserved selector for the SAML NameID.
+    subject: str = "name_id"
+    email: str = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress"
+    name: Optional[str] = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+
+
+class SAMLProvider(BaseModel):
+    name: str = Field(pattern=r"^[a-z][a-z0-9-]{0,47}$")
+    enabled: bool = False
+    label: Optional[str] = None
+    organization_id: str = Field(min_length=1)
+    idp: SAMLIdP
+    sp: SAMLSP = Field(default_factory=SAMLSP)
+    attributes: SAMLAttributes = Field(default_factory=SAMLAttributes)
+    auto_provision_users: bool = False
+    # Explicit operator-approved links for existing organization members.
+    # Key = immutable SAML subject; value = existing BOW email. Never auto-link
+    # merely because an assertion's email matches an existing account.
+    account_links: dict[str, str] = Field(default_factory=dict)
+
+
 class LDAPConfig(BaseModel):
     """LDAP / Active Directory configuration for group sync and optional bind auth."""
     enabled: bool = False
@@ -306,7 +370,13 @@ class DataEncryptionConfig(BaseModel):
 
     Covers query results and the bounded context summaries derived from them:
     ``Step.data``, ``StepUserResult.data``, ``Entity.data``,
-    ``EntityUserResult.data`` and ``ToolExecution.result_json``. Credentials
+    ``EntityUserResult.data`` and ``ToolExecution.result_json`` — plus
+    everything that restates those rows: conversation text
+    (``Completion.prompt``/``completion``, the ``prompt_text`` columns),
+    agent context (``ContextSnapshot.context_view_json``,
+    ``ReportContextState.summary_json``), generated artifact content
+    (``ArtifactVersion``/``ArtifactRelease.content``), the parameter values a
+    snapshot was run with (``applied_params``) and ``Entity.code``. Credentials
     have always been encrypted separately; this extends the same protection to
     the data those credentials fetched, reusing the same ``encryption_key``.
 
@@ -325,6 +395,34 @@ class DataEncryptionConfig(BaseModel):
         return True if v is None else v
 
 
+class SecurityConfig(BaseModel):
+    # When true, admin-configured outbound URLs (git remotes, LLM base_url,
+    # audit-stream endpoints) must resolve to public addresses. Off by default
+    # because self-hosted installs point these at internal hosts; cloud
+    # metadata / link-local addresses are blocked either way.
+    block_private_outbound: bool = False
+    # Directory prefixes a network_dir connection's root_path may resolve
+    # into (realpath, symlinks followed), e.g. ["/mnt", "/srv/shares"]. When
+    # set it is enforced strictly. Unset (default) keeps existing installs
+    # working and only refuses system dirs (/, /etc, /proc, /root, /usr, …)
+    # and the app's own dirs — see network_dir_client.check_network_dir_root.
+    network_dir_allowed_roots: Optional[List[str]] = None
+    # Python 3.13 validates outbound TLS chains in OpenSSL's strict X.509 mode,
+    # which rejects any CA-issued certificate lacking an Authority Key
+    # Identifier ("certificate verify failed: Missing Authority Key
+    # Identifier"). TLS-inspecting corporate proxies that re-sign traffic with a
+    # hand-made CA are the usual offender; every outbound HTTPS call (OIDC
+    # discovery, Graph, LLM providers) then fails. Set false to fall back to
+    # the pre-3.13 checks: chains are still verified against the trust store and
+    # hostnames still checked, only the extension-presence rules are dropped.
+    # Env: BOW_TLS_STRICT_X509. Only an explicit false/0/no/off relaxes; a typo
+    # keeps strict mode. Prefer fixing the proxy CA; this is the bridge.
+    tls_strict_x509: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
+        not in ("0", "false", "no", "off")
+    )
+
+
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
@@ -334,6 +432,7 @@ class BowConfig(BaseModel):
     google_oauth: GoogleOAuth = GoogleOAuth()
     ldap: LDAPConfig = LDAPConfig()
     oidc_providers: List[OIDCProvider] = []
+    saml_providers: List[SAMLProvider] = Field(default_factory=list)
     default_llm: List[LLMProvider] = []
     smtp_settings: SMTPSettings = None
     # Resolved by ``validate_encryption_key`` below (env var, then generated).
@@ -353,6 +452,19 @@ class BowConfig(BaseModel):
     license: LicenseConfig = LicenseConfig()
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
+    security: SecurityConfig = SecurityConfig()
+
+    @model_validator(mode="after")
+    def validate_saml_providers(self):
+        from urllib.parse import urlsplit
+        names = [p.name for p in self.saml_providers]
+        if len(names) != len(set(names)) or set(names) & ({"google"} | {p.name for p in self.oidc_providers}):
+            raise ValueError("SAML provider names must be unique across login providers")
+        if any(p.enabled for p in self.saml_providers):
+            url = urlsplit(self.base_url or "")
+            if url.scheme != "https" or not url.hostname or url.query or url.fragment or url.username or url.password or url.path not in ("", "/"):
+                raise ValueError("Enabled SAML requires an HTTPS base_url origin")
+        return self
 
     @field_validator('encryption_key', mode='before')
     @classmethod

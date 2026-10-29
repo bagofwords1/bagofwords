@@ -1,5 +1,6 @@
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal, Integer, case, or_, not_
+from sqlalchemy import select, func, text, literal, Integer, case, or_, not_, and_
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -84,6 +85,9 @@ _NON_TURN_USAGE_SCOPE_PREFIXES = (
 _NON_TURN_USAGE_SCOPES = (
     "tool_call_judge",
     "webhook_classifier",
+    # Agent check-ins: planner/judge are priced on their own check-in card.
+    "checkin_planner",
+    "checkin_judge",
 )
 
 
@@ -98,43 +102,36 @@ def _turn_usage_scope_clause():
     return not_(is_non_turn)
 
 
-def _is_anthropic_family(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
-    """Whether usage came from an Anthropic-shaped response.
+def _cache_beside_prompt(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
+    """Whether a row's cache reads/writes are reported beside prompt_tokens
+    (Anthropic Messages, Bedrock Converse) and so must be added to its total,
+    rather than already counted inside it (OpenAI wire format, which a Claude
+    model behind a custom gateway also uses).
 
-    Cache-token semantics follow the model family, not the host: Claude served
-    through Vertex, Bedrock or Azure still reports cache_read/cache_creation
-    separately from prompt_tokens. Keying on the provider alone under-counted
-    every Claude deployment that wasn't the first-party API.
-
-    Delegates to app.ai.llm.pricing so token accounting here and cost
-    accounting in LLMUsageRecorderService can never disagree about which family
-    a row belongs to — they did, and the console was the one that had it right.
+    Delegates to app.ai.llm.pricing so token accounting here, cost accounting
+    in LLMUsageRecorderService and the run rollup follow one rule.
     """
-    return pricing.resolve_family(provider_type, model_id) == pricing.ANTHROPIC
+    return not pricing.cache_inside_prompt_tokens(provider_type, model_id)
 
 
 def _row_total_tokens_expr():
     """SQLAlchemy per-row token total that doesn't double-count cache, for use
-    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic-shaped
-    responses report cache_read/cache_creation SEPARATELY from prompt_tokens (add
-    them in), while OpenAI/Gemini-shaped ones fold cache_read into prompt_tokens
-    already (must not re-add, or the cached prefix is counted twice). Models that
-    record no cache tokens make the else-branch a no-op.
-
-    The model id is matched as well as the provider so that Claude hosted on
-    Vertex/Bedrock/Azure is accounted the same way as the first-party API."""
+    inside func.sum(). The SQL form of _cache_beside_prompt: cache is already
+    inside prompt_tokens for the OpenAI wire format (openai and custom always;
+    azure unless it serves a Claude or Gemini deployment) and reported beside
+    it everywhere else. Rows that record no cache tokens make the branch a no-op."""
+    model = func.lower(func.coalesce(LLMUsageRecord.model_id, ""))
+    non_openai_model = or_(*(model.like(f"%{tag}%") for tag in ("claude", "anthropic", "gemini", "bison", "gecko")))
+    cache_inside = or_(
+        LLMUsageRecord.provider_type.in_(("openai", "custom")),
+        and_(LLMUsageRecord.provider_type == "azure", not_(non_openai_model)),
+    )
     return (
         LLMUsageRecord.prompt_tokens
         + LLMUsageRecord.completion_tokens
         + case(
-            (
-                or_(
-                    LLMUsageRecord.provider_type == "anthropic",
-                    LLMUsageRecord.model_id.ilike("%claude%"),
-                ),
-                LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
-            ),
-            else_=0,
+            (cache_inside, 0),
+            else_=LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
         )
     )
 
@@ -938,7 +935,7 @@ class ConsoleService:
             # Use the shared family helper rather than the provider string:
             # Claude on Vertex/Bedrock/Azure reports Anthropic-shaped usage and
             # was being totalled with the OpenAI rule right here.
-            if _is_anthropic_family(row.provider_type, row.model_id):
+            if _cache_beside_prompt(row.provider_type, row.model_id):
                 row_total_tokens = (
                     prompt_tokens + completion_tokens
                     + cache_read_tokens + cache_creation_tokens
@@ -1071,18 +1068,18 @@ class ConsoleService:
                           model_id: Optional[str] = None) -> int:
         """Token total that doesn't double-count cache.
 
-        Whether cache tokens are additive is a property of the MODEL FAMILY, not
-        of the hosting provider: Anthropic's API reports cache_read/cache_creation
-        separately from prompt_tokens, and it keeps doing so when the same model
-        is served through Vertex, Bedrock or Azure. OpenAI/Gemini-shaped
-        responses fold cache_read into prompt_tokens already, so re-adding it
-        would count the cached prefix twice.
+        Whether cache tokens are additive is a property of the wire format the
+        provider's client speaks (see _cache_beside_prompt): Anthropic's
+        Messages API — first-party, Vertex, Azure — and Bedrock Converse report
+        cache_read/cache_creation beside prompt_tokens; the OpenAI format,
+        including a Claude model behind a custom gateway, already counts them
+        inside it, so re-adding them would count the cached prefix twice.
 
         ``model_id`` is therefore the primary signal and provider_type the
         fallback for rows where the caller only has the group's provider (see
         get_cost_metrics' breakdown, where one group can span several models).
         """
-        if _is_anthropic_family(provider_type, model_id):
+        if _cache_beside_prompt(provider_type, model_id):
             return prompt + completion + cache_read + cache_creation
         return prompt + completion
 
@@ -1562,7 +1559,7 @@ class ConsoleService:
         report = report_result.scalar_one_or_none()
         
         if not report:
-            raise ValueError(f"Report {report_id} not found")
+            raise HTTPException(status_code=404, detail="Report not found")
         
         # Get user info
         user = None
@@ -1769,7 +1766,7 @@ class ConsoleService:
         ae_result = await db.execute(ae_query)
         agent_execution = ae_result.scalar_one_or_none()
         if not agent_execution:
-            raise ValueError("Agent execution not found")
+            raise HTTPException(status_code=404, detail="Agent execution not found")
 
         # Fetch blocks associated to this AE ordered by (seq, block_index)
         blocks_query = (
@@ -2067,14 +2064,87 @@ class ConsoleService:
         ae_res = await db.execute(ae_query)
         ae = ae_res.scalar_one_or_none()
         if not ae:
-            raise ValueError("Agent execution not found for completion")
+            raise HTTPException(status_code=404, detail="Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
+
+    async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
+        """Per-turn memory activity. Text only when the viewer owns the memory
+        (the turn's user); admins and everyone else see handles/counts."""
+        from app.models.memory_entry import MemoryEntry
+        from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
+
+        memory_tools = ("create_memory", "edit_memory", "search_memory")
+        tool_rows: dict[str, list] = {}
+        if ae_ids:
+            q = (
+                select(ToolExecution)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids), ToolExecution.tool_name.in_(memory_tools))
+                .order_by(ToolExecution.created_at.asc())
+            )
+            for te in (await db.execute(q)).scalars().all():
+                tool_rows.setdefault(str(te.agent_execution_id), []).append(te)
+
+        # Entry texts, loaded only for turns the viewer owns.
+        owned_ids: set[str] = set()
+        for r in rows:
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            if viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id):
+                for it in (mc.get("injection") or {}).get("injected") or []:
+                    if it.get("id"):
+                        owned_ids.add(str(it["id"]))
+        texts: dict[str, str] = {}
+        if owned_ids:
+            q = select(MemoryEntry.id, MemoryEntry.text).where(
+                MemoryEntry.id.in_(list(owned_ids)), MemoryEntry.user_id == str(viewer_id)
+            )
+            texts = {str(i): (t or "") for i, t in (await db.execute(q)).all()}
+
+        out: dict[str, TurnMemorySchema] = {}
+        for r in rows:
+            ae = str(r.ae_id)
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            tes = tool_rows.get(ae, [])
+            if not mc and not tes:
+                continue
+            owner = bool(viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id))
+            inj = mc.get("injection") or {}
+            mem = TurnMemorySchema(
+                owner_view=owner,
+                chars=int(inj.get("chars") or 0),
+                total_entries=int(inj.get("total_entries") or 0),
+                hidden=int(inj.get("hidden") or 0),
+            )
+            for it in inj.get("injected") or []:
+                mem.injected.append(TurnMemoryItemSchema(
+                    handle=it.get("handle"), dated=it.get("dated"), tier=it.get("tier"),
+                    text=texts.get(str(it.get("id"))) if owner else None,
+                ))
+            for te in tes:
+                args = te.arguments_json if isinstance(te.arguments_json, dict) else {}
+                res = te.result_json if isinstance(te.result_json, dict) else {}
+                text = None
+                if owner:
+                    text = args.get("text") or args.get("query") or None
+                mem.tool_calls.append(TurnMemoryItemSchema(
+                    tool=te.tool_name, action=args.get("action"),
+                    handle=res.get("handle") or args.get("handle"),
+                    dated=bool(args.get("date")) if te.tool_name == "create_memory" else None,
+                    success=bool(te.success), text=text,
+                ))
+            for ref in mc.get("refusals") or []:
+                mem.refusals.append(TurnMemoryItemSchema(
+                    tool=ref.get("tool"), code=ref.get("code"), handle=ref.get("handle"),
+                    text=ref.get("text") if owner else None,
+                ))
+            out[ae] = mem
+        return out
 
     async def get_report_conversation(
         self,
         db: AsyncSession,
         organization: Organization,
         report_id: str,
+        viewer_id: Optional[str] = None,
     ) -> ConversationTraceResponse:
         """Return a whole report conversation as ordered user→assistant turns.
 
@@ -2092,7 +2162,7 @@ class ConsoleService:
         )
         report = (await db.execute(report_q)).scalar_one_or_none()
         if not report:
-            raise ValueError("Report not found")
+            raise HTTPException(status_code=404, detail="Report not found")
 
         # Every agent execution in the report = one assistant turn. Join the
         # system completion and its parent user completion (which holds the
@@ -2106,10 +2176,13 @@ class ConsoleService:
                 AgentExecution.status.label('ae_status'),
                 AgentExecution.total_duration_ms.label('total_duration_ms'),
                 AgentExecution.created_at.label('created_at'),
+                AgentExecution.user_id.label('ae_user_id'),
+                AgentExecution.memory_context_json.label('memory_context_json'),
                 SystemCompletion.completion.label('assistant_completion'),
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
                 UserCompletion.role.label('user_role'),
+                UserCompletion.trigger_source.label('trigger_source'),
                 UserCompletion.external_platform.label('external_platform'),
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
@@ -2269,6 +2342,10 @@ class ConsoleService:
             tail = _re.sub(r'\s+', ' ', tail).strip()
             return tail
 
+        checkins = await self._report_checkins(db, organization, str(report.id))
+        checkin_by_run = {c.run_completion_id: c.id for c in checkins if c.run_completion_id}
+        memory_by_ae = await self._turn_memory_sections(db, rows, ae_ids, viewer_id)
+
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
         negative_feedback_turns = 0
@@ -2279,7 +2356,12 @@ class ConsoleService:
             turn_llm_tokens = usage.get(_METRIC_LLM_TOKENS) or None
             _cost_micro = usage.get(_METRIC_LLM_COST) or 0
             turn_llm_cost_usd = round(_cost_micro / 1_000_000, 6) if _cost_micro else None
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
             if derived_status == 'error':
                 failed_turns += 1
             if fb['status'] == 'negative':
@@ -2289,6 +2371,8 @@ class ConsoleService:
                 user_completion_id=str(r.user_completion_id) if r.user_completion_id else None,
                 user_prompt=_text(r.user_prompt)[:2000],
                 role=r.user_role or 'user',
+                trigger_source=r.trigger_source,
+                checkin_id=checkin_by_run.get(str(r.completion_id)) if r.completion_id else None,
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 agent_execution_id=str(r.ae_id),
                 assistant_content=_clean_answer(r.assistant_completion)[:2000],
@@ -2310,6 +2394,7 @@ class ConsoleService:
                 llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
+                memory=memory_by_ae.get(str(r.ae_id)),
             ))
 
         # Conversation-level origin platform = first turn that carries one
@@ -2365,7 +2450,92 @@ class ConsoleService:
             total_llm_tokens=total_llm_tokens,
             total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
+            checkins=checkins,
         )
+
+    async def _report_checkins(self, db: AsyncSession, organization: Organization, report_id: str) -> list:
+        """Every agent check-in row for the report, with planner/judge LLM usage
+        (llm_usage_records scoped checkin_planner / checkin_judge, keyed by the
+        check-in id)."""
+        from app.models.agent_checkin import AgentCheckin
+        from app.schemas.agent_execution_trace_schema import CheckinTraceSchema
+
+        rows = (await db.execute(
+            select(AgentCheckin).where(
+                AgentCheckin.report_id == report_id,
+                AgentCheckin.organization_id == str(organization.id),
+                AgentCheckin.deleted_at.is_(None),
+            ).order_by(AgentCheckin.created_at.asc())
+        )).scalars().all()
+        if not rows:
+            return []
+        ids = [str(r.id) for r in rows]
+        usage: dict = {}
+        uq = (
+            select(
+                LLMUsageRecord.scope_ref_id,
+                LLMUsageRecord.scope,
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.scope.in_(("checkin_planner", "checkin_judge")),
+                LLMUsageRecord.scope_ref_id.in_(ids),
+            )
+            .group_by(LLMUsageRecord.scope_ref_id, LLMUsageRecord.scope)
+        )
+        for ref_id, scope, tokens, cost in (await db.execute(uq)).all():
+            usage[(str(ref_id), scope)] = (int(tokens or 0) or None, round(float(cost or 0), 6) or None)
+        out = []
+        for r in rows:
+            p_tok, p_cost = usage.get((str(r.id), "checkin_planner"), (None, None))
+            j_tok, j_cost = usage.get((str(r.id), "checkin_judge"), (None, None))
+            out.append(CheckinTraceSchema(
+                id=str(r.id), status=r.status, status_reason=r.status_reason,
+                source_completion_id=r.source_completion_id, run_completion_id=r.run_completion_id,
+                note=r.note, plan_reason=r.plan_reason, due_at=r.due_at,
+                judge_decision=r.judge_decision, judge_reason=r.judge_reason, judge_focus=r.judge_focus,
+                judged_at=r.judged_at, notified=bool(r.notified), notify_subject=r.notify_subject,
+                sent_at=r.sent_at,
+                planner_llm_tokens=p_tok, planner_llm_cost_usd=p_cost,
+                judge_llm_tokens=j_tok, judge_llm_cost_usd=j_cost,
+                created_at=r.created_at,
+            ))
+        return out
+
+    async def _search_encrypted_prompts(self, db: AsyncSession, organization_id, search: str) -> list[str]:
+        """Ids of *encrypted* user completions whose prompt contains ``search``.
+
+        get_agent_execution_summaries ILIKEs over Completion.prompt cast to
+        text; a row stored as a ciphertext envelope (enterprise
+        data_encryption) never matches that way. Only enveloped rows are
+        hydrated here — the column type decrypts them — and tested with the
+        same case-insensitive substring rule over the serialized JSON. On an
+        instance that has never encrypted this selects nothing.
+        """
+        from app.ee.encryption import envelope_marker_expr
+        from app.models.report import Report
+
+        rows = (await db.execute(
+            select(Completion.id, Completion.prompt)
+            .join(Report, Report.id == Completion.report_id)
+            .where(
+                Report.organization_id == organization_id,
+                envelope_marker_expr(Completion.prompt),
+            )
+        )).all()
+        needle = search.lower()
+        hits: list[str] = []
+        for cid, prompt in rows:
+            if prompt is None:
+                continue
+            try:
+                haystack = json.dumps(prompt, ensure_ascii=False)
+            except (TypeError, ValueError):
+                haystack = str(prompt)
+            if needle in haystack.lower():
+                hits.append(str(cid))
+        return hits
 
     async def get_agent_execution_summaries(
         self,
@@ -2497,11 +2667,17 @@ class ConsoleService:
             from sqlalchemy.orm import aliased
             PromptSystemCompletion = aliased(Completion)
             PromptUserCompletion = aliased(Completion)
+            prompt_match = sa_cast(PromptUserCompletion.prompt, Text).ilike(f'%{prompt_search}%')
+            # Prompts written under enterprise data_encryption are ciphertext
+            # in SQL, so the ILIKE cannot see them; match those in Python.
+            encrypted_hits = await self._search_encrypted_prompts(db, organization.id, prompt_search)
+            if encrypted_hits:
+                prompt_match = or_(prompt_match, PromptUserCompletion.id.in_(encrypted_hits))
             base_query = (
                 base_query
                 .join(PromptSystemCompletion, PromptSystemCompletion.id == AgentExecution.completion_id, isouter=True)
                 .join(PromptUserCompletion, PromptUserCompletion.id == PromptSystemCompletion.parent_id, isouter=True)
-                .where(sa_cast(PromptUserCompletion.prompt, Text).ilike(f'%{prompt_search}%'))
+                .where(prompt_match)
             )
 
         # Recalculate total with filters
@@ -2665,7 +2841,12 @@ class ConsoleService:
             report_link = f"/reports/{r.report_id}" if r.report_id else None
 
             # Derive status: if any tool failed in this AE, mark as error
-            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+            # A turn is an error when the run itself failed (planner retries
+            # exhausted, step limit, crash). A tool that failed inside an
+            # otherwise completed turn is reported by total_failed_tools; it
+            # used to flip the whole turn to 'error', so a parent that launched
+            # a wave and the one child that finished both read as failures.
+            derived_status = r.ae_status or 'success'
 
             items.append(AgentExecutionSummaryItem(
                 agent_execution_id=str(r.ae_id),

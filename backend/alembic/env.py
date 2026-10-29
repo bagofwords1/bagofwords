@@ -3,7 +3,7 @@ from logging.config import fileConfig
 import sqlalchemy
 from sqlalchemy import engine_from_config, event
 from sqlalchemy import pool
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine.url import make_url
 
 from alembic import context
@@ -14,12 +14,15 @@ from app.settings.db_auth import get_auth_provider
 
 from app.models.base import BaseSchema
 from app.models.report import Report
+from app.models.artifact_release import ArtifactRelease, ArtifactShare
+from app.models.artifact_resource import ArtifactResource, ArtifactRecord, ArtifactRecordIndex, ArtifactMutation, ArtifactView, ArtifactFileBinding, ArtifactRateBucket
 from app.models.artifact import Artifact, ArtifactVersion
 from app.models.widget import Widget
 from app.models.step import Step
 from app.models.completion import Completion
 from app.models.file import File
 from app.models.report_file_association import report_file_association
+from app.models.saml import SAMLIdentity, SAMLRequest
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.membership import Membership
@@ -53,6 +56,7 @@ from app.models.table_stats import TableStats
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.models.agent_execution import AgentExecution
+from app.models.email_delivery_claim import EmailDeliveryClaim
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.context_snapshot import ContextSnapshot
@@ -67,7 +71,11 @@ from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
+from app.models.sub_agent import SubAgentRun, SubAgentWave
+from app.models.sub_agent_message import SubAgentMessage
 from app.models.note import Note
+from app.models.memory_entry import MemoryEntry
+from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference
@@ -93,6 +101,7 @@ from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.instruction_build import InstructionBuild
 from app.models.oauth_server import OAuthClient, OAuthAuthorizationCode, OAuthAccessToken
 from app.ee.scim.models import ScimToken
+from app.ee.audit.streams.models import AuditLogStream
 from app.models.role import Role
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
@@ -108,6 +117,8 @@ from app.models.project import Project, project_data_source_association, project
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
 from app.models.notification import Notification
+from app.models.agent_checkin import AgentCheckin
+from app.models.dream_run import DreamRun
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,
@@ -187,6 +198,26 @@ def _attach_migration_iam_hook(engine):
         cparams["password"] = provider.get_password(host, port, username)
 
 
+# Every replica runs `alembic upgrade head` when it starts (start.sh), so two
+# pods of a rolling update or a scaled deployment can race the same
+# migration. On Postgres the first one takes this transaction-level advisory
+# lock and migrates; the others wait, then read the version table, find the
+# database at head and do nothing. A transaction lock needs no unlock path
+# and stays on one backend even behind a transaction pooler. The wait is
+# bounded so a pod stuck behind a dead session fails into start.sh's retry
+# instead of hanging. SQLite is a single local file with a single writer.
+MIGRATION_LOCK_KEY = 7262874361  # arbitrary, fixed for every Bag of Words install
+MIGRATION_LOCK_WAIT = "5min"
+
+
+def _take_migration_lock(connection) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+    connection.execute(text(f"SET LOCAL lock_timeout = '{MIGRATION_LOCK_WAIT}'"))
+    connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+    connection.execute(text("SET LOCAL lock_timeout = DEFAULT"))
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     url = get_db_url()
@@ -212,6 +243,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            _take_migration_lock(connection)
             context.run_migrations()
 
 

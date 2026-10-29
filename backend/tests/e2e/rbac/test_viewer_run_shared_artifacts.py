@@ -682,6 +682,90 @@ def test_step_export_withheld_for_strict_viewer(
     assert "stale" in resp.text
 
 
+@pytest.mark.e2e
+def test_step_read_applies_viewer_policy_for_withheld_viewer(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """GET /steps/{id} follows the same viewer boundary as the query read
+    path: a withheld viewer gets no rows, no code and no applied params."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    sid = seeded["step_ids"][0]
+    _run(_set_step_params(sid, applied={"Year": "2024", "UserEmail": "owner@corp.test"}))
+
+    step = test_client.get(f"/api/steps/{sid}", headers=_headers(viewer["token"], admin["org_id"])).json()
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+    assert not step.get("code")
+    assert not step.get("applied_params")
+
+    mine = test_client.get(f"/api/steps/{sid}", headers=_headers(owner["token"], admin["org_id"])).json()
+    assert mine["snapshot_withheld"] is False
+    assert mine["code"]
+    assert mine["applied_params"]["UserEmail"] == "owner@corp.test"
+
+
+@pytest.mark.e2e
+def test_step_read_drops_creator_identity_params_for_viewers(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer holding their own successful run sees their rows, but the
+    shared step's applied params still never carry the creator's identity."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    sid = seeded["step_ids"][0]
+    _run(_set_step_params(sid, applied={"Year": "2024", "UserEmail": "owner@corp.test"}))
+    _run(_seed_viewer_result(sid, viewer_email=viewer["email"]))
+
+    step = test_client.get(f"/api/steps/{sid}", headers=_headers(viewer["token"], admin["org_id"])).json()
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"mine"}
+    assert step["viewer_result"]
+    assert step["applied_params"] == {"Year": "2024"}
+
+    mine = test_client.get(f"/api/steps/{sid}", headers=_headers(owner["token"], admin["org_id"])).json()
+    assert mine["applied_params"]["UserEmail"] == "owner@corp.test"
+
+
+async def _seed_viewer_result(step_id: str, viewer_email: str):
+    """The viewer's own successful run of the step (normally written by a
+    viewer run, which needs a live data source)."""
+    from sqlalchemy import select as _select
+    from app.models.step_user_result import StepUserResult
+    from app.models.user import User as _User
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        query = await db.get(Query, step.query_id)
+        viewer_id = (await db.execute(_select(_User.id).where(_User.email == viewer_email))).scalar_one()
+        db.add(StepUserResult(
+            step_id=step_id, user_id=viewer_id, organization_id=query.organization_id,
+            report_id=query.report_id, status="success", executed_as="viewer",
+            data={"rows": [{"month": "mine"}], "columns": [{"field": "month"}]},
+            last_run_at=datetime.utcnow(),
+        ))
+        await db.commit()
+
+
+async def _set_step_params(step_id: str, applied: dict):
+    """Declare an input param and an identity-bound param on the step's query
+    and stamp the values the snapshot was produced with."""
+    def spec(name, source, binding=None):
+        return {"name": name, "type": "string", "label": name, "default": None,
+                "required": False, "source": source, "identity_binding": binding,
+                "options": None, "options_source": None, "strict_options": False}
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        query = await db.get(Query, step.query_id)
+        query.parameters = [spec("Year", "input"), spec("UserEmail", "identity", "viewer.email")]
+        step.applied_params = applied
+        await db.commit()
+
+
 # ── Fork: copies steps, never shares the reference ──
 
 @pytest.mark.e2e

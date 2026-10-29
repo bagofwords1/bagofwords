@@ -99,10 +99,7 @@ async def get_step(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    step = await step_service.get_step_by_id(db, step_id)
-    if not step:
-        raise HTTPException(status_code=404, detail="Step not found")
-    schema = StepSchema.from_orm(step)
+    schema = await step_service.get_step_authorized(db, step_id, current_user, organization)
     # Redact PII from the full result grid for display (stored data untouched).
     from app.ai.llm.pii.display import load_and_redact_grid
     from app.dependencies import async_session_maker

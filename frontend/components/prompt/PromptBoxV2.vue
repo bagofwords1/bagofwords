@@ -8,13 +8,31 @@
              only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="isThinking && props.report_id"
+                v-if="(isThinking || hasBackgroundTasks) && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
+                data-testid="status-row"
             >
-                <Spinner class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ thinkingElapsedLabel }}</span>            </div>
+                <template v-if="isThinking && isAwaitingInput">
+                    <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
+                    <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
+                </template>
+                <template v-else-if="isThinking">
+                    <Spinner class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
+                    <span class="thinking-shimmer">{{ thinkingLabel }}</span>
+                    <span class="text-ink-muted tabular-nums">{{ thinkingElapsedLabel }}</span>
+                </template>
+                <!-- Background sub-agents: independent of the working label — the
+                     parent can be idle while children run (docs/design/sub-agents.md A9). -->
+                <BackgroundTasksIndicator
+                    v-if="hasBackgroundTasks"
+                    :waves="props.backgroundWaves as any[]"
+                    :has-working-label="isThinking"
+                    @stopSubAgent="(id) => emit('stopSubAgent', id)"
+                    @stopWave="(id) => emit('stopWave', id)"
+                    @scrollToMessage="(id) => emit('scrollToMessage', id)"
+                />
+            </div>
         </Transition>
 
         <!-- Queued prompts (run after the current completion finishes) -->
@@ -25,13 +43,13 @@
                 class="flex items-center gap-2 text-xs border border-dashed border-gray-300 dark:border-gray-700 rounded-lg px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/40 text-gray-600 dark:text-gray-300"
                 data-testid="queued-prompt-chip"
             >
-                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
                 <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
                 <!-- Native title tooltips here: UTooltip's popper can overlap and
                      intercept clicks on these small targets. -->
                 <button
                     v-if="latestInProgressCompletion"
-                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
+                    class="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex-shrink-0"
                     :title="$t('prompt.steerNow')"
                     data-testid="queued-steer-button"
                     @click="emit('steerQueuedPrompt', qp.id)"
@@ -39,7 +57,7 @@
                     {{ $t('prompt.sendNow') }}
                 </button>
                 <button
-                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
+                    class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
                     :title="$t('prompt.removeFromQueue')"
                     data-testid="queued-remove-button"
                     @click="emit('removeQueuedPrompt', qp.id)"
@@ -62,7 +80,7 @@
                     <button
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
-                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                        <Icon name="heroicons-circle-stack" class="w-3.5 h-3.5 text-ink-muted" />
                         {{ props.queryList.length }} {{ props.queryList.length === 1 ? $t('prompt.query') : $t('prompt.queries') }}
                     </button>
                     <!-- Query dropdown on hover — pad-bridge eliminates the gap -->
@@ -78,7 +96,7 @@
                                 @click="q.messageId && emit('scrollToMessage', q.messageId, q.stepId); showQueryDropdown = false"
                             >
                                 <div class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ q.label }}</div>
-                                <div v-if="q.rowCount != null" class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
+                                <div v-if="q.rowCount != null" class="text-2xs text-ink-muted mt-0.5">{{ q.rowCount.toLocaleString() }} {{ $t('prompt.rows') }}</div>
                             </div>
                         </div>
                         <!-- Invisible bridge to cover gap between dropdown and pill -->
@@ -95,7 +113,7 @@
                     <button
                         class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
-                        <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                        <Icon name="heroicons-clock" class="w-3.5 h-3.5 text-ink-muted" />
                         {{ props.scheduledPrompts.length }} {{ $t('prompt.scheduled') }}
                     </button>
                     <div
@@ -116,8 +134,8 @@
                                     />
                                 </div>
                                 <div class="flex-1 min-w-0">
-                                    <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-gray-400 dark:text-gray-500': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
-                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ getCronLabel(sp.cron_schedule) }}</div>
+                                    <div class="text-xs text-gray-700 dark:text-gray-300 truncate" :class="{ 'text-ink-muted': !sp.is_active }">{{ sp.prompt?.content || $t('prompt.untitled') }}</div>
+                                    <div class="text-2xs text-ink-muted mt-0.5">{{ sp.run_once_at ? sharedCronLabel(sp.cron_schedule, sp.run_once_at) : getCronLabel(sp.cron_schedule) }}</div>
                                 </div>
                             </div>
                         </div>
@@ -137,7 +155,7 @@
             <div v-else></div>
             <button
                 v-if="isExcel && excelSelection && !excelSelectionDismissed"
-                class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 text-[11px] flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 text-2xs flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                 @click="addExcelSelectionToPrompt"
                 :title="excelSelectionTooltip"
             >
@@ -149,7 +167,8 @@
 
         <!-- Minimalist prompt container -->
         <div
-            class="border rounded-xl bg-white dark:bg-gray-900 transition-colors relative"
+            data-testid="composer-surface"
+            class="border rounded-composer shadow-sm bg-white dark:bg-gray-900 transition-colors relative"
             :class="[isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : mode === 'training' ? 'border-sky-300 focus-within:border-sky-400' : 'border-gray-200 dark:border-gray-800 focus-within:border-gray-300 dark:focus-within:border-gray-700', props.compact ? 'text-sm' : '']"
             @dragenter="handleDragEnter"
             @dragleave="handleDragLeave"
@@ -160,7 +179,7 @@
             <!-- Drop overlay -->
             <div
                 v-if="isDraggingFiles"
-                class="absolute inset-0 bg-blue-50/80 rounded-xl flex items-center justify-center z-10 pointer-events-none"
+                class="absolute inset-0 bg-blue-50/80 rounded-composer flex items-center justify-center z-10 pointer-events-none"
             >
                 <div class="flex flex-col items-center text-blue-600">
                     <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
@@ -169,13 +188,13 @@
             </div>
 
             <!-- Input area -->
-            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-3 pt-2.5 pb-3'">
+            <div :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'">
                 <!-- Instructions -->
                 <button
                 class="hidden"
                     :class="props.compact
-                        ? 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
-                        : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
+                        ? 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded py-0.5 text-sm flex items-center transition-colors mb-1.5'
+                        : 'text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md py-0.5 text-sm flex items-center transition-colors mb-2'"
                     @click="openInstructions"
                 >
                     <Icon name="heroicons-cube" :class="props.compact ? 'w-4 h-4 me-1.5' : 'w-4 h-4 me-1.5'" />
@@ -185,7 +204,7 @@
                     v-if="isHydratingDataSources"
                     class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500 dark:text-gray-400"
                 >
-                    <Spinner class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                    <Spinner class="w-4 h-4 text-ink-muted" />
                     <span>{{ $t('prompt.loadingReportContext') }}</span>
                 </div>
                 <MentionInput
@@ -201,7 +220,7 @@
             </div>
 
             <!-- Inline file chips -->
-            <div v-if="uploadedFiles.length > 0" class="px-3 pb-2 flex flex-wrap gap-2">
+            <div v-if="uploadedFiles.length > 0" :class="[props.compact ? 'px-3' : 'px-4', 'pb-2 flex flex-wrap gap-2']">
                 <!-- Image files - show thumbnail preview -->
                 <div
                     v-for="file in visibleInlineFiles.filter(f => isImageFile(f))"
@@ -226,7 +245,7 @@
                             img-class="w-full h-full object-cover"
                         />
                         <div v-else class="w-full h-full flex items-center justify-center">
-                            <Icon name="heroicons-photo" class="w-5 h-5 text-gray-400 dark:text-gray-500" />
+                            <Icon name="heroicons-photo" class="w-5 h-5 text-ink-muted" />
                         </div>
                         <!-- Processing overlay -->
                         <div v-if="file.status === 'processing'" class="absolute inset-0 flex items-center justify-center bg-white/60">
@@ -259,7 +278,7 @@
                     <span class="truncate max-w-[110px]">{{ file.filename }}</span>
                     <button
                         @click="removeInlineFile(file)"
-                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                        class="ms-0.5 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
                         :disabled="file.status === 'processing'"
                     >
                         <Icon name="heroicons-x-mark" class="w-3 h-3" />
@@ -278,7 +297,7 @@
 
             <!-- Bottom controls -->
             <div
-                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-3 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
+                :class="[props.compact ? 'px-3 pb-2 pt-1' : 'px-4 pb-3', 'flex items-center justify-between', { 'opacity-50 pointer-events-none': isHydratingDataSources }]"
             >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
@@ -334,10 +353,10 @@
                             :ui="{ width: 'w-auto', container: 'z-[90]' }"
                         >
                             <div
-                                class="text-gray-400 dark:text-gray-500 hover:text-gray-900 dark:hover:text-white rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
+                                class="text-ink-muted hover:text-gray-900 dark:hover:text-white rounded-md w-7 h-7 flex items-center justify-center transition-colors me-0.5"
                             >
                                 <span class="sr-only">{{ usageIndicatorTooltip }}</span>
-                                <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                                <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-ink-muted" />
                                 <UIcon
                                     v-else
                                     :name="contextIndicatorIcon"
@@ -348,14 +367,14 @@
                                 <div class="w-72 p-3 text-xs text-gray-700 dark:text-gray-300">
                                     <div class="flex items-center justify-between mb-2">
                                         <div class="font-medium text-gray-900 dark:text-white">{{ $t('prompt.usageThisMonth') }}</div>
-                                        <Spinner v-if="isRefreshingQuota" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                                        <Spinner v-if="isRefreshingQuota" class="w-3.5 h-3.5 text-ink-muted" />
                                     </div>
 
                                     <div class="space-y-2">
                                         <div>
                                             <div class="flex items-center justify-between gap-3">
                                                 <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.context') }}</span>
-                                                <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ contextUsageValue }}</span>
+                                                <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ contextUsageValue }}</span>
                                             </div>
                                             <div class="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                                                 <div
@@ -369,18 +388,18 @@
                                                     class="text-gray-500 dark:text-gray-400"
                                                     data-testid="compacted-total"
                                                 >
-                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
+                                                    {{ $t('prompt.compacted') }} · <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatTokenCountShort(compactionState.tokens_compacted_total) }}</span>
                                                 </span>
                                                 <span v-else />
                                                 <button
                                                     type="button"
                                                     data-testid="compact-button"
-                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                                    class="inline-flex items-center gap-1 rounded border border-gray-200 dark:border-gray-700 px-1.5 py-0.5 text-2xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                                                     :disabled="isCompacting || !compactionState?.can_compact"
                                                     :title="compactionState?.can_compact ? $t('prompt.compactTooltip') : $t('prompt.compactNothing')"
                                                     @click="compactContext"
                                                 >
-                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-gray-400" />
+                                                    <Spinner v-if="isCompacting" class="w-3 h-3 text-ink-muted" />
                                                     <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3 h-3" />
                                                     {{ isCompacting ? $t('prompt.compacting') : $t('prompt.compact') }}
                                                 </button>
@@ -391,7 +410,7 @@
                                             <div>
                                                 <div class="flex items-center justify-between gap-3">
                                                     <span class="text-gray-500 dark:text-gray-400">{{ $t('prompt.tokens') }}</span>
-                                                    <span class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.tokens) }}</span>
+                                                    <span class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.tokens) }}</span>
                                                 </div>
                                                 <div class="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                                                     <div
@@ -405,16 +424,16 @@
                                             <div class="grid grid-cols-2 gap-2">
                                                 <div>
                                                     <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.queries') }}</div>
-                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.queries) }}</div>
+                                                    <div class="mt-0.5 font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.queries) }}</div>
                                                 </div>
                                                 <div>
                                                     <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.data') }}</div>
-                                                    <div class="mt-0.5 font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.data_bytes, 'bytes') }}</div>
+                                                    <div class="mt-0.5 font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(usageQuota.data_bytes, 'bytes') }}</div>
                                                 </div>
                                             </div>
 
                                             <div v-if="quotaConnections.length" class="pt-2 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
-                                                <div class="text-[11px] font-medium text-gray-500 dark:text-gray-400">{{ $t('prompt.connections') }}</div>
+                                                <div class="text-2xs font-medium text-gray-500 dark:text-gray-400">{{ $t('prompt.connections') }}</div>
                                                 <div
                                                     v-for="connection in quotaConnections"
                                                     :key="connection.id"
@@ -424,15 +443,15 @@
                                                     <div class="grid grid-cols-2 gap-2">
                                                         <div>
                                                             <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.queries') }}</div>
-                                                            <div class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.queries) }}</div>
+                                                            <div class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.queries) }}</div>
                                                         </div>
                                                         <div>
                                                             <div class="text-gray-500 dark:text-gray-400">{{ $t('prompt.data') }}</div>
-                                                            <div class="font-mono text-[11px] text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.data_bytes, 'bytes') }}</div>
+                                                            <div class="font-mono text-2xs text-gray-900 dark:text-white">{{ formatQuotaMetric(connection.data_bytes, 'bytes') }}</div>
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div v-if="hiddenQuotaConnectionCount > 0" class="text-[11px] text-gray-400 dark:text-gray-500">
+                                                <div v-if="hiddenQuotaConnectionCount > 0" class="text-2xs text-ink-muted">
                                                     {{ $t('prompt.moreConnections', { count: hiddenQuotaConnectionCount }) }}
                                                 </div>
                                             </div>
@@ -472,7 +491,7 @@
                                     <span class="flex-1 truncate text-start">{{ proj.name }}</span>
                                     <Icon v-if="currentProject?.id === proj.id" name="heroicons-check" class="w-3.5 h-3.5 text-blue-500 shrink-0" />
                                 </button>
-                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-gray-400 dark:text-gray-500">
+                                <div v-if="!availableProjects.length" class="px-2 py-1.5 text-ink-muted">
                                     {{ $t('projects.moveNoProjects') }}
                                 </div>
                                 <template v-if="currentProject">
@@ -483,7 +502,7 @@
                                         :disabled="isMovingProject"
                                         @click="pickProject(null, close)"
                                     >
-                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <Icon name="heroicons-folder-minus" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
                                         <span class="flex-1 truncate text-start">{{ $t('projects.removeFromProject') }}</span>
                                     </button>
                                     <NuxtLink
@@ -491,7 +510,7 @@
                                         class="flex items-center gap-2 w-full px-2 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-700 dark:text-gray-200"
                                         @click="close()"
                                     >
-                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
                                         <span class="flex-1 truncate text-start">{{ $t('projects.openProject') }}</span>
                                     </NuxtLink>
                                 </template>
@@ -512,42 +531,51 @@
                         </button>
                     </UTooltip>
 
-                    <!-- Model selector -->
+                    <!-- Model selector: search, provider groups, effort -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
-                        <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
-                            <button class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
+                        <UTooltip :text="selectedModelTooltip" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button data-testid="model-picker-button" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md px-2 py-1 text-xs flex items-center max-w-[220px]">
                                 <LLMProviderIcon v-if="selectedModelProvider" :provider="selectedModelProvider" :model="selectedModelLabel" :icon="true" class="w-4 h-4 flex-shrink-0" />
                                 <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                                 <span v-if="!isCompactPrompt" class="ms-1 truncate">{{ selectedModelLabel }}</span>
+                                <span v-if="selectedEffort" data-testid="effort-badge" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 flex-shrink-0">{{ $t(`prompt.effort.levels.${selectedEffort}`) }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
-                            <div class="p-2 text-xs max-h-64 overflow-y-auto w-[220px]">
-                                <!-- Auto (router picks the model) — only when the org router is on -->
-                                <template v-if="routingOn">
-                                    <div class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel('auto'); close(); }">
-                                        <div class="me-2"><Icon name="heroicons-sparkles" class="w-4 h-4 text-gray-400" /></div>
-                                        <div class="flex flex-col flex-1 text-start min-w-0">
-                                            <span class="font-medium">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ $t('prompt.modelAutoHint') }}</span>
-                                        </div>
-                                        <Icon v-if="selectedModel === 'auto'" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-                                    </div>
-                                    <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                </template>
-                                <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
-                                    <div class="me-2">
-                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4" />
-                                    </div>
-                                    <div class="flex flex-col flex-1 text-start min-w-0">
-                                        <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
-                                        <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
-                                    </div>
-                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
-                                </div>
-                            </div>
+                            <ModelPickerPanel
+                                :models="models"
+                                :model-value="selectedModel"
+                                :effort="selectedEffort"
+                                :show-auto="routingOn"
+                                @update:model-value="(v) => selectModel(v || AUTO)"
+                                @update:effort="selectEffort"
+                                @close="close"
+                            />
                         </template>
                     </UPopover>
+
+                    <!-- Voice input (browser speech recognition); hidden when the org
+                         turns it off or the browser has no SpeechRecognition -->
+                    <UTooltip
+                        v-if="showVoiceInput"
+                        :text="isListening ? $t('prompt.voiceInput.stop') : $t('prompt.voiceInput.start')"
+                        :popper="{ strategy: 'fixed', placement: 'top' }"
+                    >
+                        <button
+                            type="button"
+                            data-testid="voice-input-button"
+                            class="w-7 h-7 rounded-full flex items-center justify-center transition-colors ms-1"
+                            :class="isListening
+                                ? 'bg-red-500 text-white hover:bg-red-600 animate-pulse'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                            :aria-pressed="isListening"
+                            :aria-label="isListening ? $t('prompt.voiceInput.stop') : $t('prompt.voiceInput.start')"
+                            :disabled="!!latestInProgressCompletion || isSubmitting"
+                            @click="toggleVoiceInput"
+                        >
+                            <Icon :name="isListening ? 'heroicons-stop-solid' : 'heroicons-microphone'" class="w-4 h-4" />
+                        </button>
+                    </UTooltip>
 
                     <!-- Send / Submitting / Stop -->
                     <button
@@ -574,7 +602,7 @@
                             :disabled="!canSubmit"
                             @click="submit"
                         >
-                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5 rtl-flip" />
+                            <Icon name="heroicons-arrow-up" class="w-3.5 h-3.5" />
                         </button>
                     </UTooltip>
                 </div>
@@ -601,13 +629,16 @@ import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
+import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
+import BackgroundTasksIndicator from '@/components/prompt/BackgroundTasksIndicator.vue'
 import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import { useCan, useCanAny } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
+import { useSpeechToText, speechLangForLocale } from '@/composables/useSpeechToText'
 import { useExcel } from '@/composables/useExcel'
 
 const props = defineProps({
@@ -619,6 +650,9 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
+    // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
+    // drives the background-tasks indicator next to the working counter.
+    backgroundWaves: { type: Array, default: () => [] },
     isStopping: Boolean,
     // Allow fine-tuning alignment if needed later
     popoverOffset: { type: Number, default: 16 },
@@ -645,7 +679,7 @@ const props = defineProps({
     },
     // Scheduled prompts for the pill above input
     scheduledPrompts: {
-        type: Array as () => { id: string; prompt: any; cron_schedule: string; is_active: boolean }[],
+        type: Array as () => { id: string; prompt: any; cron_schedule: string; run_once_at?: string | null; is_active: boolean }[],
         default: () => []
     },
     // Training instructions for the pill above input
@@ -684,10 +718,16 @@ const props = defineProps({
     // component and read back with getProject() instead of moving a report.
     projectSelectable: { type: Boolean, default: false },
     // Initial model to pre-select
-    initialModel: { type: String, default: '' }
+    initialModel: { type: String, default: '' },
+    // Initial reasoning level (report.reasoning_effort); '' = Default
+    initialEffort: { type: String, default: '' },
+    // Save model / effort picks onto the report. Off where the box edits
+    // something else that has its own model (a scheduled task), so
+    // configuring the task never changes the conversation's model.
+    persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged'])
+const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -746,7 +786,7 @@ const pickProject = async (proj: any | null, close: () => void) => {
 // just org admins.
 const canCreateInstructions = computed(() => canManageInstructionsForSelectedAgents.value)
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const toast = useToast()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -779,8 +819,11 @@ const openScheduleModal = () => {
 }
 
 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// One-time tasks carry their instant; the shared label formats it.
+const { getCronLabel: sharedCronLabel } = useCronLabel()
 function getCronLabel(cron: string): string {
     if (!cron) return ''
+    if (cron === '@once') return t('scheduledPrompt.typeOnce')
     const p = cron.split(' ')
     if (p.length < 5) return cron
     const [min, hour, dom, , dow] = p
@@ -844,11 +887,18 @@ watch(isThinking, (active) => {
     }
 }, { immediate: true })
 
+const hasBackgroundTasks = computed(() => ((props.backgroundWaves as any[]) || []).some((w: any) =>
+    ['collecting', 'running', 'firing'].includes(w?.status)
+))
+
 const thinkingElapsedLabel = computed(() => {
     const s = thinkingElapsedSeconds.value
     if (s < 60) return `${s}s`
     return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
 })
+
+// Run is paused on a confirmation card — the agent isn't working, the user is.
+const isAwaitingInput = computed(() => !!(props.latestInProgressCompletion as any)?.awaitingInput)
 
 // "Thinking" until the completion streams its first visible output (the parent
 // passes hasFirstToken on latestInProgressCompletion), then "Working".
@@ -1090,7 +1140,7 @@ const modeIcon = computed(() => {
 // per-data_source `manage` grant implies it, and full_admin bypasses) — mirrors
 // the backend gate in report_service.update_report. A plain member (view only)
 // on the agent is denied even if they manage a different agent.
-const { isTrainingModeEnabled } = useOrgSettings()
+const { isTrainingModeEnabled, isDemoDataEnabled, isVoiceInputEnabled } = useOrgSettings()
 const canManageInstructionsForSelectedAgents = computed(() => {
     const dss = selectedDataSources.value || []
     if (dss.length === 0) {
@@ -1113,6 +1163,14 @@ const selectedModelLabel = computed(() => {
     const model = models.value.find(m => m.id === selectedModel.value)
     return model?.name || t('prompt.selectModel')
 })
+// Reasoning level picked with the model (null = Default). Stored on the report
+// beside model_id and sent with every turn.
+const selectedEffort = ref<string | null>(props.initialEffort || null)
+const selectedModelTooltip = computed(() =>
+    selectedEffort.value
+        ? `${selectedModelLabel.value} · ${t('prompt.effort.title')}: ${t(`prompt.effort.levels.${selectedEffort.value}`)}`
+        : selectedModelLabel.value
+)
 const selectedModelProvider = computed(() => {
     if (selectedModel.value === AUTO) return null
     const model = models.value.find(m => m.id === selectedModel.value)
@@ -1141,7 +1199,7 @@ async function loadModels() {
         await loadRouting()
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
-            // Exclude image-generation models (e.g. gpt-image-1) — not chat models.
+            // Exclude image-generation models (e.g. gpt-image-2.5-sunburst) — not chat models.
             models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
@@ -1152,8 +1210,10 @@ async function loadModels() {
                     // router actually engages (sends model_id=null).
                     selectedModel.value = AUTO
                 } else {
-                // Personal default first, then the org-wide default
-                const defaultModel = models.value.find(m => m.is_user_default) || models.value.find(m => m.is_default)
+                // Personal default first, then the inherited one (group → org), then the org default
+                const defaultModel = models.value.find(m => m.is_user_default)
+                    || models.value.find(m => m.is_inherited_default)
+                    || models.value.find(m => m.is_default)
                 if (defaultModel) {
                     selectedModel.value = defaultModel.id
                 } else {
@@ -1270,7 +1330,7 @@ async function persistModel() {
     // landing page (report_id is empty there). Sends the backend model id;
     // resolution precedence at run time is
     // prompt.model_id > report.model_id > user default > org default.
-    if (!props.report_id) return
+    if (!props.report_id || !props.persistSelection) return
     try {
         await useMyFetch(`/reports/${props.report_id}`, {
             method: 'PUT',
@@ -1281,6 +1341,25 @@ async function persistModel() {
         window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.report_id, kind: 'model' } }))
     } catch (e) {
         console.error('Failed to persist model:', e)
+    }
+}
+
+function selectEffort(effort: string | null) {
+    selectedEffort.value = effort
+    persistEffort()
+}
+
+async function persistEffort() {
+    // Stored beside the report's model override; "" clears back to Default.
+    if (!props.report_id || !props.persistSelection) return
+    try {
+        await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reasoning_effort: selectedEffort.value || '' })
+        })
+    } catch (e) {
+        console.error('Failed to persist reasoning effort:', e)
     }
 }
 
@@ -1350,6 +1429,8 @@ const hasDataSourceOrFile = computed(() => {
         || selectedDataSources.value.length > 0
         || availableDataSources.value.length > 0
         || successfullyUploadedFiles.value.length > 0
+        // A workspace with no data yet can still ask Training for a demo dataset.
+        || (mode.value === 'training' && isDemoDataEnabled.value)
 })
 
 // Note: a running completion no longer blocks submission — submit() routes
@@ -1410,12 +1491,53 @@ function buildSubmitPayload() {
         ],
         mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
+        reasoning_effort: selectedEffort.value,  // null = Default
         files: imageFiles                 // image files for immediate display in chat
     }
 }
 
+// ── Voice input ─────────────────────────────────────────────────────────────
+// One press of the microphone is one "take". Whatever the user had typed
+// before pressing it is kept as a prefix; the live transcript (interim words
+// included) is appended after it so the text updates while they speak. A
+// second press, or the browser ending the session, settles the take; the
+// user still presses Send themselves — nothing is auto-submitted.
+const voiceBaseText = ref('')
+const {
+    isSupported: isVoiceSupported,
+    isListening,
+    start: startVoiceInput,
+    stop: stopVoiceInput,
+    abort: abortVoiceInput,
+} = useSpeechToText({
+    lang: () => speechLangForLocale(locale.value),
+    onTranscript: (transcript) => {
+        const base = voiceBaseText.value
+        text.value = base && transcript ? `${base} ${transcript}` : (base || transcript)
+    },
+    onError: (code) => {
+        const key = code === 'not-allowed' ? 'permissionDenied'
+            : code === 'no-speech' ? 'noSpeech'
+            : code === 'audio-capture' ? 'noMicrophone'
+            : code === 'network' ? 'network'
+            : 'failed'
+        toast.add({ title: t(`prompt.voiceInput.errors.${key}`), color: code === 'no-speech' ? 'orange' : 'red' })
+    },
+})
+const showVoiceInput = computed(() => isVoiceInputEnabled.value && isVoiceSupported.value)
+
+function toggleVoiceInput() {
+    if (isListening.value) {
+        stopVoiceInput()
+        return
+    }
+    voiceBaseText.value = text.value.trim()
+    startVoiceInput()
+}
+
 function submit() {
     if (!canSubmit.value || isSubmitting.value) return
+    if (isListening.value) abortVoiceInput()
 
     // A completion is running: Enter/arrow adds the prompt to the queue
     // instead of starting (or clobbering) a run.
@@ -1692,6 +1814,8 @@ defineExpose({
     // (triggers, saved/scheduled prompts) POST model_id='auto', which the
     // server rejects with "Model not found".
     getModel: () => modelIdForPayload.value,
+    // Reasoning level paired with the model (null = Default).
+    getEffort: () => selectedEffort.value,
     getMentions: () => inlineMentions.value,
     getDataSources: () => selectedDataSources.value,
     // Toggle one agent through the selector itself, so an external picker gets
@@ -1721,6 +1845,13 @@ watch(() => props.initialMode, (newVal) => {
     }
 }, { immediate: true })
 
+// Adopt the report's saved reasoning level when it arrives (same rule as the
+// model below: hydrate the ref directly so it never persists back).
+watch(() => props.initialEffort, (v) => {
+    const next = v || null
+    if (next !== selectedEffort.value) selectedEffort.value = next
+})
+
 // Adopt the report's saved model when it arrives (report data often loads
 // after loadModels() has already picked a user/org default). Only apply a
 // known, enabled model; ignore a stale/absent id so a deleted or restricted
@@ -1747,6 +1878,9 @@ async function createReport() {
         // second time here and drifted from buildSubmitPayload — that is how the
         // model pick came to be dropped on create while mode was persisted.
         const payload = buildSubmitPayload()
+        // Let the draft page show the prompt right away; creating the report
+        // and opening it takes a few round-trips before the answer streams.
+        emit('reportCreating', { text: payload.text, mentions: payload.mentions, files: payload.files })
         // Project context comes from the route (a project page, or the draft
         // page's ?project=), and the picker overrides it once the user has
         // touched it — including a deliberate "No project", which has to clear
@@ -1768,6 +1902,7 @@ async function createReport() {
         // than sending an empty string, which is the update route's "clear it"
         // sentinel and means nothing on create.
         if (payload.model_id) body.model_id = payload.model_id
+        if (payload.reasoning_effort) body.reasoning_effort = payload.reasoning_effort
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id
@@ -1789,26 +1924,30 @@ async function createReport() {
             )
         }
         const data = (response as any)?.data?.value as any
-        if (data?.id) {
-            router.push({
-                path: `/reports/${data.id}`,
-                query: {
-                    new_message: payload.text,
-                    mode: payload.mode,
-                    // Map the 'auto' sentinel back to '' (→ null on the report page)
-                    // so the backend router engages; sending the raw 'auto' string
-                    // is not a real model id and 400s the first completion.
-                    model_id: payload.model_id || '',
-                    mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
-                    // Attached images, so the first user bubble renders its chips
-                    // the way every later turn does. They are already on the
-                    // report (body.files above); this is display only.
-                    ...(payload.files?.length
-                        ? { files: encodeURIComponent(JSON.stringify(payload.files)) }
-                        : {})
-                }
-            })
-        }
+        if (!data?.id) throw new Error(t('prompt.createReportFailed'))
+        // The create response is the same ReportSchema the report page loads,
+        // so hand it over: the page can draw the conversation at once instead
+        // of a "Loading report" spinner while it fetches the row again.
+        useState<any>('bow.createdReport').value = data
+        router.push({
+            path: `/reports/${data.id}`,
+            query: {
+                new_message: payload.text,
+                mode: payload.mode,
+                // Map the 'auto' sentinel back to '' (→ null on the report page)
+                // so the backend router engages; sending the raw 'auto' string
+                // is not a real model id and 400s the first completion.
+                model_id: payload.model_id || '',
+                reasoning_effort: payload.reasoning_effort || '',
+                mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
+                // Attached images, so the first user bubble renders its chips
+                // the way every later turn does. They are already on the
+                // report (body.files above); this is display only.
+                ...(payload.files?.length
+                    ? { files: encodeURIComponent(JSON.stringify(payload.files)) }
+                    : {})
+            }
+        })
         text.value = ''
     } catch (error: any) {
         console.error('Failed to create report:', error)
@@ -1817,6 +1956,7 @@ async function createReport() {
         // not use) just re-arms the send button and shows nothing at all.
         toast.add({ title: error?.message || t('prompt.createReportFailed'), color: 'red' })
         isSubmitting.value = false
+        emit('reportCreateFailed')
     }
 }
 

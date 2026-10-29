@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 # prompt bounded on large dashboards while staying complete for typical ones.
 MAX_CONTEXT_ROWS_PER_VIZ = 100
 
+# artifact_chat_model_id sentinel: "use the organization default model",
+# as opposed to null ("inherit the dashboard's own model").
+ORG_DEFAULT_CHAT_MODEL = 'org_default'
+
 
 class ArtifactChatService:
 
@@ -154,6 +158,20 @@ class ArtifactChatService:
             if str(ds.id) in allowed_ids and DataSourceService.is_execution_live(ds)
         ]
 
+    @staticmethod
+    def chat_model_id(source: Report) -> str | None:
+        """Model pinned on a viewer's chat report.
+
+        artifact_chat_model_id: null = inherit the dashboard's own model;
+        ORG_DEFAULT_CHAT_MODEL = pin nothing, so the organization default
+        resolves at run time (and Auto routing may apply); an id = that model.
+        Access is not checked here — get_default_model_for_report gates it per
+        viewer at run time and falls back silently."""
+        chosen = getattr(source, 'artifact_chat_model_id', None)
+        if chosen == ORG_DEFAULT_CHAT_MODEL:
+            return None
+        return chosen or source.model_id
+
     async def resolve_chat_report(self, db, source: Report, user, agent_ids: list[str]) -> Report:
         """Get-or-create this viewer's chat report and sync its roster.
 
@@ -177,15 +195,25 @@ class ArtifactChatService:
                 status='draft',
                 report_type='artifact_chat',
                 mode='chat',
-                model_id=source.model_id,
+                model_id=self.chat_model_id(source),
                 user_id=str(user.id),
                 organization_id=str(source.organization_id),
                 forked_from_id=str(source.id),
             )
             db.add(chat_report)
             await db.flush()
+        else:
+            # Re-synced every message, like the roster: owner edits to the chat
+            # default model apply on the viewer's next turn.
+            chat_report.model_id = self.chat_model_id(source)
 
-        # Sync roster to the effective set (idempotent).
+        await self.sync_roster(db, chat_report, agent_ids)
+        await db.commit()
+        return chat_report
+
+    @staticmethod
+    async def sync_roster(db, chat_report: Report, agent_ids: list[str]) -> None:
+        """The chat report's agents set to `agent_ids` (idempotent; not committed)."""
         current_rows = (await db.execute(
             select(report_data_source_association.c.data_source_id).where(
                 report_data_source_association.c.report_id == str(chat_report.id)
@@ -202,16 +230,21 @@ class ArtifactChatService:
                 report_data_source_association.c.report_id == str(chat_report.id),
                 report_data_source_association.c.data_source_id.in_(list(current - target)),
             ))
-        await db.commit()
-        return chat_report
 
-    async def build_platform_context(self, db, source: Report, agent_ids: list[str]) -> dict:
+    async def build_platform_context(self, db, source: Report, agent_ids: list[str], viewer=None) -> dict:
         """The artifact-chat platform_context injected into the planner prompt.
 
         Always carries the dashboard's identity; in data-only mode (no agents)
         it also carries the artifact's visualization data — resolved LIVE from
         the source report's latest artifact, never copied, so it is exactly as
         fresh as the dashboard itself.
+
+        The rows are resolved FOR THE VIEWER, through the same
+        viewer_data_policy.resolve_step_data every other reader surface goes
+        through (see the banner on that module). The creator's snapshot is one
+        identity's row slice: injecting it would answer customer A's questions
+        out of customer B's rows, and would do it behind the dashboard, which
+        withholds exactly those rows from the same reader.
         """
         from app.models.artifact import ArtifactVersion
         from app.services.artifact_payload import collect_visualizations
@@ -233,13 +266,14 @@ class ArtifactChatService:
         ctx["artifact_title"] = artifact.title
 
         if not agent_ids:
-            viz_payload = await collect_visualizations(db, artifact)
+            viz_payload = await collect_visualizations(db, artifact, viewer=viewer)
             ctx["visualizations"] = [
                 {
                     "title": v.get("title"),
-                    "columns": v.get("columns") or [],
-                    "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
-                    "total_rows": len(v.get("rows") or []),
+                    "columns": [] if v.get("withheld") else (v.get("columns") or []),
+                    "rows": [] if v.get("withheld") else (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ],
+                    "total_rows": 0 if v.get("withheld") else len(v.get("rows") or []),
+                    "withheld": bool(v.get("withheld")),
                 }
                 for v in viz_payload
             ]

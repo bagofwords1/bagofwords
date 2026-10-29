@@ -58,7 +58,7 @@ class Judge:
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
         usage_context: Optional[UsageLimitContext] = None,
     ) -> None:
-        self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
+        self.llm = LLM(model, reasoning_effort="off", usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
     
     async def judge_test_case(self, test_case_prompt: str, trace: any): 

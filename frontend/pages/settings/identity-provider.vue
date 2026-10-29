@@ -33,7 +33,7 @@
           <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.identityProvider.scimTitle') }}</h2>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.identityProvider.scimSubtitle') }}</p>
         </div>
-        <svg class="w-4 h-4 text-gray-400 transition-transform flex-shrink-0" :class="scimOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="scimOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
         </svg>
       </button>
@@ -71,7 +71,7 @@
               {{ copied === 'url' ? $t('settings.identityProvider.copied') : $t('settings.identityProvider.copy') }}
             </button>
           </div>
-          <p class="text-[11px] text-gray-400 dark:text-gray-400 mt-1">{{ $t('settings.identityProvider.scimBaseUrlHint') }}</p>
+          <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.identityProvider.scimBaseUrlHint') }}</p>
         </div>
 
         <!-- Token Management -->
@@ -105,8 +105,8 @@
               :class="{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }"
             >
               <span class="w-36 flex-shrink-0 text-gray-700 dark:text-gray-300 font-medium truncate">{{ token.name }}</span>
-              <span class="w-36 flex-shrink-0 text-gray-400 dark:text-gray-400 font-mono text-[11px]">{{ token.token_prefix }}...</span>
-              <span class="flex-1 text-gray-400 dark:text-gray-400 text-[11px]">
+              <span class="w-36 flex-shrink-0 text-ink-muted font-mono text-2xs">{{ token.token_prefix }}...</span>
+              <span class="flex-1 text-ink-muted text-2xs">
                 <template v-if="token.last_used_at">
                   {{ $t('settings.identityProvider.lastUsed', { when: formatRelativeTime(token.last_used_at) }) }}
                 </template>
@@ -114,11 +114,11 @@
                   {{ $t('settings.identityProvider.neverUsed') }}
                 </template>
               </span>
-              <span class="w-24 flex-shrink-0 text-gray-400 dark:text-gray-400 text-[11px]">
+              <span class="w-24 flex-shrink-0 text-ink-muted text-2xs">
                 {{ formatRelativeTime(token.created_at) }}
               </span>
               <button
-                class="text-[11px] text-red-500 hover:text-red-700 ms-2"
+                class="text-2xs text-red-500 hover:text-red-700 ms-2"
                 @click="confirmRevoke(token)"
               >
                 {{ $t('settings.identityProvider.revoke') }}
@@ -128,8 +128,8 @@
 
           <!-- Empty State -->
           <div v-else class="py-8 text-center">
-            <p class="text-xs text-gray-400 dark:text-gray-400">{{ $t('settings.identityProvider.noTokens') }}</p>
-            <p class="text-[11px] text-gray-400 dark:text-gray-400 mt-1">{{ $t('settings.identityProvider.noTokensHint') }}</p>
+            <p class="text-xs text-ink-muted">{{ $t('settings.identityProvider.noTokens') }}</p>
+            <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.identityProvider.noTokensHint') }}</p>
           </div>
         </div>
       </template>
@@ -148,7 +148,7 @@
           <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.identityProvider.ldapTitle') }}</h2>
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.identityProvider.ldapSubtitle') }}</p>
         </div>
-        <svg class="w-4 h-4 text-gray-400 transition-transform flex-shrink-0" :class="ldapOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="ldapOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
         </svg>
       </button>
@@ -179,7 +179,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
             </svg>
             <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('settings.identityProvider.ldapNotConfigured') }}</p>
-            <p class="text-[11px] text-gray-400 dark:text-gray-400">{{ $t('settings.identityProvider.ldapNotConfiguredHint') }}</p>
+            <p class="text-2xs text-ink-muted">{{ $t('settings.identityProvider.ldapNotConfiguredHint') }}</p>
           </div>
         </template>
 
@@ -198,13 +198,13 @@
                     {{ ldapTestResult?.connected ? $t('settings.identityProvider.statusConnected') : (ldapTestResult ? $t('settings.identityProvider.statusFailed') : $t('settings.identityProvider.statusNotTested')) }}
                   </span>
                 </div>
-                <p v-if="ldapTestResult?.connected" class="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5 ms-4">
+                <p v-if="ldapTestResult?.connected" class="text-2xs text-ink-muted mt-0.5 ms-4">
                   {{ ldapTestResult.server }}
                   <template v-if="ldapTestResult.vendor"> · {{ ldapTestResult.vendor }}</template>
                   <template v-if="ldapTestResult.user_count !== null"> · {{ ldapTestResult.user_count }} users</template>
                   <template v-if="ldapTestResult.group_count !== null"> · {{ ldapTestResult.group_count }} groups</template>
                 </p>
-                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-[11px] text-red-400 mt-0.5 ms-4">
+                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-2xs text-red-400 mt-0.5 ms-4">
                   {{ ldapTestResult.error }}
                 </p>
               </div>
@@ -223,7 +223,7 @@
             <div class="flex items-center justify-between">
               <div>
                 <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.identityProvider.lastSync') }}</span>
-                <p class="text-[11px] text-gray-400 dark:text-gray-400 mt-0.5">
+                <p class="text-2xs text-ink-muted mt-0.5">
                   {{ ldapStatus.last_sync.timestamp ? formatRelativeTime(ldapStatus.last_sync.timestamp) : $t('settings.identityProvider.unknown') }}
                   {{ $t('settings.identityProvider.lastSyncDetail', {
                     gCreated: ldapStatus.last_sync.groups_created,
@@ -233,7 +233,7 @@
                     mRemoved: ldapStatus.last_sync.memberships_removed,
                   }) }}
                 </p>
-                <p v-if="ldapStatus.last_sync.errors.length" class="text-[11px] text-red-400 mt-0.5">
+                <p v-if="ldapStatus.last_sync.errors.length" class="text-2xs text-red-400 mt-0.5">
                   {{ $t('settings.identityProvider.errorCount', { n: ldapStatus.last_sync.errors.length, first: ldapStatus.last_sync.errors[0] }) }}
                 </p>
               </div>
@@ -296,15 +296,15 @@
                   :class="{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }"
                 >
                   <span class="flex-1 text-gray-700 dark:text-gray-300 truncate" :title="group.dn">{{ group.name }}</span>
-                  <span class="w-20 text-gray-400 dark:text-gray-400 text-[11px]">{{ $t('settings.identityProvider.memberCount', { n: group.member_count }) }}</span>
-                  <span class="w-24 text-[11px]" :class="group.exists_in_app ? 'text-gray-400 dark:text-gray-400' : 'text-blue-500'">
+                  <span class="w-20 text-ink-muted text-2xs">{{ $t('settings.identityProvider.memberCount', { n: group.member_count }) }}</span>
+                  <span class="w-24 text-2xs" :class="group.exists_in_app ? 'text-ink-muted' : 'text-blue-500'">
                     {{ group.exists_in_app ? $t('settings.identityProvider.groupExists') : $t('settings.identityProvider.groupNew') }}
                   </span>
-                  <span v-if="group.members_to_add" class="text-[11px] text-green-600 me-2">+{{ group.members_to_add }}</span>
-                  <span v-if="group.members_to_remove" class="text-[11px] text-red-500">-{{ group.members_to_remove }}</span>
+                  <span v-if="group.members_to_add" class="text-2xs text-green-600 me-2">+{{ group.members_to_add }}</span>
+                  <span v-if="group.members_to_remove" class="text-2xs text-red-500">-{{ group.members_to_remove }}</span>
                 </div>
               </div>
-              <div v-else class="py-4 text-center text-xs text-gray-400 dark:text-gray-400">
+              <div v-else class="py-4 text-center text-xs text-ink-muted">
                 {{ $t('settings.identityProvider.noLdapGroups') }}
               </div>
             </div>
@@ -361,7 +361,7 @@
             </div>
           </div>
           <div class="flex items-center gap-2 mb-3">
-            <code class="flex-1 text-[11px] bg-gray-50 dark:bg-gray-900 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-mono truncate">
+            <code class="flex-1 text-2xs bg-gray-50 dark:bg-gray-900 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-mono truncate">
               {{ createdToken }}
             </code>
             <button

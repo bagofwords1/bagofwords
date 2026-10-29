@@ -160,9 +160,13 @@ class ProjectAutomationItem(BaseModel):
     id: str
     kind: Literal["task", "refresh", "trigger"]
     report_id: Optional[str] = None
+    # A dashboard's schedule: the dashboard (its conversation may be gone).
+    dashboard_id: Optional[str] = None
     report_title: Optional[str] = None
     label: str
     cron_schedule: str = ""
+    # Set for a one-time task; its cron_schedule is then a placeholder.
+    run_once_at: Optional[datetime] = None
     is_active: bool = True
 
 

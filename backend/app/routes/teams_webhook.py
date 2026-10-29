@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
@@ -99,9 +100,10 @@ async def teams_webhook(
 
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"TEAMS: Error in webhook: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        # Unauthenticated caller: log the detail, return nothing about it.
+        logging.getLogger(__name__).exception("Teams: Error in webhook")
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
 
 
 async def find_platform_by_tenant_id(db: AsyncSession, tenant_id: str) -> ExternalPlatform:

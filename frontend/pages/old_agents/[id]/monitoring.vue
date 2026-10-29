@@ -26,7 +26,7 @@
                     <div class="text-sm text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
                         {{ $t('monitoring.diagnosis.cardInstructionCoverage') }}
                         <UTooltip :text="isJudgeEnabled ? $t('monitoring.diagnosis.judgeEnabledTooltip') : $t('monitoring.diagnosis.judgeDisabledTooltip')">
-                            <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 text-gray-400" />
+                            <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 text-ink-muted" />
                         </UTooltip>
                     </div>
                 </div>
@@ -108,8 +108,8 @@
                                 <td class="px-6 py-4">
                                     <div class="flex flex-wrap gap-1 max-w-xs">
                                         <span v-for="(title, idx) in item.step_titles || []" :key="idx"
-                                            class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]">{{ title }}</span>
-                                        <span v-if="!(item.step_titles || []).length" class="text-gray-400">{{ $t('monitoring.diagnosis.none') }}</span>
+                                            class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-2xs">{{ title }}</span>
+                                        <span v-if="!(item.step_titles || []).length" class="text-ink-muted">{{ $t('monitoring.diagnosis.none') }}</span>
                                     </div>
                                 </td>
                                 <td class="px-6 py-4">
@@ -136,7 +136,7 @@
                                     <NuxtLink v-if="item.report_link" :to="item.report_link" class="text-blue-600 hover:underline" @click.stop>
                                         {{ item.report_name || item.report_id }}
                                     </NuxtLink>
-                                    <span v-else class="text-gray-400">—</span>
+                                    <span v-else class="text-ink-muted">—</span>
                                 </td>
                                 <td class="px-6 py-4 text-gray-700 dark:text-gray-300">{{ item.user_name || '—' }}</td>
                                 <td class="px-6 py-4 text-gray-500 dark:text-gray-400">{{ formatDate(item.created_at) }}</td>

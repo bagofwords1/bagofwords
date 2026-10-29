@@ -24,6 +24,15 @@ args, _ = parser.parse_known_args()
 if args.config:
     os.environ['BOW_CONFIG_PATH'] = args.config
 
+# Process-wide TLS verification policy. Must run after --config is exported
+# above (settings are built on first import) and before any other app import:
+# aiohttp (pulled in by the route modules) builds and caches its SSL context
+# at import, and the shared httpx context is cached on first use. Loading
+# settings here imports nothing that builds a context.
+from app.settings.config import settings
+from app.core.tls import configure_process_tls
+configure_process_tls(strict_x509=settings.bow_config.security.tls_strict_x509)
+
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
@@ -39,6 +48,12 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler, try_acquire_scheduler_leader
 from app.core.spa import mount_spa
+from app.core.swagger import mount_swagger_ui
+from app.core.request_hardening import (
+    ControlCharGuardMiddleware,
+    traceback_pages_enabled,
+    validate_id_path_params,
+)
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
@@ -50,11 +65,11 @@ from app.core.otel import setup_telemetry, instrument_app
 from app.ee.audit.tool_audit import start_tool_audit_worker, stop_tool_audit_worker
 
 from app.routes import (
+    dashboard,
     report,
     artifact_chat,
     project,
     test,
-    widget,
     query,
     visualization,
     entity,
@@ -68,8 +83,8 @@ from app.routes import (
     review,
     notification,
     demo_data_source,
-    text_widget,
     user_profile,
+    user_memory,
     llm,
     git,
     organization_settings,
@@ -108,6 +123,7 @@ from app.routes import (
     agent_yaml,
     eval_yaml,
     data_source_tools,
+    agent_lists,
     changelog,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
@@ -128,14 +144,18 @@ google_client_secret = settings.bow_config.google_oauth.client_secret
 swagger_enabled = settings.bow_config.swagger.enabled
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    debug=settings.DEBUG,
-    docs_url="/swagger" if swagger_enabled else None,
+    # Traceback pages are opt-in only (see Settings.DEBUG_TRACEBACKS); with
+    # debug off, unhandled errors go to the sanitized handler in app.errors.
+    debug=traceback_pages_enabled(settings),
+    dependencies=[Depends(validate_id_path_params)],
+    # /swagger is mounted below by mount_swagger_ui so it can use vendored
+    # assets instead of the CDN (air-gapped deployments).
+    docs_url=None,
     redoc_url=None,
     openapi_url="/openapi.json" if swagger_enabled else None,
     openapi_tags=[
         {"name": "auth", "description": "Authentication operations"},
         {"name": "reports", "description": "Report management"},
-        {"name": "widgets", "description": "Widget operations"},
         {"name": "data_sources", "description": "Data source management"},
         {"name": "organizations", "description": "Organization management"},
         {"name": "users", "description": "User management"},
@@ -148,6 +168,8 @@ app = FastAPI(
     ],
     swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
+if swagger_enabled:
+    mount_swagger_ui(app)
 
 # Instrument FastAPI with OpenTelemetry
 instrument_app(app, settings.bow_config.otel)
@@ -194,6 +216,7 @@ fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_provi
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
+app.include_router(user_memory.router, prefix="/api")
 
 # Determine auth mode
 auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
@@ -258,11 +281,13 @@ app.include_router(review.router, prefix="/api")
 app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(artifact_chat.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
+from app.routes import dashboard_collab as _dashboard_collab_routes  # noqa: E402
+app.include_router(_dashboard_collab_routes.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
-app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(visualization.router, prefix="/api")
 app.include_router(entity.router, prefix="/api")
@@ -273,7 +298,6 @@ app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
-app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
@@ -304,10 +328,13 @@ app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
+app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+from app.routes import artifact_resources
+app.include_router(artifact_resources.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
@@ -424,6 +451,17 @@ async def startup_event():
         # failure must not make an otherwise healthy web worker unavailable.
         logger.exception("Agent runtime warmup failed; continuing startup")
 
+    # With BOW_SANDBOX_REQUIRE_LANDLOCK (the production default) the code
+    # sandbox refuses to run on a host without the kernel confinement it
+    # needs. Say so once, at startup, instead of through every user request.
+    try:
+        from app.ai.code_execution.sandbox.runner import CONFINEMENT_REMEDY, required_confinement_problem
+        problem = required_confinement_problem()
+        if problem:
+            logger.error(f"Code execution is disabled on this host: {problem}. {CONFINEMENT_REMEDY}")
+    except Exception:
+        logger.exception("Code sandbox confinement check failed; continuing startup")
+
     await start_tool_audit_worker()
 
     # Index historical agent runs for the diagnosis explorer in the background
@@ -455,6 +493,19 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
+    # Tool-audit events that could not reach the database before a previous
+    # shutdown were spilled to disk; put them into audit_logs now. Leader-only
+    # so a multi-worker start does not race the same files (each file is also
+    # claimed by atomic rename). Background task: a large spill never delays
+    # serving.
+    if is_scheduler_leader:
+        try:
+            import asyncio as _asyncio
+            from app.ee.audit.tool_audit import replay_spilled_tool_audit_events
+            app.state.tool_audit_replay_task = _asyncio.create_task(replay_spilled_tool_audit_events())
+        except Exception as e:
+            logger.error(f"Failed to start tool audit spill replay: {e}")
+
     # Organizations created before a pre-built skill was flagged
     # default_enabled get it installed once, here. Leader-only so multiple
     # workers do not race the same check-then-install; a background task so a
@@ -485,6 +536,61 @@ async def startup_event():
             logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
+        # A dashboard's refresh history keeps 30 days (refhist01).
+        try:
+            from app.services.dashboard_refresh_history import purge_old_runs
+            scheduler.add_job(
+                purge_old_runs,
+                trigger="cron",
+                hour=3,
+                minute=30,
+                id="purge_dashboard_refresh_runs_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_old_runs (dashboard refresh history) @ 03:30 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule refresh history purge job: {e}")
+
+    # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
+    if is_scheduler_leader:
+        try:
+            from app.services.checkin_service import sweep_stale_checkins
+            scheduler.add_job(
+                sweep_stale_checkins,
+                trigger="interval",
+                hours=1,
+                id="checkin_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: checkin_stale_sweep every 1 hour")
+        except Exception as e:
+            logger.error(f"Failed to schedule check-in stale sweep: {e}")
+
+    # Overnight learning: hourly sweep that runs the nightly user dreams
+    # (01:00-03:00 org-local) and agent dreams (03:00-05:00 org-local).
+    # Leader-only; each unit runs at most once per org-local night.
+    if is_scheduler_leader:
+        try:
+            from app.services.dreams.runtime import overnight_sweep
+            scheduler.add_job(
+                overnight_sweep,
+                trigger="interval",
+                hours=1,
+                id="overnight_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: overnight_sweep every 1 hour")
+        except Exception as e:
+            logger.warning(f"Failed to schedule overnight_sweep: {e}")
 
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
@@ -560,6 +666,46 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule schema reindex sweep job: {e}")
 
+    # Tool-audit spill files left by a database outage: replay them while the
+    # service runs, not only at startup. Every worker's scheduler fires it
+    # (shared job store); files are claimed by atomic rename, so that is safe.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.tool_audit import scheduled_spill_replay
+            scheduler.add_job(
+                scheduled_spill_replay,
+                trigger="interval",
+                seconds=60,
+                id="tool_audit_spill_replay",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: tool_audit_spill_replay every 60 seconds")
+        except Exception as e:
+            logger.error(f"Failed to schedule tool audit spill replay job: {e}")
+
+    # Audit log streams: deliver new audit events to each org's SIEM/bucket.
+    # Leader-only; each stream is additionally claimed with a row lease so
+    # multiple hosts never double-send. No-ops without the license feature.
+    if is_scheduler_leader:
+        try:
+            from app.ee.audit.streams.exporter import scheduled_export_tick
+            scheduler.add_job(
+                scheduled_export_tick,
+                trigger="interval",
+                seconds=int(os.environ.get("BOW_AUDIT_STREAM_INTERVAL_SECONDS", "15")),
+                id="audit_stream_export",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=60,
+            )
+            logger.info("Scheduled job: audit_stream_export")
+        except Exception as e:
+            logger.error(f"Failed to schedule audit stream export job: {e}")
+
     # Background connection-status refresher: re-tests system_only connections
     # whose cached status is stale past the TTL (~5 min). Read endpoints serve
     # the cached status and never live-test — this job is what keeps the
@@ -579,6 +725,27 @@ async def startup_event():
             logger.info("Scheduled job: connection_status_sweep every 5 minutes")
         except Exception as e:
             logger.error(f"Failed to schedule connection status sweep job: {e}")
+
+    # Diagnosis rollup sweep: the startup pass runs once per process, but runs
+    # keep becoming pending afterwards (a run orphaned by a restart turns stale
+    # an hour later). This indexes them without waiting for the next restart.
+    if is_scheduler_leader:
+        try:
+            from app.services.diagnosis.sweep import SCHEDULE_MINUTES, SCHEDULED_JOB_ID, enabled, scheduled_sweep
+            if enabled():
+                scheduler.add_job(
+                    scheduled_sweep,
+                    trigger="interval",
+                    minutes=SCHEDULE_MINUTES,
+                    id=SCHEDULED_JOB_ID,
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                    misfire_grace_time=SCHEDULE_MINUTES * 60,
+                )
+                logger.info(f"Scheduled job: {SCHEDULED_JOB_ID} every {SCHEDULE_MINUTES} minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule diagnosis rollup sweep job: {e}")
 
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
@@ -605,10 +772,28 @@ async def startup_event():
     scheduler.start()
 
     if is_scheduler_leader:
-        # Re-register scheduled prompt jobs (only the leader flushes these to
-        # the jobstore; non-leaders would duplicate the set).
+        # Re-register scheduled prompt jobs and move dashboard refresh jobs onto
+        # their org timezone (only the leader flushes these to the jobstore;
+        # non-leaders would duplicate the set).
         from app.services.scheduled_prompt_service import scheduled_prompt_service
         await scheduled_prompt_service.register_all_jobs()
+        # Best effort: a failure here must not stop the app from starting.
+        try:
+            from app.services.report_service import ReportService
+            await ReportService().register_schedule_timezones()
+        except Exception as e:
+            logger.error(f"Failed to move dashboard refresh jobs to their org timezone: {e}")
+        # Published dashboards' schedules (phase 6), rebuilt from the table.
+        try:
+            from app.services.dashboard_refresh import register_all_jobs as register_dashboard_jobs
+            await register_dashboard_jobs()
+        except Exception:
+            logger.warning("Dashboard schedules were not registered", exc_info=True)
+        # And kept: a server on an older version (a rolling upgrade) drops the
+        # jobs it cannot load; the leader puts missing ones back.
+        import asyncio as _asyncio_keep
+        from app.services.dashboard_refresh import keep_jobs as keep_dashboard_jobs
+        app.state.dashboard_jobs_task = _asyncio_keep.create_task(keep_dashboard_jobs())
 
     # Inbound email polling. Email has no native webhook, so the leader worker
     # polls each org's analyst mailbox (IMAP) and routes authentic messages to
@@ -712,6 +897,9 @@ Starting server with configuration:
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_tool_audit_worker()
+    dashboard_jobs_task = getattr(app.state, "dashboard_jobs_task", None)
+    if dashboard_jobs_task is not None:
+        dashboard_jobs_task.cancel()
     stop_event = getattr(app.state, "email_poller_stop", None)
     if stop_event is not None:
         stop_event.set()
@@ -760,3 +948,12 @@ if __name__ == "__main__":
         reload_excludes=["uploads/*", "**/uploads/*", "*.parquet", "*.pbix", "*.qvd"],
         workers=20
     )
+
+# Bound new resource payloads without changing legacy upload contracts.
+from app.services.artifact_body_limit import ArtifactBodyLimit
+app.add_middleware(ArtifactBodyLimit)
+# Site-wide security headers (fills gaps; route-set headers win).
+from app.core.security_headers import SecurityHeadersMiddleware
+app.add_middleware(SecurityHeadersMiddleware)
+# Outermost: reject control characters in the URL before any routing.
+app.add_middleware(ControlCharGuardMiddleware)

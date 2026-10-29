@@ -220,7 +220,7 @@ class UserManager(BaseUserManager[User, str]):
             from app.dependencies import async_session_maker
             async with async_session_maker() as session:
                 await session.execute(
-                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc))
+                    update(User).where(User.id == str(user.id)).values(last_login=datetime.now(timezone.utc).replace(tzinfo=None))
                 )
                 await session.commit()
         except Exception:
@@ -322,7 +322,8 @@ class UserManager(BaseUserManager[User, str]):
             except Exception:
                 pass
 
-    async def _materialize_pending_rbac(self, session: AsyncSession, membership: Membership, user_id: str) -> None:
+    @staticmethod
+    async def _materialize_pending_rbac(session: AsyncSession, membership: Membership, user_id: str) -> None:
         """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
 
         An org admin can pre-assign roles and groups to an invite before the
@@ -703,7 +704,7 @@ class UserManager(BaseUserManager[User, str]):
     async def on_after_reset_password(self, user: User, request: Optional[Request] = None):
         # A password reset is the one moment where the old sessions are most
         # likely the attacker's, so they must not survive it.
-        await bump_session_epoch(user.id)
+        await revoke_all_user_sessions(user.id)
 
     async def on_after_update(
         self,
@@ -714,7 +715,7 @@ class UserManager(BaseUserManager[User, str]):
         # Same reasoning for a self-service password change. Other profile
         # edits (name, avatar) leave sessions alone.
         if "password" in update_dict or "hashed_password" in update_dict:
-            await bump_session_epoch(user.id)
+            await revoke_all_user_sessions(user.id)
 
     async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
         base_url = settings.bow_config.base_url
@@ -1054,6 +1055,19 @@ async def bump_session_epoch(user_id: str) -> None:
         await db.commit()
 
 
+async def revoke_all_user_sessions(user_id: str) -> None:
+    """Bump the session epoch and revoke issued OAuth codes/bearer tokens.
+
+    Used on password change/reset: OAuth access tokens are validated by hash,
+    not by session epoch, so bumping the epoch alone leaves them working.
+    """
+    from app.core.session_revocation import revoke_user_sessions
+    from app.dependencies import async_session_maker
+
+    async with async_session_maker() as db:
+        await revoke_user_sessions(db, user_id)
+
+
 class SessionEpochJWTStrategy(JWTStrategy):
     """JWTStrategy that makes its tokens revocable.
 
@@ -1072,6 +1086,7 @@ class SessionEpochJWTStrategy(JWTStrategy):
         from fastapi_users.jwt import generate_jwt
 
         data = {
+            "saml_identity": getattr(user, "_saml_identity_hash", None),
             "sub": str(user.id),
             "aud": self.token_audience,
             SESSION_EPOCH_CLAIM: _session_epoch_of(user),
@@ -1101,6 +1116,28 @@ class SessionEpochJWTStrategy(JWTStrategy):
                 user.id,
             )
             return None
+
+        if claims.get("saml_identity"):
+            from app.models.saml import SAMLIdentity
+            async with user_manager.user_db.session as session:
+                identity = (await session.execute(select(SAMLIdentity).where(
+                    SAMLIdentity.identity_hash == claims["saml_identity"],
+                    SAMLIdentity.user_id == user.id, SAMLIdentity.deleted_at.is_(None),
+                ))).scalar_one_or_none()
+                if identity is None:
+                    return None
+                cfg = next((p for p in settings.bow_config.saml_providers
+                            if p.enabled and p.name == identity.provider
+                            and p.organization_id == identity.organization_id), None)
+                if cfg is None:
+                    return None
+                member = (await session.execute(select(Membership.id).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == identity.organization_id,
+                    Membership.deleted_at.is_(None),
+                ))).first()
+                if member is None:
+                    return None
 
         if user.ldap_subject:
             if claims.get("directory_subject") != user.ldap_subject or not settings.bow_config.ldap.enabled:
@@ -1172,6 +1209,23 @@ async def _update_last_seen(user: User, db: AsyncSession) -> None:
         await db.commit()
     except Exception:
         pass
+
+
+async def current_session_user(
+    jwt_user: Optional[User] = Depends(_jwt_current_user),
+) -> User:
+    """Interactive login session only: no OAuth bearer tokens, no API keys.
+
+    For endpoints that grant authority (OAuth consent). A delegated credential
+    must never be able to mint itself, or another client, a new grant.
+    """
+    if jwt_user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="An interactive login session is required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return jwt_user
 
 
 async def current_user(

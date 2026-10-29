@@ -268,7 +268,7 @@
                                     <Icon name="heroicons:chevron-right" class="w-3" />
                                 </span>
                                 Custom headers
-                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                             </button>
                             <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                 <div>
@@ -500,7 +500,7 @@
                                     <div class="mt-3">
                                         <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Account Key JSON <span class="text-red-500">*</span></label>
                                         <textarea v-model="providerForm.credentials.service_account_json" rows="5"
-                                            placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
+                                            placeholder='Paste the service-account JSON key (project_id, private_key, ...)'
                                             class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500"></textarea>
                                         <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Paste the whole key file. Needs the <span class="font-mono">roles/aiplatform.user</span> role. Project ID is taken from the key if left blank above.</p>
                                     </div>
@@ -637,7 +637,7 @@
                                         <Icon name="heroicons:chevron-right" class="w-3" />
                                     </span>
                                     Custom headers
-                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-ink-muted">({{ headerRows.length + forwardRows.length }})</span>
                                 </button>
                                 <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
                                     <div>
@@ -815,7 +815,7 @@
                         <UButton
                             type="submit"
                             :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"
-                            class="!bg-blue-500 !text-white"
+                            class="!bg-blue-600 !text-white"
                             @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
                         />
                     </div>
@@ -947,6 +947,7 @@ const FORWARD_KINDS = [
     { value: 'user.id', label: 'User ID' },
     { value: 'membership.role', label: 'Org role' },
     { value: 'membership.attr', label: 'Profile attribute' },
+    { value: 'agent.name', label: 'Agent name' },
     { value: 'static', label: 'Static value' },
 ];
 
@@ -1042,7 +1043,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection'].includes(f.key));
+    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection', 'prompt_cache_markers'].includes(f.key));
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }

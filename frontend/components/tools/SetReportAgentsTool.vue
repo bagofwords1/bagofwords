@@ -1,7 +1,7 @@
 <template>
   <div class="mt-1 text-xs">
     <div class="flex items-center text-gray-700 dark:text-gray-300">
-      <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-gray-400 flex-shrink-0" />
+      <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
       <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
       <!-- The status row talks about AGENTS (the report's context), so it
@@ -10,7 +10,7 @@
       <span v-else-if="names.length" class="flex items-center min-w-0">
         <span class="flex-shrink-0">{{ addedNames.length ? 'Added' : 'Focused on' }}</span>
         <span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0">
-          <Icon name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+          <Icon name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
           <span class="font-medium truncate">{{ n }}</span>
         </span>
         <span v-if="addedNames.length" class="ms-1 flex-shrink-0">to the report</span>
@@ -48,7 +48,7 @@
           >Deny</button>
         </span>
       </div>
-      <div v-if="confReason" class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500 truncate">{{ confReason }}</div>
+      <div v-if="confReason" class="mt-0.5 text-2xs text-ink-muted truncate">{{ confReason }}</div>
     </div>
   </div>
 </template>
@@ -106,6 +106,8 @@ const showApprovalCard = computed(() =>
   status.value === 'running' &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
 
+const { markConfirmationAnswered } = useToolConfirmations()
+
 async function respond(approvedChoice: boolean) {
   const cid = confirmation.value?.confirmation_id
   if (!cid || !props.systemCompletionId || responding.value) return
@@ -117,6 +119,7 @@ async function respond(approvedChoice: boolean) {
       body: JSON.stringify({ approved: approvedChoice, remember: false }),
     })
     responded.value = true
+    markConfirmationAnswered(cid)
   } catch (e) {
     console.error('agent approval respond failed', e)
   } finally {

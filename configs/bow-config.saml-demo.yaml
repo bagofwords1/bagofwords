@@ -1,0 +1,60 @@
+# Local HTTPS demo for generic SAML 2.0 SSO. See docs/guides/saml-sso.md.
+# Start with saml_providers: [] to create the sandbox organization; then set
+# BOW_SAML_ORGANIZATION_ID and restart with this configuration.
+deployment:
+  type: self_hosted
+base_url: https://localhost:3000
+database:
+  url: ${BOW_DATABASE_URL}
+encryption_key: ${BOW_ENCRYPTION_KEY}
+auth:
+  mode: hybrid
+features:
+  allow_uninvited_signups: false
+  allow_multiple_organizations: false
+  verify_emails: false
+google_oauth:
+  enabled: false
+oidc_providers: []
+saml_providers:
+  - name: entra-saml
+    enabled: true
+    label: BOW SAML Demo
+    organization_id: ${BOW_SAML_ORGANIZATION_ID}
+    idp:
+      metadata_url: https://login.microsoftonline.com/3871cb7e-3f16-4b81-84c5-1a5e185509f9/federationmetadata/2007-06/federationmetadata.xml?appid=f09cf056-7f84-4ad0-8e2b-947d732d44fb
+      entity_id: https://sts.windows.net/3871cb7e-3f16-4b81-84c5-1a5e185509f9/
+    sp:
+      entity_id: https://localhost:3000/saml/entra-saml
+    attributes:
+      subject: name_id
+      # Demo directory users have no mail value; the name claim contains
+      # their email-shaped UPN. Production should map a populated email claim.
+      email: http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name
+      name: http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name
+    # Demo only: any user assigned to this IdP app may become a member of the
+    # configured BOW organization. Production should normally use invitations.
+    auto_provision_users: true
+# Another provider uses the same engine, for example:
+# - name: company-sso
+#   enabled: true
+#   label: Company SSO
+#   organization_id: ${BOW_SAML_ORGANIZATION_ID}
+#   idp:
+#     metadata_file: /etc/bow/company-idp.xml
+#   attributes:
+#     subject: name_id
+#     email: mail
+#     name: displayName
+#   auto_provision_users: false
+smtp_settings:
+  host: localhost
+  port: 1025
+  use_tls: false
+  use_credentials: false
+intercom:
+  enabled: false
+telemetry:
+  enabled: false
+swagger:
+  enabled: true

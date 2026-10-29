@@ -13,7 +13,7 @@
       <div class="space-y-5 max-h-[68vh] overflow-auto pe-1">
         <!-- Section 1: Prompt -->
         <section>
-          <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
+          <div class="text-2xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
             {{ $t('prompts.sectionPrompt') }}
           </div>
           <input
@@ -31,10 +31,10 @@
             />
           </div>
           <div class="flex items-center justify-between mt-1.5">
-            <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('prompts.insertParamHint') }}</span>
+            <span class="text-2xs text-ink-muted">{{ $t('prompts.insertParamHint') }}</span>
             <button
               type="button"
-              class="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-600"
+              class="inline-flex items-center gap-1 text-2xs text-blue-500 hover:text-blue-600"
               @click="insertParameterPrompt"
             >
               <UIcon name="heroicons-plus" class="w-3 h-3" />
@@ -43,18 +43,18 @@
           </div>
           <!-- Detected parameters (read-only, derived from {{name}} placeholders) -->
           <div v-if="detectedParams.length" class="flex flex-wrap items-center gap-1.5 mt-2">
-            <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('prompts.detectedParams') }}</span>
+            <span class="text-2xs text-ink-muted">{{ $t('prompts.detectedParams') }}</span>
             <code
               v-for="n in detectedParams"
               :key="n"
-              class="text-[11px] text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded px-1 py-0.5"
+              class="text-2xs text-indigo-500 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 rounded px-1 py-0.5"
             >{{ placeholder(n) }}</code>
           </div>
         </section>
 
         <!-- Section 2: Audience -->
         <section>
-          <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">
+          <div class="text-2xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
             {{ $t('prompts.sectionAudience') }}
           </div>
 
@@ -63,7 +63,7 @@
               v-for="opt in audienceOptions"
               :key="opt.value"
               type="button"
-              class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] rounded transition-colors"
+              class="inline-flex items-center gap-1 px-2.5 py-1 text-2xs rounded transition-colors"
               :class="audience === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
               @click="audience = opt.value"
             >
@@ -75,8 +75,8 @@
           <!-- Agents: explicit multiselect — always shows the agent name(s) by
                name (DataSourceIcon + name). Never collapses to "Auto". -->
           <div v-if="audience === 'agent'">
-            <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.selectAgents') }}</div>
-            <div v-if="!manageableAgents.length" class="text-[11px] text-gray-400">{{ $t('prompts.noManageableAgents') }}</div>
+            <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.selectAgents') }}</div>
+            <div v-if="!manageableAgents.length" class="text-2xs text-ink-muted">{{ $t('prompts.noManageableAgents') }}</div>
             <template v-else>
               <USelectMenu
                 v-model="agentIds"
@@ -90,7 +90,7 @@
                 :ui="{ option: { base: 'text-xs py-1.5' } }"
               >
                 <template #label>
-                  <span v-if="!agentIds.length" class="text-gray-400">{{ $t('prompts.selectAgentsPlaceholder') }}</span>
+                  <span v-if="!agentIds.length" class="text-ink-muted">{{ $t('prompts.selectAgentsPlaceholder') }}</span>
                   <span v-else class="text-xs truncate">{{ $t('prompts.nAgentsSelected', { n: agentIds.length }) }}</span>
                 </template>
                 <template #option="{ option }">
@@ -104,7 +104,7 @@
                 <span
                   v-for="a in selectedAgentChips"
                   :key="a.id"
-                  class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
+                  class="inline-flex items-center gap-1 text-2xs px-2 py-1 rounded border border-violet-200 dark:border-violet-900 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-900/20"
                 >
                   <DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="h-3 w-auto" />
                   {{ a.name }}
@@ -116,15 +116,15 @@
             </template>
           </div>
 
-          <p v-if="audience === 'global'" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('prompts.globalHint') }}</p>
-          <p v-if="audience === 'private'" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('prompts.privateHint') }}</p>
+          <p v-if="audience === 'global'" class="text-2xs text-ink-muted">{{ $t('prompts.globalHint') }}</p>
+          <p v-if="audience === 'private'" class="text-2xs text-ink-muted">{{ $t('prompts.privateHint') }}</p>
         </section>
 
         <!-- Section 3: Advanced (collapsed) — mode + model selectors -->
         <section>
           <button
             type="button"
-            class="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2"
+            class="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wide text-ink-muted mb-2"
             @click="showAdvanced = !showAdvanced"
           >
             <UIcon :name="showAdvanced ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3.5 h-3.5" />
@@ -133,14 +133,14 @@
 
           <div v-if="showAdvanced" class="flex items-center gap-2">
             <ModeSelector v-model="form.mode" :dataSourceIds="agentIds" />
-            <ModelSelector v-model="form.model_id" />
+            <ModelSelector v-model="form.model_id" v-model:effort="form.reasoning_effort" />
           </div>
         </section>
       </div>
 
       <template #footer>
         <div class="flex items-center justify-between gap-2">
-          <span v-if="errorMsg" class="text-[11px] text-red-500">{{ errorMsg }}</span>
+          <span v-if="errorMsg" class="text-2xs text-red-500">{{ errorMsg }}</span>
           <span v-else />
           <div class="flex justify-end gap-2">
             <UButton color="gray" variant="ghost" size="xs" @click="isOpen = false">{{ $t('prompts.cancel') }}</UButton>
@@ -197,6 +197,7 @@ const form = reactive({
   text: '' as string,
   mode: 'chat' as string,
   model_id: null as string | null,
+  reasoning_effort: null as string | null,
 })
 
 // Audience is a single explicit choice. 'agent' uses an explicit multiselect.
@@ -252,6 +253,7 @@ function seed() {
   form.text = p?.text || ''
   form.mode = p?.mode || 'chat'
   form.model_id = p?.model_id || null
+  form.reasoning_effort = p?.reasoning_effort || null
   mentionGroups.value = (p?.mentions as any[]) || []
   errorMsg.value = ''
 
@@ -307,6 +309,7 @@ async function save() {
       text: form.text,
       mode: form.mode,
       model_id: form.model_id || null,
+      reasoning_effort: form.reasoning_effort || null,
       mentions: mentionGroups.value.length ? mentionGroups.value : null,
       // No parameter schema is sent — params are bare {{name}} placeholders
       // derived from the text at run time. The backend column stays dormant.

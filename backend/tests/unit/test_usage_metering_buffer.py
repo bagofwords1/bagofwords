@@ -38,6 +38,8 @@ from app.services.usage_policy_service import (
     UsageLimitExceeded,
 )
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
 
 async def _seed_org_user(db):
     org = Organization(name=f"Org-{uuid.uuid4().hex[:8]}")

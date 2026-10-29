@@ -65,6 +65,11 @@ services:
       # - BOW_SMTP_PASSWORD=${BOW_SMTP_PASSWORD:-}
       # Config path
       - BOW_CONFIG_PATH=/app/bow-config.yaml
+      # Trust X-Forwarded-For from Caddy so per-visitor limits see real client
+      # IPs. Safe only because this service is `expose`d, never published:
+      # Caddy is its only HTTP peer and overwrites any client-sent header.
+      # Narrow it (or set 127.0.0.1) if you publish port 3000 directly.
+      - FORWARDED_ALLOW_IPS=${FORWARDED_ALLOW_IPS:-*}
     volumes:
       - ./bow-config.yaml:/app/bow-config.yaml:ro
       - uploads_data:/app/backend/uploads

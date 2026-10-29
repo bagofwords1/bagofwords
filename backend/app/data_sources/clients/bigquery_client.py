@@ -6,6 +6,7 @@ import os
 import pandas as pd
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from app.core.egress import check_google_token_uri
 from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
@@ -61,14 +62,22 @@ class BigqueryClient(DataSourceClient):
                 info = json.loads(self.credentials_json)
                 if not isinstance(info, dict):
                     raise ValueError("Parsed credentials JSON is not an object")
-                self.credentials = service_account.Credentials.from_service_account_info(info)
             except (json.JSONDecodeError, ValueError):
+                info = None
+            if info is not None:
+                # token_uri is where google-auth POSTs the signed assertion.
+                check_google_token_uri(info)
+                self.credentials = service_account.Credentials.from_service_account_info(info)
+            else:
                 # Fall back to treating the string as a file path on the server
                 if not os.path.isfile(self.credentials_json):
                     raise ValueError(
                         "Provided BigQuery credentials are neither valid JSON content nor a readable server file path."
                     )
-                self.credentials = service_account.Credentials.from_service_account_file(self.credentials_json)
+                with open(self.credentials_json) as fh:
+                    info = json.load(fh)
+                check_google_token_uri(info)
+                self.credentials = service_account.Credentials.from_service_account_info(info)
         elif self.credentials_json is None:
             raise ValueError("Either access_token or credentials_json must be provided")
         else:

@@ -554,9 +554,10 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<SectionCard>` — same theming props as KPICard. `className` replaces defaults.
 - `<FilterSelect>` — portaled dropdown. `className` replaces default theme. Built-in search at 8+ options.
 - `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
+- `<FilterSearch onChange>` receives the typed text (a string), not an event: `onChange={{setQuery}}`.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
-- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{vizById("<uuid>")}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{vizById("<uuid>")}}`. When an edit touches an existing card that lacks it, add it too. If the card renders FILTERED rows (`filterRows(vizById("<uuid>").rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element with `data-bow-viz="N"` (index in data.visualizations order) and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.
+- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{vizById("<uuid>")}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{vizById("<uuid>")}}`. When an edit touches an existing card that lacks it, add it too. If the card renders FILTERED rows (`filterRows(vizById("<uuid>").rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element (the card, tile, chart or table container — never a label or short inline text) with `data-bow-viz="N"` (index in data.visualizations order) and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.
 
 DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
 Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.
@@ -709,8 +710,11 @@ Deck rules that still apply to an edit:
   category_axis/value_axis tick_labels) or they render near-black and vanish.
 - **Images**: `image(file_id)` returns a fresh stream for
   `slide.shapes.add_picture(...)`; `image_ids` lists what is available. There is
-  no filesystem access. Put a translucent scrim between a photo and any text
-  over it.
+  no filesystem access. Never put text directly on a photo: place it on a
+  solid-color band or panel drawn over the picture instead.
+- **Public python-pptx API only**: never touch `_`-prefixed internals
+  (`_element`, `_spTree`, `fill._xPr`, raw lxml). The sandbox rejects them and
+  the deck fails to build.
 
 Apply the edit now:"""
 
@@ -757,7 +761,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
 (replacement lines)
 >>>>>>> REPLACE"""
 
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         try:
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
@@ -1153,7 +1158,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
 
         # Stream LLM response
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         buffer = ""
 
         async for evt in llm.inference_stream_v2(

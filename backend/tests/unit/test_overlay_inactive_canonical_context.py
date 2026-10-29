@@ -15,6 +15,7 @@ otherwise a user with broader upstream access than the agent's creator sees
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 import main  # noqa: F401 — registers all mappers
@@ -287,3 +288,32 @@ async def test_id_link_wins_over_a_coincidental_name_match(db, monkeypatch):
     await db.flush()
 
     assert await _agent_tables(db, org, ds, user, monkeypatch) == set()
+
+
+def _agent_columns(ctx, table_name):
+    return {getattr(c, "name", None)
+            for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])
+            if getattr(t, "name", None) == table_name
+            for c in (getattr(t, "columns", []) or [])}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("revoked", [{"Region"}, {"id", "Amount"}, {"id", "Region", "Amount"}])
+async def test_columns_revoked_on_sync_never_reach_the_agent(db, monkeypatch, revoked):
+    """A sync marks a column the user can no longer reach is_accessible=False
+    (the row is kept, not deleted). The agent sees exactly the user's still
+    accessible columns, whichever ones were revoked."""
+    org, ds = await _seed_source(db)
+    db.add(_canonical(ds, "m/A", True))
+    user = await _user_with_overlay(db, ds, "u@x.com", ["m/A"])
+    cols = (await db.execute(select(UserDataSourceColumn))).scalars().all()
+    for c in cols:
+        if c.column_name in revoked:
+            c.is_accessible = False
+    await db.flush()
+
+    builder = SchemaContextBuilder(db, [ds], org, None, user=user)
+    _force_delegated(monkeypatch)
+    ctx = await builder.build(with_stats=False)
+
+    assert _agent_columns(ctx, "m/A") == {n for n, _ in COLS} - revoked

@@ -14,7 +14,6 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.schemas.bow_source_schema import BowQuery, MAX_ROWS, MAX_GROUPS
 from app.services.diagnosis.compiler import compile_query, tool_match_conditions, stale_clause
 from app.services.diagnosis.service import diagnosis_service, RunQueryParams, _utc_naive
-from app.services.diagnosis.rollup import pending_clause
 
 
 RUN_FIELDS = {
@@ -24,7 +23,8 @@ RUN_FIELDS = {
     "report_title": Report.title, "platform": AE.platform,
     "model": AE.primary_model_id, "provider": AE.primary_provider,
     "cost_usd": AE.total_cost_usd, "cost_is_partial": AE.cost_is_partial,
-    "tokens": AE.total_tokens, "duration_ms": AE.total_duration_ms,
+    "tokens": AE.total_tokens, "input_tokens": AE.prompt_tokens, "output_tokens": AE.completion_tokens,
+    "cache_read_tokens": AE.cache_read_tokens, "duration_ms": AE.total_duration_ms,
     "feedback_direction": AE.feedback_direction, "feedback_message": AE.feedback_message,
     "judge_confidence": AE.judge_response_score,
     "judge_instructions": AE.judge_instructions_score, "judge_context": AE.judge_context_score,
@@ -38,7 +38,7 @@ TOOL_FIELDS = {
     "error": TE.error_message, "output_preview": TE.result_summary,
     "step_id": TE.created_step_id, "args_preview": cast(TE.arguments_json, String),
 }
-NUMERIC = {"cost_usd", "tokens", "duration_ms", "tool_count", "failed_tool_count", "turn",
+NUMERIC = {"cost_usd", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "duration_ms", "tool_count", "failed_tool_count", "turn",
            "judge_confidence", "judge_instructions", "judge_context", "attempt", "feedback_direction"}
 DEFAULT_COLUMNS = {
     "runs": ["run_id", "report_id", "created_at", "agent_names", "user_name", "prompt", "status",
@@ -90,10 +90,10 @@ class BowSourceService:
         if exclude_report_id:
             from sqlalchemy import or_
             base.append(or_(AE.report_id.is_(None), AE.report_id != str(exclude_report_id)))
-        # Do not let an unindexed rollup disappear behind a filter on its empty columns.
-        pending = await db.scalar(diagnosis_service._from(select(func.count())).where(*base, pending_clause(now)))
-        if pending:
-            raise ValueError("BOW history is still indexing; retry after indexing completes")
+        # Runs the rollup has not indexed yet are answered like runs still in
+        # progress: included, with empty rollup columns. Indexing never blocks a
+        # query; the scheduled sweep (diagnosis/sweep.py) bounds how long a run
+        # can stay unindexed.
         clause = compile_query(parsed.ast, ctx)
         if clause is not None:
             base.append(clause)

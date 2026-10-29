@@ -157,6 +157,25 @@ async def resolve_organization(request: Request, db: AsyncSession) -> Organizati
     raise AppError.bad_request(ErrorCode.ORG_HEADER_REQUIRED, "Organization ID header missing")
 
 
+async def ensure_path_organization_matches(
+    request: Request, db: AsyncSession = Depends(get_async_db)
+) -> None:
+    """Reject requests whose ``{organization_id}`` path segment differs from
+    the organization the caller is authorized against.
+
+    Permission checks resolve the org from the X-Organization-Id header / API
+    key, while services act on the org named in the path. Without this check a
+    caller authorized in org A could operate on org B by changing the path.
+    Mount as a router-level dependency; routes without the path param pass.
+    """
+    path_org_id = request.path_params.get("organization_id")
+    if path_org_id is None:
+        return
+    organization = await resolve_organization(request, db)
+    if str(path_org_id) != str(organization.id):
+        raise HTTPException(status_code=403, detail="Organization mismatch")
+
+
 def __getattr__(name: str):
     """Lazily expose the enforcing ``get_current_organization`` from core.auth.
 

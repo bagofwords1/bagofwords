@@ -1,6 +1,6 @@
 <template>
   <div class="mb-2">
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
       <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
 
       <!-- Status icon -->
@@ -13,10 +13,10 @@
       <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
 
       <!-- Row count if available -->
-      <span v-if="rowCount" class="ms-2 text-gray-400 dark:text-gray-500">{{ rowCount }} rows</span>
+      <span v-if="rowCount" class="ms-2 text-ink-muted">{{ rowCount }} rows</span>
 
       <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
+      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
     <!-- Collapsible content -->

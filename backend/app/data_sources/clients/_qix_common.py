@@ -122,12 +122,15 @@ def build_ssl_context(
     """Build the TLS context for an Engine WebSocket or a REST call.
 
     ``cert_file``/``key_file`` add the client certificate on-prem needs (mutual
-    TLS). ``ca_file`` verifies the server against Qlik's own root (``root.pem``);
-    without it, ``verify_ssl=False`` is the only way to reach a site using
-    self-signed service certificates, which is the default QSEoW install.
+    TLS). ``verify_ssl`` alone decides whether the server is verified; when it
+    is on, ``ca_file`` (Qlik's own ``root.pem``) is the trust store to verify
+    against. ``verify_ssl=False`` turns verification off even when a
+    ``ca_file`` is given — the toggle the admin sees is the one that wins.
     """
-    ctx = ssl.create_default_context(cafile=ca_file)
-    if not verify_ssl and ca_file is None:
+    if verify_ssl:
+        ctx = ssl.create_default_context(cafile=ca_file)
+    else:
+        ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
     if cert_file:

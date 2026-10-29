@@ -637,7 +637,9 @@ class TestRunService:
                     # and websocket 'update_completion' is emitted for AgentV2 to cancel promptly.
                     for sc in sys_completions:
                         try:
-                            await self.completions.update_completion_sigkill(db, str(sc.id), current_user, organization)
+                            await self.completions.update_completion_sigkill(
+                                db, str(sc.id), current_user, organization, authorize=False
+                            )
                         except Exception:
                             pass
                 except Exception:
@@ -906,6 +908,7 @@ class TestRunService:
                 mentions=p.get("mentions"),
                 mode=p.get("mode"),
                 model_id=p.get("model_id"),
+                reasoning_effort=p.get("reasoning_effort"),
             )
             completion_data = CompletionCreate(prompt=prompt)
 
@@ -1027,6 +1030,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
                 async with async_session() as session:
                     # Synchronous path: blocks until this turn's agent is done.
@@ -1177,6 +1181,15 @@ class TestRunService:
                 organization = await session.get(_Org, str(report.organization_id))
                 if not user or not organization:
                     logging.warning(f"eval wake {run_id}: origin user/org gone")
+                    return
+                # Same fire-time rule as wait wake-ups: the run was started
+                # while the user could act; a deactivated or removed user must
+                # not have an agent turn run as them when it finishes.
+                from app.core.permission_resolver import principal_can_act_in_org
+                if not await principal_can_act_in_org(session, user, str(organization.id)):
+                    logging.warning(
+                        f"eval wake {run_id}: user {origin_user_id} deactivated or left org; dropping"
+                    )
                     return
 
                 passed = summary.get("passed", 0)
@@ -1352,12 +1365,19 @@ class TestRunService:
                         select(Completion.status).where(
                             Completion.report_id == str(report_id),
                             Completion.role == "system",
+                            # Sub-agent children are hidden completions: neither a
+                            # turn nor "the agent still working" for this case.
+                            (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
                         )
                     )
                 ).scalars().all()
                 terminal_n = sum(1 for s in sys_rows if s in {"success", "error", "stopped"})
                 any_in_progress = any(s == "in_progress" for s in sys_rows)
-                if terminal_n >= max(1, int(expected_turns)) and not any_in_progress:
+                # Wave-aware terminal state (docs/design/sub-agents.md): a turn that
+                # launched sub-agents ends while they run; the case is finished
+                # only once every wave fanned in and its reply is terminal.
+                waves_open = await self._sub_agent_waves_pending(session, str(report_id))
+                if terminal_n >= max(1, int(expected_turns)) and not any_in_progress and not waves_open:
                     timed_out = False
                     break
             await asyncio.sleep(2.0)
@@ -1447,6 +1467,40 @@ class TestRunService:
         except Exception as e:
             logging.exception(f"eval watcher: run {run_id} finalize failed: {e}")
 
+    async def _sub_agent_waves_pending(self, db: AsyncSession, report_id: str) -> bool:
+        """True while a sub-agent wave of the report is live, or fanned in but its
+        fan-in reply (trigger_source=sub_agent_wave) has not reached a terminal
+        status yet."""
+        try:
+            from app.models.sub_agent import SubAgentWave
+            live = (await db.execute(
+                select(func.count(SubAgentWave.id)).where(
+                    SubAgentWave.report_id == report_id,
+                    SubAgentWave.status.in_(("collecting", "running", "firing")),
+                )
+            )).scalar() or 0
+            if live:
+                return True
+            fanned = (await db.execute(
+                select(func.count(SubAgentWave.id)).where(
+                    SubAgentWave.report_id == report_id,
+                    SubAgentWave.status.in_(("done", "timed_out")),
+                )
+            )).scalar() or 0
+            if not fanned:
+                return False
+            replies = (await db.execute(
+                select(Completion.status).where(
+                    Completion.report_id == report_id,
+                    Completion.role == "system",
+                    Completion.trigger_source == "sub_agent_wave",
+                )
+            )).scalars().all()
+            terminal = sum(1 for st in replies if st in {"success", "error", "stopped"})
+            return terminal < fanned
+        except Exception:
+            return False
+
     async def _org_in_progress_runs(self, db: AsyncSession, organization_id: str) -> List[TestRun]:
         """All in-progress runs belonging to this org (scoped via the suite chain)."""
         rows = (
@@ -1497,9 +1551,31 @@ class TestRunService:
         ).all()
         run_status_by_case = {str(r.case_id): (r.status or "", name) for r, name in run_rows}
 
+        # The baseline is a second run the caller reads (title, build, summary,
+        # per-case statuses), so it needs the same read authority as the main
+        # run: org-level eval admins see any; a per-agent manager only a run
+        # whose every case they may view. Unreadable candidates are skipped.
+        from app.core.eval_scope import eval_agent_scope, can_view_case
+        _unscoped, _agent_ids = await eval_agent_scope(
+            db, str(current_user.id), str(organization_id)
+        )
+
+        async def _readable(r: TestRun) -> bool:
+            if _unscoped:
+                return True
+            cids = (await db.execute(
+                select(TestResult.case_id).where(TestResult.run_id == str(r.id))
+            )).scalars().all()
+            cases = (await db.execute(
+                select(TestCase).where(TestCase.id.in_([str(c) for c in cids] or [""]))
+            )).scalars().all()
+            return bool(cases) and all(can_view_case(c, _unscoped, _agent_ids) for c in cases)
+
         base_run: Optional[TestRun] = None
         if against_run_id:
             base_run = await self.get_run(db, organization_id, current_user, against_run_id)
+            if not await _readable(base_run):
+                raise HTTPException(status_code=404, detail="Test run not found")
         else:
             candidates = (
                 await db.execute(
@@ -1531,6 +1607,8 @@ class TestRunService:
                     )).scalars().all()
                 )
                 if {str(x) for x in cand_case_ids} & set(run_status_by_case.keys()):
+                    if not await _readable(cand):
+                        continue
                     base_run = cand
                     break
 
@@ -1668,6 +1746,7 @@ class TestRunService:
             mentions=p.get("mentions"),
             mode=p.get("mode"),
             model_id=p.get("model_id"),
+            reasoning_effort=p.get("reasoning_effort"),
         )
         completion_data = CompletionCreate(prompt=prompt)
         # Get build_id from the run
@@ -1871,6 +1950,19 @@ class TestRunService:
                     await turn_agent.main_execution()
                     prev_system = next_system
 
+                # Wave-aware (docs/design/sub-agents.md): a turn that launched
+                # sub-agents ends while they run, and the fan-in reply is a
+                # later machine turn on the report. Hold the evaluation until
+                # every wave fanned in and its reply is terminal, bounded by
+                # the same ceiling the background watcher uses.
+                import time as _time
+                _wave_deadline = _time.monotonic() + CASE_WATCH_TIMEOUT_S
+                while await self._sub_agent_waves_pending(session, str(report_id)):
+                    if _time.monotonic() > _wave_deadline:
+                        logging.getLogger(__name__).warning("eval result %s: sub-agent wave still open at the watch ceiling; evaluating as is", result_id)
+                        break
+                    await asyncio.sleep(2.0)
+
                 # After the final turn, evaluate assertions and persist the
                 # TestResult (same code path the background watcher uses).
                 try:
@@ -2019,6 +2111,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
 
                 # Resolve models

@@ -8,14 +8,14 @@
                         <div class="flex items-center justify-center w-10 h-10 rounded-xl shrink-0"
                              :style="project.color ? { backgroundColor: project.color + '1a' } : undefined"
                              :class="!project.color ? 'bg-gray-100 dark:bg-gray-800' : ''">
-                            <UIcon name="i-heroicons-folder" class="w-5 h-5" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-gray-400' : ''" />
+                            <UIcon name="i-heroicons-folder" class="w-5 h-5" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
                         </div>
                         <div class="min-w-0">
                             <h1 class="text-lg font-semibold text-gray-900 dark:text-white truncate">{{ project.name }}</h1>
-                            <p class="text-[13px] text-gray-500 dark:text-gray-400 truncate">
+                            <p class="text-sm text-gray-500 dark:text-gray-400 truncate">
                                 <template v-if="project.description">{{ project.description }}</template>
                                 <template v-else>{{ $t('projects.reportCount', { count: project.report_count }, project.report_count) }}</template>
-                                <span v-if="isShared" class="inline-flex items-center gap-1 ms-2 text-gray-400">
+                                <span v-if="isShared" class="inline-flex items-center gap-1 ms-2 text-ink-muted">
                                     <UIcon name="i-heroicons-user-group" class="w-3.5 h-3.5" />{{ $t('projects.sharedBadge') }}
                                 </span>
                             </p>
@@ -25,7 +25,7 @@
                         <button
                             name="new-report-in-project"
                             @click="createReportInProject"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
                         >
                             <UIcon name="i-heroicons-plus" class="w-4 h-4" />
                             {{ $t('nav.newReport') }}
@@ -49,7 +49,7 @@
                         <!-- Automations (scheduled tasks + dashboard refreshes, derived via reports) -->
                         <div>
                             <div class="flex items-center justify-between mb-1">
-                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
+                                <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
                                     <UIcon :name="sectionOpen.automations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.overview.automations') }}
                                     <span v-if="automations.length" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ automations.length }}</span>
@@ -61,26 +61,26 @@
                                         <!-- A trigger has no single report (it spawns one per
                                              delivery), so it links to its config instead. -->
                                         <NuxtLink :to="automationLink(auto)" class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer">
-                                            <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                                            <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
-                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(auto.cron_schedule) }}</span>
+                                            <UIcon :name="automationIcon(auto)" class="w-4 h-4 shrink-0 text-ink-muted" />
+                                            <span class="flex-1 truncate text-sm text-gray-800 dark:text-gray-200">{{ auto.label }}</span>
+                                            <span class="hidden sm:block text-2xs text-ink-muted">{{ getCronLabel(auto.cron_schedule, auto.run_once_at) }}</span>
                                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="auto.is_active ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'"></span>
                                         </NuxtLink>
                                     </li>
                                 </ul>
-                                <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-1.5">{{ $t('projects.overview.noAutomations') }}</p>
+                                <p v-else class="text-xs text-ink-muted py-1.5">{{ $t('projects.overview.noAutomations') }}</p>
                             </template>
                         </div>
 
                         <!-- Reports (paginated) -->
                         <div>
                             <div class="flex items-center justify-between mb-1">
-                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.reports = !sectionOpen.reports">
+                                <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.reports = !sectionOpen.reports">
                                     <UIcon :name="sectionOpen.reports ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.reports') }}
                                     <span v-if="reportsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ reportsMeta.total }}</span>
                                 </button>
-                                <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" :aria-label="$t('common.previous')">
                                         <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
@@ -100,16 +100,16 @@
                                             :to="`/reports/${report.id}`"
                                             class="flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer"
                                         >
-                                            <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-                                            <span class="flex-1 truncate text-[13px] text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
+                                            <UIcon :name="reportTypeIcon(report)" class="w-4 h-4 shrink-0 text-ink-muted" />
+                                            <span class="flex-1 truncate text-sm text-gray-800 dark:text-gray-200">{{ report.title || $t('reports.untitled') }}</span>
                                             <ReportStatusDot :report-id="report.id" />
                                             <UIcon v-if="report.is_starred" name="i-heroicons-star-solid" class="w-3.5 h-3.5 shrink-0 text-amber-400" />
                                             <UTooltip v-if="!isOwn(report)" :text="$t('projects.readOnlyBadge')">
                                                 <UIcon name="i-heroicons-eye" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600" />
                                             </UTooltip>
-                                            <span class="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
+                                            <span class="hidden sm:block text-2xs text-ink-muted w-28 truncate text-end">{{ formatDate(report.last_activity_at || report.created_at) }}</span>
                                             <UTooltip :text="report.user?.name || ''">
-                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-2xs font-semibold text-gray-600 dark:text-gray-300 shrink-0">
                                                     {{ (report.user?.name || '?').charAt(0).toUpperCase() }}
                                                 </div>
                                             </UTooltip>
@@ -118,10 +118,10 @@
                                 </ul>
                                 <div v-else class="mt-4 flex flex-col items-center text-center py-10 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
                                     <UIcon name="i-heroicons-folder-open" class="w-8 h-8 text-gray-300 dark:text-gray-600" />
-                                    <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
+                                    <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
                                     <button
                                         @click="createReportInProject"
-                                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+                                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
                                     >
                                         <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
                                     </button>
@@ -132,12 +132,12 @@
                         <!-- Dashboards (paginated, thumbnails) -->
                         <div>
                             <div class="flex items-center justify-between mb-2">
-                                <button type="button" class="flex items-center gap-1 text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.dashboards = !sectionOpen.dashboards">
+                                <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.dashboards = !sectionOpen.dashboards">
                                     <UIcon :name="sectionOpen.dashboards ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.dashboards') }}
                                     <span v-if="dashboardsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ dashboardsMeta.total }}</span>
                                 </button>
-                                <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-[11px] text-gray-400">
+                                <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" :aria-label="$t('common.previous')">
                                         <UIcon name="i-heroicons-chevron-left" class="w-3.5 h-3.5 rtl-flip" />
                                     </button>
@@ -162,7 +162,7 @@
                                         :is-owner="report.user?.id === (currentUser as any)?.id"
                                     />
                                 </div>
-                                <p v-else class="text-[12px] text-gray-400 dark:text-gray-500 py-1.5">{{ $t('projects.noDashboards') }}</p>
+                                <p v-else class="text-xs text-ink-muted py-1.5">{{ $t('projects.noDashboards') }}</p>
                             </template>
                         </div>
                     </div>
@@ -172,9 +172,9 @@
                         <!-- Members -->
                         <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.members') }}</span>
+                                <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.members') }}</span>
                                 <UPopover v-if="project.can_manage" v-model:open="memberPickerOpen" :popper="{ placement: 'bottom-end' }">
-                                    <button name="add-member" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgMembers">
+                                    <button name="add-member" class="flex items-center justify-center w-5 h-5 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgMembers">
                                         <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
                                     </button>
                                     <template #panel>
@@ -187,23 +187,23 @@
                                                 :disabled="shareBusy"
                                                 @click="addMember(m.user.id)"
                                             >
-                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                                <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-2xs font-semibold text-gray-600 dark:text-gray-300 shrink-0">
                                                     {{ (m.user.name || m.user.email || '?').charAt(0).toUpperCase() }}
                                                 </div>
                                                 <span class="flex-1 truncate text-start">{{ m.user.name || m.user.email }}</span>
                                             </button>
-                                            <div v-if="!shareCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.overview.everyoneAdded') }}</div>
+                                            <div v-if="!shareCandidates.length" class="px-2 py-1.5 text-ink-muted">{{ $t('projects.overview.everyoneAdded') }}</div>
                                         </div>
                                     </template>
                                 </UPopover>
                             </div>
                             <div class="space-y-1">
                                 <div v-for="member in projectMembers" :key="member.user_id" class="group/member flex items-center gap-2">
-                                    <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-[9px] font-semibold text-gray-600 dark:text-gray-300 shrink-0">
+                                    <div class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-200 dark:bg-gray-700 text-2xs font-semibold text-gray-600 dark:text-gray-300 shrink-0">
                                         {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
                                     </div>
-                                    <span class="flex-1 truncate text-[12px] text-gray-600 dark:text-gray-300">{{ member.user_name || member.user_email }}</span>
-                                    <span v-if="member.permissions.includes('owner')" class="text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.share.roleOwner') }}</span>
+                                    <span class="flex-1 truncate text-xs text-gray-600 dark:text-gray-300">{{ member.user_name || member.user_email }}</span>
+                                    <span v-if="member.permissions.includes('owner')" class="text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.roleOwner') }}</span>
                                     <button
                                         v-else-if="project.can_manage"
                                         class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-opacity"
@@ -214,17 +214,17 @@
                                         <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
                                     </button>
                                 </div>
-                                <p v-if="!projectMembers.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.onlyYou') }}</p>
+                                <p v-if="!projectMembers.length" class="text-xs text-ink-muted">{{ $t('projects.overview.onlyYou') }}</p>
                             </div>
-                            <p v-if="project.can_manage" class="mt-2 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.share.hint') }}</p>
+                            <p v-if="project.can_manage" class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.hint') }}</p>
                         </div>
 
                         <!-- Agents -->
                         <div class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.agents') }}</span>
+                                <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.agents') }}</span>
                                 <UPopover v-if="project.can_manage" v-model:open="agentPickerOpen" :popper="{ placement: 'bottom-end' }">
-                                    <button name="add-agent" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgAgents">
+                                    <button name="add-agent" class="flex items-center justify-center w-5 h-5 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="loadOrgAgents">
                                         <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
                                     </button>
                                     <template #panel>
@@ -233,7 +233,7 @@
                                                 v-model="agentSearch"
                                                 type="text"
                                                 :placeholder="$t('projects.overview.searchAgents')"
-                                                class="w-full h-7 px-2 mb-1 text-[12px] bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded outline-none focus:border-gray-300"
+                                                class="w-full h-7 px-2 mb-1 text-xs bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded outline-none focus:border-gray-300"
                                             />
                                             <div class="max-h-56 overflow-y-auto">
                                                 <button
@@ -247,14 +247,14 @@
                                                     <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                                     <span class="flex-1 truncate text-start">{{ agent.name }}</span>
                                                 </button>
-                                                <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
+                                                <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-ink-muted">{{ $t('projects.settings.noAgents') }}</div>
                                             </div>
                                         </div>
                                     </template>
                                 </UPopover>
                             </div>
                             <div v-if="project.data_sources?.length" class="space-y-1">
-                                <div v-for="agent in project.data_sources" :key="agent.id" class="group/agent flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
+                                <div v-for="agent in project.data_sources" :key="agent.id" class="group/agent flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
                                     <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                     <span class="flex-1 truncate">{{ agent.name }}</span>
                                     <button
@@ -268,8 +268,8 @@
                                     </button>
                                 </div>
                             </div>
-                            <p v-else class="text-[12px] text-gray-400">{{ $t('projects.overview.noAgents') }}</p>
-                            <p class="mt-2 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.settings.defaultsHint') }}</p>
+                            <p v-else class="text-xs text-ink-muted">{{ $t('projects.overview.noAgents') }}</p>
+                            <p class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.defaultsHint') }}</p>
                         </div>
 
                         <!-- Files (drag & drop) -->
@@ -281,15 +281,15 @@
                             @drop.prevent="onFilesDropped"
                         >
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.files') }}</span>
-                                <button v-if="project.can_manage" name="add-file" class="flex items-center justify-center w-5 h-5 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="fileInputRef?.click()">
+                                <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.files') }}</span>
+                                <button v-if="project.can_manage" name="add-file" class="flex items-center justify-center w-5 h-5 rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800" @click="fileInputRef?.click()">
                                     <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
                                 </button>
                                 <input ref="fileInputRef" type="file" multiple class="hidden" @change="onFilesPicked" />
                             </div>
                             <div v-if="project.files?.length" class="space-y-1">
-                                <div v-for="file in project.files" :key="file.id" class="group/file flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
-                                    <UIcon name="i-heroicons-document" class="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                                <div v-for="file in project.files" :key="file.id" class="group/file flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                                    <UIcon name="i-heroicons-document" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
                                     <span class="flex-1 truncate">{{ file.filename }}</span>
                                     <button
                                         v-if="project.can_manage"
@@ -305,38 +305,38 @@
                             <button
                                 v-if="project.can_manage"
                                 type="button"
-                                class="mt-2 w-full py-3 rounded-md border border-dashed text-[11px] transition-colors"
-                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-gray-400 hover:text-gray-600 hover:border-gray-300'"
+                                class="mt-2 w-full py-3 rounded-md border border-dashed text-2xs transition-colors"
+                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-gray-600 hover:border-gray-300'"
                                 @click="fileInputRef?.click()"
                             >
                                 <template v-if="uploadingFiles">{{ $t('projects.overview.uploading') }}</template>
                                 <template v-else>{{ $t('projects.overview.dropFiles') }}</template>
                             </button>
-                            <p v-else-if="!project.files?.length" class="text-[12px] text-gray-400">{{ $t('projects.overview.noFiles') }}</p>
+                            <p v-else-if="!project.files?.length" class="text-xs text-ink-muted">{{ $t('projects.overview.noFiles') }}</p>
                         </div>
 
                         <!-- Instructions (inline editor) -->
                         <div v-if="project.can_manage || project.instructions" class="p-3 rounded-xl border border-gray-100 dark:border-gray-800">
                             <div class="flex items-center justify-between mb-2">
-                                <span class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
+                                <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
                             </div>
                             <template v-if="project.can_manage">
                                 <textarea
                                     v-model="instructionsDraft"
                                     rows="5"
                                     :placeholder="$t('projects.settings.instructionsPlaceholder')"
-                                    class="w-full px-2 py-1.5 text-[12px] bg-gray-50/60 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 rounded-md outline-none focus:border-gray-300 dark:focus:border-gray-600 text-gray-700 dark:text-gray-200 resize-y"
+                                    class="w-full px-2 py-1.5 text-xs bg-gray-50/60 dark:bg-gray-800/60 border border-gray-100 dark:border-gray-800 rounded-md outline-none focus:border-gray-300 dark:focus:border-gray-600 text-gray-700 dark:text-gray-200 resize-y"
                                     data-testid="instructions-editor"
                                 ></textarea>
                                 <div v-if="instructionsDirty" class="mt-1.5 flex items-center justify-end gap-1.5">
-                                    <button class="px-2 py-1 text-[11px] rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
-                                    <button class="px-2 py-1 text-[11px] rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="savingInstructions" @click="saveInstructions">
+                                    <button class="px-2 py-1 text-2xs rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
+                                    <button class="px-2 py-1 text-2xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="savingInstructions" @click="saveInstructions">
                                         {{ savingInstructions ? $t('common.loading') : $t('common.save') }}
                                     </button>
                                 </div>
-                                <p v-else class="mt-1 text-[10px] text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
+                                <p v-else class="mt-1 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
                             </template>
-                            <p v-else class="text-[12px] text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
+                            <p v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>
                     </aside>
                 </div>
@@ -345,17 +345,17 @@
                 <div v-else-if="view === 'settings'" class="max-w-xl mt-6">
                     <div class="space-y-4">
                         <div>
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.name') }}</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.name') }}</label>
                             <input v-model="editName" type="text" :disabled="!project.can_manage"
-                                class="w-full h-9 px-3 text-[13px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60" />
+                                class="w-full h-9 px-3 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60" />
                         </div>
                         <div>
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.description') }}</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.description') }}</label>
                             <textarea v-model="editDescription" rows="2" :disabled="!project.can_manage"
-                                class="w-full px-3 py-2 text-[13px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
+                                class="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
                         </div>
                         <div>
-                            <label class="block text-[12px] font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.color') }}</label>
+                            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.color') }}</label>
                             <div class="flex items-center gap-1.5">
                                 <button v-for="c in colorSwatches" :key="c" type="button" :disabled="!project.can_manage"
                                     class="w-6 h-6 rounded-full border-2 transition-transform disabled:opacity-60"
@@ -366,7 +366,7 @@
                         </div>
                         <div v-if="project.can_manage" class="pt-1">
                             <button @click="saveSettings" :disabled="savingSettings || !editName.trim()"
-                                class="px-3 py-1.5 text-[13px] rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                                class="px-3 py-1.5 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
                                 {{ savingSettings ? $t('common.loading') : $t('common.save') }}
                             </button>
                         </div>
@@ -376,11 +376,11 @@
                     <div v-if="project.is_owner" class="mt-8 p-4 rounded-xl border border-red-100 dark:border-red-900/40">
                         <div class="flex items-center justify-between gap-4">
                             <div>
-                                <div class="text-[13px] font-medium text-gray-800 dark:text-gray-200">{{ $t('projects.deleteTitle') }}</div>
-                                <p class="mt-0.5 text-[12px] text-gray-400 dark:text-gray-500">{{ $t('projects.deleteBody') }}</p>
+                                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('projects.deleteTitle') }}</div>
+                                <p class="mt-0.5 text-xs text-ink-muted">{{ $t('projects.deleteBody') }}</p>
                             </div>
                             <button @click="confirmDeleteOpen = true"
-                                class="shrink-0 px-3 py-1.5 text-[13px] rounded-md border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40">
+                                class="shrink-0 px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-900 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40">
                                 {{ $t('common.delete') }}
                             </button>
                         </div>
@@ -393,7 +393,7 @@
                 <div class="h-10 w-64 rounded-md bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
                 <div class="h-40 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse"></div>
             </div>
-            <div v-else class="mt-16 text-center text-gray-400 dark:text-gray-500 text-[13px]">
+            <div v-else class="mt-16 text-center text-ink-muted text-sm">
                 {{ $t('projects.notFound') }}
             </div>
         </div>
@@ -403,15 +403,15 @@
                 <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('projects.deleteTitle') }}</h3>
                 <!-- Honest impact: archive (not destroy) reports/dashboards,
                      stop automations, unlink files. -->
-                <p class="mt-2 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ $t('projects.deleteImpact', {
                     reports: project?.report_count ?? 0,
                     dashboards: project?.dashboard_count ?? 0,
                     automations: project?.automation_count ?? 0,
                     files: project?.files?.length ?? 0,
                 }) }}</p>
                 <div class="flex justify-end gap-2 mt-4">
-                    <button class="px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="confirmDeleteOpen = false">{{ $t('common.cancel') }}</button>
-                    <button class="px-3 py-1.5 text-[13px] rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
+                    <button class="px-3 py-1.5 text-sm rounded-md border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" @click="confirmDeleteOpen = false">{{ $t('common.cancel') }}</button>
+                    <button class="px-3 py-1.5 text-sm rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50" :disabled="deleting" @click="doDelete">{{ $t('common.delete') }}</button>
                 </div>
             </div>
         </UModal>
@@ -471,6 +471,8 @@ function automationIcon(auto: any): string {
 }
 function automationLink(auto: any): string {
     if (auto.kind === 'trigger') return '/automations?tab=triggers'
+    // A dashboard whose conversation was deleted: the dashboard itself.
+    if (!auto.report_id && auto.dashboard_id) return `/d/${auto.dashboard_id}`
     return `/reports/${auto.report_id}`
 }
 // Sections collapse when empty (set after first fetch); reports stay open.

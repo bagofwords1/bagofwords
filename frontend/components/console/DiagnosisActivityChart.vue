@@ -3,12 +3,12 @@
         <div class="flex items-baseline justify-between">
             <div class="flex items-baseline gap-2.5 min-w-0">
                 <span class="text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">{{ $t('monitoring.diagnosis.matchLine', { n: summary?.matched ?? 0 }) }}</span>
-                <span v-if="summary" class="text-xs text-gray-400 truncate">
+                <span v-if="summary" class="text-xs text-ink-muted truncate">
                     {{ $t('monitoring.diagnosis.summaryLine', { total: totalInRange.toLocaleString(), range: rangeLabel, errors: summary.errors.toLocaleString(), p50: fmtDuration(summary.p50_ms), cost: fmtCost(summary.cost_usd), users: summary.users }) }}
                     <span v-if="ms != null" class="text-gray-300"> · {{ ms }}ms</span>
                 </span>
                 <UTooltip v-if="summary && summary.unindexed > 0" :text="$t('monitoring.diagnosis.unindexedHelp')">
-                    <span class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 whitespace-nowrap" data-testid="unindexed-note">
+                    <span class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 whitespace-nowrap" data-testid="unindexed-note">
                         <span class="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-amber-500"></span>
                         {{ $t('monitoring.diagnosis.unindexedNote', { n: summary.unindexed.toLocaleString() }) }}
                     </span>
@@ -22,7 +22,7 @@
         </div>
         <div class="h-24 mt-1">
             <VChart v-if="chartOptions" :theme="colorMode.value === 'dark' ? 'dark' : undefined" class="chart" :option="chartOptions" autoresize @click="onBarClick" />
-            <div v-else class="flex items-center justify-center h-full text-gray-400 dark:text-gray-600 text-sm">{{ $t('monitoring.diagnosis.activityChartEmpty') }}</div>
+            <div v-else class="flex items-center justify-center h-full text-ink-muted text-sm">{{ $t('monitoring.diagnosis.activityChartEmpty') }}</div>
         </div>
     </div>
 </template>

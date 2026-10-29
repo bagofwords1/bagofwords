@@ -100,6 +100,7 @@ class ToolConfirmationService:
         approved: bool,
         remember: bool,
         user_id: Optional[str],
+        response: Optional[dict] = None,
     ) -> Optional[ToolConfirmation]:
         """Record the decision. Idempotent: a row that is already resolved keeps
         its first decision, so a double click (or a retry after a dropped
@@ -121,6 +122,7 @@ class ToolConfirmationService:
             .values(
                 status=status,
                 remember=bool(remember),
+                response=response,
                 resolved_by_user_id=str(user_id) if user_id else None,
                 resolved_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
@@ -168,14 +170,71 @@ class ToolConfirmationService:
                 status = row.status if row is not None else None
                 remember = bool(row.remember) if row is not None else False
                 resolved_by = row.resolved_by_user_id if row is not None else None
+                extra = row.response if row is not None else None
                 await session.rollback()
         except Exception as e:
             logger.warning(f"ToolConfirmation {confirmation_id}: poll failed: {e!r}")
             return None
         if status in (None, ToolConfirmation.STATUS_PENDING, ToolConfirmation.STATUS_EXPIRED):
             return None
-        return {
+        decision = {
             "approved": status == ToolConfirmation.STATUS_APPROVED,
             "remember": remember,
             "resolved_by_user_id": str(resolved_by) if resolved_by else None,
         }
+        if extra is not None:
+            decision["response"] = extra
+        return decision
+
+
+async def review_states_for_running_tools(
+    db: AsyncSession, running: list[tuple[str, str, str]]
+) -> dict[str, dict]:
+    """Review state of tool executions that are still running, for read paths.
+
+    ``running`` is ``(tool_execution_id, system_completion_id, tool_name)``.
+    The approval card is otherwise only known to the live SSE stream, so a
+    reload — or someone viewing a shared conversation — saw a running tool
+    with no hint that it was waiting on a person. Returns, per tool execution
+    id, ``{"state": pending|approved|denied|expired, "row": ToolConfirmation}``
+    from the latest confirmation that tool asked for in that completion.
+    """
+    if not running:
+        return {}
+    completion_ids = {c for _, c, _ in running if c}
+    tool_names = {t for _, _, t in running if t}
+    if not completion_ids or not tool_names:
+        return {}
+    rows = (await db.execute(
+        select(ToolConfirmation)
+        .where(
+            ToolConfirmation.system_completion_id.in_(completion_ids),
+            ToolConfirmation.tool_name.in_(tool_names),
+        )
+        .order_by(ToolConfirmation.created_at)
+    )).scalars().all()
+    latest: dict[tuple[str, str], ToolConfirmation] = {}
+    for row in rows:
+        latest[(str(row.system_completion_id), row.tool_name)] = row
+    out: dict[str, dict] = {}
+    for te_id, completion_id, tool_name in running:
+        row = latest.get((str(completion_id), tool_name))
+        if row is not None:
+            out[str(te_id)] = {"state": row.status, "row": row}
+    return out
+
+
+def confirmation_payload(row: ToolConfirmation) -> dict:
+    """The ``tool.confirmation`` event payload, rebuilt from the durable row so
+    an approval card can render after a reload."""
+    # Builtin-tool asks store the card payload itself; MCP asks store the
+    # call's arguments, which the event nests under "arguments".
+    base = dict(row.arguments or {}) if row.kind != KIND_MCP_TOOL_POLICY else {"arguments": row.arguments or {}}
+    return {
+        **base,
+        "kind": row.kind,
+        "confirmation_id": str(row.id),
+        "tool_name": row.tool_name,
+        "connection_id": row.connection_id,
+        "connection_tool_id": row.connection_tool_id,
+    }

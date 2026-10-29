@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from app.schemas.visualization_schema import VisualizationSchema, PublicVisualizationSchema
-from app.schemas.step_schema import StepSchema
+from app.schemas.step_schema import StepSchema, PublicStepSchema
 
 
 class QueryCreate(BaseModel):
@@ -12,6 +12,18 @@ class QueryCreate(BaseModel):
     widget_id: Optional[str] = None
     organization_id: Optional[str] = None
     user_id: Optional[str] = None
+
+
+class QueryStepStatusSchema(BaseModel):
+    """One query's default-step state, without rows: what a dashboard polls
+    while its copied queries run again for the person who brought it."""
+    query_id: str
+    title: Optional[str] = None
+    step_id: Optional[str] = None
+    status: Optional[str] = None
+    # Only for the conversation's owner -- the person whose run it was.
+    status_reason: Optional[str] = None
+    error_code: Optional[str] = None
 
 
 class QueryLastRunSchema(BaseModel):
@@ -89,5 +101,14 @@ class PublicQuerySchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PublicQueryWithStepSchema(PublicQuerySchema):
+    """A shared report's query plus the default step this reader may see.
+
+    `default_step` is exactly what GET /r/{report_id}/queries/{id}/step returns
+    for the same reader, or None where that route would 404.
+    """
+    default_step: Optional[PublicStepSchema] = None
 
 

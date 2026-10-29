@@ -67,6 +67,7 @@
 <script lang="ts" setup>
 import { computed, watch, ref } from 'vue'
 import { connectionSignInError } from '~/composables/useConnectionSignIn'
+import { isSafeHttpUrl } from '~/utils/safeUrl'
 
 const props = defineProps<{ modelValue: boolean, dataSource: any }>()
 const emit = defineEmits(['update:modelValue', 'saved'])
@@ -152,8 +153,10 @@ async function onOAuthSignIn() {
     const { data, error } = await useMyFetch(`/connections/${connectionId.value}/oauth/authorize`, { method: 'GET' })
     if (error.value) throw error.value
     const result = data.value as any
-    if (result?.authorization_url) {
+    if (isSafeHttpUrl(result?.authorization_url)) {
       window.location.href = result.authorization_url
+    } else if (result?.authorization_url) {
+      throw new Error('unsafe authorization_url')
     }
   } catch (e: any) {
     testResult.value = { success: false, message: connectionSignInError(e, t('data.oauthStartFailed')) }

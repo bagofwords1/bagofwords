@@ -1,0 +1,4 @@
+[SalesMeasures].[SalesMeasures].[Revenue]	[Region].[Region].[North]	NUM	138736
+[SalesMeasures].[SalesMeasures].[Revenue]	[Region].[Region].[South]	NUM	140382.5
+[SalesMeasures].[SalesMeasures].[Units]	[Region].[Region].[North]	NUM	42
+BOW_TRUNCATED

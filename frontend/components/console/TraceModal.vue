@@ -1,29 +1,29 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-7xl'}">
-        <UCard :ui="{ body: { padding: '' }, header: { padding: 'px-4 py-3' } }">
+    <UModal v-model="isOpen" :ui="modalUi">
+        <UCard :ui="cardUi">
             <!-- Header: conversation identity + roll-up -->
             <template #header>
-                <div class="flex items-start justify-between gap-4">
-                    <div class="min-w-0">
+                <div class="flex flex-wrap md:flex-nowrap items-start justify-between gap-x-4 gap-y-2">
+                    <div class="min-w-0 flex-1 md:flex-initial order-1">
                         <h3 class="text-base font-semibold text-gray-900 dark:text-white truncate">
                             {{ conversation?.report_title || $t('traceModal.title') }}
                         </h3>
-                        <div class="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            <span v-if="conversation?.user_name" class="inline-flex items-center gap-1">
-                                <UIcon name="i-heroicons-user-circle" class="w-3.5 h-3.5" />
-                                {{ conversation.user_name }}
+                        <div class="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+                            <span v-if="conversation?.user_name" class="inline-flex items-center gap-1 min-w-0">
+                                <UIcon name="i-heroicons-user-circle" class="w-3.5 h-3.5 flex-shrink-0" />
+                                <span class="truncate">{{ conversation.user_name }}</span>
                             </span>
-                            <span v-if="conversation?.user_email" class="text-gray-400 dark:text-gray-500">{{ conversation.user_email }}</span>
-                            <span v-if="platformBadge" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                            <span v-if="conversation?.user_email" class="hidden md:inline text-ink-muted">{{ conversation.user_email }}</span>
+                            <span v-if="platformBadge" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
                                 <img v-if="platformBadge.img" :src="platformBadge.img" class="h-3 w-3 inline" :alt="platformBadge.label" />
                                 <UIcon v-else-if="platformBadge.icon" :name="platformBadge.icon" class="w-3 h-3" />
                                 {{ platformBadge.label }}
                             </span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-3 flex-shrink-0">
-                        <!-- Conversation roll-up: plain text -->
-                        <div v-if="conversation" class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <div class="contents md:flex md:order-2 items-center gap-3 flex-shrink-0">
+                        <!-- Conversation roll-up: plain text. Own full-width row on mobile. -->
+                        <div v-if="conversation" class="order-3 md:order-none w-full md:w-auto flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500 dark:text-gray-400" data-testid="trace-rollup">
                             <span>{{ conversation.total_turns }} {{ conversation.total_turns === 1 ? 'turn' : 'turns' }}</span>
                             <span v-if="conversation.failed_turns" class="text-red-500">{{ conversation.failed_turns }} failed</span>
                             <span v-if="conversation.negative_feedback_turns" class="text-amber-600">{{ conversation.negative_feedback_turns }} negative</span>
@@ -35,12 +35,31 @@
                                 {{ formatCost(conversation.total_llm_cost_usd) }}
                             </span>
                         </div>
+                        <div class="order-2 md:order-none flex items-center gap-1 md:gap-3 flex-shrink-0">
+                        <UDropdown
+                            v-if="conversation"
+                            :items="exportItems"
+                            :popper="{ placement: 'bottom-end' }"
+                            :ui="{ width: 'w-64', item: { size: 'text-xs', padding: 'px-3 py-2' } }"
+                        >
+                            <UButton
+                                color="gray"
+                                variant="ghost"
+                                size="xs"
+                                :icon="isExporting ? undefined : 'i-heroicons-arrow-down-tray'"
+                                :loading="isExporting"
+                                :aria-label="$t('traceModal.export.button')"
+                                data-testid="trace-export-button"
+                            ><span class="hidden md:inline">{{ $t('traceModal.export.button') }}</span></UButton>
+                        </UDropdown>
                         <UButton
                             color="gray"
                             variant="ghost"
                             icon="i-heroicons-x-mark-20-solid"
+                            data-testid="trace-close-button"
                             @click="closeModal"
                         />
+                        </div>
                     </div>
                 </div>
             </template>
@@ -49,23 +68,40 @@
                  Cap to the viewport (header ≈ 70px + modal margins) so the card
                  never outgrows the screen — otherwise UModal's overlay becomes
                  scrollable and the whole modal scrolls like a page. -->
-            <div class="h-[620px] max-h-[calc(100vh-180px)] flex">
+            <!-- Mobile: one pane at a time, switched by these tabs. -->
+            <div class="md:hidden flex border-b border-gray-200 dark:border-gray-800" role="tablist" data-testid="trace-mobile-tabs">
+                <button v-for="tab in mobileTabs" :key="tab.key" type="button" role="tab"
+                        :aria-selected="mobilePane === tab.key"
+                        :data-testid="`trace-tab-${tab.key}`"
+                        :class="['flex-1 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors',
+                                 mobilePane === tab.key ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 dark:text-gray-400']"
+                        @click="mobilePane = tab.key">
+                    {{ tab.label }}
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 md:flex-none md:h-[620px] md:max-h-[calc(100vh-180px)] flex pb-[env(safe-area-inset-bottom)] md:pb-0">
                 <!-- Pane A: whole conversation, rendered like the chat -->
-                <div class="w-[40%] flex-shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col min-h-0">
-                    <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 flex items-center justify-between">
+                <div :class="['w-full md:w-[40%] flex-shrink-0 md:border-e border-gray-200 dark:border-gray-800 flex-col min-h-0 md:flex', mobilePane === 'chat' ? 'flex' : 'hidden']">
+                    <div class="hidden md:flex px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 items-center justify-between">
                         <span>Conversation</span>
-                        <span v-if="conversation" class="text-gray-400 dark:text-gray-500 normal-case tracking-normal">{{ conversation.total_turns }}</span>
+                        <span v-if="conversation" class="text-ink-muted normal-case tracking-normal">{{ conversation.total_turns }}</span>
                     </div>
                     <div v-if="isConvLoading" class="flex-1 flex items-center justify-center">
-                        <Spinner class="w-5 h-5 text-gray-400" />
+                        <Spinner class="w-5 h-5 text-ink-muted" />
                     </div>
                     <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
                         <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
                              :data-completion-id="turn.completion_id || ''"
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
+                            <!-- Machine turn (e.g. agent check-in): the prompt is the
+                                 hidden trigger, not something the user typed. -->
+                            <div v-if="turn.trigger_source" class="flex items-center gap-1.5 mb-1.5 text-2xs text-indigo-600 dark:text-indigo-300" :data-testid="`trace-machine-turn-${turn.trigger_source}`">
+                                <UIcon :name="turn.trigger_source === 'checkin' ? 'i-heroicons-arrow-path-rounded-square' : 'i-heroicons-bolt'" class="w-3.5 h-3.5" />
+                                <span class="font-medium">{{ turn.trigger_source === 'checkin' ? $t('traceModal.checkin.runTurn') : $t('traceModal.machineTurn', { source: turn.trigger_source }) }}</span>
+                            </div>
                             <!-- User bubble -->
                             <div class="flex justify-end mb-2">
-                                <div class="max-w-[88%] rounded-xl px-3 py-2 bg-gray-100 dark:bg-gray-800 text-[13px] text-gray-900 dark:text-gray-100 whitespace-pre-line break-words" dir="auto">{{ turn.user_prompt || '—' }}</div>
+                                <div :class="['max-w-[88%] rounded-xl px-3 py-2 text-sm whitespace-pre-line break-words', turn.trigger_source ? 'bg-indigo-50/60 dark:bg-indigo-500/10 text-gray-600 dark:text-gray-300 line-clamp-4' : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100']" dir="auto">{{ turn.user_prompt || '—' }}</div>
                             </div>
                             <!-- Assistant blocks -->
                             <div class="space-y-2">
@@ -80,13 +116,13 @@
                                     <div class="flex items-center gap-1.5">
                                         <UIcon :name="getStatusIcon(block.status)" :class="getStatusIconClass(block.status)" />
                                         <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ chatBlockTitle(block) }}</span>
-                                        <span v-if="chatBlockDurationMs(block) != null" class="ms-auto text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(chatBlockDurationMs(block) || 0) }}</span>
+                                        <span v-if="chatBlockDurationMs(block) != null" class="ms-auto text-2xs text-ink-muted font-mono flex-shrink-0">{{ formatDuration(chatBlockDurationMs(block) || 0) }}</span>
                                     </div>
-                                    <div v-if="block.reasoning" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
+                                    <div v-if="block.reasoning" class="text-2xs text-ink-muted mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
                                     <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 dark:text-gray-300 markdown-wrapper" dir="auto">
                                         <MarkdownRender :content="block.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                     </div>
-                                    <div v-if="block.tool_execution" class="mt-2" @click.stop="onChatBlockClick(turn, block)">
+                                    <div v-if="block.tool_execution" class="mt-2 min-w-0 overflow-x-auto" @click.stop="onChatBlockClick(turn, block)">
                                         <component
                                             v-if="shouldUseToolComponent(block.tool_execution)"
                                             :is="getToolComponent(block.tool_execution.tool_name)"
@@ -96,35 +132,37 @@
                                     </div>
                                 </div>
                                 <!-- Turn meta -->
-                                <div class="flex items-center gap-1.5 ps-1 text-[10px] text-gray-400 dark:text-gray-500">
+                                <div class="flex items-center gap-1.5 ps-1 text-2xs text-ink-muted">
                                     <span :class="statusTextClass(turn.status)">{{ statusLabel(turn.status) }}</span>
                                     <template v-if="turn.total_duration_ms != null"><span>·</span><span>{{ formatDuration(turn.total_duration_ms) }}</span></template>
                                     <template v-if="turn.feedback_status !== 'none'"><span>·</span><span :class="turn.feedback_status === 'positive' ? 'text-green-600' : 'text-red-500'">{{ turn.feedback_status }}</span></template>
                                 </div>
+                                <!-- Agent check-ins this turn planned (or declined) -->
+                                <CheckinTraceCard v-for="c in checkinsForTurn(turn)" :key="c.id" :checkin="c" />
                             </div>
                         </div>
-                        <div v-if="!turns.length" class="text-xs text-gray-400 dark:text-gray-500 text-center py-8">No turns yet</div>
+                        <div v-if="!turns.length" class="text-xs text-ink-muted text-center py-8">No turns yet</div>
                     </div>
                 </div>
 
                 <!-- Pane B: timeline (focused turn) -->
-                <div class="w-[260px] flex-shrink-0 border-e border-gray-200 dark:border-gray-800 flex flex-col min-h-0">
-                    <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Timeline</div>
-                    <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-gray-400" /></div>
-                    <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 px-4 text-center">Select a turn</div>
+                <div :class="['w-full md:w-[260px] flex-shrink-0 md:border-e border-gray-200 dark:border-gray-800 flex-col min-h-0 md:flex', mobilePane === 'timeline' ? 'flex' : 'hidden']">
+                    <div class="hidden md:block px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Timeline</div>
+                    <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-ink-muted" /></div>
+                    <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-ink-muted px-4 text-center">Select a turn</div>
                     <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1">
                         <template v-for="item in visibleLeftItems" :key="item.id">
                             <div v-if="item.kind === 'section'"
-                                 class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none"
+                                 class="px-1 py-1 flex items-center gap-1 cursor-pointer text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none"
                                  @click="toggleHarnessCollapsed()">
                                 <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
-                                <span>{{ item.title }}</span><span class="text-gray-400 dark:text-gray-500">· {{ harnessCount }}</span>
+                                <span>{{ item.title }}</span><span class="text-ink-muted">· {{ harnessCount }}</span>
                             </div>
                             <div v-else-if="item.kind === 'timing'" class="px-2 py-1.5" :data-testid="'timing-row-' + item.id">
                                 <div class="flex items-center gap-1.5">
-                                    <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400" />
-                                    <span class="text-[11px] text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.setupTooltip')">{{ item.title }}</span>
-                                    <span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(item.durationMs) }}</span>
+                                    <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-ink-muted" />
+                                    <span class="text-2xs text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.setupTooltip')">{{ item.title }}</span>
+                                    <span class="text-2xs text-ink-muted font-mono flex-shrink-0">{{ formatDuration(item.durationMs) }}</span>
                                 </div>
                                 <div class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden relative">
                                     <div v-for="(seg, si) in item.segments" :key="si" :class="['absolute inset-y-0', segmentClass(seg)]" :style="segmentStyle(seg)"></div>
@@ -138,15 +176,15 @@
                                 ]">
                                 <div class="flex items-center gap-1.5">
                                     <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
-                                    <span class="text-[11px] text-gray-700 dark:text-gray-300 truncate flex-1">{{ item.title }}</span>
-                                    <span v-if="getItemDurationMs(item) !== null" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
+                                    <span class="text-2xs text-gray-700 dark:text-gray-300 truncate flex-1">{{ item.title }}</span>
+                                    <span v-if="getItemDurationMs(item) !== null" class="text-2xs text-ink-muted font-mono flex-shrink-0">{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
                                 </div>
                                 <div v-if="stepTimingFor(item)" class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden relative" data-testid="step-timing-bar">
                                     <div v-for="(seg, si) in stepTimingFor(item)!.segments" :key="si"
                                          :class="['absolute inset-y-0', segmentClass(seg)]" :style="segmentStyle(seg)"
                                          :title="`${$t('traceModal.segment_' + seg.kind)} · ${formatDuration(seg.ms)}`"></div>
                                 </div>
-                                <div v-if="stepTimingFor(item)" class="mt-0.5 flex items-center gap-2 text-[9px] text-gray-400 dark:text-gray-500 font-mono">
+                                <div v-if="stepTimingFor(item)" class="mt-0.5 flex items-center gap-2 text-2xs text-ink-muted font-mono">
                                     <span v-if="stepTimingFor(item)!.plannerMs != null">{{ $t('traceModal.plannerShort') }} {{ formatDuration(stepTimingFor(item)!.plannerMs || 0) }}</span>
                                     <span v-if="stepTimingFor(item)!.toolMs != null">{{ $t('traceModal.toolShort') }} {{ formatDuration(stepTimingFor(item)!.toolMs || 0) }}</span>
                                 </div>
@@ -155,13 +193,13 @@
                         <!-- Unplaced time, so the rows reconcile with the run total -->
                         <div v-if="overheadMs" class="px-2 py-1.5" data-testid="timing-overhead-row">
                             <div class="flex items-center gap-1.5">
-                                <UIcon name="i-heroicons-ellipsis-horizontal-circle" class="w-4 h-4 text-gray-400" />
-                                <span class="text-[11px] text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.overheadTooltip')">{{ $t('traceModal.overhead') }}</span>
-                                <span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(overheadMs) }}</span>
+                                <UIcon name="i-heroicons-ellipsis-horizontal-circle" class="w-4 h-4 text-ink-muted" />
+                                <span class="text-2xs text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.overheadTooltip')">{{ $t('traceModal.overhead') }}</span>
+                                <span class="text-2xs text-ink-muted font-mono flex-shrink-0">{{ formatDuration(overheadMs) }}</span>
                             </div>
                         </div>
                         <!-- Legend -->
-                        <div v-if="stepTimings.size" class="px-2 pt-2 mt-1 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-500 dark:text-gray-400">
+                        <div v-if="stepTimings.size" class="px-2 pt-2 mt-1 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-gray-500 dark:text-gray-400">
                             <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-purple-400"></span>{{ $t('traceModal.segment_planner') }}</span>
                             <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-purple-200 dark:bg-purple-300/60"></span>{{ $t('traceModal.segment_tool_llm') }}</span>
                             <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-amber-400"></span>{{ $t('traceModal.segment_tool_exec') }}</span>
@@ -170,9 +208,9 @@
                 </div>
 
                 <!-- Pane C: expanded block -->
-                <div class="flex-1 min-w-0 flex flex-col min-h-0">
+                <div :class="['flex-1 min-w-0 flex-col min-h-0 md:flex', mobilePane === 'detail' ? 'flex' : 'hidden']">
                     <!-- Per-turn summary strip -->
-                    <div v-if="selectedTurn" class="px-5 py-2.5 border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 flex-wrap">
+                    <div v-if="selectedTurn" class="px-4 md:px-5 py-2.5 border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 flex-wrap">
                         <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium', statusChipClass(selectedTurn.status)]">
                             <UIcon :name="getStatusIcon(selectedTurn.status)" class="w-3.5 h-3.5" />
                             {{ selectedTurn.status }}
@@ -211,18 +249,27 @@
                         </div>
                     </div>
 
-                    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
+                    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-5">
+                        <!-- Check-in run: why the judge ran it, before the usual trace -->
+                        <div v-if="selectedTurnCheckin" class="mb-4 rounded-lg border border-indigo-100 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5 px-3 py-2.5" data-testid="trace-checkin-judge-panel">
+                            <div class="flex items-center gap-1.5 text-xs font-medium text-gray-800 dark:text-gray-200">
+                                <UIcon name="i-heroicons-scale" class="w-3.5 h-3.5 text-indigo-500" />
+                                {{ $t('traceModal.checkin.whyRun') }}
+                            </div>
+                            <p class="mt-1 text-xs text-gray-700 dark:text-gray-300" dir="auto">{{ selectedTurnCheckin.judge_reason || '—' }}</p>
+                            <p v-if="selectedTurnCheckin.judge_focus" class="mt-1 text-xs text-gray-500 dark:text-gray-400" dir="auto"><span class="font-medium">{{ $t('traceModal.checkin.focus') }}:</span> {{ selectedTurnCheckin.judge_focus }}</p>
+                        </div>
                         <!-- Loading -->
                         <div v-if="isLoading" class="h-full flex items-center justify-center">
                             <div class="text-center">
-                                <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
+                                <Spinner class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
                                 <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('traceModal.loading') }}</p>
                             </div>
                         </div>
                         <!-- Empty -->
                         <div v-else-if="!selectedItem" class="flex items-center justify-center h-full text-gray-500 dark:text-gray-400">
                             <div class="text-center">
-                                <UIcon name="i-heroicons-cursor-arrow-rays" class="w-12 h-12 mx-auto mb-4 text-gray-400 dark:text-gray-500" />
+                                <UIcon name="i-heroicons-cursor-arrow-rays" class="w-12 h-12 mx-auto mb-4 text-ink-muted" />
                                 <p class="text-xs">{{ $t('traceModal.selectItem') }}</p>
                             </div>
                         </div>
@@ -230,11 +277,11 @@
                         <div v-else>
                             <!-- Item Header -->
                             <div class="mb-4 flex-shrink-0">
-                                <div class="flex items-center mb-2">
+                                <div class="flex flex-wrap items-center gap-y-1.5 mb-2">
                                     <UIcon :name="getSelectedItemIcon()" class="w-4 h-4 me-2 text-gray-600 dark:text-gray-400" />
                                     <h4 class="text-sm font-medium text-gray-900 dark:text-white">{{ getSelectedItemTitle() }}</h4>
-                                    <span v-if="selectedItemDataSources.length" class="flex items-center gap-1.5 ms-2">
-                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[11px] text-gray-600 dark:text-gray-400">
+                                    <span v-if="selectedItemDataSources.length" class="flex flex-wrap items-center gap-1.5 ms-2">
+                                        <span v-for="ds in selectedItemDataSources" :key="ds.id" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-2xs text-gray-600 dark:text-gray-400">
                                             <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="w-3.5 h-3.5" />
                                             <span>{{ ds.name || ds.type }}</span>
                                         </span>
@@ -250,29 +297,61 @@
                                 <!-- Overview: prompt + assessment (judge) + context -->
                                 <template v-if="selectedItem.id === 'overview'">
                                     <!-- User prompt -->
-                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.userPrompt') }}</div>
+                                    <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.userPrompt') }}</div>
                                     <pre class="text-xs text-gray-900 dark:text-gray-100 font-sans whitespace-pre-wrap break-words">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
                                     <!-- Assessment (judge) -->
                                     <div v-if="isJudgeEnabled && assessmentRows.length" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">LLM Judge Assessment</div>
+                                        <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">LLM Judge Assessment</div>
                                         <div class="space-y-2.5">
                                             <div v-for="row in assessmentRows" :key="row.key">
                                                 <div class="flex items-center gap-2 text-xs">
-                                                    <span class="w-28 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ row.label }}</span>
+                                                    <span class="w-24 md:w-28 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ row.label }}</span>
                                                     <div class="flex-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden">
                                                         <div class="h-full" :class="row.bar" :style="{ width: (row.score / 5 * 100) + '%' }"></div>
                                                     </div>
                                                     <span class="font-semibold w-7 text-end" :class="row.text">{{ row.score }}/5</span>
                                                 </div>
-                                                <div v-if="row.reasoning" class="text-[11px] text-gray-500 dark:text-gray-400 mt-1 ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
+                                                <div v-if="row.reasoning" class="text-2xs text-gray-500 dark:text-gray-400 mt-1 ps-[6.5rem] md:ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- User memory for this turn: injected entries, memory tool calls,
+                                         refusals. Entry text only when the viewer owns the memory. -->
+                                    <div v-if="selectedTurn?.memory" class="mt-4" data-testid="trace-memory">
+                                        <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 flex items-center gap-1.5">
+                                            <UIcon name="i-heroicons-bookmark" class="w-3.5 h-3.5" />
+                                            {{ $t('traceModal.memory.title') }}
+                                            <span class="normal-case tracking-normal text-ink-muted">· {{ $t('traceModal.memory.summary', { injected: selectedTurn.memory.injected.length, total: selectedTurn.memory.total_entries, chars: selectedTurn.memory.chars }) }}</span>
+                                        </div>
+                                        <p v-if="!selectedTurn.memory.owner_view" class="text-2xs text-ink-muted mb-2 flex items-center gap-1">
+                                            <UIcon name="i-heroicons-lock-closed" class="w-3 h-3" />{{ $t('traceModal.memory.privateNote') }}
+                                        </p>
+                                        <div class="space-y-1">
+                                            <div v-for="(m, mi) in selectedTurn.memory.injected" :key="'inj' + mi" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <span class="font-mono text-2xs text-gray-500 shrink-0 mt-px">[{{ m.handle }}]</span>
+                                                <span class="text-2xs px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
+                                                <UIcon v-if="m.dated" name="i-heroicons-calendar" class="w-3 h-3 text-ink-muted shrink-0 mt-0.5" />
+                                                <span v-if="m.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ m.text }}</span>
+                                            </div>
+                                            <div v-for="(c, ci) in selectedTurn.memory.tool_calls" :key="'call' + ci" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
+                                                <UIcon :name="c.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" :class="['w-3.5 h-3.5 shrink-0 mt-px', c.success ? 'text-green-500' : 'text-red-500']" />
+                                                <span class="font-mono text-2xs text-gray-600 dark:text-gray-400 shrink-0 mt-px">{{ c.tool }}<template v-if="c.action">·{{ c.action }}</template></span>
+                                                <span v-if="c.handle" class="font-mono text-2xs text-gray-500 shrink-0 mt-px">[{{ c.handle }}]</span>
+                                                <span v-if="c.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ c.text }}</span>
+                                            </div>
+                                            <div v-for="(r, ri) in selectedTurn.memory.refusals" :key="'ref' + ri" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/40">
+                                                <UIcon name="i-heroicons-no-symbol" class="w-3.5 h-3.5 shrink-0 mt-px text-amber-600" />
+                                                <span class="text-2xs text-amber-700 dark:text-amber-400 shrink-0 mt-px">{{ $t('traceModal.memory.refused') }} · {{ r.code }}</span>
+                                                <span v-if="r.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ r.text }}</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <!-- Context (schemas / instructions / observations) -->
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.context') }}</div>
+                                        <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.context') }}</div>
                                         <ContextBrowser
                                             :context-data="traceData.head_context_snapshot.context_view_json || {}"
                                             :build="traceData?.build"
@@ -286,8 +365,8 @@
                                         <!-- Summary counts -->
                                         <div class="flex items-center gap-3 mb-3 text-xs text-gray-600 dark:text-gray-400">
                                             <span class="font-medium">{{ $t('traceModal.instructionsCount', { count: instructionsSummaryItems.length }) }}</span>
-                                            <span v-if="instructionsAlwaysCount" class="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
-                                            <span v-if="instructionsIntelligentCount" class="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-2xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-2xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
                                         </div>
                                         <!-- Collapsible list -->
                                         <div class="space-y-1">
@@ -296,8 +375,8 @@
                                                  @click="emit('openInstruction', ins.id)">
                                                 <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                 <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
-                                                <span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+                                                <span v-if="ins.category" class="text-2xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
+                                                <span class="text-2xs px-1.5 py-0.5 rounded flex-shrink-0"
                                                       :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
                                                     {{ getLoadModeLabel(ins.load_mode) }}
                                                 </span>
@@ -311,7 +390,7 @@
                                 <template v-else>
                                     <!-- Feedback details -->
                                     <div v-if="selectedItem.kind === 'feedback'">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.feedback') }}</div>
+                                        <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.feedback') }}</div>
                                         <div class="flex items-center space-x-2 mb-2">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
                                                   :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
@@ -320,34 +399,34 @@
                                             <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(selectedItem.created_at) }}</span>
                                         </div>
                                         <div v-if="selectedItem.message">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.message') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.message') }}</div>
                                             <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.reasoning') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.reasoning') }}</div>
                                             <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
                                             <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Step timing: planner LLM + tool -->
                                         <div v-if="selectedStepTiming" class="mt-4" data-testid="step-timing-detail">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stepTiming') }}</div>
-                                            <div class="space-y-1 text-[11px]">
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stepTiming') }}</div>
+                                            <div class="space-y-1 text-2xs">
                                                 <div v-for="row in selectedStepTimingRows" :key="row.key" class="flex items-center gap-2" :class="row.indent ? 'ps-4' : ''">
-                                                    <span class="w-32 truncate" :class="row.indent ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-300 font-medium'">{{ row.label }}</span>
+                                                    <span class="w-24 md:w-32 truncate" :class="row.indent ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-300 font-medium'">{{ row.label }}</span>
                                                     <span class="w-14 text-end font-mono text-gray-700 dark:text-gray-300">{{ formatDuration(row.ms) }}</span>
                                                     <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
                                                         <div class="h-full rounded" :class="row.color" :style="{ width: Math.max(1, (row.ms / Math.max(selectedStepTiming.totalMs, 1)) * 100) + '%' }"></div>
                                                     </div>
                                                 </div>
                                                 <div class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-800">
-                                                    <span class="w-32 text-gray-700 dark:text-gray-300 font-medium">{{ $t('traceModal.stepTotal') }}</span>
+                                                    <span class="w-24 md:w-32 text-gray-700 dark:text-gray-300 font-medium">{{ $t('traceModal.stepTotal') }}</span>
                                                     <span class="w-14 text-end font-mono font-medium text-gray-900 dark:text-gray-100">{{ formatDuration(selectedStepTiming.totalMs) }}</span>
                                                 </div>
                                             </div>
@@ -355,7 +434,7 @@
 
                                         <!-- Tool execution with specialized rendering -->
                                         <div v-if="selectedItem.tool_execution" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.toolExecution') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.toolExecution') }}</div>
                                             <!-- Use specialized tool component if available -->
                                             <component
                                                 v-if="shouldUseToolComponent(selectedItem.tool_execution)"
@@ -377,7 +456,7 @@
                                         <!-- Instructions loaded by this tool -->
                                         <div v-if="selectedItem.tool_execution?.result_json?.related_instructions?.length" class="mt-4">
                                             <div
-                                                class="flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
+                                                class="flex items-center gap-1.5 text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
                                                 @click="showToolInstructions = !showToolInstructions"
                                             >
                                                 <UIcon :name="showToolInstructions ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
@@ -391,7 +470,7 @@
                                                          @click="emit('openInstruction', ins.id)">
                                                         <UIcon name="i-heroicons-cube" class="w-3 h-3 text-indigo-500 flex-shrink-0" />
                                                         <span class="font-medium">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
-                                                        <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 ms-auto">{{ ins.category }}</span>
+                                                        <span v-if="ins.category" class="text-2xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 ms-auto">{{ ins.category }}</span>
                                                     </div>
                                                 </div>
                                             </Transition>
@@ -399,10 +478,10 @@
 
                                         <!-- Sub-timings: per-query breakdown -->
                                         <div v-if="selectedItemSubTimings" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.queryTiming') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.queryTiming') }}</div>
                                             <div class="space-y-1 text-xs">
                                                 <!-- Phase summary row -->
-                                                <div class="flex items-center gap-3 text-gray-500 dark:text-gray-400 mb-2">
+                                                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-gray-500 dark:text-gray-400 mb-2">
                                                     <span v-if="selectedItemSubTimings.codegen_ms != null">
                                                         {{ $t('traceModal.llmCodegen') }} <span class="font-medium text-gray-700 dark:text-gray-300">{{ formatDuration(selectedItemSubTimings.codegen_ms) }}</span>
                                                     </span>
@@ -414,8 +493,8 @@
                                                     </span>
                                                 </div>
                                                 <!-- Per-query table -->
-                                                <div v-if="selectedItemSubTimings.queries?.length" class="border border-gray-200 dark:border-gray-800 rounded overflow-hidden">
-                                                    <table class="w-full text-[11px]">
+                                                <div v-if="selectedItemSubTimings.queries?.length" class="border border-gray-200 dark:border-gray-800 rounded overflow-x-auto">
+                                                    <table class="w-full text-2xs">
                                                         <thead class="bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">
                                                             <tr>
                                                                 <th class="px-2 py-1 text-start font-medium">#</th>
@@ -446,11 +525,11 @@
 
                                         <!-- Stages waterfall -->
                                         <div v-if="filteredStages.length" class="mt-4">
-                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stages') }}</div>
+                                            <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stages') }}</div>
                                             <div class="space-y-1">
                                                 <div v-for="s in filteredStages" :key="s.stage"
-                                                     class="flex items-center gap-2 text-[11px]">
-                                                    <span class="w-36 text-gray-600 dark:text-gray-400 truncate text-end" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
+                                                     class="flex items-center gap-2 text-2xs">
+                                                    <span class="w-24 md:w-36 text-gray-600 dark:text-gray-400 truncate text-end" :title="s.stage">{{ humanizeStage(s.stage) }}</span>
                                                     <span class="w-16 text-end font-mono"
                                                           :class="s.ms > 5000 ? 'text-red-600 font-semibold' : s.ms > 1000 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'">
                                                         {{ formatDuration(s.ms) }}
@@ -562,11 +641,14 @@ import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import SendEmailTool from '../tools/SendEmailTool.vue'
 import CreateNoteTool from '../tools/CreateNoteTool.vue'
+import SubmitListTool from '../tools/SubmitListTool.vue'
 import EditNoteTool from '../tools/EditNoteTool.vue'
 import SearchInstructionsTool from '../tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '../tools/ReadInstructionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
+import CheckinTraceCard from './CheckinTraceCard.vue'
+import type { CheckinTrace } from './CheckinTraceCard.vue'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 const { isJudgeEnabled } = useOrgSettings()
@@ -738,6 +820,8 @@ interface ConversationTurn {
     llm_tokens?: number | null
     llm_cost_usd?: number | null
     created_at?: string | null
+    trigger_source?: string | null
+    checkin_id?: string | null
 }
 
 interface ConversationTraceResponse {
@@ -752,6 +836,7 @@ interface ConversationTraceResponse {
     total_llm_tokens?: number | null
     total_llm_cost_usd?: number | null
     turns: ConversationTurn[]
+    checkins?: CheckinTrace[]
 }
 
 interface Props {
@@ -778,9 +863,42 @@ const selectedCompletionId = ref<string | null>(null)
 const activeTab = ref<'trace' | 'context'>('trace')
 const selectedItem = ref<any>(null)
 const selectedItemType = ref<'block'>('block')
+// Below md the three panes collapse into tabs; picking a block or timeline
+// row jumps to its details. Ignored on desktop, where all panes show.
+type MobilePane = 'chat' | 'timeline' | 'detail'
+const mobilePane = ref<MobilePane>('chat')
+const mobileTabs = computed<{ key: MobilePane, label: string }[]>(() => [
+    { key: 'chat', label: t('traceModal.tabs.conversation') },
+    { key: 'timeline', label: t('traceModal.tabs.timeline') },
+    { key: 'detail', label: t('traceModal.tabs.details') },
+])
+// Full-screen sheet on mobile, centered dialog from md up.
+const modalUi = {
+    width: 'w-full sm:max-w-full md:max-w-7xl',
+    padding: 'p-0 md:p-4',
+    margin: 'md:my-8',
+    rounded: 'rounded-none md:rounded-lg',
+    height: 'h-[100dvh] md:h-auto',
+}
+const cardUi = {
+    base: 'flex flex-col h-full md:h-auto overflow-hidden',
+    rounded: 'rounded-none md:rounded-lg',
+    ring: 'ring-0 md:ring-1',
+    body: { base: 'flex-1 min-h-0 flex flex-col', padding: '' },
+    header: { padding: 'px-4 py-3' },
+}
 const blocks = computed(() => traceData.value?.completion_blocks || [])
 const turns = computed(() => conversation.value?.turns || [])
 const selectedTurn = computed(() => turns.value.find(t => t.completion_id === selectedCompletionId.value) || null)
+// Agent check-ins: cards hang off the turn that planned them; a check-in run
+// turn links back to its row for the judge's reason.
+const checkins = computed<CheckinTrace[]>(() => conversation.value?.checkins || [])
+const checkinsForTurn = (turn: ConversationTurn) =>
+    checkins.value.filter(c => c.source_completion_id && c.source_completion_id === turn.completion_id)
+const selectedTurnCheckin = computed(() => {
+    const id = selectedTurn.value?.checkin_id
+    return id ? checkins.value.find(c => c.id === id) || null : null
+})
 
 // Per-turn LLM tokens. Preferred source: turn.llm_tokens, aggregated from
 // the quota pipeline's usage_events (covers every LLM call in the run —
@@ -969,6 +1087,7 @@ const onChatBlockClick = async (turn: ConversationTurn, block: any) => {
     }
     const match = (traceData.value?.completion_blocks || []).find((b: any) => b.id === block.id) || block
     selectBlock(match)
+    mobilePane.value = 'detail'
 }
 
 // Pane B: per-step timing waterfall.
@@ -1159,6 +1278,101 @@ const fetchTraceData = async () => {
     }
 }
 
+// --- Export -----------------------------------------------------------------
+// Client-side JSON export of what this modal loads, so a trace can be diffed,
+// grepped, attached to an issue or handed to an LLM. Built from the same
+// endpoints the modal reads, so it carries the same visibility scoping.
+const toast = useToast()
+const isExporting = ref(false)
+const TRACE_EXPORT_VERSION = 1
+
+const fetchTurnTrace = async (completionId: string) => {
+    const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${completionId}`)
+    if (response.error.value) return { trace: null, error: String((response.error.value as any)?.message || response.error.value) }
+    return { trace: response.data.value ?? null, error: null }
+}
+
+const buildEnvelope = (scope: 'turn' | 'conversation', turnTraces: any[]) => ({
+    export_version: TRACE_EXPORT_VERSION,
+    exported_at: new Date().toISOString(),
+    scope,
+    report_id: props.reportId,
+    selected_completion_id: selectedCompletionId.value,
+    conversation: conversation.value,
+    turns: turnTraces,
+})
+
+const buildTurnExport = async () => {
+    const id = selectedCompletionId.value
+    if (!id) return null
+    const trace = traceData.value ?? (await fetchTurnTrace(id)).trace
+    return buildEnvelope('turn', [{ completion_id: id, trace }])
+}
+
+const buildConversationExport = async () => {
+    const ids = turns.value.map(tu => tu.completion_id).filter((id): id is string => !!id)
+    const results: any[] = new Array(ids.length)
+    // Small worker pool: long conversations shouldn't fire dozens of requests at once.
+    let next = 0
+    const worker = async () => {
+        while (next < ids.length) {
+            const i = next++
+            const id = ids[i]
+            // Reuse the trace already on screen instead of refetching it.
+            const res = id === selectedCompletionId.value && traceData.value
+                ? { trace: traceData.value, error: null }
+                : await fetchTurnTrace(id)
+            results[i] = { completion_id: id, trace: res.trace, ...(res.error ? { error: res.error } : {}) }
+        }
+    }
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker))
+    return buildEnvelope('conversation', results)
+}
+
+const exportFileName = (scope: 'turn' | 'conversation') => {
+    const suffix = scope === 'turn' ? (selectedCompletionId.value || 'turn') : 'conversation'
+    return `trace-${props.reportId}-${suffix}.json`
+}
+
+const runExport = async (scope: 'turn' | 'conversation', mode: 'download' | 'copy') => {
+    if (isExporting.value) return
+    isExporting.value = true
+    try {
+        const payload = scope === 'turn' ? await buildTurnExport() : await buildConversationExport()
+        if (!payload) return
+        const json = JSON.stringify(payload, null, 2)
+        if (mode === 'copy') {
+            await navigator.clipboard.writeText(json)
+            toast.add({ title: t('traceModal.export.copied'), color: 'green' })
+            return
+        }
+        const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = exportFileName(scope)
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+    } catch (error) {
+        console.error('Failed to export trace:', error)
+        toast.add({ title: t('traceModal.export.failed'), color: 'red' })
+    } finally {
+        isExporting.value = false
+    }
+}
+
+const exportItems = computed(() => [
+    [
+        { label: t('traceModal.export.turnJson'), icon: 'i-heroicons-document-arrow-down', disabled: !selectedCompletionId.value, click: () => runExport('turn', 'download') },
+        { label: t('traceModal.export.conversationJson'), icon: 'i-heroicons-document-duplicate', click: () => runExport('conversation', 'download') },
+    ],
+    [
+        { label: t('traceModal.export.copyTurn'), icon: 'i-heroicons-clipboard-document', disabled: !selectedCompletionId.value, click: () => runExport('turn', 'copy') },
+    ],
+])
+
 const closeModal = () => {
     emit('update:modelValue', false)
     selectedItem.value = null
@@ -1233,6 +1447,7 @@ const selectBlock = (block: any) => {
 }
 
 const selectLeftItem = (item: any) => {
+    mobilePane.value = 'detail'
     if (item.kind === 'decision' && item.ref) {
         selectBlock(item.ref)
     } else if (item.kind === 'overview') {
@@ -1393,6 +1608,9 @@ const hasAnyCompletionScores = (completion: any) => {
 
 // Tool component helpers (matching index.vue)
 function getToolComponent(toolName: string) {
+    // Native per-list tools (submit_<list>) stream under their own name
+    // before the gateway rewrite to submit_list.
+    if (toolName?.startsWith('submit_')) return SubmitListTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -1408,6 +1626,8 @@ function getToolComponent(toolName: string) {
             return SendEmailTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'search_instructions':
@@ -1428,6 +1648,7 @@ function shouldUseToolComponent(toolExecution: any): boolean {
 // otherwise (same workaround as InstructionModalComponent).
 watch(() => props.modelValue, (newValue) => {
     if (newValue) {
+        mobilePane.value = 'chat'
         fetchConversation()
         document.body.style.overflow = 'hidden'
     } else {

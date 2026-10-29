@@ -19,10 +19,28 @@ test_rbac.py::test_create_custom_role_enterprise_gate) still work — the
 ``if is_enterprise_licensed()`` branches just always pick the licensed
 arm, which is the more thorough one.
 """
+import pathlib
+
 import pytest
 
 from app.ee import license as ee_license
 from app.services import connection_indexing_service as _cis
+
+_E2E_DIR = pathlib.Path(__file__).parent
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Everything under tests/e2e is an e2e test.
+
+    CI selects this suite with ``-m e2e``, so a test that forgot the marker was
+    deselected without a trace — 135 tests (12 whole files) had never run in CI,
+    and one of those files only passed on sqlite. Marking here, before the
+    ``-m`` filter runs, means a missing decorator can no longer hide a test.
+    """
+    for item in items:
+        if _E2E_DIR in pathlib.Path(str(item.path)).parents:
+            item.add_marker(pytest.mark.e2e)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -34,6 +52,7 @@ def _e2e_force_enterprise_license():
         org_name="e2e-tests",
         features=[
             "audit_logs",
+            "audit_log_streams",
             "step_retention_config",
             "scim",
             "custom_roles",
@@ -54,6 +73,21 @@ def _e2e_force_enterprise_license():
     finally:
         ee_license._cached_license = saved_cached
         ee_license._cache_initialized = saved_initialized
+
+
+@pytest.fixture(autouse=True)
+def _e2e_reapply_enterprise_license(_e2e_force_enterprise_license):
+    """Re-apply the session license before each test.
+
+    License tests call ``clear_license_cache()`` on teardown, which drops the
+    session fake for every later test on the same worker, so enterprise-gated
+    connectors would 402 depending on test order. Tests that need community
+    mode still clear or patch the cache inside their own fixtures/body.
+    """
+    ee_license._cached_license = _e2e_force_enterprise_license
+    ee_license._cache_initialized = True
+    ee_license._db_license_key = None
+    yield
 
 
 @pytest.fixture(autouse=True)

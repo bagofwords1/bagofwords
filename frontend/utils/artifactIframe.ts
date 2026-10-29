@@ -7,7 +7,9 @@
  *
  * Sister runtime: frontend/public/mcp-artifact-app.html (loaded by Claude / Cursor
  * via MCP Apps spec, gets data via postMessage instead of inlining). That file
- * keeps its own DOCTYPE shell because external hosts load it by URL, but it
+ * keeps its own DOCTYPE shell because MCP hosts receive it as a whole document
+ * (ui:// resource text from routes/mcp.py, never by URL — the app-origin copy is
+ * unframeable and inert), but it
  * loads /libs/artifact-globals.js so the runtime surface (useMemo, useState,
  * KPICard, useFilters, …) matches what this template provides.
  */
@@ -99,6 +101,9 @@ export interface ArtifactIframeOptions {
   mode?: 'page' | 'slides';
   /** Inject polish element-picker. Only meaningful in the editor. */
   polishMode?: boolean;
+  fixtureMode?: boolean;
+  /** Resource apps prohibit third-party image requests; legacy pages retain HTTPS images. */
+  resourceApp?: boolean;
   /** Text shown inside #root before Babel transforms the artifact code. */
   loadingLabel?: string;
   /** Default 'production'. 'development' gives clearer React error messages. */
@@ -110,9 +115,155 @@ export interface ArtifactIframeOptions {
    * { type: 'ARTIFACT_SET_COLOR_MODE', mode: 'dark' | 'light' } to the iframe.
    */
   colorMode?: 'light' | 'dark';
+  /**
+   * The artifact code precompiled by the backend exactly as babel-standalone
+   * would compile it here (ArtifactSchema.compiled_js / compiled_js_key).
+   * Used only when `key` matches precompiledKey(code) for the code being
+   * rendered; otherwise the iframe loads Babel and compiles in the browser.
+   */
+  precompiled?: { js?: string | null; key?: string | null } | null;
+  /**
+   * Source text of vendored libs keyed by URL (from artifactLibs.ts — fetched
+   * by the host page, where the HTTP cache works). A lib present here runs as
+   * an inline script; one missing falls back to <script src>.
+   */
+  inlineLibs?: Record<string, string> | null;
 }
 
 const SC = '</' + 'script>';
+
+/**
+ * Content hashes of /libs files, injected at build time (nuxt.config.ts
+ * vite.define). A hashed URL is served with a one-year immutable
+ * Cache-Control (backend/app/core/spa.py), so repeat views skip the network
+ * entirely; a new build that changes a file changes its URL.
+ */
+declare const __BOW_LIB_HASHES__: Record<string, string> | undefined;
+const LIB_HASHES: Record<string, string> =
+  typeof __BOW_LIB_HASHES__ !== 'undefined' && __BOW_LIB_HASHES__ ? __BOW_LIB_HASHES__ : {};
+
+/** URL for a vendored lib, carrying its content hash when known. */
+export function libUrl(file: string, query = ''): string {
+  const hash = LIB_HASHES[file];
+  const parts = [query, hash ? `h=${hash}` : ''].filter(Boolean);
+  return `/libs/${file}${parts.length ? '?' + parts.join('&') : ''}`;
+}
+
+/** The scripts the page iframe loads, in execution order. */
+export function artifactPageLibs(opts: { reactBuild?: 'production' | 'development'; babel?: boolean; pdf?: boolean } = {}): string[] {
+  const dev = opts.reactBuild === 'development';
+  return [
+    libUrl('tailwindcss-3.4.16.js'),
+    libUrl('artifact-tailwind.js', `v=${ARTIFACT_GLOBALS_VERSION}`),
+    libUrl(dev ? 'react-18.development.js' : 'react-18.production.min.js'),
+    libUrl(dev ? 'react-dom-18.development.js' : 'react-dom-18.production.min.js'),
+    ...(opts.babel === false ? [] : [libUrl('babel-standalone.min.js')]),
+    libUrl('echarts-5.min.js'),
+    libUrl('lucide.min.js'),
+    ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=imports-1`),
+    libUrl('artifact-sdk.js', 'v=2'),
+  ];
+}
+
+/**
+ * Must match app.services.artifact_precompile.source_key: FNV-1a 32-bit over
+ * UTF-16 code units, prefixed with the length.
+ */
+export function precompiledKey(code: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < code.length; i++) {
+    h ^= code.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${code.length}:${h.toString(16).padStart(8, '0')}`;
+}
+
+// Same shape as artifact_precompile._SINGLE_BABEL_SCRIPT_RE: the code must be
+// exactly one classic text/babel inline script for the swap to be exact.
+const SINGLE_BABEL_SCRIPT_RE = /^\s*<script\s+type=["']text\/babel["']\s*>([\s\S]*?)<\/script\s*>\s*$/i;
+
+function usablePrecompiled(opts: ArtifactIframeOptions): string | null {
+  const pc = opts.precompiled;
+  if (!pc || typeof pc.js !== 'string' || !pc.js || typeof pc.key !== 'string') return null;
+  const code = opts.code || '';
+  const m = SINGLE_BABEL_SCRIPT_RE.exec(code);
+  if (!m || /<\/script|<!--|\u0000/i.test(m[1]) || !m[1].trim()) return null;
+  if (precompiledKey(code) !== pc.key) return null;
+  return pc.js;
+}
+
+/**
+ * pdf.js (320KB) only backs BowPdfViewer/BowFile for PDFs. Load it when an
+ * embedded file is a PDF or the code mentions pdf at all (BowPdfViewer src=,
+ * a .pdf URL, …) — without it BowPdfViewer still renders its fallback card.
+ */
+function needsPdf(opts: ArtifactIframeOptions): boolean {
+  if (/pdf/i.test(opts.code || '')) return true;
+  return (opts.data?.files || []).some((f) => /pdf/i.test(`${f?.content_type || ''} ${f?.filename || ''}`));
+}
+
+/**
+ * Executes precompiled artifact code the way babel-standalone's
+ * transformScriptTags executes its output: on DOMContentLoaded, from a
+ * listener registered where the Babel <script> tag used to be (so listener
+ * order is unchanged), as a fresh <script> appended to <head> (so scope,
+ * timing and artifact-globals' appendChild import-stripping are unchanged).
+ */
+export interface ArtifactLibPlan {
+  /** Inline-able scripts that run in <head>, in order (Babel excluded). */
+  head: string[];
+  /** Inline-able scripts that run in <body> after ARTIFACT_DATA, in order. */
+  body: string[];
+  /** babel-standalone, only when there is no usable precompiled code. Always a
+   *  <script src>: 2.3MB the host would otherwise download up front, and the
+   *  browser compiles a src script off the main thread — inlined, it cost the
+   *  fallback path more than it saved. */
+  babelSrc: string | null;
+  /** pdf.js stays a <script src> (it derives a fallback worker URL from
+   *  document.currentScript.src); null when the artifact needs no PDF viewer. */
+  pdfSrc: string | null;
+  /** The usable precompiled artifact JS, or null (Babel compiles in-iframe). */
+  precompiledJs: string | null;
+}
+
+/** Which libs the page iframe will load for these options. */
+export function artifactLibPlan(opts: ArtifactIframeOptions): ArtifactLibPlan {
+  const reactBuild = opts.reactBuild ?? 'production';
+  const precompiledJs = usablePrecompiled(opts);
+  const all = artifactPageLibs({ reactBuild, babel: false, pdf: false });
+  return {
+    head: all.slice(0, all.length - 2),
+    body: all.slice(all.length - 2),
+    babelSrc: precompiledJs ? null : libUrl('babel-standalone.min.js'),
+    pdfSrc: needsPdf(opts) ? libUrl('pdf.min.js') : null,
+    precompiledJs,
+  };
+}
+
+/** URLs the host should fetch (artifactLibs.ts) before building the srcdoc. */
+export function inlineableArtifactLibs(opts: ArtifactIframeOptions): string[] {
+  if ((opts.mode ?? 'page') !== 'page') return [];
+  const plan = artifactLibPlan(opts);
+  return [...plan.head, ...plan.body];
+}
+
+// Runs one lib's source as a classic script element inserted right after the
+// calling <script> — same global scope and execution order as the
+// <script src> it replaces. The source travels as a JSON string and is set via
+// .text, so no lib content is ever parsed as HTML. insertBefore (not
+// appendChild) because artifact-globals later hooks appendChild.
+const INLINE_RUNNER = `window.__bowRunLib=function(t){var c=document.currentScript,s=document.createElement('script');s.text=t;c.parentNode.insertBefore(s,c.nextSibling);};`;
+
+function inlineLibScript(source: string): string {
+  const payload = JSON.stringify(source).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return `<script>window.__bowRunLib(${payload})${SC}`;
+}
+
+function precompiledLoaderScript(js: string): string {
+  const payload = JSON.stringify(js).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+  return `<script>(function(){var c=${payload};window.addEventListener('DOMContentLoaded',function(){var s=document.createElement('script');s.text=c;document.getElementsByTagName('head')[0].appendChild(s);},false);})();${SC}`;
+}
 
 /**
  * Legacy slides artifacts stored browser-renderable HTML in content.code;
@@ -129,8 +280,9 @@ function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
+  <script src="${libUrl('tailwindcss-3.4.16.js')}">${SC}
   <style>
     html, body { height: 100%; margin: 0; padding: 0; }
     body { font-family: system-ui, -apple-system, sans-serif; }
@@ -138,7 +290,7 @@ function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
   </style>
 </head>
 <body class="bg-slate-900">
-  <script>window.ARTIFACT_DATA = ${JSON.stringify(data)};${SC}
+  <script>window.ARTIFACT_DATA = ${JSON.stringify(data).replace(/</g, '\\u003c')};${SC}
 
   ${code}
 </body>
@@ -201,10 +353,39 @@ function polishScript(): string {
         return el;
       }
 
+      // The ⓘ provenance button is runtime chrome, not artifact code, so a
+      // pick on it resolves to the element it describes.
+      function infoOwner(el) {
+        if (!el.closest) return null;
+        var marker = el.closest('[data-bow-ibtn]');
+        if (marker) {
+          // The data-bow-viz overlay draws markers outside their owners.
+          var owners = document.querySelectorAll('[data-bow-viz]');
+          return owners[parseInt(marker.getAttribute('data-bow-info-for'), 10)] || null;
+        }
+        var inline = el.closest('[data-bow-info]');
+        return inline && inline.parentElement ? inline.parentElement.parentElement : null;
+      }
+
+      function pickTarget(el) {
+        return infoOwner(el) || snapToMeaningful(el);
+      }
+
+      // Without the ⓘ markup, which would otherwise fill the snippet budget
+      // before the card's own content.
+      function snippetOf(target) {
+        var clone = target.cloneNode(true);
+        clone.querySelectorAll('[data-bow-info]').forEach(function(n) {
+          var wrap = n.parentElement;
+          (wrap && wrap !== clone && wrap.children.length === 1 ? wrap : n).remove();
+        });
+        return clone.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500);
+      }
+
       function onHover(e) {
         if (!polishActive) return;
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
-        var target = snapToMeaningful(e.target);
+        var target = pickTarget(e.target);
         target.classList.add('__polish-highlight');
         currentHighlight = target;
       }
@@ -216,23 +397,30 @@ function polishScript(): string {
         if (!polishActive) return;
         e.preventDefault();
         e.stopPropagation();
-        var target = snapToMeaningful(e.target);
-        var rect = target.getBoundingClientRect();
+        // A throw here would reach window.onerror and read as a dashboard
+        // render failure; a pick that cannot be described stays in pick mode.
+        var element;
+        try {
+          var target = pickTarget(e.target);
+          var rect = target.getBoundingClientRect();
+          element = {
+            tag: target.tagName,
+            // getAttribute, not className: on SVG elements that is an SVGAnimatedString.
+            classes: (target.getAttribute('class') || '').replace(/__polish-highlight/g, '').trim(),
+            text: (target.textContent || '').slice(0, 100).trim(),
+            htmlSnippet: snippetOf(target),
+            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
+          };
+        } catch (err) {
+          console.warn('Polish pick failed:', err);
+          return;
+        }
         if (currentHighlight) currentHighlight.classList.remove('__polish-highlight');
         polishActive = false;
         document.body.classList.remove('__polish-active');
         cursorEl.style.display = 'none';
         document.removeEventListener('mousemove', onMouseMove, true);
-        window.parent.postMessage({
-          type: 'POLISH_ELEMENT_SELECTED',
-          element: {
-            tag: target.tagName,
-            classes: target.className.replace(/__polish-highlight/g, '').trim(),
-            text: (target.textContent || '').slice(0, 100).trim(),
-            htmlSnippet: target.outerHTML.replace(/ class="[^"]*__polish[^"]*"/g, function(m) { return m.replace(/__polish-highlight/g, '').replace(/\\s+/g, ' '); }).slice(0, 500),
-            rect: { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
-          }
-        }, '*');
+        window.parent.postMessage({ type: 'POLISH_ELEMENT_SELECTED', element: element }, '*');
       }
 
       window.addEventListener('message', function(e) {
@@ -319,17 +507,23 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   if (mode === 'slides') return buildSlidesHtml(opts.data, opts.code);
 
   const loadingLabel = opts.loadingLabel ?? 'Loading...';
-  const reactBuild = opts.reactBuild ?? 'production';
-  const reactSrc =
-    reactBuild === 'development'
-      ? '/libs/react-18.development.js'
-      : '/libs/react-18.production.min.js';
-  const reactDomSrc =
-    reactBuild === 'development'
-      ? '/libs/react-dom-18.development.js'
-      : '/libs/react-dom-18.production.min.js';
+  const plan = artifactLibPlan(opts);
+  const inline = opts.inlineLibs || {};
+  const anyInline = [...plan.head, ...plan.body].some((u) => inline[u] !== undefined);
+  const tag = (url: string) => (inline[url] !== undefined ? inlineLibScript(inline[url]) : `<script src="${url}">${SC}`);
+  // Preload hints let the iframe fetch every src-loaded script in parallel;
+  // the tags below still execute strictly in order.
+  const preloads = [...plan.head, ...(plan.babelSrc ? [plan.babelSrc] : []), ...plan.body, ...(plan.pdfSrc ? [plan.pdfSrc] : [])]
+    .filter((u) => inline[u] === undefined)
+    .map((href) => `<link rel="preload" as="script" href="${href}">`).join('\n  ');
+  const [tailwindSrc, tailwindCfgSrc, reactSrc, reactDomSrc, echartsSrc, lucideSrc] = plan.head;
+  const [globalsSrc, sdkSrc] = plan.body;
 
-  const embeddedData = JSON.stringify(opts.data);
+  const embeddedData = JSON.stringify(opts.data).replace(/</g, '\\u003c');
+  // getRandomValues is available on plain-HTTP self-hosted installations too.
+  const runtimeNonce = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+  const assetOrigin = window.location.origin;
+  const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}${opts.resourceApp ? '' : ' https:'}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
   const polish = opts.polishMode ? polishScript() : '';
   const isDark = opts.colorMode === 'dark';
 
@@ -337,16 +531,19 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
 <html${isDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="${isolationPolicy}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script src="/libs/artifact-tailwind.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
-  <script crossorigin src="${reactSrc}">${SC}
-  <script crossorigin src="${reactDomSrc}">${SC}
-  <script src="/libs/babel-standalone.min.js">${SC}
-  <script src="/libs/echarts-5.min.js">${SC}
-  <script src="/libs/lucide.min.js">${SC}
-  <script src="/libs/pdf.min.js">${SC}
-  <link rel="stylesheet" href="/libs/artifact-fonts.css?v=${ARTIFACT_GLOBALS_VERSION}">
+  ${preloads}
+  ${anyInline ? `<script>${INLINE_RUNNER}${SC}` : ''}
+  ${tag(tailwindSrc)}
+  ${tag(tailwindCfgSrc)}
+  ${tag(reactSrc)}
+  ${tag(reactDomSrc)}
+  ${plan.precompiledJs ? precompiledLoaderScript(plan.precompiledJs) : `<script src="${plan.babelSrc}">${SC}`}
+  ${tag(echartsSrc)}
+  ${tag(lucideSrc)}
+  ${plan.pdfSrc ? `<script src="${plan.pdfSrc}">${SC}` : ''}
+  <link rel="stylesheet" href="${libUrl('artifact-fonts.css', `v=${ARTIFACT_GLOBALS_VERSION}`)}">
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
     body { font-family: var(--bow-font-body, system-ui, -apple-system, sans-serif); background-color: var(--bow-bg, #ffffff); color: var(--bow-ink, #0f172a); }
@@ -359,6 +556,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script>
     // Live color-mode toggle from the host (no iframe reload).
     window.addEventListener('message', function (e) {
+      if (e.source !== window.parent) return;
       var d = e && e.data;
       if (d && d.type === 'ARTIFACT_SET_COLOR_MODE') {
         // A forced-dark artifact (root <div className="dark">) stays dark
@@ -369,12 +567,14 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       }
     });
   ${SC}
-  <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=verification-1">${SC}
+  <script>window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
+  ${tag(globalsSrc)}
+  ${tag(sdkSrc)}
+  ${anyInline ? `<script>try { delete window.__bowRunLib; } catch (e) {}${SC}` : ''}
 
   <script>${polish}${errorBoundaryScript()}${SC}
 
-  ${opts.code}
+  ${plan.precompiledJs ? '' : opts.code}
 
   <script>${readySignalScript()}${SC}
 </body>

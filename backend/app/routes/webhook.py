@@ -52,7 +52,7 @@ async def create_webhook(
 
 
 @router.get("/reports/{report_id}/webhooks", response_model=List[WebhookSchema])
-@requires_permission('view_reports', model=Report, owner_only=True)
+@requires_permission('update_reports', model=Report, owner_only=True)
 async def list_webhooks(
     report_id: str,
     current_user: User = Depends(current_user),
@@ -73,7 +73,7 @@ async def update_webhook(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    wh = await webhook_service.update_webhook(db, webhook_id, body)
+    wh = await webhook_service.update_webhook(db, report_id, webhook_id, body)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="webhook.updated",
@@ -97,7 +97,7 @@ async def rotate_webhook_secret(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    wh = await webhook_service.rotate_secret(db, webhook_id)
+    wh = await webhook_service.rotate_secret(db, report_id, webhook_id)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="webhook.secret_rotated",
@@ -119,7 +119,7 @@ async def delete_webhook(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    await webhook_service.delete_webhook(db, webhook_id)
+    await webhook_service.delete_webhook(db, report_id, webhook_id)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="webhook.deleted",

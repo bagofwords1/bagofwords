@@ -23,6 +23,7 @@ from app.models.user import User
 from typing import List
 from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
+from app.errors import AppError
 from sqlalchemy import delete, update
 from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
@@ -82,7 +83,10 @@ class OrganizationService:
             pass
 
         await self.organization_settings_service.create_default_settings(db, organization, current_user)
-        await self.add_member(db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id), current_user)
+        await self.add_member(
+            db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id),
+            current_user, enforce_role_guard=False,
+        )
         await self.llm_service.set_default_models_from_config(db, organization, current_user)
         await self.test_suite_service.ensure_default_for_org(db, organization.id, current_user)
 
@@ -203,9 +207,18 @@ class OrganizationService:
 
         from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 
+        # Member attributes can name accounts in other systems (Qlik user ids,
+        # employee ids); only full admins — who alone may edit them — read them.
+        from app.services.member_attributes import can_manage_attributes
+        can_see_attributes = await can_manage_attributes(
+            db, getattr(current_user, "id", None), organization.id
+        )
+
         schemas = []
         for membership in memberships:
             schema = MembershipSchema.from_orm(membership)
+            if not can_see_attributes:
+                schema.custom_attributes = None
             if membership.user_id:
                 # Registered user: direct ('user' principal) + group-inherited.
                 schema.roles = await self._resolve_member_roles(
@@ -329,7 +342,22 @@ class OrganizationService:
         from app.core.seats import enforce_seat_limit
         await enforce_seat_limit(db, organization_id, adding)
 
-    async def add_member(self, db: AsyncSession, membership_data: MembershipCreate, current_user: User) -> MembershipSchema:
+    async def add_member(
+        self, db: AsyncSession, membership_data: MembershipCreate, current_user: User,
+        *, enforce_role_guard: bool = True,
+    ) -> MembershipSchema:
+        """Invite/add a member with ``membership_data.role``.
+
+        ``enforce_role_guard`` applies the same escalation rule as member role
+        updates (#1305/#1328): a non-full-admin may only invite with a role whose
+        permissions they already hold, so ``manage_members`` can't mint admins.
+        Only org bootstrap (the creator becoming the first admin, before any
+        membership exists to resolve) passes ``False``.
+        """
+        if enforce_role_guard:
+            await self._assert_can_invite_with_role(
+                db, str(membership_data.organization_id), current_user, membership_data.role or "member"
+            )
         #check if email is already a user
         # if it is, add user_id to membership and remove email
         # then, check if user (or email) already maps to a membership in this organization
@@ -338,6 +366,8 @@ class OrganizationService:
         # an SSO/OIDC provider returns at login (Entra/Okta casing is out of our control).
         if membership_data.email:
             membership_data.email = membership_data.email.strip().lower()
+        from app.services.member_attributes import normalize_custom_attributes
+        membership_data.custom_attributes = normalize_custom_attributes(membership_data.custom_attributes) or None
         membership_exists = await self._is_email_already_in_organization(db, membership_data.email, membership_data.organization_id)
         if membership_exists:
             raise HTTPException(status_code=400, detail="Already a member with this email")
@@ -526,6 +556,9 @@ class OrganizationService:
             await self._revoke_departed_member_access(
                 db, organization_id, str(membership.user_id)
             )
+            # Memory is per user per org: removing the membership deletes it.
+            from app.services.memory_service import memory_service
+            await memory_service.delete_for_membership(db, str(organization_id), str(membership.user_id))
         else:
             # Pending invite: clean up any pre-assigned RBAC keyed by this
             # membership. Done explicitly (not via FK cascade) so it holds on
@@ -627,13 +660,78 @@ class OrganizationService:
                 scheduled_prompt_service._remove_job(sp_id)
             except Exception:
                 logger.warning(f"Failed to remove cron job for scheduled prompt {sp_id}", exc_info=True)
+        try:
+            from app.services.wait_service import wait_service
+            wait_service.cancel_waits_for_user(str(user_id), str(organization_id))
+        except Exception:
+            logger.warning("Failed to cancel pending waits for removed member", exc_info=True)
 
-    async def update_member(self, db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
+    async def _system_role_permissions(self, db: AsyncSession, role_name: str) -> list:
+        """Permissions of the system role a legacy ``Membership.role`` string maps to.
+
+        Only system roles are materialized from the role string (see
+        ``_assign_system_role`` / ``_sync_system_role_assignment`` and the
+        invite-accept path in core/auth.py), so an unknown name grants nothing.
+        """
+        from app.models.role import Role
+
+        return (await db.execute(
+            select(Role.permissions).where(
+                Role.name == role_name,
+                Role.is_system == True,
+                Role.organization_id.is_(None),
+                Role.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none() or []
+
+    async def _assert_can_set_member_role(
+        self, db: AsyncSession, organization_id: str, current_user: Optional[User],
+        membership: Membership, new_role: str,
+    ) -> None:
+        """Apply rbac_service's escalation guard to a legacy role-string change."""
+        from app.services.rbac_service import rbac_service
+
+        actor_id = str(current_user.id) if current_user is not None else None
+        target_user_id = str(membership.user_id) if membership.user_id else None
+        await rbac_service._assert_not_self(
+            db, organization_id, actor_id, target_user_id, action="member.role_change"
+        )
+        role_perms = await self._system_role_permissions(db, new_role)
+        await rbac_service._assert_can_grant(
+            db, organization_id, actor_id, permissions=role_perms, action="member.role_change"
+        )
+
+    async def _assert_can_invite_with_role(
+        self, db: AsyncSession, organization_id: str, current_user: Optional[User], role: str,
+    ) -> None:
+        """Same grant rule as ``_assert_can_set_member_role``, for a new membership.
+
+        The invited role is materialized into a RoleAssignment immediately (an
+        existing user) or on invite acceptance (a pending email), so inviting
+        as ``admin`` is granting ``full_admin_access``. Denials are audited as
+        ``member.invite.denied``; full admins pass unrestricted.
+        """
+        from app.services.rbac_service import rbac_service
+
+        actor_id = str(current_user.id) if current_user is not None else None
+        role_perms = await self._system_role_permissions(db, role)
+        await rbac_service._assert_can_grant(
+            db, organization_id, actor_id, permissions=role_perms, action="member.invite"
+        )
+
+    async def update_member(self,db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
         from app.core.permission_resolver import assert_full_admin_exists
 
         membership = await self.get_member(db, membership_id, organization_id, current_user)
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
+
+        # Escalation guard (same rule as the RBAC routes, #1305): a non-full-admin
+        # can't change their own role, nor grant a role wider than their own.
+        if membership_data.role is not None and membership_data.role != membership.role:
+            await self._assert_can_set_member_role(
+                db, organization_id, current_user, membership, membership_data.role
+            )
 
         # RBAC lockout prevention: whenever we mutate a membership's role field,
         # verify at least one user still holds full_admin_access in the org.
@@ -652,6 +750,9 @@ class OrganizationService:
             membership.role = update["role"]
         if "note" in update:
             membership.note = update["note"]
+        if "custom_attributes" in update and update["custom_attributes"] is not None:
+            from app.services.member_attributes import normalize_custom_attributes
+            membership.custom_attributes = normalize_custom_attributes(update["custom_attributes"]) or None
         # Keep RBAC (the source of truth) in sync with the legacy role change so
         # this path can't leave the two stores diverged (a "demoted" admin must
         # actually lose full_admin_access, not just have the string flipped).
@@ -890,12 +991,23 @@ class OrganizationService:
     ) -> MembershipImportReport:
         """Import memberships from .xlsx or .csv.
 
-        Columns: `email` (required), `note` (optional). Other columns are ignored.
+        Columns: `email` (required), `note` (optional), and any number of
+        `attr.<key>` columns setting admin member attributes (e.g.
+        `attr.qlik_user_id`). Other columns are ignored.
         Re-import is additive: existing roles/groups/status are never touched;
-        only the `note` field is overwritten. Invites are not re-sent for rows
-        whose email already has a (pending or active) membership.
+        the `note` is overwritten only when the file has a note column, and
+        attribute cells are merged into the member's attributes (an empty cell
+        leaves that attribute as it is). Invites are not re-sent for rows whose
+        email already has a (pending or active) membership.
         """
+        from app.services.member_attributes import (
+            IMPORT_COLUMN_PREFIX,
+            normalize_custom_attributes,
+        )
         rows = self._parse_membership_import(file_bytes, filename)
+        if any(k.startswith(IMPORT_COLUMN_PREFIX) for row in rows for k in row):
+            from app.services.member_attributes import require_attribute_admin
+            await require_attribute_admin(db, current_user.id, organization.id)
         report_rows: List[MembershipImportRow] = []
         summary = MembershipImportSummary()
 
@@ -912,6 +1024,20 @@ class OrganizationService:
         for idx, raw in enumerate(rows, start=2):  # data starts at row 2 (header is row 1)
             email = (raw.get("email") or "").strip()
             note = raw.get("note")
+            has_note_column = "note" in raw
+            try:
+                attrs = normalize_custom_attributes({
+                    k[len(IMPORT_COLUMN_PREFIX):]: v
+                    for k, v in raw.items()
+                    if k.startswith(IMPORT_COLUMN_PREFIX)
+                })
+            except AppError as e:
+                report_rows.append(MembershipImportRow(
+                    row=idx, email=email or None, status="error", error=e.message,
+                ))
+                summary.errors += 1
+                continue
+            row_attrs = attrs or None
             if note is not None:
                 note = str(note).strip() or None
                 if note and len(note) > MEMBERSHIP_NOTE_MAX_LENGTH:
@@ -937,17 +1063,24 @@ class OrganizationService:
 
             existing = await self._find_membership_by_email(db, email, organization.id)
             if existing:
-                if (existing.note or None) == (note or None):
+                note_changed = has_note_column and (existing.note or None) != (note or None)
+                current_attrs = dict(existing.custom_attributes or {})
+                merged_attrs = {**current_attrs, **attrs}
+                attrs_changed = merged_attrs != current_attrs
+                if not note_changed and not attrs_changed:
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="unchanged",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="unchanged",
                     ))
                     summary.unchanged += 1
                 else:
                     if not dry_run:
-                        existing.note = note
+                        if note_changed:
+                            existing.note = note
+                        if attrs_changed:
+                            existing.custom_attributes = normalize_custom_attributes(merged_attrs) or None
                         await db.flush()
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="updated",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="updated",
                     ))
                     summary.updated += 1
                 continue
@@ -969,7 +1102,7 @@ class OrganizationService:
 
             if dry_run:
                 report_rows.append(MembershipImportRow(
-                    row=idx, email=email, note=note, status="created",
+                    row=idx, email=email, note=note, custom_attributes=row_attrs, status="created",
                 ))
                 summary.created += 1
             else:
@@ -981,11 +1114,12 @@ class OrganizationService:
                             email=email,
                             role="member",
                             note=note,
+                            custom_attributes=row_attrs,
                         ),
                         current_user,
                     )
                     report_rows.append(MembershipImportRow(
-                        row=idx, email=email, note=note, status="created",
+                        row=idx, email=email, note=note, custom_attributes=row_attrs, status="created",
                     ))
                     summary.created += 1
                 except HTTPException as e:
@@ -1090,14 +1224,24 @@ class OrganizationService:
 
     @staticmethod
     def _build_header_map(header_row) -> dict:
-        """Map known column names (case-insensitive) to their column indexes."""
+        """Map known column names (case-insensitive) to their column indexes.
+
+        ``attr.<key>`` columns map to ``attr.<key>`` with the key's own case
+        kept (attribute names are case-sensitive; only the prefix is not).
+        """
+        from app.services.member_attributes import IMPORT_COLUMN_PREFIX
         mapping = {}
         for idx, name in enumerate(header_row or []):
             if name is None:
                 continue
-            key = str(name).strip().lower()
+            raw_name = str(name).strip()
+            key = raw_name.lower()
             if key in ("email", "note") and key not in mapping:
                 mapping[key] = idx
+            elif key.startswith(IMPORT_COLUMN_PREFIX) and len(raw_name) > len(IMPORT_COLUMN_PREFIX):
+                attr_key = IMPORT_COLUMN_PREFIX + raw_name[len(IMPORT_COLUMN_PREFIX):].strip()
+                if attr_key not in mapping:
+                    mapping[attr_key] = idx
         return mapping
 
     @staticmethod

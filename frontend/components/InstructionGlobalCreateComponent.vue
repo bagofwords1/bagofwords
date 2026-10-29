@@ -17,8 +17,8 @@
                             {{ instructionForm.title }}
                         </div>
                         <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
-                            <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span class="text-[11px] font-mono text-gray-500 truncate">{{ filePath }}</span>
+                            <Icon name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
+                            <span class="text-2xs font-mono text-gray-500 truncate">{{ filePath }}</span>
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
@@ -27,13 +27,13 @@
                             <button
                                 type="button"
                                 @click.stop="versionDropdownOpen = !versionDropdownOpen"
-                                class="flex items-center gap-1.5 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-md text-[11px] text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
+                                class="flex items-center gap-1.5 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-md text-2xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
                             >
-                                <Icon name="heroicons:clock" class="w-3 h-3 text-gray-400" />
+                                <Icon name="heroicons:clock" class="w-3 h-3 text-ink-muted" />
                                 <span v-if="selectedVersion">v{{ selectedVersion.version_number }}</span>
-                                <span v-else-if="isLoadingVersions" class="text-gray-400">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
+                                <span v-else-if="isLoadingVersions" class="text-ink-muted">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
                                 <span v-else>{{ $t('instructionGlobalCreate.versions.label') }}</span>
-                                <Icon name="heroicons:chevron-down" class="w-3 h-3 text-gray-400 transition-transform" :class="{ 'rotate-180': versionDropdownOpen }" />
+                                <Icon name="heroicons:chevron-down" class="w-3 h-3 text-ink-muted transition-transform" :class="{ 'rotate-180': versionDropdownOpen }" />
                             </button>
                             <div v-if="versionDropdownOpen" class="absolute z-20 mt-1 end-0 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg overflow-hidden min-w-[200px] max-h-72 overflow-y-auto">
                                 <button
@@ -41,23 +41,23 @@
                                     :key="v.id"
                                     type="button"
                                     @click.stop="selectVersion(v.id)"
-                                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-[11px] hover:bg-gray-50 transition-colors text-start"
+                                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-2xs hover:bg-gray-50 transition-colors text-start"
                                     :class="selectedVersionId === v.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
                                 >
                                     <span class="font-mono font-medium shrink-0">v{{ v.version_number }}</span>
-                                    <span v-if="v.id === currentVersionId" class="text-[9px] px-1 py-0.5 bg-green-100 text-green-700 rounded shrink-0">
+                                    <span v-if="v.id === currentVersionId" class="text-2xs px-1 py-0.5 bg-green-100 text-green-700 rounded shrink-0">
                                         {{ $t('instructionGlobalCreate.versions.current') }}
                                     </span>
-                                    <span class="text-gray-400 truncate">{{ formatVersionDate(v.created_at) }}</span>
+                                    <span class="text-ink-muted truncate">{{ formatVersionDate(v.created_at) }}</span>
                                 </button>
                             </div>
                         </div>
                         <div v-if="props.isGitSourced">
-                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-2xs text-green-600">
                                 <GitBranchIcon class="w-3 h-3" />
                                 {{ $t('instructionGlobalCreate.status.synced') }}
                             </span>
-                            <span v-else class="text-[10px] text-gray-400">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                            <span v-else class="text-2xs text-ink-muted">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
                         </div>
                     </div>
                 </div>
@@ -65,10 +65,10 @@
                 <!-- Version diff view (selected historical version vs. current) -->
                 <div v-if="isComparingHistorical" class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800">
                     <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
-                        <div class="flex items-center gap-2 text-[11px]">
+                        <div class="flex items-center gap-2 text-2xs">
                             <span class="text-gray-500">{{ $t('instructionGlobalCreate.versions.compareLabel') }}:</span>
                             <span class="font-mono font-medium text-gray-700">v{{ selectedVersion?.version_number }}</span>
-                            <Icon name="heroicons:arrow-right" class="w-3 h-3 text-gray-400 rtl-flip" />
+                            <Icon name="heroicons:arrow-right" class="w-3 h-3 text-ink-muted rtl-flip" />
                             <span class="font-mono font-medium text-gray-700">{{ $t('instructionGlobalCreate.versions.current') }}</span>
                         </div>
                         <UButton
@@ -86,7 +86,7 @@
                     </div>
                     <div v-if="isLoadingSelectedVersion" class="flex items-center justify-center py-8">
                         <Spinner class="w-4 h-4 me-2" />
-                        <span class="text-[11px] text-gray-500">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
+                        <span class="text-2xs text-gray-500">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
                     </div>
                     <template v-else>
                         <ClientOnly v-if="hasVersionDiff">
@@ -99,21 +99,21 @@
                         </ClientOnly>
                         <!-- Non-text field changes (title, status, references...). -->
                         <div v-if="versionFieldChanges.length > 0" class="px-3 py-2 space-y-1" :class="hasVersionDiff ? 'border-t border-gray-200' : ''">
-                            <div class="text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                            <div class="text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                 {{ $t('instructionGlobalCreate.versions.fieldChanges') }}
                             </div>
                             <div
                                 v-for="change in versionFieldChanges"
                                 :key="change.field"
-                                class="flex items-baseline gap-2 text-[11px]"
+                                class="flex items-baseline gap-2 text-2xs"
                             >
                                 <span class="font-medium text-gray-600 shrink-0">{{ formatFieldName(change.field) }}:</span>
                                 <span class="text-red-600 line-through truncate">{{ formatFieldValue(change.field, change.from) }}</span>
-                                <Icon name="heroicons:arrow-right" class="w-3 h-3 text-gray-400 shrink-0 rtl-flip" />
+                                <Icon name="heroicons:arrow-right" class="w-3 h-3 text-ink-muted shrink-0 rtl-flip" />
                                 <span class="text-green-700 truncate">{{ formatFieldValue(change.field, change.to) }}</span>
                             </div>
                         </div>
-                        <div v-if="!hasVersionDiff && versionFieldChanges.length === 0" class="px-3 py-4 text-[11px] text-gray-500 italic">
+                        <div v-if="!hasVersionDiff && versionFieldChanges.length === 0" class="px-3 py-4 text-2xs text-gray-500 italic">
                             {{ $t('instructionGlobalCreate.versions.noChanges') }}
                         </div>
                     </template>
@@ -127,7 +127,7 @@
                         class="border border-amber-200 bg-amber-50/40 rounded-xl overflow-hidden mb-2"
                     >
                         <div class="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-amber-200/70 bg-amber-50/60">
-                            <div class="flex items-center gap-1.5 text-[11px] text-amber-900 min-w-0">
+                            <div class="flex items-center gap-1.5 text-2xs text-amber-900 min-w-0">
                                 <Icon name="heroicons:sparkles" class="w-3.5 h-3.5 text-amber-500 shrink-0" />
                                 <span class="font-medium">
                                     {{ $t('trackedChanges.suggestion', 'Suggestion') }}
@@ -160,7 +160,7 @@
                                 </button>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
                                     :disabled="tracked.isResolving.value"
                                     @click="onAcceptTracked"
                                 >
@@ -169,7 +169,7 @@
                                 </button>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
                                     :disabled="tracked.isResolving.value"
                                     @click="onRejectTracked"
                                 >
@@ -203,17 +203,17 @@
                 <div v-if="props.instruction" class="flex flex-col gap-2 text-xs">
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.createdBy') }}</span>
+                        <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.createdBy') }}</span>
                         <div class="inline-flex items-center gap-1 text-gray-700 min-w-0">
                             <Icon :name="getSourceTypeIcon()" class="w-3 h-3 shrink-0" :class="getSourceTypeIconClass()" />
                             <span class="truncate">{{ getCreatorDisplayName() }}</span>
                         </div>
                     </div>
-                    <div v-if="createdAtDisplay" class="text-[11px] text-gray-400 ps-0.5">{{ createdAtDisplay }}</div>
+                    <div v-if="createdAtDisplay" class="text-2xs text-ink-muted ps-0.5">{{ createdAtDisplay }}</div>
 
                     <!-- Approved By (if exists) -->
                     <div v-if="props.instruction?.reviewed_by" class="flex items-center gap-1.5">
-                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
+                        <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
                         <span class="text-gray-700 truncate">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
                     </div>
                 </div>
@@ -224,15 +224,15 @@
                 <div class="flex flex-col gap-2.5 text-xs">
                     <!-- Status -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.status') }}</span>
-                        <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
+                        <span class="text-ink-muted">{{ $t('instructionGlobalCreate.fields.status') }}</span>
+                        <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-2xs font-medium rounded-full">
                             {{ getCurrentStatusDisplayText() }}
                         </span>
                     </div>
 
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.category') }}</span>
+                        <span class="text-ink-muted">{{ $t('instructionGlobalCreate.fields.category') }}</span>
                         <div class="inline-flex items-center text-gray-700">
                             <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(instructionForm.category) }}
@@ -241,7 +241,7 @@
 
                     <!-- Load Mode -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">{{ $t('instructionGlobalCreate.fields.loading') }}</span>
+                        <span class="text-ink-muted">{{ $t('instructionGlobalCreate.fields.loading') }}</span>
                         <div class="inline-flex items-center text-gray-700">
                             <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(instructionForm.load_mode) }}
@@ -250,19 +250,19 @@
 
                     <!-- Visibility -->
                     <div class="flex items-center gap-1.5">
-                        <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3 text-gray-400" />
+                        <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3 text-ink-muted" />
                         <span class="text-gray-600">{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
                     </div>
                 </div>
 
                 <!-- Labels (read-only) -->
                 <div v-if="selectedLabelObjects.length > 0" class="flex items-center gap-2">
-                    <span class="text-[11px] text-gray-400">{{ $t('instructionGlobalCreate.fields.labels') }}</span>
+                    <span class="text-2xs text-ink-muted">{{ $t('instructionGlobalCreate.fields.labels') }}</span>
                     <div class="flex flex-wrap gap-1">
                         <span
                             v-for="label in selectedLabelObjects"
                             :key="label.id"
-                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs"
                             :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
                         >
                             <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
@@ -275,36 +275,36 @@
                 <div class="space-y-2 text-xs">
                     <!-- Data Agents -->
                     <div class="flex items-start gap-1.5">
-                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.fields.agents') }}</span>
+                        <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.fields.agents') }}</span>
                         <span v-if="isAllDataSourcesSelected" class="text-gray-700">{{ $t('instructionGlobalCreate.allAgents') }}</span>
                         <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
                             <div
                                 v-for="ds in getSelectedDataSourceObjects"
                                 :key="ds.id"
-                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs text-gray-700"
                             >
                                 <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="h-3" />
                                 {{ ds.name }}
                             </div>
                         </div>
-                        <span v-else class="text-gray-400">{{ $t('instructionGlobalCreate.none') }}</span>
+                        <span v-else class="text-ink-muted">{{ $t('instructionGlobalCreate.none') }}</span>
                     </div>
 
                     <!-- References -->
                     <div class="flex items-start gap-1.5">
-                        <span class="text-gray-400 shrink-0">{{ $t('instructionGlobalCreate.fields.references') }}</span>
-                        <span v-if="selectedReferences.length === 0" class="text-gray-400">{{ $t('instructionGlobalCreate.none') }}</span>
+                        <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.fields.references') }}</span>
+                        <span v-if="selectedReferences.length === 0" class="text-ink-muted">{{ $t('instructionGlobalCreate.none') }}</span>
                         <div v-else class="flex flex-wrap gap-1.5">
                             <div
                                 v-for="ref in selectedReferences"
                                 :key="ref.id"
-                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs text-gray-700"
                             >
                                 <!-- DS icon for tables/tools (shows which agent) -->
                                 <template v-if="ref.data_source_type && (ref.type === 'datasource_table' || ref.type === 'connection_tool')">
                                     <DataSourceIcon :type="ref.data_source_type" :icon-token="ref.data_source_icon_token" :icon="ref.data_source_icon" class="h-3 shrink-0" />
                                     <!-- Wrench pip only when we have DS icon, to distinguish tools from tables -->
-                                    <Icon v-if="ref.type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2.5 h-2.5 shrink-0 text-gray-400" />
+                                    <Icon v-if="ref.type === 'connection_tool'" name="heroicons:wrench-screwdriver" class="w-2.5 h-2.5 shrink-0 text-ink-muted" />
                                 </template>
                                 <Icon
                                     v-else
@@ -374,24 +374,24 @@
                         <!-- Git sync status -->
                         <template v-if="props.isGitSourced">
                             <UTooltip v-if="props.isGitSynced" :text="$t('instructionGlobalCreate.tooltips.stopSyncing')" :popper="{ placement: 'top' }">
-                                <button type="button" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
+                                <button type="button" class="flex items-center gap-1 text-2xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
                                     <GitBranchIcon class="w-3 h-3" />
                                     {{ $t('instructionGlobalCreate.status.synced') }}
                                     <Icon name="heroicons:x-mark" class="w-3 h-3" />
                                 </button>
                             </UTooltip>
                             <template v-else>
-                                <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                                <span class="text-2xs text-ink-muted bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
                                 <UTooltip :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')" :popper="{ placement: 'top' }">
-                                    <button type="button" class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors" @click="$emit('relink-to-git')">{{ $t('instructionGlobalCreate.actions.relink') }}</button>
+                                    <button type="button" class="text-2xs text-blue-500 hover:text-blue-600 transition-colors" @click="$emit('relink-to-git')">{{ $t('instructionGlobalCreate.actions.relink') }}</button>
                                 </UTooltip>
                             </template>
                         </template>
                         <!-- Editor mode toggle -->
-                        <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-[10px] font-medium">
-                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">Rich</button>
-                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">MD</button>
-                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'">&lt;/&gt;</button>
+                        <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-2xs font-medium">
+                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">Rich</button>
+                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">MD</button>
+                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">&lt;/&gt;</button>
                         </div>
                     </div>
                 </div>
@@ -400,7 +400,7 @@
                 <div>
                     <!-- Git file path (only when git-sourced) -->
                     <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1.5 pb-1">
-                        <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                        <Icon name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
                         <span class="text-xs font-mono text-gray-500 truncate">{{ filePath }}</span>
                     </div>
                     
@@ -441,7 +441,7 @@
                             type="button"
                             @click="enhanceInstruction"
                             :disabled="isEnhancing || !instructionForm.text?.trim()"
-                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                            class="inline-flex items-center gap-1 text-xs text-ink-muted
                                    hover:text-purple-500
                                    disabled:opacity-40 disabled:cursor-not-allowed
                                    transition-colors"
@@ -453,7 +453,7 @@
                         <button
                             type="button"
                             @click="$emit('toggle-analyze')"
-                            class="inline-flex items-center gap-1 text-xs text-gray-400
+                            class="inline-flex items-center gap-1 text-xs text-ink-muted
                                    hover:text-gray-600
                                    transition-colors"
                         >
@@ -473,7 +473,7 @@
 
                 <!-- Status -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.status') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.status') }}</label>
                     <USelectMenu
                         v-model="instructionForm.status"
                         :options="statusOptions"
@@ -483,12 +483,12 @@
                         class="w-full"
                     >
                         <template #label>
-                            <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
+                            <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-2xs font-medium rounded-full">
                                 {{ getUnderlyingStatusLabel() }}
                             </span>
                         </template>
                         <template #option="{ option }">
-                            <span :class="getStatusClass(option.value)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
+                            <span :class="getStatusClass(option.value)" class="inline-flex px-2 py-0.5 text-2xs font-medium rounded-full">
                                 {{ option.label }}
                             </span>
                         </template>
@@ -497,7 +497,7 @@
 
                 <!-- Category -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.category') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.category') }}</label>
                     <USelectMenu
                         v-model="instructionForm.category"
                         :options="categoryOptions"
@@ -523,7 +523,7 @@
 
                 <!-- AI Context Loading -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.loading') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.loading') }}</label>
                     <USelectMenu
                         v-model="instructionForm.load_mode"
                         :options="loadModeOptions"
@@ -545,7 +545,7 @@
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-[10px] text-gray-500 ms-4">{{ option.description }}</span>
+                                <span class="text-2xs text-gray-500 ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -553,7 +553,7 @@
 
                 <!-- Labels -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.labels') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.labels') }}</label>
                     <USelectMenu
                         :model-value="selectedLabelIds"
                         @update:modelValue="handleLabelSelectionChange"
@@ -572,13 +572,13 @@
                                 <span
                                     v-for="label in selectedLabelObjects.slice(0, 2)"
                                     :key="label.id"
-                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-2xs"
                                     :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
                                 >
                                     <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
                                     {{ label.name }}
                                 </span>
-                                <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500">
+                                <span v-if="selectedLabelObjects.length > 2" class="text-2xs text-gray-500">
                                     {{ $t('instructionGlobalCreate.plusMore', { n: selectedLabelObjects.length - 2 }) }}
                                 </span>
                             </div>
@@ -591,16 +591,16 @@
                                 @click.stop="openAddLabelModal"
                             >
                                 <Icon name="heroicons:plus" class="w-2.5 h-2.5 me-1" />
-                                <span class="text-[11px] font-medium">{{ $t('instructionGlobalCreate.addLabel') }}</span>
+                                <span class="text-2xs font-medium">{{ $t('instructionGlobalCreate.addLabel') }}</span>
                             </div>
                             <div v-else class="flex items-center w-full py-0.5 gap-1">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-[11px] font-medium text-gray-900 truncate">{{ option.name }}</p>
+                                    <p class="text-2xs font-medium text-gray-900 truncate">{{ option.name }}</p>
                                 </div>
                                 <button
                                     type="button"
-                                    class="p-0.5 rounded hover:bg-gray-100 text-gray-400"
+                                    class="p-0.5 rounded hover:bg-gray-100 text-ink-muted"
                                     @mousedown.prevent
                                     @click.stop="openEditLabelModal(option as InstructionLabel)"
                                 >
@@ -613,7 +613,7 @@
 
                 <!-- Visibility -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.visibility') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.visibility') }}</label>
                     <UTooltip
                         :text="instructionForm.is_seen ? $t('instructionGlobalCreate.tooltips.visibleInList') : $t('instructionGlobalCreate.tooltips.hiddenFromList')"
                         :popper="{ placement: 'top' }"
@@ -639,7 +639,7 @@
 
                 <!-- Scope: Data Sources -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.dataSources') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.dataSources') }}</label>
                     <USelectMenu
                         v-model="selectedDataSources"
                         :options="dataSourceOptions"
@@ -651,7 +651,7 @@
                     >
                         <template #label>
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
-                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
+                            <span v-else-if="selectedDataSources.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
                                 <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" :icon-token="getSelectedDataSourceObjects[0]?.icon_token" :icon="getSelectedDataSourceObjects[0]?.icon" class="h-3" />
                                 <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
@@ -672,7 +672,7 @@
 
                 <!-- Scope: References -->
                 <div>
-                    <label class="block text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('instructionGlobalCreate.sidebar.references') }}</label>
+                    <label class="block text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('instructionGlobalCreate.sidebar.references') }}</label>
                     <USelectMenu
                         :options="filteredMentionableOptions"
                         option-attribute="name"
@@ -687,7 +687,7 @@
                         :ui-menu="{ width: 'w-96', option: { base: 'py-1.5' } }"
                     >
                         <template #label>
-                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">{{ $t('instructionGlobalCreate.fields.referencesShort') }}</span>
+                            <span v-if="selectedReferences.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.fields.referencesShort') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
                                 <Icon :name="getRefIconHeroicons(selectedReferences[0].type)" class="w-3 h-3 text-gray-500" />
                                 <span class="truncate max-w-[120px]">{{ selectedReferences[0].name }}</span>
@@ -698,15 +698,15 @@
                             <div class="w-full py-0.5">
                                 <div class="flex items-center gap-1.5">
                                     <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 flex-shrink-0" :class="option.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
-                                    <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
+                                    <span class="text-2xs font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
                                 </div>
                                 <div v-if="option.data_source_name" class="flex items-center gap-1">
                                     <DataSourceIcon :type="option.data_source_type" :icon-token="option.data_source_icon_token" :icon="option.data_source_icon" class="h-2.5 flex-shrink-0" />
-                                    <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
+                                    <span class="text-2xs text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
                                 <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">
                                     <Icon name="heroicons:cube" class="w-2.5 h-2.5 text-indigo-400 flex-shrink-0" />
-                                    <span class="text-[10px] text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
+                                    <span class="text-2xs text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
                                 </div>
                             </div>
                         </template>

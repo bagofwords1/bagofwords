@@ -88,3 +88,42 @@ async def test_start_payload_carries_multi_select_to_ui():
     # Clarify always ends the turn and waits for the user.
     assert obs["analysis_complete"] is True
     assert end[-1].payload["output"]["status"] == "awaiting_response"
+
+
+# --- "Other" is a flag, not an option string ---------------------------------
+
+
+def test_allow_other_defaults_off_and_is_advertised():
+    data = ClarifyInput(questions=[{"text": "Which genre?", "options": ["Rock", "Jazz"]}])
+    assert data.questions[0].allow_other is False
+    schema = ClarifyTool().metadata.input_schema
+    assert "allow_other" in schema["$defs"]["ClarifyQuestion"]["properties"]
+
+
+def test_examples_never_put_other_in_options():
+    """The UI renders its own localized "Other" when allow_other is set; an
+    "Other…" option string is what we teach the model NOT to send."""
+    for ex in ClarifyTool().metadata.examples:
+        for q in ex["input"]["questions"]:
+            assert not any(o.strip().lower().startswith("other") for o in q.get("options", []))
+
+
+@pytest.mark.asyncio
+async def test_plain_text_fallback_keeps_each_option_and_the_hints():
+    """Channels without the form (Slack, Teams, email) get final_answer. Each
+    option must stay readable even when it contains a comma or slash, and the
+    multi-select / "Other" affordances must be stated in words."""
+    events = await _collect(
+        ClarifyTool(),
+        {"questions": [
+            {"text": "Which metrics?", "options": ["Revenue, net", "Orders / gross"], "multi_select": True, "allow_other": True},
+            {"text": "Chart title?"},
+        ]},
+        {},
+    )
+    final = [e for e in events if e.type == "tool.end"][-1].payload["observation"]["final_answer"]
+    lines = final.splitlines()
+    assert "- Revenue, net" in lines and "- Orders / gross" in lines
+    assert "select all that apply" in final
+    assert "- Other (describe)" in lines
+    assert "Chart title?" in lines

@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
 from app.models.report import Report
+from app.services.exec_context import ExecContext
+from app.services.row_owner import step_report_id
 from app.models.user import User
 
 
@@ -60,9 +62,9 @@ class StepService:
         if not step:
             raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
 
-        report = step.widget.report if step.widget else None
+        report = await self._step_report(db, step)
         if report is None or str(report.organization_id) != str(organization.id):
-            # Cross-org / orphan → indistinguishable from not-found.
+            # Cross-org / orphan / a published dashboard's copy → indistinguishable from not-found.
             raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
 
         await self._authorize_report_view(db, report, current_user, organization)
@@ -74,6 +76,47 @@ class StepService:
                 "This dashboard shows data based on your access — run it to export your own data",
             )
         return self._df_from_step_data(resolution.data), step
+
+    async def get_step_authorized(self, db: AsyncSession, step_id: str, current_user: User, organization):
+        """Load a step for display, with the same gate as export: the step's
+        report must be in the caller's org and viewable by them. A non-owner
+        gets the viewer data policy, same as the query read path: their own
+        rows (or none when the snapshot is withheld), no code when withheld,
+        and applied_params without the creator's identity-derived values.
+        Returns a StepSchema; the Step row itself is never modified."""
+        from app.errors import AppError, ErrorCode
+        from app.models.query import Query
+        from app.schemas.step_schema import StepSchema
+        from app.services.viewer_data_policy import resolve_step_data, redact_applied_params
+
+        step = await self.get_step_by_id(db, step_id)
+        report = await self._step_report(db, step) if step else None
+        if report is None or str(report.organization_id) != str(organization.id):
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND, "Step not found")
+        await self._authorize_report_view(db, report, current_user, organization)
+
+        schema = StepSchema.from_orm(step)
+        if str(report.user_id) == str(current_user.id):
+            return schema
+
+        resolution = await resolve_step_data(db, step, report, current_user)
+        parameters = (await db.execute(
+            select(Query.parameters).where(Query.id == step.query_id)
+        )).scalar_one_or_none() if step.query_id else None
+        update = {
+            "data": resolution.data,
+            "viewer_result": resolution.viewer_result,
+            "snapshot_withheld": resolution.withheld,
+            # Same boundary as data/code: the snapshot's params carry the
+            # creator's identity, not this reader's.
+            "applied_params": redact_applied_params(
+                getattr(step, "applied_params", None), parameters, withheld=resolution.withheld,
+            ),
+        }
+        if resolution.withheld:
+            # No code either — SQL leaks schema/table/filter details.
+            update["code"] = ""
+        return schema.model_copy(update=update)
 
     async def _authorize_report_view(self, db: AsyncSession, report, current_user: User, organization) -> None:
         """Raise unless current_user may view `report` (owner / org full-admin /
@@ -110,15 +153,19 @@ class StepService:
         if not step:
             raise ValueError(f"Step {step_id} not found")
 
-        data = step.data
+        return self.data_to_dataframe(step.data), step
+
+    @staticmethod
+    def data_to_dataframe(data: Optional[dict]) -> pd.DataFrame:
+        """A step payload ({rows, columns}) as the export DataFrame."""
         if not data or 'rows' not in data or 'columns' not in data:
-            return pd.DataFrame(), step
+            return pd.DataFrame()
 
         rows = data.get('rows', [])
         columns = data.get('columns', [])
 
         if not rows or not columns:
-            return pd.DataFrame(), step
+            return pd.DataFrame()
 
         headers = [col.get('headerName', col.get('field', '')) for col in columns if 'field' in col]
         fields = [col['field'] for col in columns if 'field' in col]
@@ -127,8 +174,7 @@ class StepService:
         for row in rows:
             data_for_df.append([row.get(field) for field in fields])
 
-        df = pd.DataFrame(data_for_df, columns=headers)
-        return df, step
+        return pd.DataFrame(data_for_df, columns=headers)
 
     async def create_step(self, db: AsyncSession, widget_id: str, completion_id: str) -> StepSchema:
 
@@ -202,10 +248,17 @@ class StepService:
             raise ValueError("Step not found")
 
         if report is None:
-            report = step.widget.report
+            report = await self._step_report(db, step)
         if not report:
             raise ValueError("Report not found")
         return step, report
+
+    async def _step_report(self, db: AsyncSession, step: Step) -> Optional[Report]:
+        """The conversation a step belongs to; None for a published dashboard's
+        copy or an orphan (app/services/row_owner.py). get_step_by_id already
+        loaded the widget's report, so this is usually an identity-map hit."""
+        rid = await step_report_id(db, step)
+        return await db.get(Report, rid) if rid else None
 
     def _step_param_specs(self, step: Step) -> list:
         """The param specs the step's query declares; [] when it declares none.
@@ -270,17 +323,24 @@ class StepService:
         self,
         db: AsyncSession,
         step: Step,
-        report: Report,
-        current_user: Optional[User] = None,
+        ctx: ExecContext,
         db_clients: Optional[dict] = None,
-        organization=None,
-        organization_settings=None,
         params: Optional[dict] = None,
         param_specs: Optional[list] = None,
+        return_raw_df: bool = False,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
 
-        Pure execution — persists nothing. `current_user` decides whose
+        Everything the run needs beyond the step comes from `ctx` (see
+        app/services/exec_context.py), never from a Report: a published
+        dashboard's copies have none. Callers that run a conversation's step
+        build it with ExecContext.from_report.
+
+        ``return_raw_df`` returns the executed DataFrame itself (not capped or
+        formatted) — for callers that page through the full result, such as
+        read_query's offset/limit reads past the saved snapshot.
+
+        Pure execution — persists nothing. `ctx.credential_user` decides whose
         data-source credentials are used when `db_clients` isn't prebuilt.
         `params` are the resolved parameter values the saved code declares;
         callers resolve them via _resolve_step_params. Omitting them makes
@@ -302,33 +362,31 @@ class StepService:
             from app.services.data_source_service import DataSourceService
             ds_service = DataSourceService()
             db_clients = {}
-            for data_source in report.data_sources:
-                ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
+            for data_source in ctx.data_sources:
+                ds_clients = await ds_service.construct_clients(db, data_source, current_user=ctx.credential_user)
                 db_clients.update(ds_clients)
 
-        excel_files = report.files
+        excel_files = ctx.files
         code = step.code
 
         # Pre-resolve any load_step()/load_entity() refs in the saved code.
         from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
-        from app.models.organization import Organization
-        org = organization
-        if org is None and getattr(report, "organization_id", None):
-            org = await db.get(Organization, str(report.organization_id))
+        org = await ctx.organization(db)
 
         # Resolve org settings first: they gate load_step and (below) the row
         # limit. Without them format_df_for_widget falls back to a hardcoded
         # 1000-row cap regardless of the configured limit.
-        org_settings = organization_settings
-        if org_settings is None and org is not None:
-            org_settings = await org.get_settings(db)
+        org_settings = await ctx.settings(db)
         _ls_enabled, _ = load_step_settings(org_settings)
+        # load_step and the bow client are scoped to the context's
+        # conversation (ctx.report) or published release (ctx.release).
         loadables = await resolve_loadables_for_code(
-            db, org, report, current_user, code, enable_load_step=_ls_enabled
+            db, org, ctx.report, ctx.loadables_user or ctx.credential_user, code, enable_load_step=_ls_enabled,
+            release=ctx.release, fresh_rows=getattr(ctx, "fresh_rows", None),
         )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client
-        await install_bow_client(db, org, current_user, report, db_clients)
+        await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients, release=ctx.release)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Execution is fully synchronous (DB drivers + pandas):
@@ -356,6 +414,8 @@ class StepService:
             )
             if identity_err:
                 raise ParamError(identity_err)
+        if return_raw_df:
+            return df
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
 
@@ -404,11 +464,12 @@ class StepService:
             specs=specs,
         )
 
-        df = await self._execute_step_code(
-            db, step, report,
-            current_user=current_user, db_clients=db_clients,
+        ctx = ExecContext.from_report(
+            report, credential_user=current_user,
             organization=organization, organization_settings=organization_settings,
-            params=params, param_specs=specs,
+        )
+        df = await self._execute_step_code(
+            db, step, ctx, db_clients=db_clients, params=params, param_specs=specs,
         )
 
         # Update existing step instead of creating new one
@@ -513,11 +574,12 @@ class StepService:
                 organization_id=getattr(report, "organization_id", None),
                 specs=specs,
             )
-            data = await self._execute_step_code(
-                db, step, report,
-                current_user=credential_user, db_clients=db_clients,
+            ctx = ExecContext.from_report(
+                report, credential_user=credential_user,
                 organization=organization, organization_settings=organization_settings,
-                params=params, param_specs=specs,
+            )
+            data = await self._execute_step_code(
+                db, step, ctx, db_clients=db_clients, params=params, param_specs=specs,
             )
         except Exception as e:
             # Includes ParamError from resolution AND from the identity-bind
@@ -530,9 +592,14 @@ class StepService:
             # A provider refusing this viewer one dataset is not an error to
             # show verbatim: it would read "HTTP 401" instead of "no access",
             # and the response body it carries can name the refused model.
-            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON,
+                                                    is_access_denied, needs_credentials)
             if is_access_denied(status_reason):
                 status_reason = NO_ACCESS_REASON
+            # A reader who must sign in first: one fixed sentence, never the
+            # client's key or the provider's message.
+            elif needs_credentials(e):
+                status_reason = CREDENTIALS_REQUIRED_REASON
 
         # Write to the slot for THIS parameter combination. The unique key is
         # (step_id, user_id, params_fingerprint); a lookup that ignores the

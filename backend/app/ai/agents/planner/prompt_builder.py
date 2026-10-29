@@ -12,6 +12,7 @@ from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.ai.agents.planner.clock import current_time_str as _current_time_str
 from app.ai.agents.planner.prompt_blocks import NO_OVERFIT_BLOCK
 from app.ai.tools import format_tool_schemas
+from app.ai.context.replay_args import compact_replayed_args
 from datetime import datetime
 
 # Number of recent past observations to keep in full
@@ -32,7 +33,7 @@ _OBS_KEEP_KEYS = {
     # Preserve the small sampled preview (kept by the observation builder's
     # compaction) so older create_data results stay referenceable.
     "data_preview",
-    # A tool's argument schema, carried by search_mcps results and by failed
+    # A tool's argument schema, carried by search_tools results and by failed
     # execute_mcp calls. Dropping it was silently deleting the only copy of the
     # argument shape from context after _RECENT_OBS_FULL calls, leaving the
     # agent to re-guess or pay for another discovery round trip.
@@ -148,7 +149,7 @@ PLAN TYPE DECISION FRAMEWORK
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
 {chr(10) + 'EXCEL PLATFORM (the user is inside the Excel add-in — see <excel_context> and <officejs_cheatsheet> below)' + chr(10) + '- The active workbook is NOT a connected database. Its cells do not appear in the schema index.' + chr(10) + '- For questions about the live sheet, use read_excel_as_csv / read_excel_range to read, reason locally, then write_to_excel / write_officejs_code to respond.' + chr(10) + '- Use create_data / describe_tables / inspect_data ONLY when the user is asking about connected database tables visible in the schema index, not the active workbook.' if planner_input.external_platform == 'excel' else ''}
 
-{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Use search_mcps to discover available external tools and get their full input schemas before calling execute_mcp.' + chr(10) + '- Use execute_mcp to invoke an external tool. Tabular results are auto-saved as CSV files accessible by create_data.' + chr(10) + '- Flow: search_mcps → execute_mcp → (optional: write_csv) → create_data for visualization.' if planner_input.mcp_tools_enabled else ''}
+{'MCP/API TOOLS (if <mcp_tools> section is present in context)' + chr(10) + '- Call each external tool by its own name (mcp__<connection>__<tool>). A listed tool missing from your tool list: search_tools, then call_tool.' + chr(10) + '- Results are saved as files accessible by create_data (source_file_ids=[file_id]) for aggregation or visualization.' if planner_input.mcp_tools_enabled else ''}
 - Use write_csv to generate or transform data into a CSV file using Python/pandas code. The resulting CSV can be loaded by create_data for visualization.
 - write_csv is useful when the user asks to create a table of data from scratch, or when raw/unstructured data needs to be cleaned into tabular format.
 
@@ -380,6 +381,16 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             for viz in ctx.get('visualizations') or []:
                 lines.append('  <visualization>')
                 lines.append(f'    title: {json.dumps(viz.get("title"))}')
+                if viz.get('withheld'):
+                    # This reader's own rows for the chart, not the creator's:
+                    # the dashboard withholds them until they run it themselves
+                    # (viewer_data_policy). Never guess at the numbers.
+                    lines.append('    rows: NOT AVAILABLE TO THIS VIEWER — this chart runs under each '
+                                 'viewer\'s own identity and they have no result of their own yet. '
+                                 'Say the data for this chart is not available to them and suggest '
+                                 'opening the dashboard; never estimate or infer its values.')
+                    lines.append('  </visualization>')
+                    continue
                 cols = viz.get('columns') or []
                 if cols:
                     lines.append(f'    columns: {json.dumps(cols)}')
@@ -535,6 +546,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             lines.append(f"  <mode>{_esc(artifact.get('mode'))}</mode>")
         if artifact.get("version") is not None:
             lines.append(f"  <version>{_esc(artifact.get('version'))}</version>")
+        if artifact.get("newer_version") is not None:
+            lines.append(
+                f"  <open_in_editor>The user has this version open and the next edit builds on it, "
+                f"although v{_esc(artifact.get('newer_version'))} is newer: edit this artifact_id with "
+                f"expected_latest_version={_esc(artifact.get('version'))}.</open_in_editor>"
+            )
 
         gen_prompt = artifact.get("generation_prompt")
         if gen_prompt:
@@ -575,6 +592,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     f"  <code>(omitted: {len(code_str)} chars — call read_artifact to load an "
                     "outline or slice before authoring edit_artifact ops)</code>"
                 )
+
+        collaboration = artifact.get("collaboration")
+        if collaboration:
+            # Other people edit this dashboard too (collab01): what it is for,
+            # and what changed before this conversation picked it up.
+            lines.append(f"  <collaboration>{_esc(collaboration)}</collaboration>")
 
         lines.append("</current_artifact>")
         return "\n".join(lines)
@@ -654,7 +677,13 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     minified["tool_input"] = obs.get("tool_input")
                 result.append(minified)
             else:
-                result.append(obs)
+                inner = (obs.get("observation") or {}) if isinstance(obs, dict) else {}
+                args = obs.get("tool_input") if isinstance(obs, dict) else None
+                compact = compact_replayed_args(
+                    obs.get("tool_name") if isinstance(obs, dict) else None, args,
+                    succeeded=inner.get("success") is not False,
+                ) if args is not None else None
+                result.append({**obs, "tool_input": compact} if compact is not args else obs)
         return result
 
     @staticmethod

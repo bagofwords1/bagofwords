@@ -67,6 +67,7 @@ async def _run(tool_input, *, user_id, org_id, scope_ds_ids=None, with_report=Tr
         return end.payload["output"]
 
 
+@pytest.mark.e2e
 def test_read_instruction_is_available_where_editing_happens():
     """edit_instruction runs in training/knowledge and its anchors must match
     text the agent has read — a chat-only read tool made that impossible."""
@@ -261,3 +262,289 @@ async def test_no_pending_changes_reads_clean(create_user, login_user, whoami, t
     out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
     assert out["success"] is True, out
     assert out["pending_changes"] is None
+
+
+# ─── Long instructions: windowed reads (offset/limit, grep) ──────────────────
+#
+# The transcript cuts any tool result over its per-result cap. A long
+# instruction (an event catalogue, a glossary) must therefore never come back
+# as one oversized blob: a plain read returns the opening lines marked
+# partial, and offset/limit + grep_pattern reach the rest. The invariants
+# below are checked against what the MODEL actually receives (the rendered
+# transcript), not just the tool output.
+
+_KEYWORDS = ["connect", "pair", "weight", "battery", "sync", "firmware"]
+
+
+def _catalogue(n_events: int, *, hebrew_every: int = 4) -> str:
+    """A YAML event catalogue, long enough to exceed any single-read budget.
+    Some descriptions are Hebrew so the encoded size (non-ASCII escapes) is
+    exercised, not just the raw character count."""
+    lines = ["# Device app events", "events:"]
+    for i in range(n_events):
+        kw = _KEYWORDS[i % len(_KEYWORDS)]
+        lines.append(f"  device_{kw}_step_{i}:")
+        if i % hebrew_every == 0:
+            lines.append(f"    description: אירוע {kw} מספר {i} נשלח כשהמשתמש משלים את השלב")
+        else:
+            lines.append(f"    description: Fired when the user completes {kw} step {i} in the app")
+        lines.append("    table: GL_APP_EVENTS_V")
+    return "\n".join(lines)
+
+
+async def _run_payload(tool_input, *, user_id, org_id, scope_ds_ids=None):
+    """Like _run, but returns the whole tool.end payload (output + observation)."""
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+
+    async with async_session_maker() as db:
+        ctx = {
+            "db": db,
+            "user": SimpleNamespace(id=user_id),
+            "organization": SimpleNamespace(id=org_id),
+            "mode": "chat",
+            "report": SimpleNamespace(
+                id=str(uuid.uuid4()),
+                data_sources=[SimpleNamespace(id=d) for d in (scope_ds_ids or [])],
+            ),
+        }
+        end = None
+        async for evt in ReadInstructionTool().run_stream(tool_input, ctx):
+            if evt.type == "tool.end":
+                end = evt
+        assert end is not None, "expected a tool.end event"
+        return end.payload
+
+
+def _model_visible(tool_input, observation) -> str:
+    """The tool_result body the planner model receives for this observation."""
+    from app.ai.agents.planner.transcript_bridge import build_transcript
+
+    planner_input = SimpleNamespace(
+        past_observations=[{
+            "tool_name": "read_instruction",
+            "tool_input": tool_input,
+            "observation": observation,
+            "loop_index": 0,
+        }],
+    )
+    transcript = build_transcript(planner_input, "", "ask")
+    for msg in transcript.to_model_messages():
+        if isinstance(msg.content, list):
+            for block in msg.content:
+                if block.get("type") == "tool_result":
+                    return block["content"]
+    raise AssertionError("no tool_result rendered")
+
+
+def _assert_reaches_model_uncut(tool_input, observation):
+    body = _model_visible(tool_input, observation)
+    assert "[truncated at" not in body, "transcript cut the read — it exceeded the per-result cap"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_long_instruction_plain_read_is_marked_partial_and_reaches_model_uncut(
+    create_user, login_user, whoami, test_client
+):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    full = _catalogue(2500)
+    instr = _create_instruction(test_client, token, org_id, text=full, title="Device events")
+    full_lines = full.split("\n")
+
+    tool_input = {"id": instr["id"][:8]}
+    payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+    out, obs = payload["output"], payload["observation"]
+
+    assert out["success"] is True, out
+    assert out["truncated"] is True
+    assert out["total_lines"] == len(full_lines)
+    assert out["total_chars"] == len(full)
+    # The returned text is the verbatim opening of the body, not a summary.
+    assert out["start_line"] == 1
+    assert out["text"] == "\n".join(full_lines[: out["end_line"]])
+    assert out["end_line"] < len(full_lines)
+    assert out["next_offset"] == out["end_line"] + 1
+    # The outline points at real lines.
+    entries = [e for e in out["outline"].split("\n") if e.strip()[:1].isdigit()]
+    assert entries, "expected outline entries"
+    for entry in entries:
+        line_no, _, shown = entry.strip().partition(": ")
+        assert full_lines[int(line_no) - 1].strip().startswith(shown.rstrip("…"))
+    # The model is told it holds a partial read, and receives it whole.
+    assert obs["truncated"] is True and obs["text"] == out["text"]
+    _assert_reaches_model_uncut(tool_input, obs)
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [None, 150, 2000])
+async def test_range_reads_page_through_the_entire_instruction(
+    create_user, login_user, whoami, test_client, limit
+):
+    """Following next_offset from line 1 reproduces the body exactly — no line
+    lost or duplicated at window edges — and every page reaches the model."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    full = _catalogue(1800, hebrew_every=2)
+    instr = _create_instruction(test_client, token, org_id, text=full, title="Events")
+
+    pages, offset = [], 1
+    for _ in range(200):
+        tool_input = {"id": instr["id"][:8], "offset": offset}
+        if limit:
+            tool_input["limit"] = limit
+        payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+        out = payload["output"]
+        assert out["success"] is True, out
+        assert out["start_line"] == offset
+        if limit:
+            assert out["end_line"] - out["start_line"] + 1 <= limit
+        _assert_reaches_model_uncut(tool_input, payload["observation"])
+        pages.append(out["text"])
+        if not out["truncated"]:
+            break
+        offset = out["next_offset"]
+    else:
+        raise AssertionError("paging did not terminate")
+
+    assert "\n".join(pages) == full
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pattern", ["pair|weight", "FIRMWARE", r"step_1\d\d:"])
+async def test_grep_returns_matching_lines_verbatim_with_context(
+    create_user, login_user, whoami, test_client, pattern
+):
+    import re
+
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    full = _catalogue(2500)
+    instr = _create_instruction(test_client, token, org_id, text=full, title="Events")
+    full_lines = full.split("\n")
+    expected = [i + 1 for i, line in enumerate(full_lines) if re.search(pattern, line, re.IGNORECASE)]
+    assert expected, "pattern must match the fixture"
+
+    tool_input = {"id": instr["id"][:8], "grep_pattern": pattern, "after": 2, "max_matches": 200}
+    payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+    out = payload["output"]
+
+    assert out["success"] is True, out
+    assert out["grep_total_matches"] == len(expected)
+    returned = [m["line_no"] for m in out["matches"]]
+    assert returned == expected[: len(returned)], "matches must be the first N, in order"
+    assert out["grep_truncated"] == (len(returned) < len(expected))
+    for m in out["matches"]:
+        n = m["line_no"]
+        assert m["line"] == full_lines[n - 1]
+        assert m["after"] == full_lines[n : n + 2]
+    _assert_reaches_model_uncut(tool_input, payload["observation"])
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_grep_finds_matches_past_the_head_of_a_long_line(
+    create_user, login_user, whoami, test_client
+):
+    """A one-line JSON/TSV catalogue keeps entries far past column 500. Every
+    occurrence must come back as a verbatim window that contains it."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    names = [f"evt_{i:04d}" for i in range(400)]
+    long_line = ",".join(f'"{n}":"desc {n}"' for n in names)
+    text = "# catalogue\n" + long_line + "\nfooter"
+    instr = _create_instruction(test_client, token, org_id, text=text, title="One-liner")
+
+    targets = [names[5], names[200], names[399]]
+    tool_input = {"id": instr["id"][:8], "grep_pattern": "|".join(f'"{t}"' for t in targets), "max_matches": 50}
+    payload = await _run_payload(tool_input, user_id=uid, org_id=org_id)
+    out = payload["output"]
+
+    assert out["success"] is True, out
+    shown = [m for m in out["matches"] if m["line_no"] == 2]
+    assert all(long_line.index(f'"{t}"') > 500 for t in targets[1:]), "fixture must put matches past the head"
+    for t in targets:
+        hit = [m for m in shown if f'"{t}"' in m["line"]]
+        assert hit, f"{t} not in any returned window"
+        m = hit[0]
+        assert long_line[m["col_start"]:m["col_end"]] == m["line"]
+    _assert_reaches_model_uncut(tool_input, payload["observation"])
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_grep_with_no_match_returns_outline(create_user, login_user, whoami, test_client):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(test_client, token, org_id, text=_catalogue(300), title="Events")
+    out = await _run({"id": instr["id"][:8], "grep_pattern": "no_such_event_xyz"}, user_id=uid, org_id=org_id)
+    assert out["success"] is True, out
+    assert out["grep_total_matches"] == 0
+    assert out["matches"] == []
+    assert out["outline"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_invalid_grep_regex_is_soft_error(create_user, login_user, whoami, test_client):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(test_client, token, org_id, text="Some rule.", title="T")
+    out = await _run({"id": instr["id"][:8], "grep_pattern": "([unclosed"}, user_id=uid, org_id=org_id)
+    assert out["success"] is False, out
+    assert out.get("text") in (None, "")
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_offset_past_end_returns_no_text(create_user, login_user, whoami, test_client):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    instr = _create_instruction(test_client, token, org_id, text="line one\nline two", title="T")
+    out = await _run({"id": instr["id"][:8], "offset": 50}, user_id=uid, org_id=org_id)
+    assert out["success"] is True, out
+    assert out["text"] == ""
+    assert out["total_lines"] == 2
+    assert not out["truncated"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_short_instruction_plain_read_is_whole_and_unmarked(
+    create_user, login_user, whoami, test_client
+):
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    body = "\n".join(f"Rule {i}: orders with status {i} are excluded." for i in range(40))
+    instr = _create_instruction(test_client, token, org_id, text=body, title="Rules")
+    out = await _run({"id": instr["id"][:8]}, user_id=uid, org_id=org_id)
+    assert out["success"] is True, out
+    assert out["text"] == body
+    assert not out.get("truncated")
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("window", [{"grep_pattern": "ds_a"}, {"offset": 1, "limit": 5}])
+async def test_windowed_reads_keep_report_scope(
+    create_user, login_user, whoami, test_client, create_data_source, window
+):
+    """Grep and range reads are scoped exactly like a plain read: an
+    instruction outside the report's data sources yields nothing."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    ds_a = create_data_source(
+        name="ds_a", type="sqlite", config={"database": str(_SQLITE_DB)},
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    ds_b = create_data_source(
+        name="ds_b", type="sqlite", config={"database": str(_SQLITE_DB)},
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    instr = _create_instruction(
+        test_client, token, org_id, text="Rule scoped to ds_a.\nSecond line.", title="Scoped",
+        load_mode="intelligent", data_source_ids=[ds_a["id"]],
+    )
+    tool_input = {"id": instr["id"][:8], **window}
+
+    denied = await _run_payload(tool_input, user_id=uid, org_id=org_id, scope_ds_ids=[ds_b["id"]])
+    assert denied["output"]["success"] is False
+    assert "ds_a" not in str(denied["observation"])
+    assert not denied["output"].get("matches") and not denied["output"].get("text")
+
+    allowed = await _run(tool_input, user_id=uid, org_id=org_id, scope_ds_ids=[ds_a["id"]])
+    assert allowed["success"] is True, allowed

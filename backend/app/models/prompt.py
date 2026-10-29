@@ -28,6 +28,7 @@ class Prompt(BaseSchema):
     # ── completion-shaped execution spec ──
     mode = Column(String, nullable=False, default='chat')   # 'chat' | 'training'
     model_id = Column(String(36), nullable=True)            # LLM override; null = org default
+    reasoning_effort = Column(String(16), nullable=True)    # paired with model_id; null = Default
     mentions = Column(JSON, nullable=True)                   # PromptSchema.mentions
     parameters = Column(JSON, nullable=True)                 # [{name,label,type,required,default,options}]
 

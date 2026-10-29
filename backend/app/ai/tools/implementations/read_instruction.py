@@ -22,7 +22,9 @@ Design constraints (chat-only progressive disclosure):
 
 from typing import AsyncIterator, Dict, Any, Type, List, Optional, Tuple
 from pydantic import BaseModel
+import json
 import logging
+import re
 
 from sqlalchemy import select, and_, func
 
@@ -40,8 +42,96 @@ from app.ai.tools.schemas.events import (
 )
 from app.models.instruction import Instruction
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.ai.tools.implementations._text_window import (
+    DEFAULT_RANGE_LIMIT,
+    grep_lines,
+    outline_from_patterns,
+)
 
 logger = logging.getLogger(__name__)
+
+# ─── Long-instruction windowing ──────────────────────────────────────────────
+# Budgets are measured on the JSON-encoded text (ASCII-escaped), because that is
+# what the transcript sizes and cuts at its per-result cap (100k chars): a
+# newline costs 2 there and a non-ASCII character 6. Keeping every read under
+# these budgets means a read is never silently cut on its way to the model.
+FULL_READ_MAX_ENCODED_CHARS = 40_000   # plain read returns the whole body up to this
+HEAD_MAX_ENCODED_CHARS = 16_000        # opening lines shown when the body is too long
+WINDOW_MAX_ENCODED_CHARS = 40_000      # cap for one range read / one grep read
+OUTLINE_MAX_ENCODED_CHARS = 20_000
+OUTLINE_MAX_ENTRIES = 200
+
+# Landmarks in instruction bodies: markdown headings, YAML/`key:` lines at the
+# top level, nested map headers (`  some_event:`), and list entries that name
+# themselves (`- name: ...`).
+_OUTLINE_PATTERNS = [
+    re.compile(r"^#{1,6}\s+\S"),
+    re.compile(r"^[\w\"'][^:#]{0,100}:(\s|$)"),
+    re.compile(r"^\s{1,4}[\w\"'.-][^:#]{0,100}:\s*$"),
+    re.compile(r"^\s*-\s+(?:name|event|event_name|id|key|title)\s*:", re.IGNORECASE),
+]
+
+
+def _encoded_len(value: Any) -> int:
+    return len(json.dumps(value, default=str))
+
+
+def _window(lines: List[str], start: int, max_lines: int, budget: int) -> Tuple[str, int, bool]:
+    """Lines from 1-based `start`, at most `max_lines`, within `budget`.
+
+    Returns (text, end_line, truncated). Always returns at least one line so a
+    caller paging with next_offset makes progress; a single line larger than
+    the budget is clipped (rare: one giant line).
+    """
+    total = len(lines)
+    out: List[str] = []
+    used = 2  # the JSON string quotes
+    idx = start - 1
+    while idx < total and len(out) < max_lines:
+        cost = _encoded_len(lines[idx]) - 2 + (2 if out else 0)  # + escaped newline
+        if out and used + cost > budget:
+            break
+        line = lines[idx]
+        if not out and used + cost > budget:
+            # Worst case 6 encoded chars per character.
+            line = line[: max(1, (budget - used) // 6)]
+            cost = _encoded_len(line) - 2
+        out.append(line)
+        used += cost
+        idx += 1
+    end_line = start + len(out) - 1
+    return "\n".join(out), end_line, end_line < total
+
+
+def _bounded_outline(text: str) -> str:
+    outline = outline_from_patterns(
+        text, _OUTLINE_PATTERNS, max_entries=OUTLINE_MAX_ENTRIES, entry_clip=120
+    )
+    if _encoded_len(outline) <= OUTLINE_MAX_ENCODED_CHARS:
+        return outline
+    kept: List[str] = []
+    used = 2
+    for entry in outline.split("\n"):
+        cost = _encoded_len(entry)
+        if used + cost > OUTLINE_MAX_ENCODED_CHARS:
+            kept.append("     … outline cut to fit — use grep_pattern to locate entries")
+            break
+        kept.append(entry)
+        used += cost
+    return "\n".join(kept)
+
+
+def _bounded_matches(matches: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], bool]:
+    """Drop trailing matches past WINDOW_MAX_ENCODED_CHARS. Returns (kept, dropped_any)."""
+    kept: List[Dict[str, Any]] = []
+    used = 2
+    for m in matches:
+        cost = _encoded_len(m)
+        if kept and used + cost > WINDOW_MAX_ENCODED_CHARS:
+            return kept, True
+        kept.append(m)
+        used += cost
+    return kept, False
 
 
 class ReadInstructionTool(Tool):
@@ -67,10 +157,17 @@ class ReadInstructionTool(Tool):
                 "proposed each, when, and what it changes. It is INFORMATIONAL: `text` is "
                 "the live instruction and the only thing an anchor can match. If a pending "
                 "change already does what you were about to propose, say so rather than "
-                "stacking a second suggestion on top of it."
+                "stacking a second suggestion on top of it.\n\n"
+                "LONG INSTRUCTIONS (catalogues, event lists, glossaries): a plain read of a "
+                "body too long to return whole comes back with `truncated: true`, the opening "
+                "lines, and a line-numbered `outline`. Never treat that as the full text. Use "
+                "`grep_pattern` (regex per line, e.g. 'connect|pair|weight', with "
+                "`before`/`after` context) to pull the entries you need, or `offset`/`limit` "
+                "to read a line range; continue from `next_offset`. Both return verbatim "
+                "lines, safe to anchor edit_instruction on."
             ),
             category="research",
-            version="2.0.0",
+            version="2.1.0",
             input_schema=ReadInstructionInput.model_json_schema(),
             output_schema=ReadInstructionOutput.model_json_schema(),
             max_retries=1,
@@ -86,6 +183,14 @@ class ReadInstructionTool(Tool):
                         "Read an instruction/skill by its short id prefix from "
                         "<available_skills> or <available_instructions>"
                     ),
+                },
+                {
+                    "input": {"id": "be8090f2", "grep_pattern": "connect|pair", "after": 3},
+                    "description": "Pull matching entries (plus 3 lines of context) out of a long instruction",
+                },
+                {
+                    "input": {"id": "be8090f2", "offset": 401, "limit": 400},
+                    "description": "Read lines 401-800 of a long instruction",
                 },
             ],
         )
@@ -112,6 +217,15 @@ class ReadInstructionTool(Tool):
 
         prefix = (data.id or "").strip().lower()
         yield ToolStartEvent(type="tool.start", payload={"id": prefix})
+
+        if data.grep_pattern:
+            try:
+                re.compile(data.grep_pattern)
+            except re.error as e:
+                yield self._end_error(
+                    f"Invalid grep_pattern regex: {e}. Fix the pattern and retry."
+                )
+                return
 
         db = runtime_ctx.get("db")
         organization = runtime_ctx.get("organization")
@@ -234,7 +348,22 @@ class ReadInstructionTool(Tool):
 
             item = items[0]
             await self._record_on_demand_usage(runtime_ctx, item, full_id)
+            # Hand smart instructions the agent chose to read to the tool-less
+            # consumers (coder, chart step), which can't call this tool.
+            context_hub = runtime_ctx.get("context_hub")
+            if (
+                context_hub is not None
+                and (kind or "instruction") != "skill"
+                and getattr(item, "load_mode", None) == "intelligent"
+                and getattr(item, "id", None)
+                and hasattr(context_hub, "record_instruction_read")
+            ):
+                context_hub.record_instruction_read(item)
             pending = await self._pending_changes(db, organization, user, full_id)
+
+            full_text = item.text or ""
+            display_title = item.title or title or full_id[:8]
+            window = self._window_read(data, full_text, display_title)
 
             output = ReadInstructionOutput(
                 success=True,
@@ -242,7 +371,7 @@ class ReadInstructionTool(Tool):
                 short_id=full_id[:8],
                 title=item.title or title,
                 description=description,
-                text=item.text or "",
+                text=window["text"],
                 category=item.category,
                 kind=kind or "instruction",
                 load_mode=item.load_mode,
@@ -251,9 +380,10 @@ class ReadInstructionTool(Tool):
                     + (" (unpublished draft — awaiting review)" if row_status == "draft" else "")
                 ),
                 pending_changes=pending or None,
+                **window["fields"],
             )
 
-            summary = f"Read instruction '{item.title or title or full_id[:8]}'"
+            summary = window["summary"]
             if pending:
                 summary += (
                     f" — {len(pending)} suggested edit(s) awaiting review "
@@ -277,7 +407,10 @@ class ReadInstructionTool(Tool):
                     "output": output_dict,
                     "observation": {
                         "summary": summary,
-                        "text": item.text or "",
+                        "text": window["text"],
+                        # Window metadata (line range, outline, grep matches)
+                        # rides with the text so the model can page on.
+                        **window["fields"],
                         # Nested, never inlined with the body: pending text is
                         # NOT part of the instruction and an anchor matched
                         # against it will fail. Keeping it under its own key is
@@ -300,6 +433,92 @@ class ReadInstructionTool(Tool):
                 type="tool.error",
                 payload={"error": f"Read failed: {e}", "code": "READ_FAILED"},
             )
+
+    @staticmethod
+    def _window_read(data: ReadInstructionInput, full_text: str, title: str) -> Dict[str, Any]:
+        """Pick the read mode and return {"text", "fields", "summary"}.
+
+        grep > range > full; a plain read of a body over the budget returns the
+        opening lines plus an outline ('head') instead of the whole text. Full
+        reads return exactly what they always did (no extra fields).
+        """
+        total_chars = len(full_text)
+        lines = full_text.split("\n")
+        total_lines = len(lines)
+        base = {"total_chars": total_chars, "total_lines": total_lines}
+
+        if data.grep_pattern:
+            matches, total, more = grep_lines(
+                full_text,
+                data.grep_pattern,
+                ignore_case=data.ignore_case,
+                before=data.before,
+                after=data.after,
+                max_matches=data.max_matches,
+            )
+            matches, dropped = _bounded_matches(matches)
+            fields = {
+                **base,
+                "read_mode": "grep",
+                "matches": matches,
+                "grep_total_matches": total,
+                "grep_truncated": more or dropped,
+            }
+            if total == 0:
+                fields["outline"] = _bounded_outline(full_text)
+                summary = (
+                    f"0 matches for {data.grep_pattern!r} in instruction '{title}' "
+                    f"({total_lines:,} lines). An outline with line numbers is included — "
+                    "pick a range (offset/limit) or a better pattern."
+                )
+            else:
+                summary = f"{total} match(es) for {data.grep_pattern!r} in instruction '{title}'"
+                if fields["grep_truncated"]:
+                    summary += f", showing {len(matches)} — narrow the pattern or raise max_matches for the rest"
+                summary += ". Matched lines and context are verbatim."
+            return {"text": "", "fields": fields, "summary": summary}
+
+        if data.offset is not None or data.limit is not None:
+            start = data.offset or 1
+            if start > total_lines:
+                fields = {**base, "read_mode": "range", "start_line": start,
+                          "end_line": start - 1, "truncated": False}
+                summary = (
+                    f"offset {start} is past the end of instruction '{title}' "
+                    f"({total_lines:,} lines). Retry with a smaller offset."
+                )
+                return {"text": "", "fields": fields, "summary": summary}
+            text, end, truncated = _window(
+                lines, start, data.limit or DEFAULT_RANGE_LIMIT, WINDOW_MAX_ENCODED_CHARS
+            )
+            fields = {**base, "read_mode": "range", "start_line": start,
+                      "end_line": end, "truncated": truncated}
+            summary = f"Read instruction '{title}' lines {start}-{end} of {total_lines:,}"
+            if truncated:
+                fields["next_offset"] = end + 1
+                summary += f" — continue with offset={end + 1}"
+            return {"text": text, "fields": fields, "summary": summary + "."}
+
+        if _encoded_len(full_text) <= FULL_READ_MAX_ENCODED_CHARS:
+            return {"text": full_text, "fields": {}, "summary": f"Read instruction '{title}'"}
+
+        text, end, _ = _window(lines, 1, total_lines, HEAD_MAX_ENCODED_CHARS)
+        fields = {
+            **base,
+            "read_mode": "head",
+            "start_line": 1,
+            "end_line": end,
+            "truncated": True,
+            "next_offset": end + 1,
+            "outline": _bounded_outline(full_text),
+        }
+        summary = (
+            f"Instruction '{title}' is too long to return whole ({total_chars:,} chars, "
+            f"{total_lines:,} lines): showing lines 1-{end} plus an outline. "
+            "Do NOT treat this as the complete text. Use grep_pattern to pull the entries "
+            f"you need, or offset={end + 1} to read on."
+        )
+        return {"text": text, "fields": fields, "summary": summary}
 
     @staticmethod
     async def _pending_changes(db, organization, user, instruction_id: str) -> list:
@@ -334,6 +553,7 @@ class ReadInstructionTool(Tool):
         out = []
         for s in review.get("suggestions", []):
             hunks = s.get("hunks") or []
+            fields = s.get("field_changes") or []
             out.append({
                 "build_id": s.get("build_id"),
                 "build_number": s.get("build_number"),
@@ -341,7 +561,7 @@ class ReadInstructionTool(Tool):
                 "source": s.get("source"),
                 "proposed_at": s.get("created_at"),
                 "evidence": s.get("evidence"),
-                "change_count": len(hunks),
+                "change_count": len(hunks) + len(fields),
                 "changes": [
                     {
                         "replaces": (h.get("before") or "")[:120],
@@ -349,6 +569,11 @@ class ReadInstructionTool(Tool):
                     }
                     for h in hunks[:5]
                 ],
+                # Non-text proposals, e.g. turning the instruction off.
+                **({"field_changes": [
+                    {"field": f.get("field"), "from": f.get("from"), "to": f.get("to")}
+                    for f in fields
+                ]} if fields else {}),
             })
         return out
 

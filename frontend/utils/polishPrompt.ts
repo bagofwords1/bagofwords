@@ -15,3 +15,35 @@ export function polishPromptPosition(rect: Rect, box: Size, container: Size, gap
   const left = Math.max(gap, Math.min(rect.left, container.width - box.width - gap))
   return { top, left }
 }
+
+// A Polish request is sent to the agent as a plain chat prompt (the agent needs
+// the artifact id and the raw element HTML). Chat history shows a compact card
+// in its place, so the build and parse below must stay in sync.
+export type PolishRequest = { title: string; artifactId: string; htmlSnippet: string; instruction: string }
+
+export function buildPolishPrompt(r: PolishRequest): string {
+  return `Polish the dashboard "${r.title}" (artifact_id: ${r.artifactId}).\nTarget element:\n\`\`\`html\n${r.htmlSnippet}\n\`\`\`\nInstruction: ${r.instruction}`
+}
+
+const POLISH_PROMPT_RE = /^Polish the dashboard "(.*)" \(artifact_id: ([^)\n]*)\)\.\nTarget element:\n```html\n([\s\S]*?)\n```\nInstruction: ([\s\S]+)$/
+
+export function parsePolishPrompt(text: string | null | undefined): PolishRequest | null {
+  if (!text) return null
+  const m = POLISH_PROMPT_RE.exec(text.replace(/\r\n/g, '\n').trim())
+  if (!m) return null
+  return { title: m[1], artifactId: m[2], htmlSnippet: m[3], instruction: m[4].trim() }
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'", nbsp: ' ' }
+
+// Short label for the picked element: its tag and visible text. The snippet is
+// capped at 500 chars upstream, so it may be cut mid-tag; plain regex copes.
+export function describePolishTarget(html: string, maxText = 60): { tag: string; text: string } {
+  const tag = (/^\s*<\s*([a-zA-Z][\w-]*)/.exec(html)?.[1] || 'element').toLowerCase()
+  const text = html
+    .replace(/<[^>]*>?/g, ' ')
+    .replace(/&(amp|lt|gt|quot|#39|apos|nbsp);/g, (_, e) => ENTITIES[e])
+    .replace(/\s+/g, ' ')
+    .trim()
+  return { tag, text: text.length > maxText ? text.slice(0, maxText - 1).trimEnd() + '…' : text }
+}

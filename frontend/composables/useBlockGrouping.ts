@@ -38,6 +38,7 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'list_mcp_resources',
   'read_mcp_resource',
   'search_mcps',
+  'search_tools',
   'search_agents',
   'read_report',
   'search_reports',
@@ -55,6 +56,7 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'search_email',
   'web_fetch',
   'execute_mcp',
+  'call_tool',
   'edit_note',
   // Browser navigation/reading/interaction are low-signal; a browsing run
   // collapses to one ticker line. browser_vision stays OUT so a screenshot
@@ -71,6 +73,12 @@ export const GROUPABLE_TOOLS = new Set<string>([
 export const MIN_GROUP_RUN = 2
 
 const FAILED_STATUSES = new Set(['error', 'failed', 'stopped'])
+
+/** Native MCP tools (mcp__<connection>__<tool>) group like execute_mcp,
+    which they are rewritten into. */
+function isGroupableTool(name: string | undefined): boolean {
+  return !!name && (GROUPABLE_TOOLS.has(name) || name.startsWith('mcp__'))
+}
 
 /** Whether a block failed (tool error or block error). */
 export function isBlockFailed(block: any): boolean {
@@ -118,7 +126,7 @@ export function classifyBlockError(block: any, isLast: boolean): 'handled' | 'ac
     out on its own. */
 export function isGroupableBlock(block: any): boolean {
   const te = block?.tool_execution
-  if (!te || !GROUPABLE_TOOLS.has(te.tool_name)) return false
+  if (!te || !isGroupableTool(te.tool_name)) return false
   if (FAILED_STATUSES.has(String(te.status || ''))) return false
   if (FAILED_STATUSES.has(String(block?.status || ''))) return false
   // A block that carries a user-facing message is content, never a chip.
@@ -153,6 +161,7 @@ export function humanToolLabel(toolName: string): string {
     list_mcp_resources: 'Listing resources',
     read_mcp_resource: 'Reading a resource',
     search_mcps: 'Searching tools',
+    search_tools: 'Searching tools',
     search_agents: 'Searching agents',
     read_report: 'Reading a report',
     search_reports: 'Searching reports',
@@ -160,16 +169,18 @@ export function humanToolLabel(toolName: string): string {
     run_query: 'Running a query',
     read_artifact: 'Reading the artifact',
     execute_mcp: 'Calling a tool',
+    call_tool: 'Calling a tool',
     edit_note: 'Updating notes',
     web_fetch: 'Fetching a page',
   }
+  if (toolName?.startsWith('mcp__')) return 'Calling a tool'
   return map[toolName] || 'Working'
 }
 
 /** Verb family for the header summary ("4 reads · 2 searches"). */
 function verbFamily(toolName: string): string {
   if (!toolName) return 'steps'
-  if (toolName === 'execute_mcp') return 'tool calls'
+  if (toolName === 'execute_mcp' || toolName === 'call_tool' || toolName.startsWith('mcp__')) return 'tool calls'
   if (toolName === 'edit_note') return 'note updates'
   if (toolName === 'inspect_data') return 'inspections'
   if (toolName.startsWith('search_') || toolName === 'grep_files') return 'searches'
@@ -401,7 +412,7 @@ export function computeBlockGroups(
     if (previousVerification && !b.tool_execution) continue
     if (previousVerification) flush()
     const te = b?.tool_execution
-    const groupableTool = !!te && GROUPABLE_TOOLS.has(te.tool_name) && !blockHasMessage(b)
+    const groupableTool = !!te && isGroupableTool(te.tool_name) && !blockHasMessage(b)
     const errCls = classifyBlockError(b, i === list.length - 1)
     if (errCls === 'handled' && groupableTool) {
       // Absorbed: the run continues around a handled probe failure — it is

@@ -157,10 +157,14 @@ class PlannerInput(BaseModel):
     # "CFO, focuses on monthly close metrics"). Both are optional.
     user_name: Optional[str] = None
     user_note: Optional[str] = None
-    # Agent-curated durable memory about the asker (Membership.memory), rendered
-    # as <user_memory>. Written by the update_user_memory tool; treated as the
-    # agent's own recollection of the user, subordinate to org instructions.
+    # Pre-rendered tiered <memory> body for the asker (MemoryContextBuilder:
+    # always / matched tiers + index line). Personal context only — never
+    # business rules; None when user memory is off or empty.
     user_memory: Optional[str] = None
+    # One-line nudge placed next to the ask when the user's message carries
+    # durable personal signals (style correction, role, shorthand, dated
+    # event, focus) and the memory tools are available. None otherwise.
+    memory_hint: Optional[str] = None
     # Job info synced from the org's identity provider (Entra ID Graph /me:
     # jobTitle, department, company, …). Rendered inside <user_profile>. Admin
     # chooses which attributes are included per org. Treated as context, not
@@ -180,6 +184,10 @@ class PlannerInput(BaseModel):
     # planner so the prose answer matches — otherwise the model happily pastes
     # the same SQL into a markdown fence, which no serializer can redact.
     can_view_code: bool = True
+
+    # Tools the conversation switched off (report.tools); rendered as a
+    # <disabled_tools> context line. The catalog already excludes them.
+    disabled_tools: List[str] = []
 
     # Feature flags
     mcp_tools_enabled: bool = False
@@ -216,6 +224,18 @@ class PlannerInput(BaseModel):
     #     (may route back down if the remaining work is clearly simple).
     current_model: Optional[str] = None
     routing_state: Optional[str] = None
+
+    # Sub-agents (docs/design/sub-agents.md). Parent side: whether `delegate` is
+    # in the catalog and the org's posture, plus the rendered <sub_agents>
+    # block (recent waves, one line per child). Child side (mode=subagent):
+    # the sub-agent's title, the profile's prompt addendum and the remaining
+    # step budget rendered in the per-turn head.
+    sub_agents_enabled: bool = False
+    sub_agent_posture: str = "proactive"
+    sub_agents_context: Optional[str] = None
+    sub_agent_title: Optional[str] = None
+    sub_agent_profile_addendum: Optional[str] = None
+    sub_agent_budget: Optional[str] = None
 
     # Native transcript path (opt-in, see planner/transcript_bridge.py). When
     # on, prior steps replay as real assistant(tool_use) / user(tool_result)

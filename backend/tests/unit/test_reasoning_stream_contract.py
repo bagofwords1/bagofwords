@@ -60,7 +60,7 @@ async def test_selected_effort_reaches_provider(kind, effort):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('kind', ['anthropic', 'responses'])
-async def test_summary_requested_without_effort_override(kind):
+async def test_no_effort_preserves_provider_default(kind):
     client = make_client(kind)
     create = capture(client, kind)
     model = 'claude-sonnet-5' if kind == 'anthropic' else 'gpt-5.2'
@@ -68,8 +68,8 @@ async def test_summary_requested_without_effort_override(kind):
         pass
     params = create.call_args.kwargs
     if kind == 'anthropic':
-        assert params['extra_body']['thinking']['display'] == 'summarized'
-        assert 'output_config' not in params['extra_body']
+        assert 'thinking' not in params.get('extra_body', {})
+        assert 'output_config' not in params.get('extra_body', {})
     else:
         assert params['reasoning'] == {'summary': 'auto'}
     await client.async_client.close()
@@ -144,7 +144,7 @@ async def test_reported_reasoning_usage_survives_stream(kind):
     (None, 'Please think carefully about this table', None, 'high'),
     ('low', 'Please think carefully about this table', 'medium', 'low'),
     (None, 'Create the table', 'medium', 'medium'),
-    ('off', 'Think hard about this table', 'high', None),
+    ('off', 'Think hard about this table', 'high', 'none'),
 ])
 @pytest.mark.parametrize('method', ['generate_code', 'generate_inspection_code', 'generate_transform_code'])
 async def test_coder_inherits_effort_and_keeps_summary_out_of_code(explicit, prompt, default, expected, method):
@@ -214,3 +214,22 @@ async def test_older_anthropic_keeps_supported_manual_budget():
     assert 'output_config' not in body
     await client.async_client.close()
     client.client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['responses', 'custom', 'azure'])
+@pytest.mark.parametrize('level,expected', [('off', 'none'), ('none', 'none'), (None, None), ('low', 'low')])
+async def test_opaque_deployments_use_underlying_model_for_disable(kind, level, expected):
+    from app.ai.llm.reasoning import _effort_to_thinking_config
+    client = make_client(kind)
+    client.reasoning_mode = 'like'
+    client.reasoning_model_id = 'gpt-6-luna'
+    create = capture(client, kind)
+    try:
+        async for _ in client.inference_stream_v2('deployment-west', [Message(role='user', content='hello')], thinking=_effort_to_thinking_config(level, 'deployment-west')):
+            pass
+        params = create.call_args.kwargs
+        assert (params.get('reasoning', {}).get('effort') if kind == 'responses' else params.get('reasoning_effort')) == expected
+    finally:
+        await client.async_client.close()
+        client.client.close()

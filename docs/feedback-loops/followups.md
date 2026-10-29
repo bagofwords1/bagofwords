@@ -38,7 +38,7 @@ Three gates, all first-class primitives already in the codebase:
   `follow_ups` surfaced on the completion payload so a reload rehydrates the chips.
 
 **Frontend**
-- `components/report/FollowUpSuggestions.vue` — minimalist OpenWebUI-style chips
+- `components/report/FollowUpSuggestions.vue` — minimalist chips
   (header + hairline-divided rows, `+` icon on hover).
 - `composables/useOrgSettings.ts` — `isFollowUpsEnabled` flag.
 - `pages/reports/[id]/index.vue` — handles the `completion.follow_ups` SSE event,

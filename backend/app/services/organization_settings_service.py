@@ -16,12 +16,19 @@ from app.schemas.organization_settings_schema import (
     SignupPolicySchema,
 )
 from datetime import datetime
+import logging
 import os
 import hashlib
 from PIL import Image
 from io import BytesIO
 from app.ee.audit.service import audit_service
 from app.core.telemetry import telemetry
+
+logger = logging.getLogger(__name__)
+
+
+# Config keys the generic PUT /organization/settings may not write.
+PROTECTED_CONFIG_KEYS = frozenset({"signup_policy", "entra_profile_sync", "google_profile_sync", "smtp"})
 
 
 class OrganizationSettingsService:
@@ -71,6 +78,22 @@ class OrganizationSettingsService:
                 changed = True
         return changed
 
+    @classmethod
+    def _repair_partial_feature(cls, config: dict, key: str, schema_feature) -> bool:
+        """A feature entry stored without its metadata (e.g. {'value': False},
+        written by a build that did not know the key yet) fails the response
+        model and makes every settings read and write 500. Rebuild it from the
+        schema default, keeping the org's own value/state."""
+        stored = config.get(key)
+        if not (isinstance(stored, dict) and not cls._is_feature_dict(stored)
+                and cls._is_feature_dict(schema_feature)):
+            return False
+        merged = {**schema_feature, **{k: v for k, v in stored.items() if k in ('value', 'state')}}
+        if 'value' in stored and 'state' not in stored:
+            merged.pop('state', None)  # let FeatureConfig derive state from the stored value
+        config[key] = FeatureConfig(**merged).dict()
+        return True
+
     async def _sync_new_features(self, db: AsyncSession, settings: OrganizationSettings):
         """Sync the stored config with the schema: add new features, refresh
         code-owned metadata on existing ones (so renames/description edits and
@@ -89,6 +112,8 @@ class OrganizationSettingsService:
                  current_config[key] = feature_or_value if not isinstance(feature_or_value, FeatureConfig) else feature_or_value.dict()
                  config_modified = True
              elif self._refresh_feature_metadata(current_config[key], feature_or_value):
+                 config_modified = True
+             elif self._repair_partial_feature(current_config, key, feature_or_value):
                  config_modified = True
 
         # Drop stored feature entries (never plain values or nested blocks like
@@ -141,6 +166,17 @@ class OrganizationSettingsService:
              flag_modified(settings, "config") # Mark as modified if initialized
 
         update_data = settings_data.dict(exclude_unset=True)
+
+        # Keys owned by dedicated endpoints with stricter gates / validation
+        # (signup policy needs full_admin_access, profile sync needs
+        # manage_identity_providers, SMTP encrypts its password). The generic
+        # writer only needs manage_settings, so it must never write them.
+        protected = sorted(set((update_data.get('config') or {})) & PROTECTED_CONFIG_KEYS)
+        if protected:
+            raise HTTPException(
+                status_code=403,
+                detail=f"These settings must be changed through their dedicated endpoints: {', '.join(protected)}",
+            )
 
         if 'config' in update_data and update_data['config']:
             # Use dict() to ensure we have a mutable copy
@@ -378,6 +414,33 @@ class OrganizationSettingsService:
                 db.add(settings) # Add settings to session if changed
                 await db.commit()
                 await db.refresh(settings)
+
+                # Agent check-ins turned off: remove every pending checkin:* job
+                # for the org right away and mark those rows cancelled:disabled,
+                # so no dormant job is left behind.
+                if 'enable_agent_checkins' in update_data['config']:
+                    try:
+                        from app.services.checkin_policy import feature_enabled
+                        if not feature_enabled(settings):
+                            from app.services.checkin_service import checkin_service
+                            await checkin_service.cancel_all_for_org(db, str(organization.id))
+                    except Exception:
+                        logger.warning("Failed to cancel pending check-ins on settings-off", exc_info=True)
+
+                # Overnight learning turned off: cancel queued dream runs for
+                # the org right away (running ones re-check the setting before
+                # every write and stop there).
+                if any(k in update_data['config'] for k in ('enable_agent_dreaming', 'enable_user_memory')):
+                    try:
+                        from app.services.dreams import common as dream_common
+                        from app.services.dreams.runtime import dream_runtime
+                        from app.models.dream_run import KIND_AGENT, KIND_USER
+                        if not dream_common.agent_dreaming_enabled(settings):
+                            await dream_runtime.cancel_queued_for_org(db, str(organization.id), KIND_AGENT)
+                        if not dream_common.user_dreaming_enabled(settings):
+                            await dream_runtime.cancel_queued_for_org(db, str(organization.id), KIND_USER)
+                    except Exception:
+                        logger.warning("Failed to cancel queued dream runs on settings-off", exc_info=True)
 
                 # Drop the cached PII redactor so a toggle/rule change takes
                 # effect immediately instead of waiting out the loader TTL.
@@ -1337,7 +1400,7 @@ class OrganizationSettingsService:
         new_week_start: str | None
         if week_start in (None, "", "auto"):
             new_week_start = None
-        elif week_start.lower() in self._WEEK_START_OPTIONS:
+        elif isinstance(week_start, str) and week_start.lower() in self._WEEK_START_OPTIONS:
             new_week_start = week_start.lower()
         else:
             raise HTTPException(

@@ -1,5 +1,6 @@
 """MCP Tool: get_context - Returns available schemas and metadata resources."""
 
+import logging
 import re
 from typing import Dict, Any, List
 
@@ -16,9 +17,22 @@ from app.schemas.mcp import (
     GetContextInput,
     GetContextOutput,
     DataSourceInfo,
+    EntityInfo,
     TableInfo,
     ResourceInfo,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+def _pattern_matches(pattern: str, text: str) -> bool:
+    """Regex match, falling back to a literal substring for an invalid regex —
+    the behavior the table/resource filters already have."""
+    try:
+        return bool(re.search(pattern, text, re.IGNORECASE))
+    except re.error:
+        return pattern.lower() in text.lower()
 
 
 class GetContextTool(MCPTool):
@@ -30,7 +44,8 @@ class GetContextTool(MCPTool):
     
     name = "get_context"
     description = (
-        "Get available data sources, tables, and metadata resources. Useful for searching or explaining metadata. "
+        "Get available data sources, tables, metadata resources and the organization's saved "
+        "queries (agreed metric/model definitions). Useful for searching or explaining metadata. "
         "Optionally filter by regex patterns. "
         "Agents may also expose external tools (MCP servers / custom APIs), listed here by name only — "
         "call list_agent_tools to get their full input schemas before invoking them with execute_mcp."
@@ -55,7 +70,7 @@ class GetContextTool(MCPTool):
         platform = await self._get_or_create_mcp_platform(db, organization)
 
         # Load report as ORM model (preserves Connection.get_credentials())
-        report = await self._load_report(db, input_data.report_id)
+        report = await self._load_report(db, input_data.report_id, user, organization)
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         # First, restrict to data sources THIS user is allowed to see — the
@@ -183,6 +198,50 @@ class GetContextTool(MCPTool):
                         description=resource.get("description"),
                     ))
         
+        # Published saved queries on these agents, by name only: an external
+        # client that is never shown them writes its own definition of a term
+        # the org has already agreed on. Full code and rows come from
+        # describe_entity.
+        from app.ai.context.builders.entity_context_builder import EntityContextBuilder
+        from app.ai.tools.mcp.entities import entity_agent_names
+        entities_output: List[EntityInfo] = []
+        try:
+            ds_ids = [str(d.id) for d in data_sources]
+            if ds_ids:
+                ent_builder = EntityContextBuilder(db, organization, report=report, user=user)
+                found = await ent_builder.load_entities(
+                    keywords=[], top_k=20, require_source_assoc=True, data_source_ids=ds_ids,
+                )
+                for e in found:
+                    if input_data.patterns:
+                        searchable = f"{e.title} {e.description or ''}"
+                        if not any(
+                            _pattern_matches(pattern, searchable) for pattern in input_data.patterns
+                        ):
+                            continue
+                    entities_output.append(EntityInfo(
+                        id=str(e.id),
+                        slug=getattr(e, "slug", None),
+                        type=e.type,
+                        title=e.title,
+                        description=e.description or None,
+                        agents=entity_agent_names(e),
+                        parameters=[
+                            str(p.get("name")) for p in (getattr(e, "parameters", None) or [])
+                            if isinstance(p, dict) and p.get("name")
+                        ],
+                    ))
+        except Exception:
+            logger.exception("get_context: listing saved queries failed")
+            entities_output = []
+
+        entities_hint = (
+            "Saved queries above are the organization's agreed definitions. Before writing a "
+            "query for a business term one of them covers, call describe_entity for its code "
+            "and reuse it instead of writing your own definition."
+            if entities_output else None
+        )
+
         # Tools are listed by name only here. Point the client at list_agent_tools
         # for their full input schemas before calling execute_mcp.
         has_tools = any(ds.tools for ds in data_sources_output)
@@ -197,18 +256,21 @@ class GetContextTool(MCPTool):
             report_id=str(report.id),
             data_sources=data_sources_output,
             resources=resources_output,
+            entities=entities_output,
             tools_hint=tools_hint,
+            entities_hint=entities_hint,
         )
         
         # Finish tracking
         total_tables = sum(len(ds.tables) for ds in data_sources_output)
         await self._finish_tracking(
             db, tracking, success=True,
-            summary=f"Retrieved context: {len(data_sources_output)} data sources, {total_tables} tables, {len(resources_output)} resources",
+            summary=f"Retrieved context: {len(data_sources_output)} data sources, {total_tables} tables, {len(resources_output)} resources, {len(entities_output)} saved queries",
             result_json={
                 "data_source_count": len(data_sources_output),
                 "table_count": total_tables,
                 "resource_count": len(resources_output),
+                "entity_count": len(entities_output),
             },
         )
         

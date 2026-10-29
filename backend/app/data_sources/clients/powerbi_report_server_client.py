@@ -212,10 +212,12 @@ class PowerBIReportServerClient(DataSourceClient):
             return
         session = requests.Session()
         session.auth = HttpNtlmAuth(self._ntlm_user(), self.password)
-        if self.ca_bundle_path:
-            session.verify = self.ca_bundle_path
+        # verify_ssl decides whether to verify; the CA bundle is only the trust
+        # store used when it is on.
+        if not self.verify_ssl:
+            session.verify = False
         else:
-            session.verify = bool(self.verify_ssl)
+            session.verify = self.ca_bundle_path or True
         self._session = session
         self._prime_ntlm()
 

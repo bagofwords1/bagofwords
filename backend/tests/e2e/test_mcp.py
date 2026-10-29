@@ -288,10 +288,11 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    # JSON-RPC tools/list additionally filters out tools whose
-    # required_ds_permission the caller lacks (see routes/mcp.py), so the count
-    # here is one lower than the unfiltered REST endpoint.
-    assert len(tools) == 13
+    # JSON-RPC tools/list additionally filters out tools the caller can't use
+    # (required_ds_permission, send_email without outbound mail; see
+    # routes/mcp.py), so the count here is one lower than the unfiltered REST
+    # endpoint. The caller is the org admin, so every builder tool is listed.
+    assert len(tools) == 20
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -299,9 +300,14 @@ def test_mcp_tools_list(
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
     assert "create_artifact" in tool_names
+    assert "manage_artifact_resources" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    assert "read_instruction" in tool_names
+    assert "edit_instruction" in tool_names
+    assert "describe_tables" in tool_names
+    assert "edit_schema" in tool_names
     assert "list_agent_tools" in tool_names
     assert "execute_mcp" in tool_names
     # App-only tools (hidden from LLM, used by MCP App UIs)
@@ -473,7 +479,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 14
+    assert len(tools) == 21
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -481,9 +487,14 @@ def test_mcp_rest_tools_endpoint(
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
     assert "create_artifact" in tool_names
+    assert "manage_artifact_resources" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    assert "read_instruction" in tool_names
+    assert "edit_instruction" in tool_names
+    assert "describe_tables" in tool_names
+    assert "edit_schema" in tool_names
     assert "edit_artifact" in tool_names
     assert "list_agent_tools" in tool_names
     assert "execute_mcp" in tool_names
@@ -726,6 +737,63 @@ def test_mcp_get_context(
     assert "data_sources" in context_text
     assert "Music Store" in context_text or "music store" in context_text.lower()
     # No manual cleanup needed - database reset by run_migrations fixture
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("tool", ["get_context", "create_data"])
+def test_mcp_tool_runs_are_indexed_when_they_finish(
+    enable_mcp,
+    test_client,
+    create_api_key,
+    create_user,
+    login_user,
+    whoami,
+    tool,
+):
+    """An MCP tool call is a tracked agent run. It must be indexed for the
+    monitoring explorer and the BOW source when it finishes (success or error),
+    like any agent-loop run, not left for the next restart's sweep."""
+    import asyncio
+    import os
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    def call(name, arguments):
+        response = test_client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}},
+            headers={"X-API-Key": api_key},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["result"]
+
+    report_id = json.loads(call("create_report", {"title": "Indexed MCP run"})["content"][0]["text"])["report_id"]
+    # create_data with no data source finishes as an error run; get_context as a success.
+    call(tool, {"report_id": report_id, "prompt": "count rows"} if tool == "create_data" else {"report_id": report_id})
+
+    async def runs():
+        from app.models.agent_execution import AgentExecution
+        url = os.environ["TEST_DATABASE_URL"].replace("sqlite://", "sqlite+aiosqlite://", 1).replace("postgresql://", "postgresql+asyncpg://", 1)
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as conn:
+                return (await conn.execute(
+                    select(AgentExecution.status, AgentExecution.rollup_version)
+                    .where(AgentExecution.report_id == report_id)
+                )).all()
+        finally:
+            await engine.dispose()
+
+    rows = asyncio.run(runs())
+    assert rows, "the MCP call must be tracked as an agent run"
+    assert all(status != "in_progress" for status, _ in rows)
+    assert all(version is not None for _, version in rows)
 
 
 @pytest.mark.e2e

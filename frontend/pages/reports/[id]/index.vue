@@ -9,7 +9,7 @@
 	</div>
 
 	<!-- Report not found / no access -->
-	<div v-else-if="reportNotFound" class="h-dvh w-full flex flex-col items-center justify-center text-gray-400">
+	<div v-else-if="reportNotFound" class="h-dvh w-full flex flex-col items-center justify-center text-ink-muted">
 		<span class="text-5xl font-light">404</span>
 		<span class="mt-2 text-sm">{{ $t('reportView.reportNotFound') }}</span>
 		<NuxtLink to="/reports" class="mt-4 text-sm text-blue-500 hover:underline">{{ $t('reportView.backToReports') }}</NuxtLink>
@@ -47,9 +47,9 @@
 							:artifactList="reportArtifacts"
 							:queryList="queryList"
 							:queryExecutions="summaryQueries"
+							:listSubmissions="summaryLists"
+							:subAgents="summarySubAgents"
 							:trainingInstructions="summaryInstructions"
-							:reportInstructions="reportInstructions"
-							:pendingBuildId="pendingTrainingBuild?.id || null"
 							:pendingTrainingBuild="pendingTrainingBuild"
 							:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 							@approveTrainingBuild="onApproveTrainingBuild"
@@ -76,6 +76,9 @@
 						:artifacts="reportArtifacts"
 						:latest-artifact="latestArtifact"
 						:requested-artifact-id="requestedArtifactId"
+						:requested-dashboard-id="requestedDashboardId"
+						:agent-running="hasInProgressCompletion"
+						:prefetch="artifactFramePrefetch"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -87,19 +90,29 @@
 		<template v-if="!isMobile || mobileView === 'chat'">
 		<!-- Fork banner -->
 		<ForkBanner
-			v-if="report?.forked_from_id"
+			v-if="isFork"
 			:forked-from-id="report.forked_from_id"
+			:forked-from-dashboard-id="report.forked_from_artifact_id"
 			:forked-from-title="report.forked_from_title"
 			:forked-from-user-name="report.forked_from_user_name"
 		/>
+		<!-- A conversation that joined a dashboard (collab01): whose work it
+		     continues and what changed before. Renders nothing otherwise.
+		     No remount on its rerun-done: the dashboard watches its own
+		     pending queries and loads the rows itself (ArtifactFrame
+		     watchHydration), and a remount would drop which ones failed. -->
+		<ContinuedFromCard
+			v-if="reportLoaded && report?.id"
+			:report-id="report.id"
+		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
-			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer" @scroll.passive="onScroll" @wheel.passive="onFollowWheel" @touchstart.passive="endPinHold">
+			<div ref="transcriptContent" data-testid="transcript" class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-chat w-full mx-auto" :style="pinMinHeightPx ? { minHeight: pinMinHeightPx + 'px' } : undefined">
 
 				<!-- Forked queries panel (shown for forked reports) — fetched
 				     once, so it too waits until hydration has filled the steps -->
-				<ForkPreparing v-if="report?.forked_from_id && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
+				<ForkPreparing v-if="isFork && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
 				<ForkedQueriesPanel
 					v-else-if="forkedQueries.length > 0"
 					:queries="forkedQueries"
@@ -107,9 +120,9 @@
 				/>
 
 				<!-- Fork summary separator -->
-				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
+				<div v-if="isFork && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
+					<span class="text-chat-3 text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
 					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 				</div>
 
@@ -118,7 +131,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-sm">
+					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -136,18 +149,18 @@
 						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
 							<button
 								@click="toggleScheduledExpand(m.id)"
-								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
 								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
-								<span v-if="getScheduledStats(m)" class="text-gray-400">{{ getScheduledStats(m) }}</span>
+								<span v-if="getScheduledStats(m)" class="text-ink-muted">{{ getScheduledStats(m) }}</span>
 								<Icon :name="isScheduledExpanded(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 ms-auto flex-shrink-0" />
 							</button>
 							<!-- User bubble shown inside the collapsible area -->
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
-								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
 										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
 											<div v-if="m.prompt?.content" class="pt-1">
@@ -171,17 +184,30 @@
 							<!-- collapsed -->
 						</template>
 
+						<!-- Agent check-in that ran quietly (did not notify): the reply
+						     stays in the report, collapsed under its "Checked back:
+						     nothing new" strip until expanded. -->
+						<template v-else-if="m.role === 'system' && (m as any).trigger_source === 'checkin' && isQuietCheckinReplyCollapsed(m)">
+							<!-- collapsed -->
+						</template>
+
 						<!-- Machine event entry (eval run finished, wait resumed): a
 						     borderless, compact line aligned into the agent column —
 						     same gutter as system messages, styled like a tool card. -->
 						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
 							<!-- avatar-width spacer so the line lines up with agent content -->
 							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
-							<div class="w-full ms-0 md:ms-4 max-w-2xl">
-								<div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0">
+							<div class="w-full ms-0 md:ms-4 max-w-chat">
+								<div
+									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
+									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
+									:data-testid="(m as any).trigger_source === 'checkin' ? `checkin-strip-${m.id}` : undefined"
+									@click="isQuietCheckinStrip(m) && toggleCheckinExpand(m.id)"
+								>
 									<Icon :name="machineEventIcon(m)" class="w-3.5 h-3.5 flex-shrink-0" :class="machineEventIconClass(m)" />
 									<span class="truncate min-w-0" dir="auto">{{ machineEventLabel(m) }}</span>
-									<span v-if="m.created_at" class="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
+									<Icon v-if="isQuietCheckinStrip(m)" :name="expandedCheckinIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3 h-3 flex-shrink-0" />
+									<span v-if="m.created_at" class="text-chat-3 text-ink-muted flex-shrink-0 ms-auto">{{ formatMessageDate(m.created_at) }}</span>
 								</div>
 							</div>
 						</div>
@@ -194,31 +220,31 @@
 								:data-testid="`webhook-event-${m.id}`"
 								@click="toggleWebhookEvent(m.id)"
 							>
-								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+								<Icon :name="webhookSourceIcon((m as any).external_platform)" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
 								<span class="text-xs text-gray-600 dark:text-gray-400 truncate flex-1" dir="auto">{{ machineEventLabel(m) }}</span>
 								<span v-if="m.status === 'in_progress'" class="flex items-center" :title="'Working…'">
-									<Icon name="heroicons-eye" class="w-4 h-4 text-gray-400 animate-pulse" />
+									<Icon name="heroicons-eye" class="w-4 h-4 text-ink-muted animate-pulse" />
 								</span>
 								<Icon v-else-if="m.status === 'success'" name="heroicons-check-circle" class="w-4 h-4 text-green-500" :title="webhookActed(m) ? 'Responded' : 'No action needed'" />
 								<Icon v-else-if="m.status === 'error'" name="heroicons-exclamation-circle" class="w-4 h-4 text-red-400" title="Error" />
-								<span v-if="m.created_at" class="text-[10px] text-gray-400 flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
+								<span v-if="m.created_at" class="text-chat-3 text-ink-muted flex-shrink-0">{{ formatMessageDate(m.created_at) }}</span>
 								<Icon :name="expandedWebhookIds.has(m.id) ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 flex-shrink-0" />
 							</div>
-							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-[11px] text-gray-400 italic">
+							<div v-if="webhookDecision(m) && webhookDecision(m).act === false" class="mt-1 ps-3 text-chat-3 text-ink-muted italic">
 								No action needed<span v-if="webhookDecision(m).reason"> — {{ webhookDecision(m).reason }}</span>
 							</div>
 
 							<!-- The delivery itself: what arrived, and with which headers. -->
 							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
 								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.headers') }}</div>
-									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-[11px] font-mono text-gray-500 dark:text-gray-400 truncate">
-										<span class="text-gray-400">{{ k }}:</span> {{ v }}
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
+									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-chat-3 font-mono text-gray-500 dark:text-gray-400 truncate">
+										<span class="text-ink-muted">{{ k }}:</span> {{ v }}
 									</div>
 								</div>
 								<div class="px-3 py-2">
-									<div class="text-[10px] font-medium uppercase tracking-wide text-gray-400 mb-1">{{ $t('triggers.body') }}</div>
-									<pre class="text-[11px] font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
+									<pre class="text-chat-3 font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
 								</div>
 							</div>
 						</div>
@@ -237,10 +263,10 @@
 						>
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
-								<div class="group/usermsg flex flex-col items-end max-w-xl w-full mb-3 ms-auto">
+								<div class="group/usermsg flex flex-col items-end max-w-[85%] w-full mb-3 ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-[10px]" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-chat-3" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 									</div>
@@ -249,7 +275,9 @@
 										<div class="flex-1 flex justify-end">
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
 												<div v-if="m.prompt?.content" class="pt-1">
+													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
+														v-else
 														:text="m.prompt.content"
 														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
@@ -274,16 +302,16 @@
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
 									<div class="flex items-center gap-2 me-[36px] mt-1 opacity-0 group-hover/usermsg:opacity-100 transition-opacity duration-150">
-										<UTooltip :text="copiedMessageId === m.id ? 'Copied!' : 'Copy'" :popper="{ placement: 'bottom' }">
+										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
-												class="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
-												{{ copiedMessageId === m.id ? 'Copied!' : 'Copy' }}
+												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
 											</button>
 										</UTooltip>
-										<span v-if="m.created_at" class="text-[10px] text-gray-400">{{ formatMessageDate(m.created_at) }}</span>
+										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
 							</template>
@@ -303,17 +331,26 @@
 										</div>
 									</UTooltip>
 								</div>
-								<div class="w-full ms-0 md:ms-4 max-w-2xl">
+								<div class="w-full ms-0 md:ms-4 max-w-chat">
 									<!-- System message -->
 									<div>
+										<!-- Sub-agent waves launched by this turn: one group line per wave -->
+										<SubAgentWaveStrip
+											v-for="w in wavesForMessage(m)"
+											:key="'wave-' + w.id"
+											:wave="w"
+											:wave-number="waveNumber(w)"
+											:stopping="stoppingWaveId === w.id"
+											@stopWave="stopWave"
+										/>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
 											<!-- Steering messages interleave into the block stream at the
 											     moment they arrived: before the first block that started
 											     after them. -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-												<div class="flex flex-col items-end max-w-xl">
-													<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+												<div class="flex flex-col items-end max-w-[85%]">
+													<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
@@ -349,7 +386,7 @@
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
-													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400 rtl-flip" />
+													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
 														{{ getThoughtProcessLabel(block) }}
 													</span>
@@ -373,7 +410,7 @@
 															/>
 														</template>
 														<template v-else-if="block.status === 'stopped'">
-															<div class="text-gray-400 italic">{{ $t('reportView.generationStoppedBefore') }}</div>
+															<div class="text-ink-muted italic">{{ $t('reportView.generationStoppedBefore') }}</div>
 														</template>
 													</div>
 												</Transition>
@@ -410,8 +447,7 @@
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
 													@openDataPanel="openDataPanel"
-													@addWidget="handleAddWidgetFromPreview"
-													@refreshDashboard="refreshDashboardFast"
+													@openListPanel="openListPanel"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
 													@openArtifact="handleOpenArtifact"
@@ -424,7 +460,7 @@
 														<span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
 														</span>
-														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-gray-400 bg-gray-50 dark:bg-gray-900 p-2 rounded">
+														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-ink-muted bg-gray-50 dark:bg-gray-900 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
 															<div v-if="block.tool_execution.duration_ms">{{ $t('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
 															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ $t('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
@@ -436,7 +472,7 @@
 											
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
+												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
 
@@ -444,8 +480,8 @@
 
 										<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
-											<div class="flex flex-col items-end max-w-xl">
-												<div class="flex items-center gap-1 mb-0.5 text-[10px]" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+											<div class="flex flex-col items-end max-w-[85%]">
+												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
@@ -474,7 +510,7 @@
 												</span>
 												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
 											</div>
-											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-[11px] font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
+											<div v-if="(rn as any).expanded && rn.message" class="mt-1 ms-5 text-chat-3 font-mono break-words text-amber-700/80 dark:text-amber-300/80" data-testid="loop-retry-error">
 												{{ rn.message }}
 											</div>
 										</div>
@@ -498,6 +534,16 @@
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
 										<div class="flex items-center gap-1">
+											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'top' }">
+												<UButton
+													:icon="copiedMessageId === m.id ? 'i-heroicons-check' : 'i-heroicons-clipboard'"
+													color="gray"
+													variant="ghost"
+													size="xs"
+													:aria-label="$t('common.copy')"
+													@click="copyToClipboard(responseText(m), m.id)"
+												/>
+											</UTooltip>
 											<CompletionItemFeedback
 												:completion="{ id: (m.system_completion_id || m.id) }"
 												:feedbackScore="m.feedback_score || 0"
@@ -514,7 +560,7 @@
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
-														<div class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
+														<div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
 														<div class="space-y-0.5">
 															<div
 																v-for="ins in visibleInstructions(m)"
@@ -523,10 +569,10 @@
 																@click="close(); openInstructionById(ins.id)"
 															>
 																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
-																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
-																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
-																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
+																<span class="text-chat-3 text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
+																<span class="text-chat-3 px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always'
 																		? 'bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-400'
 																		: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'">
@@ -549,15 +595,16 @@
 											</button>
 
 											<!-- Total run duration + AI message timestamp -->
-											<span v-if="runDurationLabel(m)" class="text-[10px] text-gray-400 ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
-											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">
+											<span v-if="runDurationLabel(m)" class="text-chat-3 text-ink-muted ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
+											<span v-if="m.created_at" class="text-chat-3 text-ink-muted ms-1">
 												<span v-if="runDurationLabel(m)" class="me-1">·</span>{{ formatMessageDate(m.created_at) }}
 											</span>
 										</div>
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+									<RevealTransition :show="report?.mode !== 'training' && !((m.completion_blocks || []).some(b => (b as any).phase === 'knowledge_harness')) && !!((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)">
+									<div class="mt-3">
 										<InstructionSuggestions
 											:tool-execution="{
 												id: `suggestions-${m.id}`,
@@ -567,13 +614,15 @@
 											}"
 										/>
 									</div>
+									</RevealTransition>
 									<!-- Follow-up suggestions (below thumbs, latest message only) -->
-									<FollowUpSuggestions
-										v-if="isFollowUpsEnabled && m.id === lastMessageId && ((m as any).follow_ups?.length)"
-										:suggestions="(m as any).follow_ups"
-										:disabled="isStreaming || isCompletionInProgress"
-										@select="handleFollowUpClick"
-									/>
+									<RevealTransition :show="isFollowUpsEnabled && m.id === lastMessageId && !!((m as any).follow_ups?.length)">
+										<FollowUpSuggestions
+											:suggestions="(m as any).follow_ups"
+											:disabled="isStreaming || isCompletionInProgress"
+											@select="handleFollowUpClick"
+										/>
+									</RevealTransition>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
 										Generation stopped
@@ -595,7 +644,7 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-[10px] text-gray-400 uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
 								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
 								{{ $t('prompt.compactedHistoryAbove') }}
 							</span>
@@ -603,7 +652,7 @@
 						</div>
 					</li>
 			</ul>
-			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-gray-400">
+			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-ink-muted">
 				<Spinner class="w-4 h-4 me-2" />
 				<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 			</div>
@@ -635,13 +684,13 @@
 		</div>
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
-		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
-				<Spinner class="w-3 h-3 me-2 text-gray-400" />
+				<Spinner class="w-3 h-3 me-2 text-ink-muted" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
@@ -650,7 +699,7 @@
 					</span>
 				</div>
 			</div>
-		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
@@ -658,7 +707,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
@@ -666,7 +715,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
@@ -674,7 +723,7 @@
 				</span>
 			</div>
 		</div>
-		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
+		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
 			<div class="text-xs flex items-center">
 				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
@@ -684,9 +733,9 @@
 		</div>
 		<!-- Read-only bar for project collaborators: view + fork, no composer -->
 		<div v-if="report && !isReportOwner" class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full pb-4', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
 				<div class="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-3" data-testid="readonly-bar">
-					<div class="flex items-center gap-2 min-w-0 text-[13px] text-gray-500 dark:text-gray-400">
+					<div class="flex items-center gap-2 min-w-0 text-sm text-gray-500 dark:text-gray-400">
 						<UIcon name="i-heroicons-lock-closed" class="w-4 h-4 shrink-0" />
 						<span class="truncate">{{ $t('projects.readOnlyBy', { name: report.user?.name || '' }) }}</span>
 					</div>
@@ -695,7 +744,7 @@
 						data-testid="fork-to-edit"
 						:disabled="isForking"
 						@click="forkThisReport"
-						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+						class="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
 					>
 						<UIcon name="i-heroicons-arrow-uturn-right" class="w-4 h-4" />
 						{{ isForking ? $t('common.loading') : $t('projects.forkToEdit') }}
@@ -705,7 +754,29 @@
 		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div v-else class="shrink-0 bg-white dark:bg-gray-900">
-			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
+			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
+				<!-- An older version is open in the editor: the next edit builds
+				     on it (collab01). Said only then, with the way back. -->
+				<!-- Viewing a version from elsewhere: it is read-only; say what
+				     the next edit builds on, and offer to edit it here. -->
+				<div v-if="openVersion && openVersion.viewing_version != null"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-viewing-version">
+					<UIcon name="i-heroicons-eye" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditViewing', { n: openVersion.viewing_version, here: openVersion.version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-edit-here" @click="editViewingHere">
+						{{ $t('dashboardCollab.versions.editHere', { n: openVersion.viewing_version }) }}
+					</button>
+				</div>
+				<div v-else-if="openVersion && openVersion.version_id !== openVersion.newest_id"
+					class="mx-2 sm:mx-0 mb-1.5 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-1.5"
+					data-testid="prompt-open-version">
+					<UIcon name="i-heroicons-information-circle" class="w-4 h-4 shrink-0" />
+					<span class="flex-1 min-w-0">{{ $t('dashboardCollab.versions.nextEditBuildsOn', { n: openVersion.version, newest: openVersion.newest_version }) }}</span>
+					<button type="button" class="font-medium underline underline-offset-2 shrink-0" data-testid="prompt-open-newest" @click="openNewestVersion">
+						{{ $t('dashboardCollab.versions.openNewest', { n: openVersion.newest_version }) }}
+					</button>
+				</div>
 				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
@@ -714,8 +785,9 @@
 					:initialSelectedDataSources="report?.data_sources || []"
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
+					:initialEffort="report?.reasoning_effort || ''"
 					:textareaContent="prefillText"
-					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt } : undefined"
+					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
@@ -730,6 +802,9 @@
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
+					:backgroundWaves="subAgentWaves"
+					@stopSubAgent="stopSubAgent"
+					@stopWave="stopWave"
 					@submitCompletion="onSubmitCompletion"
 					@queueCompletion="onQueuePrompt"
 					@removeQueuedPrompt="onRemoveQueuedPrompt"
@@ -777,7 +852,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'summary'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabSummary') }}
@@ -785,9 +860,9 @@
 				<button
 					@click="rightPanelView = 'artifact'"
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
-					:class="rightPanelView === 'artifact' || rightPanelView === 'grid'
+					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabDashboard') }}
@@ -797,7 +872,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'agent'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
@@ -816,7 +891,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'data'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
@@ -829,6 +904,27 @@
 						@click.stop="closeDataPanel"
 					/>
 				</button>
+				<!-- Only while a list is open from a submit card. -->
+				<button
+					v-if="panelList"
+					@click="rightPanelView = 'list'"
+					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
+					:class="rightPanelView === 'list'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+						: 'text-ink-muted hover:text-gray-600'"
+					data-testid="list-panel-tab"
+				>
+					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
+					<bdi class="truncate">{{ panelList.name || panelList.list?.name }}</bdi>
+					<span v-if="listPaneWriting" class="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+					<Icon
+						name="heroicons:x-mark"
+						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
+						:aria-label="$t('tools.submitList.closePane')"
+						data-testid="list-panel-close"
+						@click.stop="closeListPanel"
+					/>
+				</button>
 				<!-- Only while a file is open. Carries its own dismiss so there is
 				     an obvious way back to the dashboard. -->
 				<button
@@ -837,7 +933,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'file'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-gray-400 hover:text-gray-600'"
+						: 'text-ink-muted hover:text-gray-600'"
 				>
 					<Icon :name="panelFile.kind === 'image' ? 'heroicons:photo' : 'heroicons:document-text'" class="w-3.5 h-3.5 shrink-0" />
 					<span class="truncate">{{ panelFile.name || $t('filePreview.document') }}</span>
@@ -851,7 +947,7 @@
 			</div>
 			<button
 				@click="toggleSplitScreen"
-				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 transition-colors"
+				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 transition-colors"
 			>
 				<Icon name="heroicons:x-mark" class="w-4 h-4" />
 			</button>
@@ -866,9 +962,9 @@
 						:artifactList="reportArtifacts"
 						:queryList="queryList"
 						:queryExecutions="summaryQueries"
+						:listSubmissions="summaryLists"
+						:subAgents="summarySubAgents"
 						:trainingInstructions="summaryInstructions"
-						:reportInstructions="reportInstructions"
-						:pendingBuildId="pendingTrainingBuild?.id || null"
 						:pendingTrainingBuild="pendingTrainingBuild"
 						:pendingTrainingBuildDiff="pendingTrainingBuildDiff"
 						@approveTrainingBuild="onApproveTrainingBuild"
@@ -892,57 +988,25 @@
 				</div>
 			</div>
 
-			<!-- Grid View (DashboardComponent - Edit Mode) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				@toggleArtifactView="rightPanelView = 'artifact'"
-				class="h-full"
-			/>
-
-			<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-			<DashboardComponent
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
-				ref="dashboardRef"
-				:report="report"
-				:edit="true"
-				:visualizations="visualizations"
-				:textWidgetsIds="textWidgetsIds"
-				:isStreaming="isStreaming"
-				:hideArtifactSwitch="true"
-				@toggleSplitScreen="toggleSplitScreen"
-				@editVisualization="handleEditQuery"
-				class="h-full"
-			/>
-
 			<!-- A fork's dashboard waits until its queries have run as the forker -->
-			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout && !forkReady" class="p-4">
+			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !forkReady" class="p-4">
 				<ForkPreparing :nothing-ran="forkNothingRan" />
 			</div>
 			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
 			<ArtifactFrame
-				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id"
 				:key="artifactFrameKey"
 				:report-id="report.id"
 				:report="report"
 				:artifacts="reportArtifacts"
 				:latest-artifact="latestArtifact"
 				:requested-artifact-id="requestedArtifactId"
+				:requested-dashboard-id="requestedDashboardId"
+				:agent-running="hasInProgressCompletion"
+				:prefetch="artifactFramePrefetch"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
-
-			<!-- Empty state for grid view -->
-			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 dark:text-gray-400 h-full">
-				No dashboard items yet.
-			</div>
 
 			<!-- A document or image opened from a read_file card. Reuses the
 			     same viewer the card renders, at panel size. -->
@@ -960,6 +1024,26 @@
 				/>
 			</div>
 
+			<!-- A list opened from a submit_<list> card. The same grid as the
+			     agent's Lists page, embedded; rows the agent writes while it is
+			     open are merged in and flashed (see the watcher on listPaneSubmits). -->
+			<div v-else-if="rightPanelView === 'list' && panelList" class="h-full min-h-0 flex flex-col" data-testid="list-panel">
+				<div v-if="!panelList.list" class="flex-1 flex items-center justify-center text-xs text-ink-muted"><Spinner class="w-3.5 h-3.5" /></div>
+				<template v-else>
+					<ListRowsView
+						ref="listPaneRef"
+						:key="panelList.listId"
+						:ds-id="panelList.dsId"
+						:list="panelList.list"
+						:embedded="true"
+						:writing="listPaneWriting"
+						:full-href="`/agents/${panelList.dsId}/lists/${panelList.listId}`"
+						class="flex-1 min-h-0"
+						@deleted="closeListPanel"
+					/>
+				</template>
+			</div>
+
 			<!-- A query result opened from a tool card. Reuses the same preview
 			     the card renders, in its side-panel mode: full width, full
 			     height, and every edit/download/dashboard control. -->
@@ -968,7 +1052,6 @@
 					:key="panelData.key"
 					:tool-execution="panelData.toolExecution"
 					:expanded="true"
-					@addWidget="handleAddWidgetFromPreview"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editQuery="handleEditQuery"
 				/>
@@ -1001,24 +1084,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
+import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
+import AddParameterTool from '~/components/tools/AddParameterTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
 import CreateNoteTool from '~/components/tools/CreateNoteTool.vue'
+import SubmitListTool from '~/components/tools/SubmitListTool.vue'
 import EditNoteTool from '~/components/tools/EditNoteTool.vue'
-import UpdateUserMemoryTool from '~/components/tools/UpdateUserMemoryTool.vue'
+import MemoryTool from '~/components/tools/MemoryTool.vue'
 import RouteModelTool from '~/components/tools/RouteModelTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -1050,6 +1136,11 @@ import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
 import WebSearchTool from '~/components/tools/WebSearchTool.vue'
 import ClarifyTool from '~/components/tools/ClarifyTool.vue'
 import WaitTool from '~/components/tools/WaitTool.vue'
+import DelegateTool from '~/components/tools/DelegateTool.vue'
+import ReadSubAgentTool from '~/components/tools/ReadSubAgentTool.vue'
+import MessageSubAgentTool from '~/components/tools/MessageSubAgentTool.vue'
+import StopSubAgentTool from '~/components/tools/StopSubAgentTool.vue'
+import SubAgentWaveStrip from '~/components/report/SubAgentWaveStrip.vue'
 import SearchInstructionsTool from '~/components/tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '~/components/tools/ReadInstructionTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
@@ -1058,6 +1149,9 @@ import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
 import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import CreateAgentTool from '~/components/tools/CreateAgentTool.vue'
+import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
+import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
+import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
@@ -1072,25 +1166,32 @@ import InstructionModalComponent from '~/components/InstructionModalComponent.vu
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import ListRowsView from '~/components/lists/ListRowsView.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
+import ContinuedFromCard from '~/components/dashboard/conversation/ContinuedFromCard.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
-import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
+import { artifactPageLibs } from '~/utils/artifactIframe'
+import { ensureArtifactLibs } from '~/utils/artifactLibs'
 import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
+import RevealTransition from '~/components/report/RevealTransition.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
+import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
 
 // An @agent chip in an already-sent prompt names a LIVE agent, so it should draw
 // the icon that agent has now — not the one snapshotted into the prompt's
@@ -1188,6 +1289,9 @@ interface ChatMessage {
 	completion?: any
 	// For steering messages: the system completion they were injected into
 	parent_id?: string | null
+	// Stable v-for key carried over from an optimistic placeholder (user-<ts> /
+	// system-<ts>) so the canonical reload doesn't remount the whole turn.
+	_render_key?: string
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
 }
@@ -1197,7 +1301,26 @@ const toast = useToast()
 const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
 const isRtl = computed(() => RTL_LOCALES.has(i18nLocale.value))
 const route = useRoute()
+const router = useRouter()
 const report_id = (route.params.id as string) || ''
+
+// The dashboard version open in the editor (ArtifactFrame announces it): sent
+// with each message, so the next edit builds on it (collab01).
+const openVersion = ref<{ version_id: string; version: number; newest_id: string; newest_version: number; viewing_version?: number | null } | null>(null)
+function onOpenVersion(e: Event) {
+	const d = (e as CustomEvent).detail || {}
+	if (d.report_id !== report_id) return
+	openVersion.value = d.version_id ? d : null
+}
+function editViewingHere() {
+	window.dispatchEvent(new CustomEvent('artifact:edit-here', { detail: { report_id } }))
+}
+function openNewestVersion() {
+	if (!openVersion.value) return
+	window.dispatchEvent(new CustomEvent('artifact:select', { detail: { artifact_id: openVersion.value.newest_id } }))
+}
+onMounted(() => window.addEventListener('artifact:open-version', onOpenVersion))
+onBeforeUnmount(() => window.removeEventListener('artifact:open-version', onOpenVersion))
 
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
@@ -1318,6 +1441,10 @@ const touchViewed = () => {
 	_viewedTimer = setTimeout(() => { markViewed(String(report_id)) }, 1500)
 }
 watch(hasInProgressCompletion, (now, was) => { if (was && !now) touchViewed() })
+// The answer is done: stop holding the turn. Keyed on the run's own status,
+// not isStreaming: a run can arrive over the watch/poll paths (isStreaming
+// stays false), and sending aborts the previous run's still-open stream tail.
+watch(hasInProgressCompletion, (now, was) => { if (was && !now) endPinHold() })
 // True once the in-progress completion has produced any visible output
 // (reasoning/content/tool call). Drives the prompt box indicator's label
 // switch from "Thinking" (waiting for the first token) to "Working".
@@ -1328,6 +1455,21 @@ const inProgressHasFirstToken = computed(() =>
 			b.plan_decision?.reasoning || b.reasoning || b.content ||
 			b.plan_decision?.assistant || b.plan_decision?.final_answer || b.tool_execution
 		)
+	)
+)
+// True while the in-progress run is paused on a tool confirmation card the
+// user hasn't answered yet. Switches the prompt box indicator from "Working"
+// to "Waiting for your confirmation"; flips back as soon as they respond.
+const { isConfirmationAnswered } = useToolConfirmations()
+const inProgressAwaitingInput = computed(() =>
+	messages.value.some(m =>
+		m.role === 'system' && m.status === 'in_progress' &&
+		(m.completion_blocks || []).some((b: any) => {
+			const te = b.tool_execution
+			return te && !['success', 'error', 'stopped'].includes(te.status) &&
+				['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
+				!isConfirmationAnswered(te.confirmation?.confirmation_id)
+		})
 	)
 )
 // Server-side start of the in-progress run (naive-UTC). Lets the prompt box
@@ -1514,11 +1656,14 @@ const visibleMessages = computed(() => {
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
+const transcriptContent = ref<HTMLElement | null>(null)
 // === Sticky-bottom follow mode ===
 // The timeline follows new content only while the reader is at the bottom.
-// `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
-// off the moment the user scrolls away and back on when they return, or when
-// they press the "jump to latest" pill. It deliberately does not depend on
+// `isFollowing` is driven by the reader's scrolling: an upward wheel gesture
+// that reaches the conversation releases it immediately (onFollowWheel — not
+// one consumed by a nested scroller), and scroll POSITION (onScroll) covers
+// every other input: it flips off when the user scrolls away and back on when
+// they return, or when they press the "jump to latest" pill. It deliberately does not depend on
 // isStreaming — a run resumed after a refresh, started from another tab, a
 // schedule or a webhook is streamed through the watch/poll paths with
 // isStreaming=false, and those used to scroll unconditionally on every
@@ -1541,13 +1686,45 @@ const FOLLOW_ZONE_PX = 48
 // (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
 // child's height can't make the auto-scroll re-pin and bounce the viewport.
 const AT_BOTTOM_EPS = 4
-// Debounced scroll scheduling during streaming
-const pendingScroll = ref<boolean>(false)
+// One frame owns all stream and layout follow requests.
 let scrollRAF: number | null = null
+let forceNextScroll = false
+let transcriptResizeObserver: ResizeObserver | null = null
 // The pill is shown whenever the reader has scrolled away from the bottom
 // (ChatGPT behaviour); it is the only way, besides scrolling back down, to
 // re-engage following.
-const showJumpToLatest = computed(() => isFollowing.value === false)
+// === Sent turn pinned to the top ===
+// Sending scrolls the new prompt to the top of the view (eased) and the answer
+// streams in below it without the view chasing the bottom, so a long answer is
+// read from its start. A min-height on the transcript supplies the room the
+// prompt needs to reach the top before the answer exists. It is a min-height
+// (not a spacer element) so a transient collapse while the answer's first
+// block mounts cannot shorten the page and clamp the scroll position.
+// While `pinnedId` is set, background follow-scrolls are suppressed; the
+// reader's own wheel/touch, the jump pill or the next send end the hold.
+const PIN_TOP_GAP_PX = 48
+const PIN_SCROLL_MS = 380
+// Leave the view alone when the sent prompt is visible with at least this
+// share of the view free below it for the answer to start in.
+const PIN_MIN_ROOM_RATIO = 0.35
+let pinScrolled = false
+// Where the held turn sits in the view: PIN_TOP_GAP_PX once scrolled to the
+// top, or wherever it already was when there was room and nothing moved.
+let pinOffsetPx = PIN_TOP_GAP_PX
+// Extra floor below the held position. The view grows when the composer's
+// "Working" row goes away at the end of a run; without slack that clamps the
+// scroll position and nudges the reader up.
+const PIN_SLACK_PX = 64
+const pinMinHeightPx = ref(0)
+const pinnedId = ref<string | null>(null)
+// Answer content extends past the bottom of the viewport.
+const hasContentBelow = ref(false)
+let pinScrollRAF: number | null = null
+// Per-frame watch of the held turn's position while the hold is on. Content
+// above it can change height without resizing the (floored) transcript, so
+// the ResizeObserver alone would miss it.
+let pinWatchRAF: number | null = null
+const showJumpToLatest = computed(() => isFollowing.value === false && hasContentBelow.value)
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -1558,12 +1735,77 @@ const reportLoaded = ref(false)
 const reportNotFound = ref(false)
 const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
+// Row handed over by the draft composer that just created this report
+// (PromptBoxV2's createReport). Lets the page render the first prompt right
+// away; loadReport still fetches the canonical row and replaces it.
+{
+	const created = useState<any>('bow.createdReport')
+	if (created.value?.id && String(created.value.id) === String(route.params.id)) report.value = created.value
+	created.value = null
+}
 provide('reportSnapshot', report)
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
 // "Added to Dashboard" state survives a refresh with the artifact panel
 // closed (ArtifactFrame only broadcasts once it mounts).
 const activeArtifactVizIds = ref<string[]>([])
 provide('artifactVizIds', activeArtifactVizIds)
+
+// ---- Sub-agents (docs/design/sub-agents.md A8/A9) ----
+// The DB is the bus (see report_activity_hub): the page polls
+// GET /reports/{id}/sub-agents every 3s while a wave is live and provides the
+// rows by id so every delegate card reads from one poll. Hydration on load
+// and on every completion.finished keeps reloads and the fan-in turn in sync.
+const subAgentWaves = ref<any[]>([])
+const subAgentById = computed<Record<string, any>>(() => {
+	const out: Record<string, any> = {}
+	for (const w of subAgentWaves.value) for (const r of (w.sub_agents || [])) out[r.sub_agent_id] = { ...r, wave_status: w.status }
+	return out
+})
+const hasLiveSubAgents = computed(() => subAgentWaves.value.some((w: any) => ['collecting', 'running', 'firing'].includes(w.status)))
+let subAgentPollTimer: ReturnType<typeof setInterval> | null = null
+async function loadSubAgents() {
+	if (!report_id) return
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/sub-agents`)
+		const res = data.value as any
+		if (res && Array.isArray(res.waves)) subAgentWaves.value = res.waves
+	} catch { /* keep the last snapshot */ }
+	syncSubAgentPolling()
+}
+function syncSubAgentPolling() {
+	if (hasLiveSubAgents.value && !subAgentPollTimer) {
+		subAgentPollTimer = setInterval(loadSubAgents, 3000)
+	} else if (!hasLiveSubAgents.value && subAgentPollTimer) {
+		clearInterval(subAgentPollTimer); subAgentPollTimer = null
+		// A wave just ended: the fan-in turn and the summary rows are new.
+		loadReportSummary().catch(() => {})
+	}
+}
+provide('subAgents', { byId: subAgentById, refresh: loadSubAgents })
+const stoppingWaveId = ref<string | null>(null)
+function wavesForMessage(m: any): any[] {
+	const sysId = m?.system_completion_id || m?.id
+	return subAgentWaves.value.filter((w: any) => w.parent_completion_id === sysId)
+}
+function waveNumber(w: any): number {
+	return subAgentWaves.value.findIndex((x: any) => x.id === w.id) + 1
+}
+async function stopSubAgent(subAgentId: string) {
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agents/${subAgentId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop sub-agent', e) }
+	await loadSubAgents()
+}
+async function stopWave(waveId: string) {
+	stoppingWaveId.value = waveId
+	try {
+		await useMyFetch(`/reports/${report_id}/sub-agent-waves/${waveId}/stop`, { method: 'POST' })
+	} catch (e) { console.error('Failed to stop wave', e) }
+	finally { stoppingWaveId.value = null }
+	await loadSubAgents()
+}
+onMounted(() => { loadSubAgents() })
+onBeforeUnmount(() => { if (subAgentPollTimer) clearInterval(subAgentPollTimer) })
 // Full latest-artifact object from the same single fetch; shared with
 // ArtifactFrame as a mount-time seed so it does not refetch the artifact it
 // is about to select. Version switches keep their own fetch path.
@@ -1575,6 +1817,9 @@ const latestArtifact = ref<any | null>(null)
 // the request in page state instead of a transient event makes it survive the
 // remount, so the pane opens what was clicked rather than the newest artifact.
 const requestedArtifactId = ref<string | null>(null)
+// Edit from a dashboard's draft page names the dashboard (`?dashboard=`): the
+// pane opens on its newest version rather than the conversation's newest.
+const requestedDashboardId = computed(() => typeof route.query.dashboard === 'string' ? route.query.dashboard : null)
 // Keep the shared ids in sync when ArtifactFrame changes selection.
 function handleArtifactVizIdsBroadcast(ev: Event) {
 	const ids = (ev as CustomEvent).detail?.visualization_ids
@@ -1616,17 +1861,15 @@ const forkThisReport = async () => {
 // Browser tab / shortcut name — otherwise it falls back to the report UUID in
 // the URL. Falls back to a friendly default while the report loads.
 useHead(() => ({ title: report.value?.title || 'Report' }))
-const visualizations = ref<any[]>([])
-const dashboardRef = ref<any | null>(null)
-const textWidgetsIds = ref<string[]>([])
 
 // Report summary (queries + instructions independent of message pagination)
 const summaryQueries = ref<any[]>([])
 const summaryInstructions = ref<any[]>([])
-// Historical list of instructions created during this report's agent runs.
-// Separate from summaryInstructions (which is pending-only) so the Summary
-// tab can keep showing accepted instructions after the build is approved.
-const reportInstructions = ref<any[]>([])
+// Agent Lists this conversation wrote to — one item per list.
+const summaryLists = ref<any[]>([])
+// Sub-agents (delegated background investigations) of this report, for the
+// Summary tab (GET /reports/{id}/summary → sub_agents).
+const summarySubAgents = ref<any[]>([])
 // Fold boundary of rolling context compaction: the transcript divider renders
 // right after this completion. State-derived (from the completions payload,
 // the context.compacted SSE, and manual compaction responses).
@@ -1743,10 +1986,8 @@ async function onDiscardTrainingInstruction(payload: { buildId: string; instruct
 // Listen for resolutions originating elsewhere (modal tracked-changes panel,
 // tool cards) so the pill state stays in sync without prop drilling.
 function onInstructionResolved(_e: Event) {
-    // Re-fetch both: summary drives the pending pill; reportInstructions
-    // drives the historical "Instructions" section in ChatSummary.
+    // The summary carries each instruction's review state.
     loadReportSummary().catch(() => {})
-    loadReportInstructions().catch(() => {})
 }
 onMounted(() => {
     loadLlmModels()
@@ -1872,6 +2113,60 @@ function visibleInstructions(m: ChatMessage) {
 	return m._loaded_instructions || []
 }
 
+// ---- Agent check-in (trigger_source='checkin') strip helpers ----
+// The strip's prompt.meta carries {checkin_id, outcome, run_completion_id,
+// notify_subject}; outcome is stamped after the follow-up run finishes.
+const expandedCheckinIds = ref<Set<string>>(new Set())
+function checkinMeta(m: any): any {
+	return (m as any)?.trigger_source === 'checkin' ? (m?.prompt?.meta || {}) : null
+}
+// The run's reply for a strip: linked by meta once stamped, else the next
+// check-in system message after the strip.
+function checkinReply(strip: any): any {
+	const id = checkinMeta(strip)?.run_completion_id
+	if (id) return messages.value.find((x: any) => x.id === id) || null
+	const i = messages.value.indexOf(strip)
+	for (let j = i + 1; j < messages.value.length; j++) {
+		const x: any = messages.value[j]
+		if (x.role === 'external') break
+		if (x.role === 'system' && x.trigger_source === 'checkin') return x
+	}
+	return null
+}
+// Outcome of a check-in strip. The server stamps meta.outcome just after the
+// run ends — which can land after the page's end-of-run refresh — so derive it
+// from the reply itself until then (a successful notify call ⇒ sent).
+function checkinOutcome(strip: any): string {
+	const meta = checkinMeta(strip) || {}
+	if (meta.outcome) return meta.outcome
+	if (strip?.status === 'in_progress') return 'running'
+	const reply = checkinReply(strip)
+	if (!reply || reply.status === 'in_progress') return strip?.status === 'error' ? 'failed' : 'running'
+	const notified = (reply.completion_blocks || []).some((b: any) => {
+		const te = b?.tool_execution
+		if (!te || te.tool_name !== 'notify') return false
+		return te.status ? te.status === 'success' : te.success !== false
+	})
+	if (notified) return 'sent'
+	if (reply.status === 'error' || strip?.status === 'error') return 'failed'
+	return 'ran_quiet'
+}
+function isQuietCheckinStrip(m: any): boolean {
+	return m?.role === 'external' && (m as any)?.trigger_source === 'checkin' && checkinOutcome(m) === 'ran_quiet'
+}
+function toggleCheckinExpand(id: string) {
+	const next = new Set(expandedCheckinIds.value)
+	if (next.has(id)) next.delete(id)
+	else next.add(id)
+	expandedCheckinIds.value = next
+}
+function isQuietCheckinReplyCollapsed(msg: any): boolean {
+	const strip = messages.value.find((x: any) =>
+		x.role === 'external' && (x as any).trigger_source === 'checkin' && checkinReply(x)?.id === msg.id)
+	if (!strip || checkinOutcome(strip) !== 'ran_quiet') return false
+	return !expandedCheckinIds.value.has(strip.id)
+}
+
 function isScheduledSystemExpanded(msg: ChatMessage): boolean {
 	// Find the preceding user message with the same scheduled_prompt_id
 	const idx = messages.value.indexOf(msg)
@@ -1951,6 +2246,8 @@ function webhookSourceIcon(source?: string): string {
 		// Machine-turn events (trigger_source doubles as external_platform)
 		case 'eval_run': return 'heroicons-beaker'
 		case 'wait': return 'heroicons-clock'
+		case 'checkin': return 'heroicons-arrow-path-rounded-square'
+		case 'sub_agent_wave': return 'heroicons-squares-2x2'
 		default: return 'heroicons-bolt'
 	}
 }
@@ -1960,6 +2257,7 @@ function webhookSourceIcon(source?: string): string {
 function machineEventLabel(m: any): string {
 	const meta = m?.prompt?.meta
 	const src = (m as any)?.trigger_source
+	if (src === 'sub_agent_message') return t('events.subAgentQuestion')
 	if (meta && src === 'eval_run') {
 		return t('events.evalRunFinished', {
 			title: meta.title || '', passed: meta.passed ?? 0, total: meta.total ?? 0,
@@ -1968,6 +2266,22 @@ function machineEventLabel(m: any): string {
 	}
 	if (meta && src === 'wait') {
 		return t('events.waitResumed', { reason: meta.reason || '' })
+	}
+	if (meta && src === 'sub_agent_wave') {
+		const counts = Object.entries(meta.counts || {}).map(([k, n]) => `${n} ${t(`tools.delegate.outcomes.${k}`, k)}`).join(' · ')
+		return t(meta.timed_out ? 'events.subAgentWaveDoneTimedOut' : 'events.subAgentWaveDone', { total: meta.total ?? 0, counts })
+	}
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return t('events.checkin.running')
+		if (outcome === 'failed') return t('events.checkin.failed')
+		if (outcome === 'sent') {
+			return meta?.notify_subject
+				? t('events.checkin.sentWithSubject', { subject: meta.notify_subject })
+				: t('events.checkin.sent')
+		}
+		if (outcome === 'ran_quiet') return t('events.checkin.quiet')
+		return t('events.checkin.label')
 	}
 	return m.prompt?.summary || m.prompt?.content
 }
@@ -2009,12 +2323,25 @@ function machineEventIcon(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
+	if (src === 'sub_agent_wave') return 'heroicons-squares-2x2'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'heroicons-arrow-path'
+		if (outcome === 'failed') return 'heroicons-x-circle'
+		return outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
+	}
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
 function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
-	return 'text-gray-400 dark:text-gray-500'
+	if (src === 'checkin') {
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'text-blue-400 animate-spin'
+		if (outcome === 'failed') return 'text-red-400'
+		if (outcome === 'sent') return 'text-blue-500'
+	}
+	return 'text-ink-muted'
 }
 // Inbound webhook events expand to show the delivery that caused the run —
 // body, and the (credential-stripped) headers the sender used.
@@ -2040,6 +2367,16 @@ function webhookDecision(m: any): any {
 function webhookActed(m: any): boolean {
 	const d = webhookDecision(m)
 	return !!(d && d.act)
+}
+
+// The answer prose the timeline shows (same text expression as the block template),
+// as raw markdown; reasoning and tool cards are left out.
+function responseText(m: ChatMessage): string {
+	return visibleBlocks(m)
+		.filter((b: any) => b.status !== 'error' && b.tool_execution?.tool_name !== 'clarify')
+		.map((b: any) => (b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || '').trim())
+		.filter(Boolean)
+		.join('\n\n')
 }
 
 function copyToClipboard(text?: string, messageId?: string) {
@@ -2096,6 +2433,8 @@ async function loadReportSummary() {
         const { data } = await useMyFetch(`/reports/${report_id}/summary`)
         const res = data.value as any
         summaryQueries.value = res?.queries || []
+        summaryLists.value = res?.lists || []
+        summarySubAgents.value = res?.sub_agents || []
         summaryInstructions.value = (res?.instructions || []).map((i: any) => ({
             instructionId: i.instruction_id,
             title: i.title,
@@ -2104,29 +2443,16 @@ async function loadReportSummary() {
             lineCount: i.line_count,
             messageId: i.message_id,
             buildId: i.build_id,
+            state: i.state,
         }))
         pendingTrainingBuild.value = res?.pending_training_build || null
         await loadPendingBuildDiff()
     } catch {
         summaryQueries.value = []
+        summaryLists.value = []
         summaryInstructions.value = []
         pendingTrainingBuild.value = null
         pendingTrainingBuildDiff.value = null
-    }
-}
-
-async function loadReportInstructions() {
-    try {
-        const { data, error } = await useMyFetch(`/reports/${report_id}/instructions`)
-        if (error.value) {
-            console.warn('[reportInstructions] fetch error:', error.value)
-        }
-        const res = data.value as any
-        reportInstructions.value = Array.isArray(res) ? res : []
-        console.debug('[reportInstructions] loaded', reportInstructions.value.length, 'items')
-    } catch (e) {
-        console.warn('[reportInstructions] threw:', e)
-        reportInstructions.value = []
     }
 }
 
@@ -2230,6 +2556,10 @@ const forkedArtifactRef = computed(() => {
 // refresh-on-view; mounted mid-hydration it would rerun every query
 // underneath the hydration pass. Mounting after it, the backend skips that
 // rerun — hydration stamped last_run_at, so the data reads as fresh.
+// A conversation's fork names its conversation; a fork from a published
+// dashboard's page names the dashboard (phase 8). Both show the same banner
+// and wait for hydration the same way.
+const isFork = computed(() => !!((report.value as any)?.forked_from_id || (report.value as any)?.forked_from_artifact_id))
 const forkStatusChecked = ref(false)
 const forkHydrating = ref(false)
 const forkNothingRan = ref(false)
@@ -2259,7 +2589,7 @@ let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
 // gated, so the waiting state is reached only by the forks it was written for.
 const forkMayHydrate = computed(() => {
     const r = report.value as any
-    if (!r?.forked_from_id || !r?.created_at) return false
+    if (!isFork.value || !r?.created_at) return false
     // Naive UTC on the wire (the backend stores utcnow()); only stamp a zone
     // onto a value that carries none, or the parse turns to NaN.
     const raw = String(r.created_at)
@@ -2335,9 +2665,9 @@ async function onForkHydrated() {
         return
     }
     forkHydrating.value = false
+    artifactFramePrefetch.value = null
     artifactFrameKey.value += 1
     await enrichForkedQueries()
-    if (hasLegacyLayout.value) await loadVisualizations()
 }
 
 onBeforeUnmount(() => {
@@ -2365,7 +2695,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const rightPanelView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data' | 'list'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2379,6 +2709,9 @@ const panelFile = ref<{
 	imageFileIds?: string[] | null
 	name?: string
 } | null>(null)
+// Same return-path bookkeeping as the data pane below.
+const filePanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'data'>('artifact')
+const filePanelOpenedSplit = ref(false)
 
 function openFilePreview(payload: any) {
 	if (!payload?.fileId) return
@@ -2386,7 +2719,11 @@ function openFilePreview(payload: any) {
 	// Mobile keeps the inline/modal behaviour — mobileView is a separate closed
 	// union and opening a second surface there is its own piece of work.
 	if (isMobile.value) return
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (rightPanelView.value !== 'file') filePanelReturnView.value = rightPanelView.value
+	if (!isSplitScreen.value) {
+		filePanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'file'
 }
 
@@ -2408,7 +2745,15 @@ function leftWidthFor(view: string): number {
 
 function closeFilePanel() {
 	panelFile.value = null
-	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+	const openedSplit = filePanelOpenedSplit.value
+	filePanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'file') return
+	// A data view only exists while its result is open.
+	const back = filePanelReturnView.value
+	rightPanelView.value = back === 'data' && !panelData.value ? 'artifact' : back
+	// Opening the file is what opened the panel, so closing it closes the
+	// panel too instead of landing on whatever tab sat underneath.
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
 
 // A query result (create_data / read_query / …) opened from its inline card
@@ -2423,7 +2768,10 @@ const panelData = ref<{
 } | null>(null)
 // The view that was showing when the data pane opened, so closing it goes
 // back there (dashboard, agent, summary…) rather than always to the dashboard.
-const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+const dataPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+// Whether opening the data pane is what opened the side panel. If so, closing
+// it closes the panel too — there was no view underneath to go back to.
+const dataPanelOpenedSplit = ref(false)
 
 function openDataPanel(payload: { toolExecution: any; title?: string; visual?: boolean }) {
 	const te = payload?.toolExecution
@@ -2436,17 +2784,100 @@ function openDataPanel(payload: { toolExecution: any; title?: string; visual?: b
 	}
 	if (isMobile.value) return
 	if (rightPanelView.value !== 'data') dataPanelReturnView.value = rightPanelView.value
-	if (!isSplitScreen.value) toggleSplitScreen()
+	if (!isSplitScreen.value) {
+		dataPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
 	rightPanelView.value = 'data'
 }
 
 function closeDataPanel() {
 	panelData.value = null
+	const openedSplit = dataPanelOpenedSplit.value
+	dataPanelOpenedSplit.value = false
 	if (rightPanelView.value !== 'data') return
 	// A file view only exists while its file is open.
 	const back = dataPanelReturnView.value
 	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
 }
+
+// A list opened from a submit_<list> card, the way a file or a result opens.
+// While open, every submit to that list in this chat is merged into the grid
+// as it finishes, and the count streams while the agent is still writing.
+const panelList = ref<{ listId: string; dsId: string; name: string; list: any | null } | null>(null)
+const listPanelReturnView = ref<'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
+const listPanelOpenedSplit = ref(false)
+const listPaneRef = ref<any>(null)
+
+async function openListPanel(payload: { listId: string; dsId: string; name?: string }) {
+	if (!payload?.listId || !payload?.dsId) return
+	if (panelList.value?.listId !== payload.listId) {
+		panelList.value = { listId: payload.listId, dsId: payload.dsId, name: payload.name || '', list: null }
+		const { data } = await useMyFetch<any>(`/api/data_sources/${payload.dsId}/lists/${payload.listId}`, { method: 'GET' })
+		if (panelList.value?.listId !== payload.listId) return
+		if (!data.value) { closeListPanel(); return }
+		panelList.value.list = data.value
+	}
+	if (isMobile.value) return
+	if (rightPanelView.value !== 'list') listPanelReturnView.value = rightPanelView.value as any
+	if (!isSplitScreen.value) {
+		listPanelOpenedSplit.value = true
+		toggleSplitScreen()
+	}
+	rightPanelView.value = 'list'
+}
+
+function closeListPanel() {
+	panelList.value = null
+	const openedSplit = listPanelOpenedSplit.value
+	listPanelOpenedSplit.value = false
+	if (rightPanelView.value !== 'list') return
+	const back = listPanelReturnView.value
+	rightPanelView.value = (back === 'data' && !panelData.value) || (back === 'file' && !panelFile.value) ? 'artifact' : back
+	if (openedSplit && isSplitScreen.value) toggleSplitScreen()
+}
+
+// Submit calls in this chat that target the open list.
+const listPaneSubmits = computed(() => {
+	const id = panelList.value?.listId
+	const out: any[] = []
+	if (!id) return out
+	for (const m of messages.value) {
+		for (const b of ((m as any).completion_blocks || [])) {
+			const te = b?.tool_execution
+			if (!te || typeof te.tool_name !== 'string' || !te.tool_name.startsWith('submit_')) continue
+			const target = te.result_json?.list_id || te.arguments_json?.list_id || te.arguments_json?._progress?.list_id
+			if (target === id) out.push(te)
+		}
+	}
+	return out
+})
+const listPaneWriting = computed(() => listPaneSubmits.value.reduce((n, te) => {
+	if (te.status !== 'running' && te.status !== 'in_progress') return n
+	const p = te.arguments_json?._progress?.records ?? (Array.isArray(te.arguments_json?.records) ? te.arguments_json.records.length : 0)
+	return n + (p || 0)
+}, 0))
+// Calls already reflected in the grid. Seeded when the pane opens so history
+// does not replay; anything that succeeds afterwards is merged and flashed.
+const listPaneSeen = new Set<string>()
+// Keyed by what the call wrote, not the tool execution id: the id changes
+// when the chat reloads messages from the server after a turn, which would
+// otherwise replay old saves as new ones.
+const finishedKey = (te: any) => (te.result_json?.records || []).map((r: any) => `${r.row_id}:${r.action}`).sort().join(',') || `${te.id}`
+watch(() => panelList.value?.listId, () => {
+	listPaneSeen.clear()
+	for (const te of listPaneSubmits.value) if (te.status === 'success') listPaneSeen.add(finishedKey(te))
+}, { immediate: true })
+watch(() => listPaneSubmits.value.filter(te => te.status === 'success' && te.result_json?.success !== false).map(finishedKey).join('|'), () => {
+	for (const te of listPaneSubmits.value) {
+		if (te.status !== 'success' || te.result_json?.success === false) continue
+		const k = finishedKey(te)
+		if (listPaneSeen.has(k)) continue
+		listPaneSeen.add(k)
+		listPaneRef.value?.applySubmit?.(te.result_json?.records || [])
+	}
+})
 
 // Mobile view mode (full-screen single section on narrow screens)
 const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
@@ -2456,6 +2887,29 @@ function checkMobile() {
 	isMobile.value = window.innerWidth < 768
 }
 
+// On mobile the chat is unmounted while another tab is shown, so its scroll
+// position would reset to the top on return. Remember where the reader was
+// (pre-flush: the old container is still in the DOM) and put them back.
+let chatScrollSnapshot: { top: number; following: boolean } | null = null
+watch(mobileView, (view, prev) => {
+	if (!isMobile.value) return
+	if (prev === 'chat' && view !== 'chat') {
+		const el = scrollContainer.value
+		chatScrollSnapshot = el ? { top: el.scrollTop, following: isFollowing.value } : null
+	} else if (view === 'chat' && prev !== 'chat') {
+		const snap = chatScrollSnapshot
+		chatScrollSnapshot = null
+		nextTick(() => {
+			if (!snap || snap.following) { forceScrollToBottom(); return }
+			const el = scrollContainer.value
+			if (!el) return
+			isFollowing.value = false
+			el.scrollTop = snap.top
+			lastScrollTop = el.scrollTop
+		})
+	}
+})
+
 if (import.meta.client) {
 	checkMobile()
 	window.addEventListener('resize', checkMobile)
@@ -2464,10 +2918,8 @@ if (import.meta.client) {
 // Completion id currently wired up to forward Office.js results back to the backend.
 const currentOfficeJsCompletionId = ref<string | null>(null)
 
-// Legacy report detection: has artifacts vs legacy dashboard_layout_versions
 const hasArtifacts = ref(false)
 const reportArtifacts = ref<any[]>([])
-const hasLegacyLayout = ref(false)
 
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
@@ -2537,6 +2989,12 @@ function hasClarifyBlock(m: ChatMessage): boolean {
 }
 
 function getToolComponent(toolName: string) {
+	// Native per-list tools (submit_<list>) stream under their own name
+	// before the gateway rewrite to submit_list.
+	if (toolName?.startsWith('submit_')) return SubmitListTool
+	// Native MCP tools (mcp__<connection>__<tool>) and call_tool stream under
+	// their own name before the rewrite to execute_mcp.
+	if (toolName?.startsWith('mcp__')) return MCPTool
 	switch (toolName) {
     // 'create_data_model' removed
 		case 'create_widget':
@@ -2551,7 +3009,9 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'create_dashboard':
 			return CreateDashboardTool
-		case 'create_artifact':
+		case 'manage_artifact_resources':
+            return ManageArtifactResourcesTool
+        case 'create_artifact':
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool
@@ -2559,6 +3019,8 @@ function getToolComponent(toolName: string) {
 			return ReadQueryTool
 		case 'run_query':
 			return RunQueryTool
+		case 'add_parameter':
+			return AddParameterTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':
@@ -2571,10 +3033,14 @@ function getToolComponent(toolName: string) {
 			return EditDocTool
 		case 'create_note':
 			return CreateNoteTool
+		case 'submit_list':
+			return SubmitListTool
 		case 'edit_note':
 			return EditNoteTool
-		case 'update_user_memory':
-			return UpdateUserMemoryTool
+		case 'create_memory':
+		case 'edit_memory':
+		case 'search_memory':
+			return MemoryTool
 		case 'route_model':
 			return RouteModelTool
 		case 'read_resources':
@@ -2582,6 +3048,8 @@ function getToolComponent(toolName: string) {
 		case 'inspect_data':
 			return InspectDataTool
 		case 'search_mcps':
+		case 'search_tools':
+		case 'call_tool':
 		case 'execute_mcp':
 			return MCPTool
 		case 'write_csv':
@@ -2627,6 +3095,14 @@ function getToolComponent(toolName: string) {
 			return CreateScheduledTaskTool
 		case 'wait':
 			return WaitTool
+		case 'delegate':
+			return DelegateTool
+		case 'message_sub_agent':
+			return MessageSubAgentTool
+		case 'read_sub_agent':
+			return ReadSubAgentTool
+		case 'stop_sub_agent':
+			return StopSubAgentTool
 		case 'cancel_scheduled_task':
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':
@@ -2647,6 +3123,13 @@ function getToolComponent(toolName: string) {
 			return GetConnectionTool
 		case 'create_agent':
 			return CreateAgentTool
+		case 'create_demo_dataset':
+			return CreateDemoDatasetTool
+		case 'create_list':
+		case 'edit_list':
+			return ListSchemaTool
+		case 'delete_list_rows':
+			return DeleteListRowsTool
 		case 'search_agents':
 			return SearchAgentsTool
 		case 'set_report_agents':
@@ -2781,11 +3264,13 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtProcess')
 	}
 
-	// Prefer planner-provided reasoning duration when available
+	// Measured reasoning time. A tool's code generation (create_data,
+	// inspect_data) streams its reasoning into this same block, so the two add.
 	const metricsAny: any = (block.plan_decision as any)?.metrics || (block.plan_decision as any)?.metrics_json
-	const thinkingMs: number | undefined = metricsAny?.thinking_ms
-	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
-		const secs = Math.max(0, Math.round(thinkingMs / 1000))
+	const measured = [metricsAny?.thinking_ms, (block.tool_execution as any)?.sub_timings_json?.codegen_reasoning_ms]
+		.filter((ms): ms is number => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+	if (measured.length) {
+		const secs = Math.max(0, Math.round(measured.reduce((a, b) => a + b, 0) / 1000))
 		return t('reportView.thoughtForSeconds', { seconds: secs })
 	}
 
@@ -2804,11 +3289,8 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
 
-	// Fallback to duration from tool execution if available
-	if (block.tool_execution?.duration_ms) {
-		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
-	}
+	// No reasoning time recorded. The tool's own duration is not one — it covers
+	// code generation and execution, and already shows on the tool row.
 
 	// Default fallback
 	return t('reportView.thoughtProcess')
@@ -2843,7 +3325,13 @@ watch(
 
 // Split screen toggles reflow the chat column; keep the bottom pinned only
 // when the reader was already following.
-watch(() => isSplitScreen.value, () => {
+watch(() => isSplitScreen.value, (open) => {
+    // Once the user closes the panel themselves, a later close of the data /
+    // file tab must not collapse a panel they reopened some other way.
+    if (!open) {
+        dataPanelOpenedSplit.value = false
+        filePanelOpenedSplit.value = false
+    }
     nextTick(() => setTimeout(followScrollToBottom, 80))
 })
 
@@ -2918,30 +3406,67 @@ function scrollToMessage(messageId: string, stepId?: string) {
 	}
 }
 
-// Single-pass scroll to the max position after the next layout. `force`
-// scrolls regardless of follow state; otherwise the follow flag is re-checked
-// at execution time, so a wheel-up that lands between scheduling and the
-// 40ms timer still wins.
+// Measure after Vue commits, then follow once per paint. Re-check intent at
+// execution time so an upward gesture wins over a queued follow request.
 function scrollToBottom({ force = false }: { force?: boolean } = {}) {
+  if (force) forceNextScroll = true
+  if (scrollRAF !== null || typeof window === 'undefined') return
   nextTick(() => {
-    setTimeout(() => {
-      if (!force && !isFollowing.value) return
+    if (scrollRAF !== null) return
+    scrollRAF = window.requestAnimationFrame(() => {
+      scrollRAF = null
+      const forced = forceNextScroll
+      forceNextScroll = false
+      if (!forced && !isFollowing.value) return
       const container = scrollContainer.value
       if (!container) return
-      container.offsetHeight // force reflow
-      const target = container.scrollHeight - container.clientHeight
-      // No-op when already at the bottom (within tolerance). This makes the
-      // auto-scroll idempotent: a tiny/oscillating height change (chart resize,
-      // scrollbar toggle, fractional-DPI rounding) no longer writes scrollTop,
-      // so it can't feed a resize→scroll→resize bounce loop.
-      if (target - container.scrollTop > AT_BOTTOM_EPS) container.scrollTop = target
-    }, 40)
+      const target = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(target - container.scrollTop) > AT_BOTTOM_EPS) container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    })
   })
+}
+
+// Whether an upward wheel gesture that started at `target` is consumed before
+// it reaches the transcript container. Wheel events bubble from nested
+// scrollers (wide tables, code blocks, the thinking panel), so the gesture only
+// belongs to the conversation if no element between the target and the
+// container takes it: one that can still scroll up, or one that blocks scroll
+// chaining (overscroll-behavior contain/none) even at its top.
+function nestedScrollerOwnsUpwardWheel(target: EventTarget | null, container: HTMLElement): boolean {
+  let el = target instanceof Element ? target : null
+  while (el && el !== container) {
+    if (el instanceof HTMLElement) {
+      const style = window.getComputedStyle(el)
+      const scrollsY = /^(auto|scroll|overlay)$/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1
+      if (scrollsY) {
+        if (el.scrollTop > 0) return true
+        if (style.overscrollBehaviorY === 'contain' || style.overscrollBehaviorY === 'none') return true
+      }
+    }
+    el = el.parentElement
+  }
+  return false
+}
+
+// Upward wheel over the conversation releases following at once — before the
+// scroll event lands, so a queued pin (including a forced one) can't pull the
+// reader back down in the same frame. onScroll still applies the position rule
+// as a fallback for scrollbar drags, keyboard and touch.
+function onFollowWheel(event: WheelEvent) {
+  if (event.deltaY !== 0) endPinHold()
+  if (event.deltaY >= 0) return
+  const container = scrollContainer.value
+  if (!container || nestedScrollerOwnsUpwardWheel(event.target, container)) return
+  isFollowing.value = false
+  forceNextScroll = false
 }
 
 // Intentional scroll: initial load, the user sending/steering a message, the
 // jump pill. Re-engages following.
 function forceScrollToBottom() {
+  endPinHold()
+  pinMinHeightPx.value = 0
   isFollowing.value = true
   scrollToBottom({ force: true })
 }
@@ -2950,32 +3475,182 @@ function forceScrollToBottom() {
 // pins when the reader is already following; never moves a reader who has
 // scrolled away.
 function followScrollToBottom() {
-  if (!isFollowing.value) return
+  if (!isFollowing.value || pinnedId.value !== null) return
   scrollToBottom()
 }
 
-// Coalesce a burst of stream events into one pin per animation frame.
+// Token events and deferred child layout share the same pending frame.
 function scheduleFollowScroll() {
-  if (pendingScroll.value) return
-  pendingScroll.value = true
-  if (typeof window !== 'undefined') {
-    scrollRAF = window.requestAnimationFrame(() => {
-      followScrollToBottom()
-      pendingScroll.value = false
-    })
-  } else {
-    followScrollToBottom()
-    pendingScroll.value = false
-  }
+  updatePinSpacer()
+  followScrollToBottom()
 }
+
+// Layout offset of `el` within the scroll content, ignoring any in-flight
+// translate (the turn-enter animation) so the pin lands where it settles.
+function offsetInContainer(el: Element, container: HTMLElement): number {
+  const transform = getComputedStyle(el).transform
+  const shift = transform && transform !== 'none' ? new DOMMatrix(transform).m42 : 0
+  return el.getBoundingClientRect().top - shift - container.getBoundingClientRect().top + container.scrollTop
+}
+
+// Bottom of the real transcript content (last message), in scroll coordinates.
+function contentEndIn(container: HTMLElement): number | null {
+  const items = transcriptContent.value?.querySelectorAll('li[data-message-id]')
+  const last = items && items.length ? items[items.length - 1] : null
+  return last ? offsetInContainer(last, container) + (last as HTMLElement).offsetHeight : null
+}
+
+function updateContentBelow() {
+  const container = scrollContainer.value
+  if (!container) return
+  const end = contentEndIn(container)
+  hasContentBelow.value = end !== null && end - container.scrollTop > container.clientHeight + AT_BOTTOM_EPS
+}
+
+// While a turn is held, the transcript is at least tall enough for that turn
+// to stay pinOffsetPx below the top of the view, and the view follows the turn.
+// Otherwise the floor stays put until the reader scrolls, and then only ever
+// shrinks, to the least that keeps the current position valid (plus slack),
+// so it never parks the reader in blank space and never jumps the view.
+function updatePinSpacer(trim = false) {
+  const container = scrollContainer.value
+  const content = transcriptContent.value
+  if (!container || !content) return
+  const contentTop = offsetInContainer(content, container)
+  const padBottom = parseFloat(getComputedStyle(container).paddingBottom) || 0
+  const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-message-id="${pinnedId.value}"]`) : null
+  if (el) {
+    const target = offsetInContainer(el, container) - pinOffsetPx
+    const floor = Math.ceil(target + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    if (floor > pinMinHeightPx.value) {
+      pinMinHeightPx.value = floor
+      content.style.minHeight = `${floor}px` // now, so the anchor below isn't clamped
+    }
+    // Anchor to the turn, not to a scroll offset: content above it (a chart
+    // re-rendering, the previous answer reloading) can change height after
+    // the pin, which would slide the prompt out of view into the blank floor.
+    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+      container.scrollTop = target
+      lastScrollTop = container.scrollTop
+    }
+  } else if (trim && pinMinHeightPx.value > 0) {
+    const needed = Math.ceil(container.scrollTop + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
+    pinMinHeightPx.value = Math.max(0, Math.min(pinMinHeightPx.value, needed))
+  }
+  updateContentBelow()
+}
+
+function cancelPinScroll() {
+  if (pinScrollRAF !== null && typeof window !== 'undefined') window.cancelAnimationFrame(pinScrollRAF)
+  pinScrollRAF = null
+}
+
+// Eased scroll (ease-out cubic). Instant under reduced motion.
+function animateScrollTo(container: HTMLElement, target: number) {
+  cancelPinScroll()
+  const max = Math.max(0, container.scrollHeight - container.clientHeight)
+  const to = Math.min(max, Math.max(0, target))
+  const from = container.scrollTop
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  if (reduce || Math.abs(to - from) < 2) {
+    container.scrollTop = to
+    lastScrollTop = container.scrollTop
+    return
+  }
+  const startedAt = performance.now()
+  const step = (now: number) => {
+    const t = Math.min(1, (now - startedAt) / PIN_SCROLL_MS)
+    container.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3))
+    lastScrollTop = container.scrollTop
+    pinScrollRAF = t < 1 ? window.requestAnimationFrame(step) : null
+  }
+  pinScrollRAF = window.requestAnimationFrame(step)
+}
+
+// The user just sent `messageId`. Its answer streams in below it without the
+// view chasing the bottom. If the prompt is already on screen with room under
+// it, nothing moves; otherwise the view eases the prompt up near the top.
+function pinTurnToTop(messageId: string) {
+  pinnedId.value = messageId
+  pinScrolled = false
+  isFollowing.value = false
+  forceNextScroll = false
+  if (typeof window === 'undefined') return
+  nextTick(() => window.requestAnimationFrame(() => {
+    const container = scrollContainer.value
+    const el = container?.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement | null
+    if (!container || !el || pinnedId.value !== messageId) return
+    const top = offsetInContainer(el, container)
+    const viewTop = container.scrollTop
+    const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
+    if (top >= viewTop && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
+      // Room to answer in place: don't scroll, but keep the turn where it is.
+      pinOffsetPx = top - viewTop
+      pinScrolled = true
+      updatePinSpacer()
+      startPinWatch()
+      return
+    }
+    pinOffsetPx = PIN_TOP_GAP_PX
+    pinScrolled = true
+    updatePinSpacer()
+    startPinWatch()
+    nextTick(() => {
+      if (pinnedId.value !== messageId) return
+      animateScrollTo(container, offsetInContainer(el, container) - PIN_TOP_GAP_PX)
+    })
+  }))
+}
+
+function startPinWatch() {
+  if (pinWatchRAF !== null || typeof window === 'undefined') return
+  const tick = () => {
+    if (!pinScrolled || pinnedId.value === null) { pinWatchRAF = null; return }
+    updatePinSpacer()
+    pinWatchRAF = window.requestAnimationFrame(tick)
+  }
+  pinWatchRAF = window.requestAnimationFrame(tick)
+}
+
+function stopPinWatch() {
+  if (pinWatchRAF !== null && typeof window !== 'undefined') window.cancelAnimationFrame(pinWatchRAF)
+  pinWatchRAF = null
+}
+
+// The reader took over (wheel/touch) or asked for the bottom: stop holding.
+function endPinHold() {
+  if (pinnedId.value === null) return
+  pinnedId.value = null
+  pinScrolled = false
+  cancelPinScroll()
+  stopPinWatch()
+  updatePinSpacer()
+  // Resume following only if the reader is genuinely at the bottom already;
+  // otherwise a late layout change (feedback row, title) would move them.
+  const container = scrollContainer.value
+  if (container) isFollowing.value = container.scrollHeight - container.scrollTop - container.clientHeight <= AT_BOTTOM_EPS
+}
+
+watch([scrollContainer, transcriptContent], ([container, content]) => {
+  transcriptResizeObserver?.disconnect()
+  transcriptResizeObserver = null
+  if (!container || !content || typeof ResizeObserver === 'undefined') return
+  transcriptResizeObserver = new ResizeObserver(scheduleFollowScroll)
+  transcriptResizeObserver.observe(container)
+  transcriptResizeObserver.observe(content)
+}, { flush: 'post' })
 
 function jumpToLatest() {
   forceScrollToBottom()
 }
 
+// Land at the bottom once, then keep catching up with content that mounts
+// late — but as background follow-scrolls, so a reader who has already
+// started scrolling up keeps their place. (Forcing every catch-up re-engaged
+// following and yanked them back down ~650ms after load.)
 function scheduleInitialScroll() {
-    const delays = [0, 80, 160, 320, 640]
-    for (const delay of delays) setTimeout(forceScrollToBottom, delay)
+    forceScrollToBottom()
+    for (const delay of [80, 160, 320, 640]) setTimeout(followScrollToBottom, delay)
 }
 
 // Resolve which completion block a tool.* streaming event targets.
@@ -3249,6 +3924,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Reset result_json for fresh run to avoid stale shared references
 					lastBlock.tool_execution.result_json = {}
+					// Every tool card may read its inputs while running (e.g. the
+					// search query). The per-tool branches below may still override.
+					if (payload.arguments && !(lastBlock.tool_execution as any).arguments_json) {
+						;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+					}
 					// For describe_tables, stash the query so the UI can show it
 					try {
 						if (payload.tool_name === 'describe_tables' && payload.arguments) {
@@ -3280,7 +3960,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
-						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps') && payload.arguments) {
+						if ((payload.tool_name === 'execute_mcp' || payload.tool_name === 'search_mcps' || payload.tool_name === 'search_tools' || payload.tool_name === 'call_tool' || payload.tool_name?.startsWith('mcp__')) && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 						if ((payload.tool_name === 'create_instruction' || payload.tool_name === 'edit_instruction') && payload.arguments) {
@@ -3357,6 +4037,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution as any).auto_policy = {
 								approved: !!payload.payload.approved,
 								reason: payload.payload.reason || ''
+							}
+						}
+
+						// create_demo_dataset: per-table generation progress for its card
+						if (payload.tool_name === 'create_demo_dataset' && Array.isArray(payload.payload.tables)) {
+							;(lastBlock.tool_execution as any).demo_progress = {
+								done: payload.payload.done || 0,
+								total: payload.payload.total || 0,
+								tables: payload.payload.tables,
+								agents: Array.isArray(payload.payload.agents) ? payload.payload.agents : null,
 							}
 						}
 
@@ -3481,13 +4171,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 								lastBlock.status = 'in_progress'
 							}
 						}
-					}
-
-					// When create_dashboard streams a completed block, broadcast layout change so previews refresh membership
-					if (payload.tool_name === 'create_dashboard' && payload.payload && payload.payload.stage === 'block.completed') {
-						try {
-							window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: report_id, action: 'added' } }))
-						} catch {}
 					}
 
 					// Visualizations resolved for create_artifact / edit_artifact
@@ -3665,6 +4348,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
 					}
+					if (payload.sub_timings_json) {
+						;(blockWithTool.tool_execution as any).sub_timings_json = payload.sub_timings_json
+					}
 					if (payload.created_widget_id) {
 						blockWithTool.tool_execution.created_widget_id = payload.created_widget_id
 					}
@@ -3675,9 +4361,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.created_visualization_ids && Array.isArray(payload.created_visualization_ids) && payload.created_visualization_ids.length > 0) {
 						blockWithTool.tool_execution.created_visualizations = payload.created_visualization_ids.map((id: string) => ({ id }))
 					}
-					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
+					// If the dashboard was created successfully, open the dashboard pane
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
-						try { await loadVisualizations() } catch (e) { /* noop */ }
 						if (!isSplitScreen.value) toggleSplitScreen()
 					}
 					// If the artifact was created successfully, mark all slides as done and dispatch event
@@ -3754,6 +4439,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			// A turn that launched sub-agents ends while they run: pick the wave up now.
+			loadSubAgents().catch(() => {})
 			// Measure the run here: the server's total_duration_ms isn't stamped
 			// yet at this point (see clientRunMs), so without this the footer
 			// would show nothing until the next load.
@@ -3906,9 +4593,15 @@ function onReportFilesChanged() {
 	}, 500)
 }
 
+let completionLoadGeneration = 0
 async function loadCompletions({ skipEstimate = false } = {}) {
+	const generation = ++completionLoadGeneration
 	try {
 		const { data, error } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
+		// A refresh may have started before a new prompt. Its snapshot cannot
+		// replace optimistic messages or newer streamed blocks. The owning
+		// stream reloads canonical rows once it finishes.
+		if (generation !== completionLoadGeneration || currentController) return
 		const response = data.value as any
 		if (error?.value || !response) {
 			// useMyFetch resolves with { error } instead of throwing on the client.
@@ -3936,7 +4629,20 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 			return
 		}
 		const list = response?.completions || []
-		messages.value = list.map((c: any) => {
+		// Older pages the reader already scrolled into (via
+		// loadPreviousCompletions). A refresh returns only the latest page;
+		// replacing the transcript with it would delete everything above the
+		// viewport and jump the reader. Keep the messages older than the first
+		// one the fresh page overlaps, and keep their pagination cursor.
+		const freshIds = new Set(list.map((c: any) => String(c.id)))
+		const overlapIdx = messages.value.findIndex(m => freshIds.has(String(m.id)) || freshIds.has(String((m as any).system_completion_id)))
+		// A steering/fan-in row can be the first canonical overlap while the
+		// preceding turn still has client ids. Replace that whole optimistic
+		// pair, rather than preserving it as supposedly older history.
+		const overlapStart = overlapIdx > 0 && String(messages.value[overlapIdx]?.id).startsWith('system-')
+			&& String(messages.value[overlapIdx - 1]?.id).startsWith('user-') ? overlapIdx - 1 : overlapIdx
+		const olderKept = overlapStart > 0 ? messages.value.slice(0, overlapStart) : []
+		const freshMessages = list.map((c: any) => {
 			// Override status if sigkill timestamp exists - this means it was stopped
 			let status = c.status as ChatStatus
 			if (c.sigkill && status === 'in_progress') {
@@ -3964,10 +4670,15 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
 					duration_ms: b.tool_execution.duration_ms,
+					// Split of duration_ms (codegen, its reasoning, execution) for the thought label
+					sub_timings_json: b.tool_execution.sub_timings_json,
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
 					created_step: b.tool_execution.created_step,
+					// Real visualization rows (id, status, view): without them the card
+					// starts from a synthetic viz and refetches the query to find them.
+					created_visualizations: b.tool_execution.created_visualizations,
 					// Agents this call referenced, with their resolved icon_token —
 					// the data tools' source icon comes from here.
 					data_sources: b.tool_execution.data_sources
@@ -4015,9 +4726,36 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				trigger_source: c.trigger_source || null,
 			}
 		})
-		// Update cursors
-		hasMore.value = !!response?.has_more
-		cursorBefore.value = response?.next_before || null
+		// Placeholders created by the kickoff stream use client ids; the reload
+		// swaps them for server ids. Keep the placeholder's key so the <li> (and
+		// every tool card inside it) is patched in place instead of remounted —
+		// a remount re-runs each card's mount-time fetches and flashes the UI.
+		for (const old of messages.value) {
+			const oldId = String(old.id)
+			if (!oldId.startsWith('system-')) continue
+			const cid = (old as any).system_completion_id
+			const idx = cid ? freshMessages.findIndex((f: any) => String(f.id) === String(cid)) : -1
+			if (idx < 0) continue
+			freshMessages[idx]._render_key = old._render_key || oldId
+			const oldPos = messages.value.indexOf(old)
+			const prevOld = messages.value[oldPos - 1]
+			const prevFresh = freshMessages[idx - 1]
+			if (prevOld?.role === 'user' && String(prevOld.id).startsWith('user-') && prevFresh?.role === 'user') {
+				prevFresh._render_key = prevOld._render_key || String(prevOld.id)
+			}
+		}
+		for (const f of freshMessages) {
+			if (f._render_key) continue
+			const prev = messages.value.find(m => m._render_key && String(m.id) === String(f.id))
+			if (prev) f._render_key = prev._render_key
+		}
+		messages.value = olderKept.length ? [...olderKept, ...freshMessages] : freshMessages
+		pinDispatchedQueuedPrompts()
+		// Update cursors (unless older pages are kept — their cursor still applies)
+		if (!olderKept.length) {
+			hasMore.value = !!response?.has_more
+			cursorBefore.value = response?.next_before || null
+		}
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
@@ -4194,10 +4932,15 @@ async function loadPreviousCompletions() {
                     result_json: b.tool_execution.result_json,
                     arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
+                    // Split of duration_ms (codegen, its reasoning, execution) for the thought label
+                    sub_timings_json: b.tool_execution.sub_timings_json,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
                     created_step: b.tool_execution.created_step,
+                    // Real visualization rows (id, status, view): without them the card
+                    // starts from a synthetic viz and refetches the query to find them.
+                    created_visualizations: b.tool_execution.created_visualizations,
                     // Agents this call referenced, with their resolved icon_token —
                     // the data tools' source icon comes from here.
                     data_sources: b.tool_execution.data_sources
@@ -4264,6 +5007,7 @@ async function loadPreviousCompletions() {
 function onScroll() {
     const container = scrollContainer.value
     if (!container) return
+    updatePinSpacer(true)
     // Infinite scroll trigger near top
     if (!isLoadingMore.value && hasMore.value) {
         const thresholdTop = 64
@@ -4272,9 +5016,10 @@ function onScroll() {
         }
     }
 
-    // Follow mode is positional. Content growth doesn't fire scroll events
-    // (scrollTop is unchanged), so this runs for user scrolling, our own pins
-    // and the prepend anchor adjustment above.
+    // Position-based fallback: onFollowWheel releases upward wheel gestures
+    // first; this covers scrollbar drags, keyboard and touch. Content growth
+    // doesn't fire scroll events (scrollTop is unchanged), so this runs for
+    // user scrolling, our own pins and the prepend anchor adjustment above.
     //   - at the bottom → following (a pin landing, or the reader returning);
     //   - scrollTop moved UP → the reader left; stop following;
     //   - scrollTop moved DOWN but not to the bottom → keep the current state.
@@ -4284,8 +5029,13 @@ function onScroll() {
     //     the prepend adjustment (state already false, stays false).
     const top = container.scrollTop
     const distanceFromBottom = container.scrollHeight - (top + container.clientHeight)
-    if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
-    else if (top < lastScrollTop) isFollowing.value = false
+    //   Any upward move stops following, even inside the follow zone — otherwise
+    //   a reader whose first wheel ticks stay within FOLLOW_ZONE_PX is pinned
+    //   straight back down, again and again, while content keeps arriving.
+    //   (A downward clamp from shrinking content leaves us at the very bottom,
+    //   hence the AT_BOTTOM_EPS guard.)
+    if (top < lastScrollTop && distanceFromBottom > AT_BOTTOM_EPS) isFollowing.value = false
+    else if (distanceFromBottom <= FOLLOW_ZONE_PX && pinnedId.value === null) isFollowing.value = true
     lastScrollTop = top
 }
 
@@ -4309,35 +5059,6 @@ async function loadReport() {
 			}))
 		}
 	} catch {}
-}
-
-async function loadVisualizations() {
-	try {
-		const { data, error } = await useMyFetch(`/api/queries?report_id=${report_id}`, { method: 'GET' })
-		if (error.value) throw error.value
-		const queries = Array.isArray(data.value) ? data.value : []
-		const list: any[] = []
-		for (const q of queries) {
-			for (const v of (q?.visualizations || [])) {
-				if (v && v.id) list.push(v)
-			}
-		}
-		visualizations.value = list
-	} catch (e) {
-		visualizations.value = []
-	}
-}
-
-// Fast dashboard refresh triggered by editor save
-async function refreshDashboardFast() {
-    try {
-        const dash = dashboardRef.value
-        if (dash && typeof dash.refreshLayout === 'function') {
-            await dash.refreshLayout()
-        }
-    } catch (e) {
-        // noop
-    }
 }
 
 // Ensure dashboard pane opens only when currently closed
@@ -4454,20 +5175,6 @@ watch(
     }
 )
 
-async function loadActiveLayoutHasBlocks(): Promise<boolean> {
-    try {
-        const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
-        const layouts = Array.isArray(data.value) ? (data.value as any[]) : []
-        const active = layouts.find((l: any) => l.is_active)
-        const result = !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
-        hasLegacyLayout.value = result
-        return result
-    } catch (e) {
-        hasLegacyLayout.value = false
-        return false
-    }
-}
-
 // One request per report open (not per card, and not repeated inside
 // ArtifactFrame): the latest artifact seeds both the shared
 // "Added to Dashboard" state and ArtifactFrame's initial selection.
@@ -4482,6 +5189,28 @@ async function loadLatestArtifact(): Promise<void> {
     }
 }
 
+// ArtifactFrame's first requests (its artifact's queries + the viewer
+// identity), started here as soon as the artifact id is known instead of when
+// the frame mounts — which waits on the report, the workspace loads and a
+// full page render, and then queues behind the ~20 requests the rest of the
+// page fires at that moment. Consumed once by the frame (ArtifactFrame
+// `prefetch` prop); cleared whenever the frame is remounted to refresh.
+const artifactFramePrefetch = shallowRef<any | null>(null)
+let artifactFramePrefetchStarted = false
+function startArtifactFramePrefetch(artifactId: string) {
+    // Initial page load only — later checkHasArtifacts() calls (after an
+    // artifact is created/edited) leave the frame to fetch for itself.
+    if (!artifactId || artifactFramePrefetchStarted) return
+    artifactFramePrefetchStarted = true
+    // ArtifactFrame renders with the development React build.
+    ensureArtifactLibs(artifactPageLibs({ reactBuild: 'development', babel: false, pdf: false }))
+    artifactFramePrefetch.value = {
+        artifactId,
+        queries: useMyFetch(`/api/queries?report_id=${report_id}&artifact_id=${artifactId}`),
+        viewerContext: useMyFetch('/api/users/me/viewer_context'),
+    }
+}
+
 // Check if the report has any artifacts
 async function checkHasArtifacts(): Promise<boolean> {
     try {
@@ -4489,6 +5218,7 @@ async function checkHasArtifacts(): Promise<boolean> {
         const artifacts = Array.isArray(data.value) ? data.value : []
         reportArtifacts.value = artifacts
         hasArtifacts.value = artifacts.length > 0
+        if (hasArtifacts.value) startArtifactFramePrefetch(requestedArtifactId.value || (artifacts[0] as any).id)
         if (hasArtifacts.value) await loadLatestArtifact()
         return hasArtifacts.value
     } catch (e) {
@@ -4558,8 +5288,11 @@ onUnmounted(() => {
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', followScrollToBottom)
-	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
+	transcriptResizeObserver?.disconnect()
+	transcriptResizeObserver = null
+	cancelPinScroll()
+	stopPinWatch()
 	// Cancel any pending animation frame for scroll
 	if (scrollRAF !== null && typeof window !== 'undefined') {
 		window.cancelAnimationFrame(scrollRAF)
@@ -4579,53 +5312,6 @@ onUnmounted(() => {
 	stepDataCache.clear()
 })
 
-
-// Handle Add to dashboard from ToolWidgetPreview
-async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, visualization?: any }) {
-    try {
-        const viz = payload?.visualization
-        const widget = payload?.widget
-        if (viz?.id) {
-            const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else if (widget?.id) {
-            const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
-        } else {
-            return
-        }
-        
-        // Update the local widget status immediately to reflect the change in UI
-        // Find the tool execution that contains this widget and update its status
-        messages.value.forEach(message => {
-            if (message.completion_blocks) {
-                message.completion_blocks.forEach(block => {
-                    if (viz?.id && (block.tool_execution as any)?.created_visualizations) {
-                        const list = (block.tool_execution as any).created_visualizations as any[]
-                        const found = list.find(v => v?.id === viz.id)
-                        if (found) found.status = 'published'
-                    }
-                    if (widget?.id && block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
-                        block.tool_execution.created_widget.status = 'published'
-                    }
-                })
-            }
-        })
-        
-        		if (!isSplitScreen.value) toggleSplitScreen()
-		await loadVisualizations()
-        // Ask dashboard to refresh layout immediately so item appears
-        try {
-            const dash = dashboardRef.value
-            if (dash && typeof dash.refreshLayout === 'function') await dash.refreshLayout()
-        } catch {}
-		// Scroll to bottom when dashboard opens after adding widget
-		await nextTick()
-        followScrollToBottom()
-    } catch (e) {
-        console.error('Failed to add widget from preview:', e)
-    }
-}
 
 // Handle opening an artifact from CreateArtifactTool
 async function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
@@ -4728,9 +5414,23 @@ function resolveRunningSystemId(): string | undefined {
 		|| (rawId && !rawId.startsWith('system-') ? rawId : undefined)
 }
 
+// Prompts this tab queued. When the dispatcher starts one, it is pinned like a
+// direct send (see pinDispatchedQueuedPrompts); its run arrives over the
+// timeline reload + watch stream rather than onSubmitCompletion.
+const queuedFromHere = new Set<string>()
+function pinDispatchedQueuedPrompts() {
+	for (const id of [...queuedFromHere]) {
+		const m = messages.value.find(x => String(x.id) === id)
+		if (!m) continue
+		if (m.status === 'queued') continue
+		queuedFromHere.delete(id)
+		pinTurnToTop(id)
+	}
+}
+
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -4743,12 +5443,15 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					mentions: data.mentions || [],
 					mode: data.mode || 'chat',
 					model_id: data.model_id || null,
+					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
+					artifact_version_id: openVersion.value?.version_id || null,
 				},
 				queue: true
 			})
 		})
 		const created = (resp.value as any)?.completions?.[0]
+		if (created?.id) queuedFromHere.add(String(created.id))
 		if (created && !messages.value.some(m => m.id === created.id)) {
 			messages.value.push({
 				id: created.id,
@@ -4880,7 +5583,12 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; files?: { id: string; filename: string; content_type: string }[] }) {
+function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
+}
+
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -4899,19 +5607,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg: ChatMessage = {
-		id: sysId,
-		role: 'system',
-		status: 'in_progress',
-		model: data.model_id || undefined,
-		// Naive-UTC, matching the server's shape. Anchors the footer's run
-		// duration (and its timestamp) on the live path, where no server row
-		// has been merged into this placeholder yet.
-		created_at: new Date().toISOString().replace('Z', ''),
-		completion_blocks: []
-	}
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
 	messages.value.push(sysMsg)
-	forceScrollToBottom()
+	pinTurnToTop(userMsg.id)
 
 	// Stop any background polling/watching and start streaming
 	stopPollingInProgressCompletion()
@@ -4929,7 +5627,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			mentions: data.mentions || [],
 			mode: data.mode || 'chat',
 			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
+			artifact_version_id: openVersion.value?.version_id || null,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,
@@ -4949,6 +5649,12 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 async function startStreaming(requestBody: any, sysId: string) {
 
+	const controller = currentController
+	const ownsStream = () => currentController === controller
+	let completionId = messages.value.find(m => m.id === sysId)?.system_completion_id
+	const ensureSys = () => messages.value.findIndex(m =>
+		m.id === sysId || (completionId && (m.id === completionId || m.system_completion_id === completionId))
+	)
 	kickoffStalled = false
 	lastKickoffByteAt = Date.now()
 	startKickoffWatchdog()
@@ -4956,8 +5662,8 @@ async function startStreaming(requestBody: any, sysId: string) {
 		const options: any = {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(requestBody),
-			signal: currentController?.signal,
+			body: JSON.stringify({ ...requestBody, queue_if_busy: true }),
+			signal: controller?.signal,
 			stream: true
 		}
 		const raw: any = await useMyFetch(`/reports/${report_id}/completions`, options as any)
@@ -4965,22 +5671,51 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)
 
+		if (res.headers.get('content-type')?.includes('application/json')) {
+			const queued = await res.json()
+			if (!ownsStream()) return
+			const created = queued?.completions?.find((c: any) => c.role === 'user')
+			if (created?.id) queuedFromHere.add(String(created.id))
+			const idx = ensureSys()
+			if (idx >= 0) {
+				if (idx > 0 && String(messages.value[idx - 1].id).startsWith('user-')) messages.value.splice(idx - 1, 2)
+				else messages.value.splice(idx, 1)
+			}
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			currentController = null
+			const busyId = queued?.busy_completion_id
+			if (busyId && !messages.value.some(m => m.id === busyId || m.system_completion_id === busyId)) {
+				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
+			}
+			if (created?.id && !messages.value.some(m => m.id === created.id)) {
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+			}
+			// The receipt identifies the server turn even when history refresh is
+			// slow or unavailable. Transfer busy-state ownership to its watcher.
+			isCompletionInProgress.value = Boolean(busyId)
+			if (busyId) startWatchStream(String(busyId))
+			try { await loadCompletions() } catch (error) { console.error('Failed to refresh queued prompt:', error) }
+			return
+		}
+
 		const reader = res.body!.getReader()
 		const decoder = new TextDecoder()
+		const delivery = createStreamDeliveryTracker('kickoff', res)
 		let buffer = ''
 		let currentEvent: string | null = null
 
-		const ensureSys = () => messages.value.findIndex(m => m.id === sysId)
-
 		while (true) {
 			const { done, value } = await reader.read()
+			const readAt = performance.now()
 			if (done) {
 				break
 			}
+			if (!ownsStream()) return
 			lastKickoffByteAt = Date.now()
 
 			// Check if stream was aborted
-			if (currentController?.signal.aborted) {
+			if (controller?.signal.aborted) {
 				break
 			}
 
@@ -4988,6 +5723,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 
 			let nlIndex: number
 			while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+				if (!ownsStream()) return
 				const line = buffer.slice(0, nlIndex).trimEnd()
 				buffer = buffer.slice(nlIndex + 1)
 
@@ -4996,8 +5732,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 				} else if (line.startsWith('data:')) {
 					const dataStr = line.slice(5).trim()
 					if (dataStr === '[DONE]') {
-						isStreaming.value = false
-						currentController = null
+						reportStreamDelivery(delivery, completionId)
 						// Refresh report data and context estimate after stream fully ends.
 						// force=true: without it refreshContextEstimate early-returns after
 						// its first fetch, leaving the context meter stale for the whole
@@ -5015,7 +5750,11 @@ async function startStreaming(requestBody: any, sysId: string) {
 					}
 					try {
 						const parsed = JSON.parse(dataStr)
+						delivery.observe(currentEvent, parsed, readAt)
 						const payload = parsed.data ?? parsed
+						if (currentEvent === 'completion.started' && payload?.system_completion_id) {
+							completionId = payload.system_completion_id
+						}
 						const idx = ensureSys()
 						if (idx !== -1) {
 							await handleStreamingEvent(currentEvent, payload, idx)
@@ -5028,8 +5767,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} catch (err) {
+		if (!ownsStream()) return
 		console.error('Streaming error:', err)
-		const idx = messages.value.findIndex(m => m.id === sysId)
+		const idx = ensureSys()
 		if (idx !== -1) {
 			let errorMessage = 'An error occurred during streaming.'
 
@@ -5049,7 +5789,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// heartbeats), not a user stop. Reconnect to the run.
 					if (kickoffStalled) {
 						kickoffStalled = false
-						if (await recoverStreamAfterError(sysId)) return
+						if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					}
 					if (sysMsg && sysMsg.system_completion_id) {
 						// This was likely a user stop, mark as stopped without error
@@ -5065,14 +5805,14 @@ async function startStreaming(requestBody: any, sysId: string) {
 					// running server-side, so reconnect to its watch stream
 					// instead of surfacing a false error. Only mark error when
 					// recovery itself fails.
-					if (await recoverStreamAfterError(sysId)) return
+					if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 					errorMessage = err.message.includes('Stream HTTP error')
 						? `Connection error: ${err.message}`
 						: `Error: ${err.message}`
 					messages.value[idx] = { ...messages.value[idx], status: 'error' }
 				}
 			} else {
-				if (await recoverStreamAfterError(sysId)) return
+				if (await recoverStreamAfterError(completionId || sysId, ownsStream) || !ownsStream()) return
 				messages.value[idx] = { ...messages.value[idx], status: 'error' }
 			}
 			
@@ -5092,10 +5832,12 @@ async function startStreaming(requestBody: any, sysId: string) {
 			}
 		}
 	} finally {
-		stopKickoffWatchdog()
-		isStreaming.value = false
-		isCompletionInProgress.value = false
-		currentController = null
+		if (ownsStream()) {
+			stopKickoffWatchdog()
+			isStreaming.value = false
+			isCompletionInProgress.value = false
+			currentController = null
+		}
 	}
 }
 
@@ -5128,6 +5870,20 @@ function startKickoffWatchdog() {
 			try { currentController?.abort() } catch {}
 		}
 	}, 5000)
+}
+
+// When a finished stream shows its tokens were held back on the way (a
+// buffering proxy, TLS inspection, AV scanner: the answer appeared all at
+// once), tell the backend so it lands in the server logs. Fire-and-forget, at
+// most once per stream, never for streams that arrived live.
+function reportStreamDelivery(delivery: ReturnType<typeof createStreamDeliveryTracker>, completionId: string | null | undefined) {
+	const summary = delivery.summary()
+	if (!completionId || !isBufferedDelivery(summary)) return
+	console.warn(`[stream] live tokens were held back ${summary.holdback_ms} ms on the way to the browser and arrived all at once`, summary)
+	useMyFetch(`/reports/${report_id}/completions/${completionId}/stream-diagnostics`, {
+		method: 'POST',
+		body: summary,
+	}).catch(() => {})
 }
 
 function stopKickoffWatchdog() {
@@ -5180,16 +5936,18 @@ function stopWatchWatchdog() {
 // the started event, or the API if the POST died before it arrived) and
 // re-attach via the watch stream. Returns false when there is nothing to
 // re-attach to (the caller then surfaces the error).
-async function recoverStreamAfterError(sysId: string): Promise<boolean> {
-	const idx = messages.value.findIndex(m => m.id === sysId)
+async function recoverStreamAfterError(sysId: string, stillOwner: () => boolean = () => true): Promise<boolean> {
+	const idx = findWatchMessageIndex(sysId, sysId)
 	if (idx === -1) return false
 	const msg = messages.value[idx]
 	if (msg.status && msg.status !== 'in_progress') return false
 	let cid = (msg as any).system_completion_id as string | undefined
+	if (!cid && !String(msg.id).startsWith('system-')) cid = String(msg.id)
 	if (!cid) {
 		// The POST may have created the completion server-side before dying.
 		try {
 			const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=5`)
+			if (!stillOwner()) return false
 			const list: any[] = (data.value as any)?.completions || []
 			const inprog = [...list].reverse().find((c: any) => c.role === 'system' && c.status === 'in_progress')
 			if (inprog) {
@@ -5198,7 +5956,7 @@ async function recoverStreamAfterError(sysId: string): Promise<boolean> {
 			}
 		} catch {}
 	}
-	if (!cid) return false
+	if (!cid || !stillOwner()) return false
 	startWatchStream(cid, { sysId, ownStream: true })
 	return true
 }
@@ -5237,7 +5995,7 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 			} catch (e) {
 				// Aborted (superseded / watchdog) or network error — loop decides.
 			} finally {
-				stopWatchWatchdog()
+				if (stillMine()) stopWatchWatchdog()
 			}
 			if (!stillMine() || sawDone) return
 			idleAttempts = gotEvents ? 0 : idleAttempts + 1
@@ -5264,12 +6022,14 @@ async function startWatchStream(completionId: string, opts: { sysId?: string; ow
 async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number, ownStream = false): Promise<{ sawDone: boolean, gotEvents: boolean }> {
 	const reader = res.body!.getReader()
 	const decoder = new TextDecoder()
+	const delivery = createStreamDeliveryTracker('watch', res)
 	let buffer = ''
 	let currentEvent: string | null = null
 	let gotEvents = false
 
 	while (true) {
 		const { done, value } = await reader.read()
+		const readAt = performance.now()
 		if (done) break
 		lastWatchByteAt = Date.now()
 		if (watchGeneration !== gen) break
@@ -5277,6 +6037,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 
 		let nlIndex: number
 		while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+			if (watchGeneration !== gen) return { sawDone: false, gotEvents }
 			const line = buffer.slice(0, nlIndex).trimEnd()
 			buffer = buffer.slice(nlIndex + 1)
 
@@ -5285,6 +6046,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 			} else if (line.startsWith('data:')) {
 				const dataStr = line.slice(5).trim()
 				if (dataStr === '[DONE]') {
+					reportStreamDelivery(delivery, sysId || completionId)
 					// Terminal: converge on canonical persisted state.
 					await loadCompletions({ skipEstimate: true })
 					loadReport()
@@ -5295,6 +6057,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 				}
 				try {
 					const parsed = JSON.parse(dataStr)
+					delivery.observe(currentEvent, parsed, readAt)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
 					// Report-scoped events (artifacts, the generated title) are not
@@ -5418,47 +6181,84 @@ function stopScheduledCompletionsPoll() {
 	}
 }
 
+function sendInitialMessageFromQuery() {
+	const q = route.query
+	let mentions: any[] = []
+	try {
+		const raw = typeof q.mentions === 'string' ? decodeURIComponent(q.mentions) : ''
+		if (raw) mentions = JSON.parse(raw)
+	} catch {}
+	const mode = typeof q.mode === 'string' ? q.mode : 'chat'
+	const model_id = typeof q.model_id === 'string' ? q.model_id : null
+	const reasoning_effort = typeof q.reasoning_effort === 'string' ? q.reasoning_effort : null
+	// Images attached in the composer before this report existed. They are
+	// already on the report row; this only lets the first user bubble show
+	// its chips instead of appearing bare until a reload.
+	let files: any[] = []
+	try {
+		const rawFiles = typeof q.files === 'string' ? decodeURIComponent(q.files) : ''
+		if (rawFiles) files = JSON.parse(rawFiles)
+	} catch {}
+	const text = q.new_message as string
+	// A brand-new report has nothing older to page in. The first
+	// loadCompletions normally settles this, but it yields to the live stream
+	// started below, so hasMore would keep its optimistic default. Scrolling
+	// within the short transcript would then "load older" — the server's
+	// copy of this very turn — and show it twice until the [DONE] reload.
+	hasMore.value = false
+	const { new_message, mentions: _m, mode: _mo, model_id: _mi, reasoning_effort: _re, files: _f, ...rest } = q
+	router.replace({ query: rest })
+	onSubmitCompletion({ text, mentions, mode, model_id: model_id || undefined, reasoning_effort: reasoning_effort || null, files })
+}
+
 onMounted(async () => {
+	// First prompt of a report just created from a draft (PromptBoxV2's
+	// createReport). Send it before any load: the report is new, so nothing
+	// below is needed first, and waiting on them is pure lag before the
+	// answer starts. loadCompletions sees the live stream and leaves the
+	// optimistic messages alone. The query is stripped so a reload or a
+	// back-navigation can never send it a second time.
+	if (route.query.new_message) sendInitialMessageFromQuery()
+
 	// Load only the metadata needed to choose the initial workspace. Conversation,
-	// summary, and legacy-grid data have independent loading paths so one large
+	// and summary data have independent loading paths so one large
 	// payload cannot hold the entire report page behind a full-screen spinner.
 	const workspaceLoads = Promise.all([
 		loadReport(),
 		checkHasArtifacts(),
-		loadActiveLayoutHasBlocks(),
 		loadScheduledPrompts()
 	])
 	const slowLoads = loadCompletions()
 	setActiveReport(String(report_id)) // stream events for the open report never flag unread
 	touchViewed()
 	slowLoads.then(() => touchViewed()).catch(() => {})
+	// Land at the bottom as soon as the conversation renders — not after the
+	// slower workspace/summary loads below. Forcing it later re-engaged
+	// following and yanked a reader who had already scrolled up back down.
+	slowLoads.then(() => scheduleInitialScroll()).catch(() => {})
 
 	await workspaceLoads
 	// Resolves on the first status read; polling (if any) continues detached.
 	await watchForkHydration()
 
-	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
-	// the broad unfiltered query list is only needed by the legacy grid. Summary
-	// data is awaited only when summary is the initial pane.
-	if (hasLegacyLayout.value) {
-		await loadVisualizations()
-	}
-	const opensSummary = !hasArtifacts.value && !hasLegacyLayout.value
+	// Artifact reports load their filtered query/Step data inside ArtifactFrame.
+	// Summary data is awaited only when summary is the initial pane.
+	const opensSummary = !hasArtifacts.value
 		&& ((report.value as any)?.query_count > 0
 			|| (report.value as any)?.instruction_count > 0
 			|| (report.value as any)?.has_scheduled_prompts)
 	if (opensSummary) {
-		await Promise.all([loadReportSummary(), loadReportInstructions()])
+		await loadReportSummary()
 	} else {
 		window.setTimeout(() => {
-			void Promise.all([loadReportSummary(), loadReportInstructions()])
+			void loadReportSummary()
 		}, 250)
 	}
 
 	// Auto-open right pane based on report metadata (available immediately from loadReport)
 	// Skip auto-open in Excel mode — the taskpane is too narrow for split screen
 	if (!isExcel.value) {
-		if (hasArtifacts.value || hasLegacyLayout.value || (report.value as any)?.artifact_count > 0) {
+		if (hasArtifacts.value || (report.value as any)?.artifact_count > 0) {
 			isSplitScreen.value = true
 			rightPanelView.value = 'artifact'
 			leftPanelWidth.value = Math.round(window.innerWidth * 0.37)
@@ -5472,25 +6272,7 @@ onMounted(async () => {
 
 	await slowLoads
 
-	// Handle new_message query parameter after everything is loaded
-	if (route.query.new_message && messages.value.length == 0) {
-		let mentions: any[] = []
-		try {
-			const raw = typeof route.query.mentions === 'string' ? decodeURIComponent(route.query.mentions) : ''
-			if (raw) mentions = JSON.parse(raw)
-		} catch {}
-		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
-		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
-		// Images attached in the composer before this report existed. They are
-		// already on the report row; this only lets the first user bubble show
-		// its chips instead of appearing bare until a reload.
-		let files: any[] = []
-		try {
-			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
-			if (rawFiles) files = JSON.parse(rawFiles)
-		} catch {}
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, files })
-	} else if (route.query.prompt && messages.value.length == 0) {
+	if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string
 	}
@@ -5505,12 +6287,8 @@ onMounted(async () => {
 
 	// Start background poll for new scheduled completions
 	startScheduledCompletionsPoll()
-	
-    // Aggressive initial scroll to handle async content mounting
-	scheduleInitialScroll()
+
     window.addEventListener('resize', followScrollToBottom)
-	// Attach scroll listener for infinite scroll up / follow-mode tracking
-	try { scrollContainer.value?.addEventListener('scroll', onScroll) } catch {}
 })
 
 </script>
@@ -5557,6 +6335,8 @@ onMounted(async () => {
 }
 
 .thinking-content :deep(.markdown-content) {
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
 	font-size: 12px !important;
 	line-height: 1.4 !important;
 }
@@ -5577,13 +6357,16 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Minimal typography akin to CompletionMessageComponent */
+/* Minimal typography akin to CompletionMessageComponent; append-only text
+   entrance timing. */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
 	font-size: 13px;
-	/* Prevent layout thrashing during streaming */
+	--typewriter-fade-duration: 180ms;
+	--stream-update-fade-duration: 180ms;
+	--typewriter-fade-ease: ease-out;
+	--stream-update-fade-ease: ease-out;
 	contain: content;
-	content-visibility: auto;
 
 	/* Paragraph spacing to match streaming text appearance */
 	p {
@@ -5638,17 +6421,21 @@ onMounted(async () => {
 		unicode-bidi: isolate;
 		direction: ltr;
 	}
-	a { 
-		@apply text-gray-900 no-underline relative;
+	/* Links (source documents, emails, monday items) must read as links:
+	   colored + underlined, opening in a new tab (markstream sets target). */
+	a {
+		@apply text-blue-600 underline decoration-blue-300 underline-offset-2 relative;
 		transition: color 0.15s ease;
+		overflow-wrap: anywhere;
 	}
 	a:hover {
-		@apply text-gray-700;
+		@apply text-blue-800 decoration-blue-600;
 	}
 	a::before {
 		content: '';
 		position: absolute;
-		left: -18px;
+		/* logical side so the hover icon sits before the link in RTL too */
+		inset-inline-start: -18px;
 		top: 50%;
 		transform: translateY(-50%);
 		width: 14px;
@@ -5722,7 +6509,29 @@ onMounted(async () => {
 
 
 
-/* Compact mode (Excel add-in) — smaller text throughout */
+/* The turn just sent rises into place as the view eases it to the top. */
+@keyframes turn-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.turn-enter {
+  animation: turn-enter 260ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .turn-enter { animation: none; }
+  .markdown-wrapper :deep(.typewriter-enter-active) { transition: none !important; }
+  .markdown-wrapper :deep(.text-node-stream-delta),
+  .thinking-content :deep(.text-node-stream-delta) { animation: none !important; opacity: 1; }
+}
+
+/* Compact mode (Excel add-in) — smaller text throughout.
+   The ramp follows rather than being bypassed: re-pointing the chat font
+   one step down keeps the Excel pane at the 13px/12px it had, including
+   the tool-card headers that now take `text-chat-2`, without a second set
+   of rules that can drift from the first. */
+.compact-messages {
+	--bow-chat-font-size: 0.8125rem; /* 13px */
+}
 .compact-messages .block-content {
 	font-size: 13px;
 }
@@ -5748,33 +6557,44 @@ onMounted(async () => {
 	font-size: 13px;
 }
 
-/* Mobile — larger reading text (excludes Excel compact mode, which can also be narrow) */
-@media (max-width: 767px) {
-	.chat-messages:not(.compact-messages) .block-content {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content) {
-		font-size: 15px;
-	}
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
-	.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
-		font-size: 13px;
-	}
-	/* User message bubbles (InstructionText renders at 13px by default) */
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
-	.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
-		font-size: 15px;
-	}
-	/* Collapsible reasoning stays secondary, but readable */
-	.chat-messages:not(.compact-messages) .thinking-header {
-		font-size: 13px;
-	}
-	.chat-messages:not(.compact-messages) .thinking-content,
-	.chat-messages:not(.compact-messages) .thinking-content :deep(*),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
-	.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
-		font-size: 13px !important;
-	}
+/*
+ * Chat reading size.
+ *
+ * One size at every viewport, scaled by the reader's own preference
+ * (`--bow-chat-font-size`, default 16px/24px — see assets/css/tokens.css).
+ * What this replaces was a `max-width: 767px` block that raised the
+ * transcript to 15px on phones only, leaving the desktop transcript on the
+ * 14px it inherited from the row's `text-sm` — so the product read *smaller*
+ * on the machine people actually work on, and smaller than every comparable
+ * chat surface measured.
+ *
+ * The secondary tiers use --bow-chat-font-size-2 rather than a pinned px
+ * value, so a reader who scales up gets larger code and reasoning text too.
+ * At the default it is 13px, which is what they were pinned to.
+ */
+.chat-messages:not(.compact-messages) .block-content,
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
+/* User bubbles: InstructionText renders .instruction-prose at 13px by
+   default, which is the size it wants inside a settings panel, not inside a
+   conversation. */
+.chat-messages:not(.compact-messages) .user-bubble :deep(.instruction-prose),
+.chat-messages:not(.compact-messages) .user-bubble :deep(.whitespace-pre-wrap) {
+	font-size: var(--bow-chat-font-size);
+	line-height: var(--bow-chat-line-height);
+}
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre code),
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content code) {
+	font-size: var(--bow-chat-font-size-2);
+}
+/* Collapsible reasoning stays secondary, but readable */
+.chat-messages:not(.compact-messages) .thinking-header {
+	font-size: var(--bow-chat-font-size-2);
+}
+.chat-messages:not(.compact-messages) .thinking-content,
+.chat-messages:not(.compact-messages) .thinking-content :deep(*),
+.chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
+.chat-messages:not(.compact-messages) .thinking-content :deep(p) {
+	font-size: var(--bow-chat-font-size-2) !important;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

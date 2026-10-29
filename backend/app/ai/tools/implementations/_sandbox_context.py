@@ -100,7 +100,7 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
              renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — optional table: sort, paginate, RTL, CSV, print-safe.
-  <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder />
+  <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
@@ -114,7 +114,8 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
 
 PROVENANCE (required — the ⓘ popover lets readers inspect the data behind every number):
   Pass viz={vizById("…")} (plus rows={…} when filtered and calc="…" when derived) to every KPICard, SectionCard and bare EChart.
-  For custom markup, put data-bow-viz="<uuid>" (and data-bow-calc="…") on the item's outer element.
+  For custom markup, put data-bow-viz="<uuid>" (and data-bow-calc="…") on the item's outer element — the card, tile,
+  chart or table container, never a label or short inline text (the ⓘ is drawn at that element's corner).
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.
 
 CHARTS: <EChart option={{ xAxis:{type:'category',data:[…]}, yAxis:{type:'value'}, series:[{type:'bar',data:[…]}] }} /> — the 'bow' theme sets palette, fonts, axes,

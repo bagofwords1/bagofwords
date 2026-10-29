@@ -56,9 +56,9 @@
           />
           <div class="absolute inset-x-0 bottom-0 flex flex-col items-center justify-center text-center px-6 pb-2">
             <div class="w-12 h-12 flex items-center justify-center rounded-xl bg-white/70 backdrop-blur-sm ring-1 ring-gray-200/70 shadow-sm">
-              <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-gray-400 dark:text-gray-400" />
+              <UIcon name="i-heroicons-squares-plus" class="w-5 h-5 text-ink-muted" />
             </div>
-            <h3 class="mt-3 text-[15px] font-medium text-gray-900 dark:text-white">
+            <h3 class="mt-3 text-base font-medium text-gray-900 dark:text-white">
               {{ $t('settings.integrations.emptyTitle') }}
             </h3>
             <p class="mt-1.5 max-w-xs text-sm leading-relaxed text-gray-500 dark:text-gray-400">
@@ -73,8 +73,8 @@
         <div class="flex items-center gap-3">
           <McpIcon class="w-7 h-7 text-gray-700 dark:text-gray-300" />
           <div class="min-w-0">
-            <h3 class="text-[15px] font-medium text-gray-900 dark:text-white leading-tight">{{ selectedItem.name }}</h3>
-            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-gray-400 dark:text-gray-400'">
+            <h3 class="text-base font-medium text-gray-900 dark:text-white leading-tight">{{ selectedItem.name }}</h3>
+            <span class="inline-flex items-center gap-1.5 text-xs" :class="selectedItem.connected ? 'text-green-600' : 'text-ink-muted'">
               <span class="w-1.5 h-1.5 rounded-full" :class="selectedItem.connected ? 'bg-green-500' : 'bg-gray-300 dark:bg-gray-600'" />
               {{ selectedItem.connected ? $t('settings.integrations.connected') : $t('settings.integrations.notConnected') }}
             </span>

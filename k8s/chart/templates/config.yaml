@@ -23,7 +23,7 @@ data:
   # Database URL - only set if not using existing secret
   {{- if (empty .Values.postgresql.auth.existingSecret) }}
   {{- if (empty .Values.database.host)}}
-  BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Release.Name}}-postgresql:5432/{{.Values.postgresql.auth.database}}
+  BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{ include "bowapp.postgresql.fullname" . }}:5432/{{.Values.postgresql.auth.database}}
   {{- else }}
   BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Values.database.host}}:5432/{{.Values.postgresql.auth.database}}
   {{- end }}
@@ -32,6 +32,9 @@ data:
 
   # Application configuration
   BOW_BASE_URL: {{ .Values.config.baseUrl | quote }}
+  {{- if .Values.config.forwardedAllowIps }}
+  FORWARDED_ALLOW_IPS: {{ .Values.config.forwardedAllowIps | quote }}
+  {{- end }}
   BOW_AUTH_MODE: {{ .Values.config.authMode | quote }}
   BOW_GOOGLE_AUTH_ENABLED: {{ .Values.config.googleOauthEnabled | quote }}
   BOW_INTERCOM_ENABLED: {{ .Values.config.intercomEnabled | quote }}
@@ -97,10 +100,10 @@ data:
   {{- /*
     idle_session_timeout is PostgreSQL 14+, and an unrecognised startup parameter
     fails EVERY connection — so this may only default on for a server whose
-    version we control: the bundled subchart (PostgreSQL 17).
+    version we control: the bundled PostgreSQL 17 (templates/postgresql/).
 
     "Bundled" means this ConfigMap itself emits a BOW_DATABASE_URL pointing at
-    `<release>-postgresql` AND nothing can replace it — mirror the conditions on
+    the bundled Service AND nothing can replace it — mirror the conditions on
     that URL above, and exclude both Secret paths. A Secret is the documented way
     to supply BOW_DATABASE_URL (see k8s/README.md), and `config.secretRef` is
     loaded after this ConfigMap via envFrom, so either one can point the app at

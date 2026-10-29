@@ -7,17 +7,10 @@ from app.ee.audit.service import audit_service
 from typing import List, Optional
 from pydantic import BaseModel
 from app.services.report_service import ReportService
-from app.services.dashboard_layout_service import DashboardLayoutService
 from app.services.notification_service import notification_service
 from app.services.fork_service import fork_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse, ReportVisibilityUpdate, ReportRerunResultSchema, ViewerRunResultSchema, ReportActivityResponse
 from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
-from app.schemas.dashboard_layout_version_schema import (
-    DashboardLayoutVersionSchema,
-    DashboardLayoutVersionCreate,
-    DashboardLayoutVersionUpdate,
-    DashboardLayoutBlocksPatch,
-)
 from app.models.user import User
 
 from app.core.auth import current_user, current_user_optional
@@ -49,7 +42,42 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
-layout_service = DashboardLayoutService()
+
+
+async def _require_report_viewer(db, report_id: str, current_user, organization, endpoint: str) -> None:
+    """Per-user report endpoints (viewed, star, fork_status) are open to anyone
+    who can see the report: its owner, a full admin, or whoever its
+    conversation/artifact visibility (shared directly or via a group, internal,
+    public) or project admits -- the read rule of the shared-report routes and
+    of the query routes (`_can_read_query`). Anyone else
+    gets the same 404 as a missing id, so these endpoints reveal nothing about
+    reports the caller cannot see. A denial on an existing report is audited
+    as `access.denied`, like the decorator's owner-only gate it replaces."""
+    from sqlalchemy.orm import lazyload
+    from app.core.permissions_decorator import _audit_access_denied
+    from app.errors.app_error import AppError
+    from app.services.file_access_service import user_can_view_report, CONVERSATION_OR_ARTIFACT
+
+    report = (await db.execute(
+        select(Report).options(lazyload("*")).where(
+            Report.id == str(report_id),
+            Report.organization_id == str(organization.id),
+        )
+    )).scalar_one_or_none()
+    try:
+        allowed = report is not None and await user_can_view_report(
+            db, current_user, organization, report, CONVERSATION_OR_ARTIFACT
+        )
+    except AppError as e:
+        # Only an access denial (e.g. bow_source_access.assert_read) means
+        # "cannot see it"; any other typed failure is a real error.
+        if e.status_code != 403:
+            raise
+        allowed = False
+    if not allowed:
+        if report is not None:
+            await _audit_access_denied(db, current_user, organization, "view_reports", endpoint)
+        raise HTTPException(status_code=404, detail="Not found")
 
 @router.post("/reports", response_model=ReportSchema)
 @requires_permission('create_reports')
@@ -127,6 +155,7 @@ async def stream_reports_activity(
     import asyncio as _asyncio
     from fastapi.responses import StreamingResponse
     from app.streaming.report_activity_hub import report_activity_hub, format_activity_event
+    from app.streaming.delivery import NO_BUFFER_HEADERS
 
     org_id = str(organization.id)
     user_id = str(current_user.id)
@@ -154,21 +183,21 @@ async def stream_reports_activity(
         finally:
             report_activity_hub.unsubscribe(org_id, sub)
 
-    return StreamingResponse(gen(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache",
-        "X-Accel-Buffering": "no",
-    })
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=NO_BUFFER_HEADERS)
 
 @router.post("/reports/{report_id}/viewed")
 @requires_permission('view_reports', model=Report)
 async def mark_report_viewed(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Bump the current user's last-viewed watermark (clears the unread badge)."""
+    await _require_report_viewer(db, report_id, current_user, organization, "mark_report_viewed")
     return await report_service.mark_report_viewed(db, report_id, current_user, organization)
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def update_report(report_id: str, report: ReportUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.update_report(db, report_id, report, current_user, organization)
+    from app.services import conversation_dashboard
+    updated = await report_service.update_report(db, report_id, report, current_user, organization)
+    return await conversation_dashboard.as_report_schema(db, updated)
 
 @router.get("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
@@ -199,6 +228,22 @@ async def delete_report(
     return result
 
 
+@router.get("/reports/{report_id}/delete_preview")
+@requires_permission('delete_reports', model=Report, owner_only=True)
+async def delete_report_preview(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """What deleting this conversation does to each of its dashboards:
+    survives, loses_changes (published, with unpublished edits) or deleted
+    (never published). Changes nothing."""
+    from app.services.dashboard_lifecycle import delete_outcomes
+
+    return {"dashboards": await delete_outcomes(db, [report_id])}
+
+
 @router.post("/reports/bulk/archive")
 @requires_permission('delete_reports')
 async def bulk_archive_reports(
@@ -222,7 +267,8 @@ async def rerun_report(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id)
+    return await report_service.rerun_report_steps(db, report_id, current_user, organization, artifact_id=artifact_id,
+                                                  refresh_trigger="manual", triggered_by_user_id=str(current_user.id))
 
 @router.post("/reports/{report_id}/publish", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
@@ -250,12 +296,14 @@ async def publish_report(
 @requires_permission('view_reports', model=Report)
 async def star_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Star (favorite) a report for the current user. Per-user; any viewer may star."""
+    await _require_report_viewer(db, report_id, current_user, organization, "star_report")
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=True)
 
 @router.delete("/reports/{report_id}/star", response_model=StarResponse)
 @requires_permission('view_reports', model=Report)
 async def unstar_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Remove the current user's star from a report."""
+    await _require_report_viewer(db, report_id, current_user, organization, "unstar_report")
     return await report_service.set_report_star(db, report_id, current_user, organization, starred=False)
 
 @router.post("/reports/{report_id}/conversation-share")
@@ -289,6 +337,7 @@ async def set_report_visibility(
         include_data_tab=payload.include_data_tab,
         artifact_chat_enabled=payload.artifact_chat_enabled,
         artifact_chat_data_source_ids=payload.artifact_chat_data_source_ids,
+        artifact_chat_model_id=payload.artifact_chat_model_id,
     )
 
 
@@ -304,7 +353,7 @@ async def get_report_shares(
     """Get list of users a report is shared with for a given type."""
     if share_type not in ('artifact', 'conversation'):
         raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
-    return await report_service.get_shares(db, report_id, share_type)
+    return await report_service.get_shares(db, report_id, share_type, current_user=current_user)
 
 
 @router.get("/reports/{report_id}/artifact_chat/agents")
@@ -419,6 +468,7 @@ async def get_fork_status(
     the forker's credentials; the report page polls this and waits instead of
     rendering an empty dashboard, then loads once hydration has settled.
     """
+    await _require_report_viewer(db, report_id, current_user, organization, "get_fork_status")
     return {"hydrating": await fork_service.is_hydrating(db, report_id)}
 
 
@@ -438,6 +488,20 @@ async def notify_report(
     report = result.scalar_one_or_none()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
+
+    if payload.type == NotificationType.SHARE_DASHBOARD:
+        # Phase 9: a conversation with a dashboard sends the dashboard's email
+        # (its /d link, its published version's PDF).
+        from app.services import conversation_dashboard
+        dashboard = await conversation_dashboard.dashboard_of(db, report)
+        if dashboard is not None:
+            from app.routes.dashboard import notify_dashboard_share
+            from app.schemas.dashboard_schema import DashboardNotifyRequest
+            return await notify_dashboard_share(
+                dashboard_id=str(dashboard.id),
+                payload=DashboardNotifyRequest(channels=payload.channels, recipients=payload.recipients,
+                                               message=payload.message),
+                request=request, current_user=current_user, db=db, organization=organization)
 
     # Guard: schedule notifications only for published reports
     if payload.type == NotificationType.SCHEDULE_REPORT and report.status != "published":
@@ -618,16 +682,56 @@ async def get_public_file_embed_token(
         for a in artifacts
     )
     if not embedded:
-        raise HTTPException(status_code=404, detail="File is not part of this report")
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # (3) the file belongs to the report's org and the report's owner may read
+    # it. Putting an id into artifact JSON is not authorization: without this
+    # a public-report owner could reference ANY file id (another user's
+    # private upload) and mint a public token for it.
+    from sqlalchemy.orm import lazyload as _lazyload
+    from app.models.report import Report as _Report
+    from app.models.file import File as _File
+    from app.models.organization import Organization as _Org
+    from app.models.user import User as _User
+    from app.services.file_access_service import user_can_view_file
+    report_row = (await db.execute(
+        select(_Report).options(_lazyload("*")).where(_Report.id == report_id)
+    )).scalar_one_or_none()
+    file_row = (await db.execute(
+        select(_File).options(_lazyload("*")).where(_File.id == file_id)
+    )).scalar_one_or_none()
+    owner = await db.get(_User, report_row.user_id) if report_row is not None and report_row.user_id else None
+    org = await db.get(_Org, report_row.organization_id) if report_row is not None else None
+    if (
+        report_row is None or file_row is None or owner is None or org is None
+        or str(file_row.organization_id) != str(report_row.organization_id)
+        or not await user_can_view_file(db, owner, org, file_row)
+    ):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Org members keep their access when public links are switched off;
+    # anyone else got here through the public link, and their token must
+    # lose access with it (see get_file_embed).
+    from app.models.membership import Membership as _Membership
+    is_member = user is not None and (await db.execute(
+        select(_Membership.id).where(
+            _Membership.user_id == str(user.id),
+            _Membership.organization_id == str(report_row.organization_id),
+            _Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalar_one_or_none() is not None
 
     from app.core.file_tokens import mint_file_token, file_embed_url
-    token = mint_file_token(file_id)
+    token = mint_file_token(
+        file_id, organization_id=str(report_row.organization_id), report_id=str(report_row.id),
+        via_public_link=not is_member,
+    )
     return {"file_id": file_id, "token": token, "url": file_embed_url(file_id, token)}
 
 
 # --- Public Query/Step Routes (for published reports) ---
 
-from app.schemas.query_schema import PublicQuerySchema
+from app.schemas.query_schema import PublicQuerySchema, PublicQueryWithStepSchema
 from app.schemas.step_schema import PublicStepSchema
 
 
@@ -660,6 +764,18 @@ async def get_public_queries(
 ):
     """Get queries for a shared report."""
     return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id, user=user)
+
+
+@router.get("/r/{report_id}/queries_with_steps", response_model=List[PublicQueryWithStepSchema])
+async def get_public_queries_with_steps(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Filter queries to only those used by this artifact"),
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Queries for a shared report, each with the default step this reader may
+    see — the list endpoint and every per-query step endpoint in one request."""
+    return await report_service.get_public_queries_with_steps(db, report_id, artifact_id=artifact_id, user=user)
 
 
 @router.get("/r/{report_id}/queries/{query_id}/step", response_model=PublicStepSchema)
@@ -696,7 +812,10 @@ async def get_public_artifact(
     user: User | None = Depends(current_user_optional),
 ):
     """Get a specific artifact for a shared report."""
-    return await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    schema = await report_service.get_public_artifact(db, report_id, artifact_id, user=user)
+    from app.services.artifact_precompile import attach_compiled
+    attach_compiled(schema)
+    return schema
 
 
 # One render per report at a time: each export launches a headless Chromium,
@@ -727,6 +846,11 @@ async def export_public_report_pdf(
     other /r read endpoints, and the same viewer-data policy: in
     viewer-identity mode on user-scoped connections the shared snapshot is
     withheld, so generate_for_report refuses and this returns 409.
+
+    Rows are resolved for THIS reader (viewer=user), exactly as export_html
+    and the public JSON view resolve them: an identity-scoped query prints
+    empty for anyone but the owner, and a deck — rendered once with the
+    stored rows — is refused (409) when any of them is withheld.
     """
     # Raises 401/403/404 exactly like the page's other public endpoints.
     schema = await report_service.get_public_report(db, report_id, user=user)
@@ -735,7 +859,7 @@ async def export_public_report_pdf(
 
     async def _generate_locked() -> str | None:
         async with _pdf_export_locks[str(report_id)]:
-            return await ReportPdfService().generate_for_report(str(report_id))
+            return await ReportPdfService().generate_for_report(str(report_id), viewer=user)
 
     try:
         pdf_path = await _asyncio.wait_for(
@@ -835,6 +959,21 @@ async def export_public_report_pptx(
     if artifact is None or artifact.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Not found")
 
+    # The deck on disk was rendered once with the stored rows. If the public
+    # JSON view withholds any of its queries from this viewer (an
+    # identity-scoped query, for anyone but the owner), the file would hand
+    # them those rows — refuse. If instead the viewer resolves to their OWN
+    # rows for some query (a signed-in member who ran it), the baked file is
+    # still someone else's: re-run the deck's stored code over their rows.
+    from app.services.artifact_payload import ROWS_PERSONAL, ROWS_WITHHELD, viewer_rows_state
+
+    rows_state = await viewer_rows_state(db, artifact, user)
+    if rows_state == ROWS_WITHHELD:
+        raise HTTPException(
+            status_code=409,
+            detail="This deck contains data that is only visible to its owner, so it cannot be exported.",
+        )
+
     # Same gate as the in-app twin: a failed artifact would export stale or
     # broken content.code as a successful download, with nothing telling the
     # viewer the file is built from a render that never completed.
@@ -863,6 +1002,24 @@ async def export_public_report_pptx(
     except Exception:
         pass
 
+    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r"[^\w\s-]", "", safe_title).strip() or "presentation"
+
+    if rows_state == ROWS_PERSONAL:
+        from fastapi.responses import Response
+
+        personal = await ReportPdfService().deck_bytes_for_viewer(db, artifact, user)
+        if personal is None:
+            raise HTTPException(
+                status_code=409,
+                detail="This deck contains data that is only visible to its owner, so it cannot be exported.",
+            )
+        return Response(
+            content=personal,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            headers={"Content-Disposition": f'attachment; filename="{safe_title}.pptx"'},
+        )
+
     # Serve only a file under the generated-decks root, rebuilt from that fixed
     # root plus the bare filename, so no stored path component can point out of
     # the export tree.
@@ -877,8 +1034,6 @@ async def export_public_report_pptx(
             detail="PowerPoint export is not available for this report",
         )
 
-    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
-    safe_title = re.sub(r"[^\w\s-]", "", safe_title).strip() or "presentation"
     return FileResponse(
         str(safe_pptx),
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -976,7 +1131,11 @@ async def export_public_report_html(
         pass
 
     try:
-        html = await build_standalone_html(db, artifact)
+        # viewer=user: rows resolve through resolve_step_data, the same path
+        # the public JSON view (get_public_step) uses, so an identity-scoped or
+        # otherwise withheld query exports empty for this reader exactly as it
+        # renders empty on the page — the owner still gets their snapshot.
+        html = await build_standalone_html(db, artifact, viewer=user)
     except ExportUnavailable as e:
         raise HTTPException(status_code=409, detail=str(e))
 
@@ -999,6 +1158,7 @@ async def export_public_report_html(
 @router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
 async def refresh_public_report_on_view(
     report_id: str,
+    artifact_id: str | None = Query(None, description="The dashboard version open in the editor (phase 9)"),
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
 ):
@@ -1009,7 +1169,7 @@ async def refresh_public_report_on_view(
     single-flight claim. A declined request returns 200 with skipped=true; the
     page simply renders the data it already has.
     """
-    return await report_service.refresh_on_view_rerun(db, report_id, user=user)
+    return await report_service.refresh_on_view_rerun(db, report_id, user=user, artifact_id=artifact_id)
 
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
@@ -1028,6 +1188,77 @@ async def schedule_report(
         db, report_id, body.cron_expression, current_user, organization, subscribers,
         refresh_on_view=body.refresh_on_view,
     )
+
+# --- Sub-agents (docs/design/sub-agents.md) ---
+
+@router.get("/reports/{report_id}/sub-agents")
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def list_report_sub_agents(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Recent sub-agent waves of this report plus the live background-task list
+    (the prompt-box indicator and the delegate cards hydrate from this)."""
+    from app.services.sub_agent_service import sub_agent_service
+    return await sub_agent_service.list_for_report(db, report_id)
+
+
+@router.get("/reports/{report_id}/sub-agents/{sub_agent_id}")
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def get_report_sub_agent(
+    report_id: str,
+    sub_agent_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """One sub-agent: record + envelope + the child's tool calls (+ its note)."""
+    from app.services.sub_agent_service import sub_agent_service
+    snap = await sub_agent_service.snapshot(db, sub_agent_id, include_report=True, report_id=report_id)
+    if snap is None:
+        raise HTTPException(status_code=404, detail="Sub-agent not found")
+    return snap
+
+
+@router.post("/reports/{report_id}/sub-agents/{sub_agent_id}/stop")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def stop_report_sub_agent(
+    report_id: str,
+    sub_agent_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Stop one sub-agent; its wave keeps running and still fans in."""
+    from app.models.sub_agent import SubAgentRun
+    from app.services.sub_agent_service import sub_agent_service
+    row = await db.get(SubAgentRun, sub_agent_id)
+    if row is None or str(row.report_id) != str(report_id):
+        raise HTTPException(status_code=404, detail="Sub-agent not found")
+    row = await sub_agent_service.stop_sub_agent(db, sub_agent_id, reason=f"stopped by {getattr(current_user, 'email', 'user')}")
+    return {"sub_agent_id": str(row.id), "status": row.status}
+
+
+@router.post("/reports/{report_id}/sub-agent-waves/{wave_id}/stop")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def stop_report_sub_agent_wave(
+    report_id: str,
+    wave_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Stop every running sub-agent of a wave; no fan-in turn is created."""
+    from app.models.sub_agent import SubAgentWave
+    from app.services.sub_agent_service import sub_agent_service
+    wave = await db.get(SubAgentWave, wave_id)
+    if wave is None or str(wave.report_id) != str(report_id):
+        raise HTTPException(status_code=404, detail="Wave not found")
+    wave = await sub_agent_service.stop_wave(db, wave_id, reason=f"wave stopped by {getattr(current_user, 'email', 'user')}")
+    return {"wave_id": str(wave.id), "status": wave.status}
+
 
 # --- Report Summary ---
 
@@ -1065,7 +1296,7 @@ async def get_report_summary(
     Unlike completions (which are paginated), this returns the full set so the
     summary sidebar is complete on first load.
     """
-    return await report_service.get_report_summary(db, report_id)
+    return await report_service.get_report_summary(db, report_id, organization, current_user)
 
 
 # --- Training Mode Instructions ---
@@ -1087,69 +1318,3 @@ async def get_report_instructions(
     from app.services.instruction_service import InstructionService
     instruction_service = InstructionService()
     return await instruction_service.get_instructions_by_report(db, report_id, organization)
-
-# --- Dashboard Layout Routes ---
-
-@router.get("/reports/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def list_layouts(report_id: str, hydrate: bool = False, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.get_layouts_for_report(db, report_id, hydrate=hydrate)
-
-@router.post("/reports/{report_id}/layouts", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def create_layout(report_id: str, payload: DashboardLayoutVersionCreate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    # Ensure payload.report_id matches route
-    if payload.report_id != report_id:
-        raise HTTPException(status_code=400, detail="report_id mismatch")
-    return await layout_service.create_layout(db, payload)
-
-@router.get("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('view_reports', model=Report, owner_only=True)
-async def get_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return layout
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def update_layout(report_id: str, layout_id: str, payload: DashboardLayoutVersionUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.update_layout(db, layout_id, payload, current_user, organization)
-
-@router.patch("/reports/{report_id}/layouts/active/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_active_layout_blocks(report_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_active_layout_blocks(db, report_id, payload, current_user, organization)
-
-
-@router.patch("/reports/{report_id}/layouts/{layout_id}/blocks", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def patch_layout_blocks(report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_layout_blocks(db, report_id, layout_id, payload, current_user, organization)
-
-@router.post("/reports/{report_id}/layouts/{layout_id}/activate", response_model=DashboardLayoutVersionSchema)
-@requires_permission('update_reports', model=Report, owner_only=True)
-async def activate_layout(report_id: str, layout_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    layout = await layout_service.get_layout(db, layout_id)
-    if layout.report_id != report_id:
-        raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.set_active_layout(db, report_id, layout_id)
-
-# --- Public (read-only) Dashboard Layout Routes ---
-
-@router.get("/r/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-async def get_public_layouts(
-    report_id: str,
-    hydrate: bool = False,
-    db: AsyncSession = Depends(get_async_db),
-    user: User | None = Depends(current_user_optional),
-):
-    from app.services.report_service import ReportService
-    rs = ReportService()
-    # Public service currently returns unhydrated; use private service for hydration
-    if hydrate:
-        return await layout_service.get_layouts_for_report(db, report_id, hydrate=True)
-    return await rs.get_public_layouts(db, report_id, user=user)

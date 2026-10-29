@@ -55,6 +55,30 @@ def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[
     return user or admin
 
 
+# Strictest first. When several of a run's agents carry the same tool (one
+# connection shared by two agents) with different per-agent settings, the
+# strictest one applies — the tool list and the call-time check both use
+# ``strictest_admin_setting`` so they cannot disagree.
+_STRICTNESS = {TOOL_POLICY_DENY: 3, TOOL_POLICY_ASK: 2, TOOL_POLICY_AUTO: 1, TOOL_POLICY_ALLOW: 0}
+
+
+def strictest_admin_setting(tool, overlays: Iterable, agents_with_tool: Optional[int] = None):
+    """(is_enabled, admin_policy) for ``tool`` across the run's agents.
+
+    ``overlays`` are the per-agent rows for this tool among the run's agents.
+    An agent without a row uses the tool's own default, so the default counts
+    too whenever fewer rows than agents exist (or the count is unknown and
+    there are no rows). Disabled anywhere means disabled.
+    """
+    rows = list(overlays or [])
+    layers = [(bool(o.is_enabled), normalize_tool_policy(o.policy)) for o in rows]
+    if not rows or (agents_with_tool is not None and len(rows) < agents_with_tool):
+        layers.append((bool(tool.is_enabled), normalize_tool_policy(tool.policy)))
+    is_enabled = all(e for e, _ in layers)
+    policy = max((p for _, p in layers), key=lambda p: _STRICTNESS.get(p, 0))
+    return is_enabled, policy
+
+
 @dataclass
 class ToolPolicyResolution:
     """Everything a caller needs to enforce + explain a decision."""
@@ -141,14 +165,13 @@ class ToolPolicyService:
     ) -> ToolPolicyResolution:
         """Resolve the effective policy for one tool in the context of a run.
 
-        ``data_source_ids`` are the agents in scope (a report's data sources);
-        the first per-agent overlay found for the tool is used. ``user`` is the
+        ``data_source_ids`` are the agents in scope that carry the tool's
+        connection; the strictest of their settings applies. ``user`` is the
         run's requesting user, whose preference applies.
         """
-        admin_policy = tool.policy
-        is_enabled = bool(tool.is_enabled)
+        overlays = []
         if data_source_ids:
-            overlay = (
+            overlays = (
                 await db.execute(
                     select(DataSourceConnectionTool).where(
                         DataSourceConnectionTool.data_source_id.in_(
@@ -157,10 +180,13 @@ class ToolPolicyService:
                         DataSourceConnectionTool.connection_tool_id == str(tool.id),
                     )
                 )
-            ).scalars().first()
-            if overlay is not None:
-                admin_policy = overlay.policy
-                is_enabled = bool(overlay.is_enabled)
+            ).scalars().all()
+        # The strictest setting across the run's agents (see
+        # strictest_admin_setting); ``data_source_ids`` are the agents that
+        # carry this tool's connection.
+        is_enabled, admin_policy = strictest_admin_setting(
+            tool, overlays, len(set(map(str, data_source_ids))) if data_source_ids else None,
+        )
 
         user_policy = None
         if user is not None:

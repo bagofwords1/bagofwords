@@ -38,6 +38,47 @@ def is_non_recoverable_error(message: str | None) -> bool:
     return any(p in m for p in NON_RECOVERABLE_ERROR_PATTERNS)
 
 
+
+# Tools that change a chart: while one runs, the charts its input names are
+# outlined for the dashboard's other editors (collab01, dashboard_presence).
+_CHART_EDITING_TOOLS = frozenset({
+    "create_data", "run_query", "add_parameter", "edit_artifact", "create_artifact", "create_dashboard",
+    "create_widget", "edit_doc",
+})
+
+
+_VERSION_SAVING_TOOLS = frozenset({"edit_artifact", "create_artifact"})
+
+
+def _note_saved_version(runtime_ctx, output) -> None:
+    """After a tool saved a dashboard version: outline the charts it changed
+    for the other editors (collab01). Best effort and detached."""
+    try:
+        report = (runtime_ctx or {}).get("report")
+        version_id = output.get("artifact_id") if isinstance(output, dict) else None
+        if report is None or not version_id or output.get("success") is False:
+            return
+        from app.core import fire_and_forget
+        from app.services.dashboard_presence import agent_changed_version
+
+        fire_and_forget.spawn(agent_changed_version(str(report.id), str(version_id)))
+    except Exception:
+        pass
+
+
+def _note_chart_edit(runtime_ctx, arguments) -> None:
+    """Best effort and detached: presence never slows or fails a tool."""
+    try:
+        report = (runtime_ctx or {}).get("report")
+        if report is None:
+            return
+        from app.core import fire_and_forget
+        from app.services.dashboard_presence import agent_touched
+
+        fire_and_forget.spawn(agent_touched(str(report.id), arguments))
+    except Exception:
+        pass
+
 class ToolRunner:
     """Executes a tool with retries, timeouts, and structured observations.
 
@@ -122,7 +163,15 @@ class ToolRunner:
         _meta = getattr(tool, 'spec', None) or getattr(tool, 'metadata', None)
         tool_allowed_modes = getattr(_meta, 'allowed_modes', None) if _meta is not None else None
         current_mode = runtime_ctx.get('mode') or 'chat'  # Default to 'chat' if mode is None
-        if tool_allowed_modes is not None and current_mode not in tool_allowed_modes:
+        if (
+            tool_allowed_modes is not None
+            and current_mode not in tool_allowed_modes
+            # A sub-agent (docs/design/sub-agents.md) is a chat-mode run with a
+            # narrower catalog: its profile is enforced before dispatch in
+            # AgentV2, so the mode gate treats it as chat. Without this a
+            # child that may create_data per its profile was refused here.
+            and not (current_mode == 'subagent' and runtime_ctx.get('sub_agent_id') and 'chat' in tool_allowed_modes)
+        ):
             return {
                 "summary": f"Tool '{tool.name}' is not available in '{current_mode}' mode",
                 "error": {
@@ -225,9 +274,18 @@ class ToolRunner:
         last_error_type = None
         _run_start = time.monotonic()
         _ts_first_event: float | None = None
+        # A tool may declare a longer budget than the runner default (e.g.
+        # create_demo_dataset: a user review pause, then table generation).
+        # Idle/keepalive rules still apply, so a stuck tool is still caught.
+        _declared_timeout_s = 0
+        try:
+            _declared_timeout_s = int(getattr(tool.metadata, "timeout_seconds", 0) or 0)
+        except Exception:
+            _declared_timeout_s = 0
         _hard_timeout_s = max(
             self.timeout.hard_timeout_s,
             self.timeout.start_timeout_s + self.timeout.idle_timeout_s,
+            _declared_timeout_s,
         )
         _hard_deadline = _run_start + _hard_timeout_s
 
@@ -237,6 +295,8 @@ class ToolRunner:
             try:
                 # envelope start
                 await emit({"type": "tool.start", "payload": {"attempt": attempt}})
+                if attempt == 1 and getattr(tool, "name", None) in _CHART_EDITING_TOOLS:
+                    _note_chart_edit(runtime_ctx, arguments)
 
                 last_observation = None
                 last_output = None
@@ -279,6 +339,8 @@ class ToolRunner:
                             if et == "tool.end":
                                 last_observation = payload.get("observation")
                                 last_output = payload.get("output")
+                                if getattr(tool, "name", None) in _VERSION_SAVING_TOOLS:
+                                    _note_saved_version(runtime_ctx, last_output)
                 except TimeoutError as timeout_error:
                     # asyncio.timeout() has an empty message. Idle timeouts
                     # already carry their own label and remain distinguishable.
@@ -335,6 +397,8 @@ class ToolRunner:
                         sub_timings["queries"] = last_output["query_timings"]
                     if last_output.get("codegen_ms") is not None:
                         sub_timings["codegen_ms"] = last_output["codegen_ms"]
+                    if last_output.get("codegen_reasoning_ms") is not None:
+                        sub_timings["codegen_reasoning_ms"] = last_output["codegen_reasoning_ms"]
                     if last_output.get("execution_ms") is not None:
                         sub_timings["execution_ms"] = last_output["execution_ms"]
 

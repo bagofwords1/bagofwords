@@ -1,14 +1,8 @@
 # bagofwords
 
-![Version: 2.0.0](https://img.shields.io/badge/Version-2.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
+![Version: 3.0.0](https://img.shields.io/badge/Version-3.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
 Bag of words - a new ai data tool
-
-## Requirements
-
-| Repository | Name | Version |
-|------------|------|---------|
-| https://charts.bitnami.com/bitnami | postgresql | 16.3.2 |
 
 ## Values
 
@@ -19,12 +13,17 @@ Bag of words - a new ai data tool
 | autoscaling.maxReplicas | int | `5` |  |
 | autoscaling.minReplicas | int | `1` |  |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` |  |
-| config | object | `{"allowMultipleOrganizations":false,"allowUninvitedSignups":false,"authMode":"hybrid","baseUrl":"","encryptionKey":"","googleClientId":"","googleClientSecret":"","googleOauthEnabled":false,"intercomEnabled":false,"ldap":{"admissionGroupDn":"","allowLocalSuperuserLogin":false,"autoProvisionUsers":false,"baseDn":"","bindDn":"","caCertsFile":"","connectionTimeout":10,"enabled":false,"groupMemberAttribute":"member","groupMemberFormat":"dn","groupNameAttribute":"cn","groupSearchBase":"","groupSearchFilter":"(objectClass=group)","kerberosRealm":"","organizationId":"","pageSize":500,"startTls":false,"syncIntervalMinutes":60,"url":"","useSsl":true,"userEmailAttribute":"mail","userNameAttribute":"displayName","userSearchBase":"","userSearchFilter":"(objectClass=person)"},"licenseKey":"","oidcProviders":[],"otel":{"enabled":false,"headers":"","protocol":"grpc","serviceName":"bagofwords-backend","tracesEndpoint":"http://localhost:4317"},"secretRef":"","smtp":{"enabled":false,"from_email":"","from_name":"","host":"","password":"","port":587,"use_credentials":true,"use_ssl":false,"use_tls":true,"username":"","validate_certs":true},"telemetryEnabled":true,"uvicornWorkers":"","verifyEmails":false}` | Application configuration. Sensitive fields (`encryptionKey`, `googleClientSecret`, SMTP `password`, OIDC `clientSecret`, LDAP `bindPassword`, `licenseKey`) should be provided via a Kubernetes Secret referenced by `config.secretRef`. Use the `${VAR}` placeholder pattern in these fields; put the real value in the Secret with the matching key. See README.md for details. |
+| config | object | `{"allowMultipleOrganizations":false,"allowUninvitedSignups":false,"authMode":"hybrid","baseUrl":"","database":{"idleSessionTimeoutMs":"","maxOverflow":"","poolSize":""},"encryptionKey":"","forwardedAllowIps":"","googleClientId":"","googleClientSecret":"","googleOauthEnabled":false,"intercomEnabled":false,"ldap":{"admissionGroupDn":"","allowLocalSuperuserLogin":false,"autoProvisionUsers":false,"baseDn":"","bindDn":"","caCertsFile":"","connectionTimeout":10,"enabled":false,"groupMemberAttribute":"member","groupMemberFormat":"dn","groupNameAttribute":"cn","groupSearchBase":"","groupSearchFilter":"(objectClass=group)","kerberosRealm":"","organizationId":"","pageSize":500,"startTls":false,"syncIntervalMinutes":60,"url":"","useSsl":true,"userEmailAttribute":"mail","userNameAttribute":"displayName","userSearchBase":"","userSearchFilter":"(objectClass=person)"},"licenseKey":"","oidcProviders":[],"otel":{"enabled":false,"headers":"","protocol":"grpc","serviceName":"bagofwords-backend","tracesEndpoint":"http://localhost:4317"},"secretRef":"","smtp":{"enabled":false,"from_email":"","from_name":"","host":"","password":"","port":587,"use_credentials":true,"use_ssl":false,"use_tls":true,"username":"","validate_certs":true},"telemetryEnabled":true,"uvicornWorkers":"","verifyEmails":false}` | Application configuration. Sensitive fields (`encryptionKey`, `googleClientSecret`, SMTP `password`, OIDC `clientSecret`, LDAP `bindPassword`, `licenseKey`) should be provided via a Kubernetes Secret referenced by `config.secretRef`. Use the `${VAR}` placeholder pattern in these fields; put the real value in the Secret with the matching key. See README.md for details. |
 | config.allowMultipleOrganizations | bool | `false` | Allow multiple organizations (multi-tenant mode). |
 | config.allowUninvitedSignups | bool | `false` | Allow users to sign up without an invitation. |
 | config.authMode | string | `"hybrid"` | Authentication mode. `hybrid` allows both local and SSO login. `local_only` disables SSO. `sso_only` disables local login. |
 | config.baseUrl | string | `""` | Public base URL of the application (e.g. `https://app.example.com`). |
+| config.database | object | `{"idleSessionTimeoutMs":"","maxOverflow":"","poolSize":""}` | App-side database connection pool, per Uvicorn worker. The ceiling against the server is `(poolSize + maxOverflow) * uvicornWorkers * replicaCount`. Keep that under the server's `max_connections` minus `superuser_reserved_connections` (stock PostgreSQL: 100 - 3 = 97), or connects are refused outright with "remaining connection slots are reserved for roles with the SUPERUSER attribute" — which surfaces to users as a failed agent run, not as a pool timeout. The bundled PostgreSQL (`postgresql.primary.extendedConfiguration`) is sized to match. |
+| config.database.idleSessionTimeoutMs | string | `""` | Let the server close pooled connections left idle this long (ms), so a quiet worker's backends drain instead of holding slots for the life of the process. A connection pool never shrinks on its own. `0` disables. REQUIRES PostgreSQL 14+: on older servers the parameter is rejected at connect time and *every* connection fails. Left empty here, which applies `600000` (10 min) only when this chart can be certain the app is talking to the bundled PostgreSQL 17 — that is, it generates the database URL itself and nothing can override it. It stays unset when the URL is delegated elsewhere and the version is therefore unknown: an external `database.host`, an IAM-authenticated `database.auth.provider`, `postgresql.enabled: false`, or a Secret supplying `BOW_DATABASE_URL` via `postgresql.auth.existingSecret` / `config.secretRef`. Set it explicitly on any server you know is 14 or newer to get the same draining behaviour — an explicit value always wins. |
+| config.database.maxOverflow | string | `""` | Extra connections a worker may open under load. Empty uses the app default (20). |
+| config.database.poolSize | string | `""` | Pooled connections held per worker. Empty uses the app default (20). |
 | config.encryptionKey | string | `""` | AES encryption key for sensitive data at rest. Prefer `config.secretRef` key `BOW_ENCRYPTION_KEY`. |
+| config.forwardedAllowIps | string | `""` | Proxies trusted to set X-Forwarded-For (IPs/CIDRs, comma-separated), e.g. your ingress controller's pod CIDR. Unset trusts only loopback, so behind an ingress every anonymous visitor shares one rate-limit identity. Use `*` only if the Service is reachable solely through an ingress that overwrites client-sent X-Forwarded-For. |
 | config.googleClientId | string | `""` | Google OAuth client ID. |
 | config.googleClientSecret | string | `""` | Google OAuth client secret. Prefer `config.secretRef` key `BOW_GOOGLE_CLIENT_SECRET`. |
 | config.googleOauthEnabled | bool | `false` | Enable Google OAuth login. |
@@ -78,8 +77,8 @@ Bag of words - a new ai data tool
 | config.uvicornWorkers | string | `""` | Number of Uvicorn worker processes. Leave empty to use Uvicorn's default. |
 | config.verifyEmails | bool | `false` | Require users to verify their email address before logging in. |
 | containerSecurityContext | object | `{}` | Security context for the main app container. |
-| database | object | `{"auth":{"provider":"password","region":"","sslMode":"","sslRootCert":{"key":"","secretName":""}},"host":"","name":"","port":5432,"username":""}` | Managed database with IAM auth (alternative to the bundled postgresql subchart). When `database.auth.provider` is not `password`, the postgresql subchart values above are ignored and the app connects to the external managed database instead. |
-| database.auth.provider | string | `"password"` | Authentication provider. `password` uses the bundled postgresql subchart. `aws_iam` connects to an external RDS instance using IAM token authentication. |
+| database | object | `{"auth":{"provider":"password","region":"","sslMode":"","sslRootCert":{"key":"","secretName":""}},"host":"","name":"","port":5432,"username":""}` | Managed database with IAM auth (alternative to the bundled PostgreSQL). When `database.auth.provider` is not `password`, the bundled PostgreSQL is not deployed, the `postgresql` values above are ignored, and the app connects to the external managed database instead. |
+| database.auth.provider | string | `"password"` | Authentication provider. `password` uses the bundled PostgreSQL. `aws_iam` connects to an external RDS instance using IAM token authentication. |
 | database.auth.region | string | `""` | AWS region for IAM token generation (aws_iam only, e.g. `us-east-1`). |
 | database.auth.sslMode | string | `""` | PostgreSQL SSL mode for managed database connections (e.g. `verify-full`). |
 | database.auth.sslRootCert.key | string | `""` | Key inside the Secret that holds the CA certificate (e.g. `ca-bundle.pem`). |
@@ -116,7 +115,35 @@ Bag of words - a new ai data tool
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |
 | podSecurityContext | object | `{}` | Security context for the pod (fsGroup, runAsUser, etc.). |
-| postgresql | object | see subchart defaults | Bitnami PostgreSQL subchart values. All subchart keys are accepted here. |
+| postgresql | object | see the `postgresql.*` rows | Bundled single-instance PostgreSQL, run from the official `postgres` image. Intended for evaluation and small installs; for production point the app at a managed or operator-run database (`postgresql.enabled: false` plus `database.*`, or a Secret supplying `BOW_DATABASE_URL`). Not deployed when `database.auth.provider` is not `password`. |
+| postgresql.auth.database | string | `""` | Application database name. |
+| postgresql.auth.existingSecret | string | `""` | Existing Secret holding the passwords under `secretKeys`. When set the chart does not emit `BOW_DATABASE_URL`; supply it via `config.secretRef`. |
+| postgresql.auth.password | string | `""` | Application user's password. Ignored when `existingSecret` is set. |
+| postgresql.auth.postgresPassword | string | `""` | Password for the `postgres` superuser. Ignored when `existingSecret` is set. Empty keeps the one already stored in the chart's Secret, or generates one on first install. Set it (or use `existingSecret`) when the chart is rendered without cluster access (`helm template`, Argo CD): the stored value cannot be read there, so a new random one would be written on every sync while the database keeps the original. |
+| postgresql.auth.secretKeys.adminPasswordKey | string | `"postgres-password"` | Key in the Secret holding the `postgres` superuser's password. |
+| postgresql.auth.secretKeys.userPasswordKey | string | `"password"` | Key in the Secret holding the application user's password. |
+| postgresql.auth.username | string | `""` | Application database user (created as the database owner, not a superuser). |
+| postgresql.enabled | bool | `true` | Deploy the bundled PostgreSQL StatefulSet. |
+| postgresql.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
+| postgresql.image.registry | string | `"docker.io"` | PostgreSQL image registry. |
+| postgresql.image.repository | string | `"library/postgres"` | PostgreSQL image repository (the Docker Official Image). |
+| postgresql.image.tag | string | `"17-bookworm"` | Image tag. Stay on major 17 and the Debian 12 (bookworm) base: `config.database.idleSessionTimeoutMs` relies on 14+, a major-version change needs a dump/restore or `pg_upgrade`, and a different glibc can change text collation order and silently corrupt existing indexes. |
+| postgresql.imagePullSecrets | list | `[]` | Image pull secrets for the PostgreSQL pod, e.g. `[{name: regcred}]`. |
+| postgresql.migrateFromBitnami | bool | `false` | Confirm the one-time move of a chart 2.x database (Bitnami subchart) onto this chart's PostgreSQL. While a release still runs the Bitnami StatefulSet, `helm upgrade` fails until this is `true`, so an unpinned pipeline cannot migrate the database unattended. A backup first is recommended (there is no rollback to 2.x); see the 3.0.0 section of CHANGELOG.md. Not needed for fresh installs or after the first 3.x upgrade. |
+| postgresql.primary.affinity | object | `{}` | Affinity rules for the PostgreSQL pod. |
+| postgresql.primary.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | Container security context for PostgreSQL. |
+| postgresql.primary.extendedConfiguration | string | `"max_connections = 300\n"` | Extra `postgresql.conf` lines. Stock PostgreSQL allows 100 connections, 3 of them reserved for superusers. One app worker's pool alone can reach `config.database.poolSize + maxOverflow` (40 by default), and `start.sh` runs up to 4 workers when the node is big enough — so the default app deployment can ask for more than the default server allows, and the server then refuses the connect outright ("remaining connection slots are reserved for roles with the SUPERUSER attribute") rather than queueing. Raise this together with `config.database.*` and `replicaCount`; each connection costs the server memory, so size it, don't max it. |
+| postgresql.primary.nodeSelector | object | `{}` | Node selector for the PostgreSQL pod. |
+| postgresql.primary.persistence.accessModes | list | `["ReadWriteOnce"]` | Access modes of the data volume. |
+| postgresql.primary.persistence.enabled | bool | `true` | Persist data in a PersistentVolumeClaim. `false` uses an emptyDir (data is lost on restart). |
+| postgresql.primary.persistence.existingClaim | string | `""` | Use an existing PersistentVolumeClaim instead of creating one. |
+| postgresql.primary.persistence.size | string | `"20Gi"` | Size of the data volume. |
+| postgresql.primary.persistence.storageClass | string | `""` | StorageClass for the data volume. Empty uses the cluster default; `-` sets `storageClassName: ""`. |
+| postgresql.primary.podAnnotations | object | `{}` | Annotations added to the PostgreSQL pod. |
+| postgresql.primary.podSecurityContext | object | `{"fsGroup":1001,"fsGroupChangePolicy":"OnRootMismatch","runAsGroup":1001,"runAsNonRoot":true,"runAsUser":1001,"seccompProfile":{"type":"RuntimeDefault"}}` | Pod security context. uid/gid 1001 matches data volumes created by the Bitnami subchart in chart <= 2.x, so they are adopted as-is. |
+| postgresql.primary.resources | object | `{"requests":{"cpu":"100m","memory":"256Mi"}}` | Resource requests/limits for the PostgreSQL container. |
+| postgresql.primary.terminationGracePeriodSeconds | int | `60` | Seconds PostgreSQL gets to shut down cleanly before it is killed. |
+| postgresql.primary.tolerations | list | `[]` | Tolerations for the PostgreSQL pod. |
 | readinessProbe | object | `{"failureThreshold":3,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":5,"periodSeconds":10,"successThreshold":1,"timeoutSeconds":1}` | Readiness probe. Pod is removed from Service endpoints while this fails. |
 | replicaCount | int | `1` | Number of pod replicas. |
 | resources | object | `{"limits":{"memory":""},"requests":{"cpu":2,"memory":"900Mi"}}` | CPU and memory resource requests and limits for the app container. |

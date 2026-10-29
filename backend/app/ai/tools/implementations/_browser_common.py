@@ -22,11 +22,14 @@ import ipaddress
 import logging
 import os
 import re
-import socket
 import time
 from uuid import uuid4
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+
+from app.core.egress import Policy, check_host
+from app.core.render_guard import RenderEgressProxy
+from app.core.url_safety import UnsafeURLError
 
 logger = logging.getLogger(__name__)
 
@@ -183,33 +186,68 @@ def url_matches_patterns(url: str, patterns: List[str]) -> bool:
     return False
 
 
-def _host_is_public(hostname: str, cache: Dict[str, bool]) -> bool:
-    """Resolve `hostname` and return True only if every address is public.
-    Mirrors web_fetch._is_safe_host; cached per session to bound DNS cost."""
-    if hostname in cache:
-        return cache[hostname]
-    ok = True
-    lowered = (hostname or "").lower()
-    if not lowered or lowered == "localhost" or lowered.endswith(".localhost"):
-        ok = False
-    else:
+def host_allowlisted(hostname: str, patterns: List[str]) -> bool:
+    """True if `hostname` is the host of an allowlist pattern (``*.vendor.com``
+    also covers the apex). Host-level: the egress proxy only sees host:port."""
+    host = (hostname or "").lower().rstrip(".")
+    for pat in patterns or []:
+        ph = _pattern_host(pat) or ""
+        if not ph:
+            continue
+        if ph.startswith("*."):
+            if host == ph[2:] or host.endswith(ph[1:]):
+                return True
+        elif host == ph:
+            return True
+    return False
+
+
+def _host_policy(hostname: str, patterns: List[str]) -> Policy:
+    """Admin tier for hosts the admin allowlisted (metadata / link-local
+    always refused, private only with block_private_outbound); public tier
+    for everything else (a page's public CDN assets)."""
+    return Policy.ADMIN if host_allowlisted(hostname, patterns) else Policy.PUBLIC
+
+
+def _host_ok(hostname: str, policy: Policy, cache: Dict[Any, bool]) -> bool:
+    """Resolve `hostname` and validate every address under `policy`
+    (app.core.egress); cached per session to bound DNS cost."""
+    key = (hostname, policy)
+    if key not in cache:
         try:
-            infos = socket.getaddrinfo(hostname, None)
-        except socket.gaierror:
-            ok = False
-        else:
-            for info in infos:
-                try:
-                    ip = ipaddress.ip_address(info[4][0])
-                except ValueError:
-                    ok = False
-                    break
-                if (ip.is_private or ip.is_loopback or ip.is_link_local
-                        or ip.is_multicast or ip.is_reserved or ip.is_unspecified):
-                    ok = False
-                    break
-    cache[hostname] = ok
-    return ok
+            check_host(hostname, policy)
+            cache[key] = True
+        except UnsafeURLError:
+            cache[key] = False
+    return cache[key]
+
+
+def _host_is_public(hostname: str, cache: Dict[Any, bool]) -> bool:
+    """Strict (public) tier; see _host_ok."""
+    return _host_ok(hostname, Policy.PUBLIC, cache)
+
+
+def browser_egress_decider(session: "BrowserSession"):
+    """``decide(host, port)`` for the session's egress proxy: every connection
+    Chromium opens — including redirect hops and service-worker fetches the
+    route handler never sees — is validated and pinned here."""
+    def decide(host: str, port: int):
+        return check_host(host, _host_policy(host, session.patterns))
+    return decide
+
+
+def _is_top_level_document(request) -> bool:
+    """True for a navigation of a page's main frame. Playwright also labels
+    iframe loads as resource_type "document"; those are embedded content
+    (e.g. a reCAPTCHA widget from www.google.com) and must not be treated as
+    the agent leaving the allowlist. Fails closed: if the frame can't be
+    read, treat it as top-level."""
+    if request.resource_type != "document":
+        return False
+    try:
+        return request.frame.parent_frame is None
+    except Exception:
+        return True
 
 
 def _is_link_local_literal(hostname: str) -> bool:
@@ -265,7 +303,7 @@ class BrowserSession:
         self.context = None
         self.page = None
         self.last_used = time.monotonic()
-        self._host_cache: Dict[str, bool] = {}
+        self._host_cache: Dict[Any, bool] = {}
         self.pending_downloads: List[dict] = []
         self.scope = None
         self.preview = None
@@ -274,6 +312,7 @@ class BrowserSession:
         # Keep connector pages across turns, but reclaim them only after all
         # executions using them have finished (including exceptional exits).
         self.active_execution_ids = set()
+        self.egress = None  # RenderEgressProxy when no environment proxy applies
 
     def touch(self):
         self.last_used = time.monotonic()
@@ -314,6 +353,11 @@ class BrowserSessionManager:
                 await s.playwright.stop()
         except Exception:
             pass
+        if getattr(s, "egress", None) is not None:
+            try:
+                await s.egress.__aexit__(None, None, None)
+            except Exception:
+                pass
 
     async def close_report(self, report_id: str):
         for sid, s in list(self._sessions.items()):
@@ -392,7 +436,18 @@ class BrowserSessionManager:
                     launch_kwargs["executable_path"] = exe
                 proxy = _proxy_from_env()
                 if proxy:
+                    # The deployment's egress proxy resolves names and is the
+                    # control point; the route guard below still applies.
                     launch_kwargs["proxy"] = proxy
+                elif not preview:
+                    # Route handlers never see redirect hops; this local proxy
+                    # does, and pins each connection to a validated address.
+                    # (An internal artifact preview only ever reaches the
+                    # app's own origin — its route handler fulfils or aborts
+                    # everything else — so it needs no proxy.)
+                    s.egress = RenderEgressProxy(browser_egress_decider(s), label="browser tool")
+                    await s.egress.__aenter__()
+                    launch_kwargs.update(s.egress.launch_kwargs())
                 s.browser = await s.playwright.chromium.launch(**launch_kwargs)
                 ctx_kwargs: Dict[str, Any] = {
                     "viewport": viewport or DEFAULT_VIEWPORT,
@@ -426,11 +481,16 @@ class BrowserSessionManager:
                     return
                 allowed = url_matches_patterns(url, s.patterns)
                 if allowed:
-                    await route.continue_()
+                    # Allowlisted is not a pass for metadata: admin tier.
+                    if await asyncio.to_thread(_host_ok, host, Policy.ADMIN, s._host_cache):
+                        await route.continue_()
+                    else:
+                        await route.abort()
                     return
                 # Not allowlisted: permit only if it is a public host (lets a
-                # page pull public CDN assets) and never for the main document.
-                if request.resource_type == "document":
+                # page pull public CDN assets and embed public iframes such
+                # as reCAPTCHA) and never for a top-level page.
+                if _is_top_level_document(request):
                     await route.abort()
                     return
                 if await asyncio.to_thread(_host_is_public, host, s._host_cache):

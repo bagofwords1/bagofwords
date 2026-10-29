@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.utils.reasoning_effort import normalize_effort
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -17,11 +19,17 @@ class PromptCreate(BaseModel):
     text: str
     mode: str = 'chat'
     model_id: Optional[str] = None
+    reasoning_effort: Optional[str] = None  # paired with model_id; None = Default
     mentions: Optional[List[dict]] = None
     parameters: Optional[List[PromptParameter]] = None
     scope: str = 'agent'               # 'agent' | 'global' | 'private'
     is_starter: bool = False
     data_source_ids: List[str] = []
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
 
 class PromptUpdate(BaseModel):
@@ -29,11 +37,17 @@ class PromptUpdate(BaseModel):
     text: Optional[str] = None
     mode: Optional[str] = None
     model_id: Optional[str] = None
+    reasoning_effort: Optional[str] = None  # explicit null clears back to Default
     mentions: Optional[List[dict]] = None
     parameters: Optional[List[PromptParameter]] = None
     scope: Optional[str] = None
     is_starter: Optional[bool] = None
     data_source_ids: Optional[List[str]] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
 
 class PromptResponse(BaseModel):
@@ -42,6 +56,7 @@ class PromptResponse(BaseModel):
     text: str
     mode: str
     model_id: Optional[str] = None
+    reasoning_effort: Optional[str] = None
     mentions: Optional[List[dict]] = None
     parameters: Optional[List[PromptParameter]] = None
     scope: str
@@ -79,6 +94,22 @@ class PromptRunForRequest(BaseModel):
     # in-app inbox they always get. Currently 'teams' (the target's Teams DM)
     # and 'email' (the target's account email). Unknown values are ignored.
     delivery_channels: Optional[List[str]] = None
+
+    @field_validator("user_ids")
+    @classmethod
+    def _user_ids_are_ids(cls, v):
+        from app.core.request_hardening import is_uuid
+        if v is not None and not all(is_uuid(x) for x in v):
+            raise ValueError("user_ids must be user ids")
+        return v
+
+    @field_validator("group_id")
+    @classmethod
+    def _group_id_is_id(cls, v):
+        from app.core.request_hardening import is_uuid
+        if v is not None and not is_uuid(v):
+            raise ValueError("group_id must be a group id")
+        return v
 
 
 class PromptRunForResponse(BaseModel):

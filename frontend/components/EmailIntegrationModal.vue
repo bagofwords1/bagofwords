@@ -125,7 +125,7 @@
         <!-- Google Workspace fields -->
         <template v-else-if="authType === 'google'">
           <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.email.googleHint') }}</p>
-          <textarea v-model="googleSaJson" rows="6" class="w-full border rounded px-2 py-1 font-mono text-xs" placeholder='{ "type": "service_account", ... }' required></textarea>
+          <textarea v-model="googleSaJson" rows="6" class="w-full border rounded px-2 py-1 font-mono text-xs" placeholder='Paste the service-account JSON key' required></textarea>
         </template>
 
         <hr class="my-4" />
@@ -169,7 +169,7 @@
             class="border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm px-3 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
             {{ testingForm ? $t('settings.integrations.channels.common.testing') : $t('settings.integrations.channels.common.testConnection') }}
           </button>
-          <button type="submit" :disabled="submitting" class="bg-blue-500 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
+          <button type="submit" :disabled="submitting" class="bg-blue-600 text-white text-sm px-3 py-1.5 rounded-md disabled:opacity-50">
             {{ submitting ? $t('settings.integrations.channels.common.connecting') : $t('settings.integrations.channels.common.connect') }}
           </button>
         </div>
@@ -224,12 +224,12 @@
             </ul>
           </div>
 
-          <p class="text-[11px] text-gray-400 mt-3">{{ $t('settings.integrations.channels.email.testBeforeSave') }}</p>
+          <p class="text-2xs text-ink-muted mt-3">{{ $t('settings.integrations.channels.email.testBeforeSave') }}</p>
         </div>
       </aside>
     </div>
 
-    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">✕</button>
+    <button class="absolute top-2 end-2 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">✕</button>
   </div>
 </template>
 

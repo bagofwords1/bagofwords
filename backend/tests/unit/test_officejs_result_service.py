@@ -21,6 +21,8 @@ from app.services.officejs_result_service import (
     RESOLVE_OK,
 )
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
 
 async def _create_pending(svc: OfficeJsResultService, *, completion_id: str, user_id: str) -> str:
     tool_call_id = str(uuid4())

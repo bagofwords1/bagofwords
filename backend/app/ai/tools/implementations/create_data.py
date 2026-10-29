@@ -805,7 +805,8 @@ class CreateDataTool(Tool):
         # regardless of which model the planner/codegen used. Falls back to the
         # main model when no small model is set.
         viz_model = runtime_ctx.get("small_model") or runtime_ctx.get("model")
-        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx)
+        llm = LLM(viz_model, usage_session_maker=async_session_maker, usage_context=usage_ctx,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         # Fetch visualization-specific instructions
@@ -813,7 +814,18 @@ class CreateDataTool(Tool):
         context_hub = runtime_ctx.get("context_hub")
         if context_hub and getattr(context_hub, "instruction_builder", None):
             try:
-                viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
+                # The instruction builder reads the agent's shared session;
+                # serialize with parallel siblings (a collision used to drop
+                # the visualization instructions silently).
+                _lock = runtime_ctx.get("tool_db_lock")
+                async with (_lock if _lock is not None else nullcontext()):
+                    viz_section = await context_hub.instruction_builder.build(
+                        categories=["visualizations", "visualization", "general"],
+                    )
+                # On demand (org setting) smart rules aren't inlined and this
+                # step can't read the catalog, so it gets what the agent read.
+                # Off: nothing is recorded, so this adds nothing.
+                viz_section.read_items = list(getattr(context_hub, "read_instruction_items", {}).values())
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""
@@ -1176,13 +1188,62 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return _schemas_section_obj.render() if _schemas_section_obj else ""
 
     @staticmethod
+    def _resolve_group_from_static(static_schemas, ds_id: Optional[str], name_patterns: List[str]):
+        """Resolve one tables_by_source group from the in-memory schema context.
+
+        Mirrors the schema builder's own name filter (``re.search`` per
+        pattern) and grouping. Returns the resolved group(s), or None when any
+        requested table has no match there — the caller then builds from the
+        DB, since the static context is top-k capped.
+        """
+        import re
+        sections = list(getattr(static_schemas, "data_sources", None) or [])
+        if not sections:
+            return None
+        try:
+            compiled = [re.compile(p) for p in name_patterns]
+        except re.error:
+            return None
+        matched_by_ds: Dict[str, List[str]] = {}
+        pattern_hit = [False] * len(compiled)
+        for ds in sections:
+            ds_info = getattr(ds, "info", None)
+            sec_id = str(getattr(ds_info, "id", "") or "") if ds_info else ""
+            if ds_id and sec_id != ds_id:
+                continue
+            for t in (getattr(ds, "tables", None) or []):
+                name = getattr(t, "name", None) or ""
+                hits = [i for i, rp in enumerate(compiled) if rp.search(name)]
+                if not hits:
+                    continue
+                for i in hits:
+                    pattern_hit[i] = True
+                matched_by_ds.setdefault(sec_id or "__all__", []).append(name)
+        if not all(pattern_hit):
+            return None
+        if ds_id:
+            return [{"data_source_id": ds_id, "tables": matched_by_ds.get(ds_id, [])}]
+        return [
+            {"data_source_id": (None if k == "__all__" else k), "tables": v}
+            for k, v in matched_by_ds.items() if v
+        ]
+
+    @staticmethod
     async def _resolve_active_tables(
         tables_by_source: List[Any],
         schema_builder,
         data_sources: Optional[List[Any]] = None,
         db_lock: Optional["asyncio.Lock"] = None,
+        static_schemas: Any = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Resolve table patterns to active tables only.
+
+        static_schemas: the run's already-built schema context
+        (``context_view.static.schemas`` — same builder, user and active-only
+        filter). A group whose every requested table is found there resolves
+        in memory; otherwise it falls back to a schema build, as before. The
+        static context is top-k capped, which is why a miss falls back rather
+        than meaning "not found".
 
         Args:
             tables_by_source: List of TablesBySource with table names/patterns
@@ -1239,6 +1300,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     name_patterns.append(f"(?i)(?:^|[./]){esc}$")
 
                 if not name_patterns:
+                    continue
+
+                static_hit = CreateDataTool._resolve_group_from_static(static_schemas, ds_id, name_patterns)
+                if static_hit is not None:
+                    resolved.extend(static_hit)
                     continue
 
                 # Resolve via schema_builder (only returns active tables)
@@ -1371,6 +1437,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
     async def _run_stream_traced(self, run_span, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateDataInput(**tool_input)
+        if not data.user_prompt:
+            # The model no longer restates the question; the turn's own message is it.
+            from app.ai.tools.implementations._memory_common import user_message
+            data.user_prompt = user_message(runtime_ctx) or data.interpreted_prompt
         yield ToolStartEvent(type="tool.start", payload={"title": data.title})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
@@ -1501,6 +1571,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     data.tables_by_source,
                     context_hub.schema_builder,
                     db_lock=runtime_ctx.get("tool_db_lock"),
+                    static_schemas=getattr(getattr(context_view, "static", None), "schemas", None),
                 )
         
         if any(str(g.data_source_id) == "builtin:bow" for g in (data.tables_by_source or [])) and "bow" not in runtime_ctx.get("ds_clients", {}):
@@ -1515,7 +1586,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
         web_fetch_enabled = False
         try:
             _ef = organization_settings.get_config("enable_web_fetch") if organization_settings else None
-            web_fetch_enabled = bool(getattr(_ef, "value", False))
+            from app.schemas.report_api_settings import report_disabled_tools
+            web_fetch_enabled = bool(getattr(_ef, "value", False)) and (
+                "web_fetch" not in report_disabled_tools(runtime_ctx.get("report"))
+            )
         except Exception:
             web_fetch_enabled = False
 
@@ -1701,6 +1775,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -1803,6 +1878,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         executed_queries = []
         query_timings = []
         codegen_ms = None
+        codegen_reasoning_ms = None
         execution_ms = None
 
         # Resolver for load_step()/load_entity() calls the generated code may
@@ -1824,6 +1900,13 @@ Do not use generic placeholders like "value" unless that is the actual column na
             ),
         )
 
+        async def _resolve_loadables(step_refs, entity_refs):
+            # The resolver reads (and via protect_report may commit) on the
+            # agent's shared session: serialize with parallel siblings.
+            _lock = runtime_ctx.get("tool_db_lock")
+            async with (_lock if _lock is not None else nullcontext()):
+                return await _loadables_resolver.resolve(step_refs, entity_refs)
+
         # Schema/context reads can autoflush the in-memory event sequence. Do
         # not hold that write transaction throughout the coder's LLM request.
         _writer_db = runtime_ctx.get("db") or (context_hub.db if context_hub else None)
@@ -1842,7 +1925,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
-                loadable_resolver_fn=_loadables_resolver.resolve,
+                loadable_resolver_fn=_resolve_loadables,
                 params=resolved_default_params,
                 param_specs=declared_param_specs,
             ):
@@ -1883,6 +1966,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     query_timings = e["payload"].get("query_timings") or []
                     codegen_ms = e["payload"].get("codegen_ms")
                     execution_ms = e["payload"].get("execution_ms")
+                    # Reasoning inside that codegen_ms (last attempt, like it).
+                    codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
@@ -1988,7 +2073,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        formatted = streamer.format_df_for_widget(exec_df)
+        formatted = await streamer.format_df_for_widget_async(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)
@@ -2160,6 +2245,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     "executed_queries": executed_queries,
                     "query_timings": query_timings,
                     "codegen_ms": codegen_ms,
+                    "codegen_reasoning_ms": codegen_reasoning_ms,
                     "execution_ms": execution_ms,
                     "parameters": surviving_params,
                     "applied_params": (

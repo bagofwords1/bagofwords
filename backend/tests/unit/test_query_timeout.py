@@ -280,6 +280,29 @@ def test_wrap_clients_uses_default_when_no_settings_provided():
     assert wrapped["main"]._query_timeout_seconds == DEFAULT_QUERY_TIMEOUT_SECONDS
 
 
+def test_wrap_clients_hands_the_budget_to_sources_that_can_enforce_it():
+    """An Elasticsearch connection gets the same budget as the wrapper, sent
+    to the engine — instead of its own fixed 60s."""
+    from app.data_sources.clients.elasticsearch_client import ElasticsearchClient
+
+    sent = {}
+    es = ElasticsearchClient(host="h")
+    es._request = lambda m, p, json_body=None, params=None, timeout=None: (
+        sent.update(body=json_body, timeout=timeout) or {"hits": {"hits": []}})
+    es._bow_connection_query_timeout = 150
+    wrapped = wrap_clients_for_capture(
+        ds_clients={"logs": es},
+        captured_queries=[],
+        captured_timings=[],
+        usage_context=None,
+        organization_settings=_StubOrgSettings(30),
+    )
+    wrapped["logs"].execute_query('{"index": "logs-*"}')
+    assert wrapped["logs"]._query_timeout_seconds == 150
+    assert sent["body"]["timeout"] == "150s"
+    assert sent["timeout"][1] > 150
+
+
 # ---------------------------------------------------------------------------
 # Integration: timeout flows through generate_and_execute_stream_v2 and the
 # retry loop activates so the agent can recover with a smaller query.
@@ -366,12 +389,12 @@ def test_timeout_triggers_retry_and_recovers_on_smaller_query():
     retry_stages = [p for p in progress if p["payload"].get("stage") == "retry"]
     assert retry_stages, "expected a retry progress event after timeout"
 
-    # The done event carries query_timings; the *successful* second attempt
-    # cleared the per-attempt list so we expect a clean run there.
+    # A successful run reports no errors; the failed attempts that preceded
+    # it are kept under attempt_errors for the caller/audit trail.
     payload = done[-1]["payload"]
     assert payload["df"] is not None and not payload["df"].empty
-    # The errors list captures both the timeout and retry's outcome.
-    assert payload["errors"], "expected the failed attempt to be recorded"
+    assert payload["errors"] == []
+    assert payload["attempt_errors"], "expected the failed attempt to be recorded"
 
 
 def test_timeout_failure_payload_carries_db_message_and_failed_sql():

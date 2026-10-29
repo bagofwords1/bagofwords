@@ -1,15 +1,15 @@
 <template>
   <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
     <div class="w-full max-w-[360px]">
-      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+      <h1 class="text-2xl leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
         {{ $t('auth.welcomeTitle') }}
       </h1>
       <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ setupRequired ? $t('auth.setupSubtitle') : $t('auth.signUpSubtitle') }}
       </p>
 
-      <p v-if="error_message" v-html="error_message"
-         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+      <p v-if="error_message"
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line">{{ error_message }}</p>
 
       <div v-if="showSso" class="mt-7">
         <AuthProviderButtons
@@ -25,7 +25,7 @@
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+          <span class="px-3 text-2xs uppercase tracking-widest text-ink-muted bg-white dark:bg-gray-950">
             {{ $t('auth.or') }}
           </span>
         </div>
@@ -63,7 +63,7 @@
         </NuxtLink>
       </p>
 
-      <p class="mt-6 text-xs leading-relaxed text-center text-gray-400 dark:text-gray-500">
+      <p class="mt-6 text-xs leading-relaxed text-center text-ink-muted">
         {{ $t('auth.termsPrefix') }}
         <a href="https://bagofwords.com/terms" target="_blank" class="underline underline-offset-2 hover:text-gray-600 dark:hover:text-gray-300">{{ $t('auth.termsOfService') }}</a>
         {{ $t('common.and') }}
@@ -123,7 +123,7 @@ const showCredentials = computed(() => authMode.value !== 'sso_only')
 const showSso = computed(() =>
   authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
-const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
+const labelClass = 'block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5'
 
 // Monochrome controls: the only color on the page is the provider logos and
 // the one primary action.
@@ -171,8 +171,8 @@ function extractErrorMessage(error: any, fallback: string): string {
 onMounted(async () => {
   try {
     const settings = await $fetch('/api/settings')
-    if (settings?.oidc_providers?.length) {
-      oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+    if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
+      oidcProviders.value = [...(settings.oidc_providers || []), ...(settings.saml_providers || [])].filter((p: any) => p.enabled)
     }
     if (settings?.auth?.mode) {
       authMode.value = settings.auth.mode
@@ -180,10 +180,6 @@ onMounted(async () => {
     googleSignIn.value = settings?.google_oauth?.enabled ?? false
     setupRequired.value = settings?.setup_required ?? false
   } catch (_) {}
-  const inviteError = route.query.error as string
-  if (inviteError) {
-    error_message.value = inviteError
-  }
   const emailFromQuery = route.query.email as string
   if (emailFromQuery) {
     email.value = emailFromQuery

@@ -41,10 +41,13 @@ class MCPToolItem(BaseModel):
     policy: Optional[str] = None
     # The tool's declared JSON Schema, admin-locked fields already stripped.
     # Carried so <mcp_tools> can render the argument shape inline instead of
-    # sending the agent on a search_mcps round trip for it. The block is
+    # sending the agent on a discovery round trip for it. The block is
     # rebuilt every turn, so a schema here never ages out of context — unlike
-    # a search_mcps observation, which past-observation compaction minifies.
+    # a search_tools observation, which past-observation compaction minifies.
     input_schema: Optional[dict] = None
+    # Past tools_max: not in the model's tool list, reached via search_tools +
+    # call_tool. Set by the agent once it has registered the run's tools.
+    deferred: bool = False
 
 
 class FileScopeItem(BaseModel):
@@ -59,7 +62,8 @@ class FileScopeItem(BaseModel):
     globs: List[str] = []
     index_mode: str = "content"      # none | metadata | content
     file_count: int = 0
-    capped: bool = False
+    capped: bool = False             # catalog hit the connection's Max Files cap
+    indexed_at: Optional[str] = None # last completed shared index run (UTC ISO)
     sample: List[str] = []           # a few representative file ids
     topics: List[str] = []           # aggregate keywords (content mode)
     supports_search: bool = True     # native search API OR index_mode==content
@@ -138,7 +142,42 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
         "modelType", "supportsDax", "preferredDialect",
         "entity_contents", "data_category",
     ),
+    # PriorityErpClient: a subform table (ORDERITEMS) has no address of its
+    # own in Priority; the client answers it through the parent's $expand. The
+    # agent queries it by name like any form, and these say where its rows
+    # come from. `shared_by` marks a subform under several parents, which has
+    # no single path and must be read via the parent the question means.
+    "priority_erp": ("title", "subform_of", "navigation", "shared_by"),
 }
+
+
+# A one-line note for the agent that writes the user-facing answer, keyed by a
+# table-metadata namespace. The connector's query guide reaches only the code
+# writer (`client.description`); how to NAME things in the answer has to be
+# said where the planner reads the schema.
+_PRESENTATION_NOTES: dict[str, str] = {
+    "priority_erp": (
+        "Priority forms and columns have a technical name (ORDNAME, PORDERS) and a "
+        "title (a column's description; the title attribute on a form's priority_erp "
+        "entry). When writing to the user, call forms and columns by their titles, in "
+        "the user's language, never by technical name. Result tables are labelled with "
+        "the titles automatically: keep DataFrame column names technical in code."
+    ),
+}
+
+
+def _presentation_note_xml(tables) -> str:
+    """The presentation note for a data source whose tables carry a namespace
+    listed in `_PRESENTATION_NOTES`, or "" when none applies."""
+    try:
+        for ns, note in _PRESENTATION_NOTES.items():
+            for t in tables or []:
+                meta = getattr(t, "metadata_json", None)
+                if isinstance(meta, dict) and isinstance(meta.get(ns), dict):
+                    return xml_tag("presentation_note", xml_escape(note))
+    except Exception:
+        pass
+    return ""
 
 # Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
 # Prometheus stores these at the top level of metadata_json.
@@ -169,12 +208,16 @@ _FLAT_META_KEYS: tuple[str, ...] = (
 # `relationship_key` marks a column recovered from a relationship rather than
 # from the column listing, so the agent knows it is a join key.
 #
+# `from_form` marks a Priority subform table's column that belongs to a parent
+# form (ORDERITEMS.CURDATE is the order's date), so the agent can tell a line's
+# own fields from its order's.
+#
 # This allowlist is the LAST gate before the prompt: a key absent here never
 # reaches the model no matter what discovery captured or persistence stored.
 _COLUMN_META_KEYS: tuple[str, ...] = (
     "unique_name", "returns", "hidden", "relationship_key",
     "format_string", "data_category", "display_folder", "sort_by_column",
-    "summarize_by", "contents",
+    "summarize_by", "contents", "from_form",
 )
 
 
@@ -320,19 +363,19 @@ class TablesSchemaContext(ContextSection):
         # and, worse, unaware of WHICH URLs are in scope (so it guesses wrong ones).
         browser_scope: Optional[Dict[str, Any]] = None
 
-        # True when the planner registers this report's MCP tools natively, so
-        # each one already carries its schema in the request's tools array.
-        # Resolved report-wide by the builder — never recomputed here, or the two
-        # sides could disagree about where the schema lives.
-        native_mcp: bool = False
+        # MCP tools are registered natively, each carrying its schema in the
+        # request's tools array. False only when the run could not build its
+        # MCP catalog and falls back to execute_mcp (set by the context hub):
+        # the block then inlines schemas and points at execute_mcp.
+        native_mcp: bool = True
 
         # Below this many files, list them inline (cheap + lets the agent pick
         # directly); above it, emit only scope + sample + topics.
         _FILE_INLINE_THRESHOLD: ClassVar[int] = 15
 
-        # Below this many MCP/custom-API tools, inline each tool's argument
-        # schema in <mcp_tools>; above it the block would dominate the prompt
-        # every turn, so those connections keep the search_mcps discovery hop.
+        # On the execute_mcp fallback, below this many MCP/custom-API tools,
+        # inline each tool's argument schema in <mcp_tools>; above it the
+        # block would dominate the prompt every turn.
         _MCP_INLINE_SCHEMA_MAX: ClassVar[int] = 40
 
         # Short, human-readable explanations of each agent (data source)
@@ -555,14 +598,10 @@ class TablesSchemaContext(ContextSection):
                 key = tool.connection_id or 'default'
                 groups[key].append(tool)
 
-            # Inline argument schemas when the catalog is small enough to
-            # afford it. Above the threshold the block would dominate the
-            # prompt every turn, so those fall back to search_mcps discovery.
-            #
-            # When native registration is on, each tool already carries its
-            # schema in the request's tools array. Inlining here as well would
-            # pay for the same bytes twice, every turn, so the block degrades to
-            # an index and the note points at the real tools.
+            # Native tools carry their schema in the request's tools array,
+            # so the block is an index. On the execute_mcp fallback there is
+            # no other copy: inline the schemas when the catalog is small
+            # enough to afford it.
             total_tools = sum(len(v) for v in groups.values())
             inline_schemas = (not self.native_mcp) and total_tools <= self._MCP_INLINE_SCHEMA_MAX
 
@@ -573,9 +612,9 @@ class TablesSchemaContext(ContextSection):
                 for t in tools:
                     desc = xml_escape(t.description or "")
                     policy = getattr(t, 'policy', None)
-                    policy_attr = ""
+                    policy_attr = ' deferred="true"' if getattr(t, "deferred", False) else ""
                     if policy and policy != "allow":
-                        policy_attr = f' policy="{xml_escape(policy)}"'
+                        policy_attr += f' policy="{xml_escape(policy)}"'
                         has_gated = True
                     args_xml = ""
                     if inline_schemas and getattr(t, "input_schema", None):
@@ -596,32 +635,29 @@ class TablesSchemaContext(ContextSection):
                 if conn_id != 'default':
                     conn_attrs["id"] = conn_id
                 conn_parts.append(xml_tag("connection", "\n".join(tool_xmls), conn_attrs))
-            if inline_schemas:
-                # Schemas are right here, every turn. Say so explicitly —
-                # otherwise the agent defensively calls search_mcps before each
-                # execute_mcp anyway, which is a wasted planner turn plus a
-                # wasted tool round trip per call.
-                conn_parts.append(
-                    "<note>The <arg> elements above ARE each tool's full argument schema — name, type, "
-                    "requiredness, enums and nested shape. They are authoritative and always current, so "
-                    "call execute_mcp directly; do NOT call search_mcps first. Match the declared type "
-                    "exactly: an arg typed \"string\" takes a string even when its content is JSON "
-                    "(serialize it), and an arg typed \"integer\" takes a number, not a formatted date.</note>"
+            # MCP tools are the model's own tools (mcp__<connection>__<tool>),
+            # each with its schema, up to tools_max; the rest are reached via
+            # search_tools + call_tool. This block is the index of all of them.
+            if not self.native_mcp:
+                note = (
+                    "<note>Call these tools with execute_mcp(connection_id=&lt;the connection id above&gt;, "
+                    "tool_name=&lt;the tool name&gt;, arguments={...}).</note>"
                 )
-            elif self.native_mcp:
-                conn_parts.append(
-                    "<note>Each tool above is also available to you directly as a tool named "
-                    "mcp__&lt;connection&gt;__&lt;tool&gt;, carrying its own argument schema — call it "
-                    "directly rather than going through execute_mcp, and do not call search_mcps "
-                    "for it. Use search_mcps + execute_mcp only for a tool listed here that has no "
-                    "matching mcp__ tool available.</note>"
+            elif not any(getattr(t, "deferred", False) for t in (self.mcp_tools or [])):
+                note = (
+                    "<note>Each tool above is in your tool list as mcp__&lt;connection&gt;__&lt;tool&gt;, "
+                    "carrying its own argument schema: call it directly.</note>"
                 )
             else:
-                conn_parts.append(
-                    "<note>Only tool names and descriptions are shown above, not their argument schemas. "
-                    "Call search_mcps to get a tool's full input schema (exact argument names and types) "
-                    "before calling execute_mcp — do not guess arguments.</note>"
+                note = (
+                    "<note>Tools above without deferred=\"true\" are in your tool list as "
+                    "mcp__&lt;connection&gt;__&lt;tool&gt;, each with its own argument schema: call them "
+                    "directly. Tools marked deferred=\"true\" are NOT in your tool list and their "
+                    "arguments are not shown: call search_tools to get the exact name and input schema, "
+                    "then call_tool(name=&lt;that exact name&gt;, arguments=...). Do not guess their "
+                    "arguments.</note>"
                 )
+            conn_parts.append(note)
             if has_gated:
                 conn_parts.append(
                     '<note>Tools marked policy="ask" pause the run for the user to approve the call '
@@ -656,7 +692,9 @@ class TablesSchemaContext(ContextSection):
             # Index/state (self-closing).
             inner.append(
                 f'<index mode="{xml_escape(fs.index_mode)}" files="{fs.file_count}" '
-                f'capped="{"true" if fs.capped else "false"}"/>'
+                f'capped="{"true" if fs.capped else "false"}"'
+                + (f' indexed_at="{xml_escape(fs.indexed_at)}"' if fs.indexed_at else "")
+                + "/>"
             )
             if fs.topics:
                 inner.append(xml_tag("topics", xml_escape(", ".join(fs.topics[:12]))))
@@ -722,6 +760,9 @@ class TablesSchemaContext(ContextSection):
                 content_parts.append(status_xml)
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
+            presentation = _presentation_note_xml(self.tables)
+            if presentation:
+                content_parts.append(presentation)
 
             # Check if we have multi-connection (more than one group, or the group isn't 'default')
             # File connections also count — they render as their own <connection>.
@@ -1191,6 +1232,9 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(roster_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
+            presentation = _presentation_note_xml(getattr(ds, 'tables', None))
+            if presentation:
+                inner_parts.append(presentation)
             if sample_xml:
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:

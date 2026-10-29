@@ -1,0 +1,25 @@
+name: Release gate regression
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/docker-image.yml'
+      - '.github/workflows/airgap-bundle.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/release-gate-tests.yml'
+      - 'tools/agent/tests/test_release_scan_gate.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python tools/agent/tests/test_release_scan_gate.py

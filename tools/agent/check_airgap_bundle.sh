@@ -10,6 +10,7 @@ required_files=(
   deploy/airgap/bow-config.yaml
   deploy/airgap/.env.example
   deploy/airgap/README.md
+  deploy/airgap/build-source-archive.sh
   .github/workflows/airgap-bundle.yml
 )
 
@@ -38,6 +39,8 @@ grep -Eq 'linux/amd64' "$workflow" || { echo "FAIL: amd64 bundle is missing" >&2
 grep -Eq 'linux/arm64' "$workflow" || { echo "FAIL: arm64 bundle is missing" >&2; exit 1; }
 grep -Eq 'docker save' "$workflow" || { echo "FAIL: workflow does not export images" >&2; exit 1; }
 grep -Eq 'sha256sum' "$workflow" || { echo "FAIL: workflow does not create a checksum" >&2; exit 1; }
+grep -Eq 'deploy/airgap/build-source-archive\.sh' "$workflow" || { echo "FAIL: workflow does not package source code" >&2; exit 1; }
+[[ -x deploy/airgap/build-source-archive.sh ]] || { echo "FAIL: source packaging script is not executable" >&2; exit 1; }
 grep -Eq 'aws s3 cp' "$workflow" || { echo "FAIL: workflow does not upload to S3" >&2; exit 1; }
 grep -Eq 'aws-access-key-id:[[:space:]]*\$\{\{ secrets\.AWS_ACCESS_KEY_ID \}\}' "$workflow" || {
   echo "FAIL: workflow does not use the configured AWS access key" >&2

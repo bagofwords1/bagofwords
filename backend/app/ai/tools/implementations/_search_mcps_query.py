@@ -1,9 +1,9 @@
-"""Query matching for ``search_mcps`` tool discovery.
+"""Query matching for ``search_tools`` tool discovery.
 
 Kept dependency-free (stdlib only, no app imports) so the matching behaviour
 can be unit-tested in isolation without standing up the rest of the backend.
 
-The query passed to ``search_mcps`` is a *relevance hint*, never a hard filter.
+The query passed to ``search_tools`` is a *relevance hint*, never a hard filter.
 Discovery must never return an empty list when tools actually exist — an empty
 result dead-ends the agent into guessing argument shapes instead of fetching a
 real input schema. See :func:`filter_tools_by_query` for the exact rules.
@@ -36,6 +36,8 @@ def filter_tools_by_query(tools: Sequence, query: str | None) -> List:
     Behaviour (in priority order):
 
     - **Empty/blank query** → return all tools unchanged.
+    - **Regex query** (``/pattern/``, or containing ``^ $ | ( ) [ ] + { } \\``)
+      → case-insensitive ``re.search`` against name and description.
     - **Wildcard query** (contains ``*`` or ``?``) → glob match
       (case-insensitive ``fnmatch``) against each tool's name and description.
       e.g. ``search_*`` → every tool whose name starts with ``search_``;
@@ -54,6 +56,22 @@ def filter_tools_by_query(tools: Sequence, query: str | None) -> List:
         return tools
 
     q = query.strip().lower()
+
+    # Regex mode: a /pattern/ or a query carrying regex-only characters.
+    raw = query.strip()
+    rx = None
+    if len(raw) > 2 and raw.startswith("/") and raw.endswith("/"):
+        rx = raw[1:-1]
+    elif any(ch in raw for ch in "^$|()[]+{}\\") :
+        rx = raw
+    if rx is not None:
+        try:
+            pattern = re.compile(rx, re.IGNORECASE)
+        except re.error:
+            pattern = None
+        if pattern is not None:
+            matched = [t for t in tools if any(pattern.search(h) for h in _haystacks(t))]
+            return matched or tools
 
     # Wildcard mode: explicit glob pattern against name/description.
     if "*" in q or "?" in q:

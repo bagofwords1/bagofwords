@@ -1,0 +1,12 @@
+== identity report: public JSON step rows ==
+rows 0 withheld True
+== identity report: export_html ==
+http 200
+SECRET-ROW occurrences: 0
+== plain report: public JSON step rows / export_html ==
+rows 4
+http 200
+PUBLIC-ROW occurrences: 4
+== shared conversation /api/c/{token} ==
+raw email present: False | EMP-4821 present: False | non-PII text present: True
+prompt: Who is [REDACTED_EMAIL] ([EMP])? Also: what was Q3 revenue?

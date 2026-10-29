@@ -36,7 +36,7 @@
         </div>
 
         <div class="px-6 py-5">
-          <div class="text-xs font-medium uppercase tracking-wide text-gray-400">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-muted">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
           <div class="mt-3 space-y-3">
             <div v-for="requestedScope in requestedScopes" :key="requestedScope" class="flex gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950/60">
               <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
@@ -59,7 +59,7 @@
           </div>
         </div>
 
-        <p class="border-t border-gray-100 px-6 py-3 text-center text-xs text-gray-400 dark:border-gray-800">
+        <p class="border-t border-gray-100 px-6 py-3 text-center text-xs text-ink-muted dark:border-gray-800">
           {{ $t('settings.integrations.channels.oauth.redirectNotice', { name: clientName }) }}
         </p>
       </div>
@@ -69,6 +69,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { isSafeRedirectUri } from '~/utils/safeUrl'
 
 definePageMeta({ layout: 'users' })
 
@@ -121,7 +122,7 @@ onMounted(async () => {
     return
   }
 
-  if (!clientId || !redirectUri || !codeChallenge) {
+  if (!clientId || !redirectUri || !codeChallenge || !isSafeRedirectUri(redirectUri)) {
     errorMessage.value = t('settings.integrations.channels.oauth.invalidAuthorizationRequest')
     pageLoading.value = false
     return
@@ -173,7 +174,7 @@ async function approve() {
         code_challenge_method: codeChallengeMethod,
       },
     }) as any
-    if (!data.redirect_url) throw new Error('missing_redirect')
+    if (!isSafeRedirectUri(data.redirect_url)) throw new Error('missing_redirect')
     window.location.assign(data.redirect_url)
   } catch {
     trustedAutoApprove.value = false
@@ -183,7 +184,7 @@ async function approve() {
 }
 
 function deny() {
-  if (!requestValidated.value) return goBack()
+  if (!requestValidated.value || !isSafeRedirectUri(redirectUri)) return goBack()
   const callback = new URL(redirectUri)
   callback.searchParams.set('error', 'access_denied')
   if (state) callback.searchParams.set('state', state)

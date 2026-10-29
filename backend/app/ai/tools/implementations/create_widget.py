@@ -185,7 +185,8 @@ class CreateWidgetTool(Tool):
 
         # Phase 1: Generate Data Model (streamed parsing like create_data_model)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_data_model"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker,
+                  reasoning_effort=runtime_ctx.get("reasoning_effort"))
 
         header = f"""
 You are a data modeling assistant.
@@ -343,6 +344,7 @@ CRITICAL:
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -421,7 +423,7 @@ CRITICAL:
 
         # Success path: format widget data and preview (privacy aware)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        widget_data = streamer.format_df_for_widget(exec_df)
+        widget_data = await streamer.format_df_for_widget_async(exec_df)
         info = widget_data.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         if allow_llm_see_data:

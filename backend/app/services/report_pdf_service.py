@@ -31,10 +31,12 @@ import re
 import signal
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+from app.core.render_guard import RenderEgressProxy, RendererPolicy, guard_page_requests
 from app.services.artifact_libs import get_inline_scripts
+from app.services.artifact_payload import UNSCOPED
 
 logger = logging.getLogger(__name__)
 
@@ -132,19 +134,31 @@ def _chromium_executable() -> Optional[str]:
     return os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
 
 
+# Where start.sh binds uvicorn inside the standard image.
+_SELF_SERVED_ORIGIN = "http://127.0.0.1:3000"
+
+
 def _render_origin() -> str:
     """Origin the headless browser loads this deployment's own pages from.
 
-    The standard image serves the SPA from this very process (SERVE_FRONTEND=1,
-    see app/core/spa.py), so the app's configured base_url doubles as an
-    internal address — with one fix: `0.0.0.0` is an address to LISTEN on, not
-    one to connect to. Deployments that split the frontend off, or put an
-    authenticating proxy in front of it, set BOW_RENDER_ORIGIN to whatever the
-    backend can actually reach.
+    BOW_RENDER_ORIGIN wins when set (a split frontend, a non-standard port).
+    Otherwise the standard image serves the SPA from this very process
+    (SERVE_FRONTEND=1, see app/core/spa.py), so the page is loaded from the
+    process itself over loopback. Never via base_url there: that is the public
+    address, which usually sits behind a TLS proxy whose certificate (an
+    internal CA, say) the bundled Chromium does not trust — the export then
+    died on net::ERR_CERT_AUTHORITY_INVALID — or behind SSO, or does not even
+    resolve from inside the container.
+
+    Without either, base_url is the best guess — with one fix: `0.0.0.0` is an
+    address to LISTEN on, not one to connect to.
     """
     override = (os.environ.get("BOW_RENDER_ORIGIN") or "").strip()
     if override:
         return override.rstrip("/")
+
+    if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes"):
+        return _SELF_SERVED_ORIGIN
 
     from app.settings.config import settings
 
@@ -465,11 +479,14 @@ class ReportPdfService:
         pdf_path = self.UPLOADS_DIR / f"{artifact_id}.pdf"
         content_w, content_h = _doc_page_geometry()
         url = f"{_render_origin()}/print/doc"
+        # Only the app's own render origin (+ RENDER_ASSET_HOSTS) is reachable.
+        policy = RendererPolicy([_render_origin()])
 
         try:
-            async with async_playwright() as p:
+            async with RenderEgressProxy(policy.decide, label="PDF render") as egress, async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, args=[marker], executable_path=_chromium_executable()
+                    headless=True, args=[marker], executable_path=_chromium_executable(),
+                    **egress.launch_kwargs(),
                 )
                 # Lay out at the printable width from the start so ECharts
                 # bakes the paper's width into its canvas, and at 2x so those
@@ -479,6 +496,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print", color_scheme="light")
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 # Injected BEFORE navigation: the page renders from this and
                 # fetches nothing, so the route needs no session — and can
@@ -548,11 +566,15 @@ class ReportPdfService:
         # decks convert from their .pptx and docs print through
         # _generate_doc_pdf_inner, portrait and unshrunk.)
         paper_w_in, paper_h_in, content_w, content_h = _page_geometry(landscape=True)
+        # The page is set_content()'d with every library inlined: it needs no
+        # network at all, so nothing but RENDER_ASSET_HOSTS is reachable.
+        policy = RendererPolicy()
 
         try:
-            async with async_playwright() as p:
+            async with RenderEgressProxy(policy.decide, label="PDF render") as egress, async_playwright() as p:
                 browser = await p.chromium.launch(
-                    headless=True, args=[marker], executable_path=_chromium_executable()
+                    headless=True, args=[marker], executable_path=_chromium_executable(),
+                    **egress.launch_kwargs(),
                 )
                 # Lay out at the printable width from the start: responsive
                 # breakpoints and every JS-measured chart size are then computed
@@ -564,6 +586,7 @@ class ReportPdfService:
                     device_scale_factor=2,
                 )
                 await page.emulate_media(media="print")
+                await guard_page_requests(page, policy.allows_url, allows_image=policy.allows_image, label="PDF render")
 
                 await page.set_content(html_content, wait_until="networkidle")
 
@@ -723,8 +746,20 @@ class ReportPdfService:
             pass
         await asyncio.sleep(self.SETTLE_SECONDS)
 
-    async def generate_for_report(self, report_id: str) -> Optional[str]:
+    async def generate_for_report(
+        self, report_id: str, *, viewer: Any = UNSCOPED, out_key: Optional[str] = None,
+    ) -> Optional[str]:
         """Generate a PDF for the latest artifact of a report.
+
+        `viewer` (a User, or None for an anonymous share-link reader) resolves
+        every query's rows through viewer_data_policy.resolve_step_data — the
+        public JSON view's path — so the PDF holds exactly what that reader
+        may see. Omitted (UNSCOPED), the stored snapshot is rendered as before.
+
+        `out_key` names the output file (UPLOADS_DIR/<out_key>.pdf) instead of
+        the artifact id — per-recipient renders (report_bursting) use a unique
+        key so one reader's copy can never be overwritten by, or served as,
+        another's. The caller owns (and deletes) that file.
 
         Returns:
             Absolute filesystem path to the PDF, or None on failure.
@@ -777,14 +812,19 @@ class ReportPdfService:
                     logger.warning(f"No artifact found for report {report_id}")
                     return None
 
-                return await self._render_artifact_pdf(db, artifact)
+                viewer = await self._attach_viewer(db, viewer)
+                return await self._render_artifact_pdf(db, artifact, viewer=viewer, out_key=out_key)
 
         except Exception as e:
             logger.exception(f"Failed to generate PDF for report {report_id}: {e}")
             return None
 
-    async def generate_for_artifact(self, artifact_id: str) -> Optional[str]:
+    async def generate_for_artifact(
+        self, artifact_id: str, *, viewer: Any = UNSCOPED, out_key: Optional[str] = None,
+    ) -> Optional[str]:
         """Generate a PDF for a specific artifact.
+
+        `viewer` / `out_key` as in generate_for_report.
 
         Returns:
             Absolute filesystem path to the PDF, or None on failure.
@@ -799,40 +839,87 @@ class ReportPdfService:
                     logger.warning(f"No usable artifact found for id {artifact_id}")
                     return None
 
-                return await self._render_artifact_pdf(db, artifact)
+                viewer = await self._attach_viewer(db, viewer)
+                return await self._render_artifact_pdf(db, artifact, viewer=viewer, out_key=out_key)
 
         except Exception as e:
             logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
             return None
 
-    async def _render_artifact_pdf(self, db, artifact) -> Optional[str]:
+    async def generate_for_release(self, db, render) -> Optional[str]:
+        """Generate a PDF of a published dashboard for one reader
+        (dashboard_data.ReleaseRender: the release's content and the rows that
+        reader may see). Returns the absolute path, or None on failure."""
+        try:
+            if not render.content:
+                return None
+            return await self._render_artifact_pdf(db, render)
+        except Exception as e:
+            logger.exception(f"Failed to generate PDF for {render.id}: {e}")
+            return None
+
+    @staticmethod
+    async def _attach_viewer(db, viewer: Any) -> Any:
+        """Re-load a User viewer in this session.
+
+        The viewer usually comes from another session (a request, a bursting
+        loop); the policy checks behind resolve_step_data read relationships
+        off it, which a detached instance cannot lazy-load."""
+        if viewer is UNSCOPED or viewer is None:
+            return viewer
+        from app.models.user import User
+
+        return (await db.get(User, str(viewer.id))) or viewer
+
+    def _out_file_id(self, artifact, out_key: Optional[str]) -> str:
+        """The file stem a render writes to under UPLOADS_DIR.
+
+        Defaults to the artifact id (the shared, overwritten export path every
+        caller used before). A per-recipient render passes its own key so two
+        readers' copies of one artifact can never overwrite — and be served
+        as — each other."""
+        if out_key:
+            if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,119}", out_key) or ".." in out_key:
+                raise ValueError("unsafe PDF output key")
+            return out_key
+        return str(artifact.id)
+
+    async def _render_artifact_pdf(
+        self, db, artifact, *, viewer: Any = UNSCOPED, out_key: Optional[str] = None,
+    ) -> Optional[str]:
         """Dispatch to the renderer that matches the artifact's mode.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
         """
         mode = (artifact.mode or "page").lower()
+        file_id = self._out_file_id(artifact, out_key)
 
         if mode == "slides":
             # A slides artifact's content['code'] is python-pptx source, not
             # HTML — feeding it to the HTML renderer produced a blank page.
-            # The deck itself is the artifact; convert that.
-            return await self._render_slides_pdf(artifact)
+            # The deck itself is the artifact; convert that. For a reader
+            # whose rows differ from the stored ones the deck is re-run from
+            # its stored code, or refused (see deck_bytes_for_viewer).
+            return await self._render_slides_pdf(db, artifact, viewer=viewer, file_id=file_id)
 
         if mode == "doc":
             # A doc is markdown + {{viz:...}} placeholders, rendered by
             # DocViewer.vue. It has no content['code'] for the HTML path below,
             # and its own renderer is the frontend's — so print that.
-            return await self._render_doc_pdf(db, artifact)
+            return await self._render_doc_pdf(db, artifact, viewer=viewer, file_id=file_id)
 
-        return await self._render_page_pdf(db, artifact)
+        return await self._render_page_pdf(db, artifact, viewer=viewer, file_id=file_id)
 
-    async def _render_doc_pdf(self, db, artifact) -> Optional[str]:
+    async def _render_doc_pdf(
+        self, db, artifact, *, viewer: Any = UNSCOPED, file_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Collect a document's data and print it on paper.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
         """
         from app.services.artifact_payload import collect_visualizations
 
+        file_id = file_id or str(artifact.id)
         markdown = (artifact.content or {}).get("markdown") or ""
         if not markdown.strip():
             logger.warning("Doc artifact %s has no markdown to render", artifact.id)
@@ -843,12 +930,12 @@ class ReportPdfService:
             "markdown": markdown,
             # Same collection (and same ordering) the dashboard export uses, so
             # a {{viz:id}} binds to exactly the rows the viewer sees.
-            "visualizations": await collect_visualizations(db, artifact),
+            "visualizations": await collect_visualizations(db, artifact, viewer=viewer),
             "files": await self._doc_file_datauris(db, markdown),
         }
-        rel_path = await self.generate_doc_pdf(str(artifact.id), doc)
+        rel_path = await self.generate_doc_pdf(file_id, doc)
         if rel_path:
-            return str(self.UPLOADS_DIR / f"{artifact.id}.pdf")
+            return str(self.UPLOADS_DIR / f"{file_id}.pdf")
         return None
 
     async def _doc_file_datauris(self, db, markdown: str) -> dict[str, str]:
@@ -871,10 +958,8 @@ class ReportPdfService:
             return {}
         return {e["id"]: e["dataUri"] for e in entries if e.get("dataUri")}
 
-    async def _render_slides_pdf(self, artifact) -> Optional[str]:
-        """Convert a slides artifact's generated .pptx to PDF via LibreOffice."""
-        from app.data_sources.clients._office_convert import office_to_pdf_bytes
-
+    def _baked_deck(self, artifact) -> Optional[tuple[bytes, str]]:
+        """(bytes, filename) of the .pptx slide generation wrote to disk."""
         src = None
         if artifact.pptx_path:
             candidate = Path(artifact.pptx_path)
@@ -887,17 +972,111 @@ class ReportPdfService:
         if src is None:
             logger.warning("No .pptx on disk for slides artifact %s", artifact.id)
             return None
-
         try:
-            raw = src.read_bytes()
+            return src.read_bytes(), src.name
         except OSError as e:
             logger.warning("Could not read deck for slides artifact %s: %s", artifact.id, e)
             return None
 
+    async def deck_bytes_for_viewer(self, db, artifact, viewer: Any) -> Optional[bytes]:
+        """The .pptx a given reader may receive, or None when there is none.
+
+        A deck is produced by its stored python-pptx code (content['code'])
+        executed over the visualizations' rows — create_artifact and
+        edit_artifact both run it through PptxCodeExecutor with no LLM in the
+        loop. So:
+
+        * the stored rows are exactly what this reader sees (owner, plain
+          decks) → the deck generation already wrote;
+        * the reader resolves to their OWN rows for some query (a signed-in
+          member who ran an identity-scoped query) → the stored code is
+          re-executed in the sandbox over those rows, never the baked file;
+        * any query is withheld from the reader, or the deck has no stored
+          code to replay → None (callers refuse / send without the deck).
+        """
+        from app.services.artifact_payload import (
+            ROWS_PERSONAL, ROWS_WITHHELD, viewer_rows_state,
+        )
+
+        state = await viewer_rows_state(db, artifact, viewer)
+        if state == ROWS_WITHHELD:
+            logger.info("Refusing deck for %s: rows withheld from this viewer", artifact.id)
+            return None
+        if state == ROWS_PERSONAL:
+            return await self._replay_deck(db, artifact, viewer)
+        baked = self._baked_deck(artifact)
+        return baked[0] if baked else None
+
+    async def _replay_deck(self, db, artifact, viewer: Any) -> Optional[bytes]:
+        """Re-execute a deck's stored code over `viewer`'s rows (no LLM)."""
+        import tempfile
+
+        from app.ai.code_execution.pptx_executor import PptxCodeExecutor
+        from app.ai.tools.implementations._artifact_images import load_image_bytes
+        from app.models.report import Report
+        from app.services.artifact_payload import collect_visualizations
+
+        content = artifact.content or {}
+        code = content.get("code") or ""
+        if not code.strip():
+            # Nothing to replay (a deck known only as a finished binary): the
+            # baked file holds someone else's rows, so there is no deck for
+            # this reader.
+            logger.info("Deck %s has no stored code to re-run for this viewer", artifact.id)
+            return None
+
+        # Same shape edit_artifact hands the executor when it re-runs a deck:
+        # the artifact's own visualizations, in its index order.
+        vizs = await collect_visualizations(db, artifact, viewer=viewer)
+        wanted = [str(v) for v in (content.get("visualization_ids") or [])]
+        if wanted:
+            by_id = {v["id"]: v for v in vizs}
+            vizs = [by_id[v] for v in wanted if v in by_id]
+        vizs = [{k: val for k, val in v.items() if k != "applied_params"} for v in vizs]
+
+        report = await db.get(Report, artifact.report_id)
+        report_data = {
+            "id": str(report.id) if report else None,
+            "title": getattr(report, "title", None) if report else None,
+            "theme": getattr(report, "theme", None) if report else None,
+        }
+        images = await load_image_bytes(db, content.get("files") or [])
+
+        with tempfile.TemporaryDirectory(prefix="bow-deck-") as td:
+            out = Path(td) / "deck.pptx"
+            try:
+                await asyncio.to_thread(
+                    PptxCodeExecutor(logger=logger).execute_pptx_code,
+                    code=code, visualizations=vizs, report=report_data,
+                    output_path=out, images=images,
+                )
+                return out.read_bytes()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Re-running deck %s for a viewer failed: %s", artifact.id, e)
+                return None
+
+    async def _render_slides_pdf(
+        self, db, artifact, *, viewer: Any = UNSCOPED, file_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Convert a slides artifact's .pptx (for this reader) to PDF via LibreOffice."""
+        from app.data_sources.clients._office_convert import office_to_pdf_bytes
+
+        file_id = file_id or str(artifact.id)
+        if viewer is UNSCOPED:
+            baked = self._baked_deck(artifact)
+            if baked is None:
+                return None
+            raw, name = baked
+        else:
+            raw = await self.deck_bytes_for_viewer(db, artifact, viewer)
+            if raw is None:
+                return None
+            name = f"{artifact.id}.pptx"
+
         # Blocking subprocess — off the event loop. The shared helper already
         # handles the per-call LibreOffice profile (concurrent conversions
         # otherwise block each other) and every failure mode.
-        data = await asyncio.to_thread(office_to_pdf_bytes, raw, src.name)
+        data = await asyncio.to_thread(office_to_pdf_bytes, raw, name)
         if not data:
             logger.warning(
                 "LibreOffice could not convert the deck for slides artifact %s; "
@@ -905,18 +1084,21 @@ class ReportPdfService:
             )
             return None
 
-        dest = self.UPLOADS_DIR / f"{artifact.id}.pdf"
+        dest = self.UPLOADS_DIR / f"{file_id}.pdf"
         dest.write_bytes(data)
         return str(dest)
 
-    async def _render_page_pdf(self, db, artifact) -> Optional[str]:
+    async def _render_page_pdf(
+        self, db, artifact, *, viewer: Any = UNSCOPED, file_id: Optional[str] = None,
+    ) -> Optional[str]:
         """Build the dashboard HTML (with its report's data) and render to PDF.
 
         Returns the absolute filesystem path to the PDF, or None on failure.
         """
         from app.services.artifact_payload import collect_artifact_payload
 
-        payload = await collect_artifact_payload(db, artifact)
+        file_id = file_id or str(artifact.id)
+        payload = await collect_artifact_payload(db, artifact, viewer=viewer)
         if payload is None:
             return None
 
@@ -927,13 +1109,13 @@ class ReportPdfService:
         )
 
         rel_path = await self.generate_pdf(
-            artifact_id=str(artifact.id),
+            artifact_id=file_id,
             html_content=html_content,
             mode=artifact.mode or "page",
         )
 
         if rel_path:
-            return str(self.UPLOADS_DIR / f"{artifact.id}.pdf")
+            return str(self.UPLOADS_DIR / f"{file_id}.pdf")
         return None
 
     def _build_pdf_html(

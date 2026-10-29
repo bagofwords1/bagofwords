@@ -1,4 +1,6 @@
+import asyncio
 import csv
+import functools
 import re
 import time
 import logging
@@ -119,6 +121,7 @@ Arguments:
                 data.tables_by_source,
                 context_hub.schema_builder,
                 db_lock=runtime_ctx.get("tool_db_lock"),
+                static_schemas=getattr(getattr(runtime_ctx.get("context_view"), "static", None), "schemas", None),
             )
 
         # 2. Build context
@@ -178,14 +181,16 @@ Arguments:
             )
             return
 
-        # Augment the prompt to instruct the coder to save output as CSV
+        # The CSV is written here from the DataFrame generate_df returns, not
+        # by the generated code: it runs in a sandbox whose cwd is a private
+        # scratch dir and which may not write to uploads/.
         csv_prompt = (
             f"{data.user_prompt}\n"
             f"{source_directive}\n\n"
-            "IMPORTANT: The final result must be a pandas DataFrame stored in a variable called `df`. "
-            "Print a preview of the first 5 rows with print(df.head()). "
-            f"Then save to CSV: df.to_csv('{output_filename}', index=False). "
-            "Print the shape: print(f'Shape: {df.shape}')"
+            "IMPORTANT: generate_df must return the final result as a pandas DataFrame; "
+            "it is saved as the CSV for you, so do not write any files. "
+            "Print a preview of the first 5 rows with print(df.head()) "
+            "and the shape with print(f'Shape: {df.shape}')."
         )
 
         codegen_context = await build_codegen_context(
@@ -204,6 +209,7 @@ Arguments:
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -226,6 +232,7 @@ Arguments:
         generated_code = ""
         success = False
         execution_error = None
+        result_df = None
         execution_start = time.monotonic()
 
         async for e in streamer.generate_and_execute_stream_v2(
@@ -253,6 +260,7 @@ Arguments:
                 yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
             elif e["type"] == "done":
                 success = True
+                result_df = e["payload"].get("df")
                 generated_code = e["payload"].get("code") or ""
                 if e["payload"].get("errors"):
                     success = False
@@ -282,8 +290,14 @@ Arguments:
             )
             return
 
-        # 5. Find the output CSV and create a File record
+        # 5. Write the returned DataFrame as the output CSV and create a File record
+        import pandas as pd
+
         csv_path = output_filename
+        if isinstance(result_df, pd.DataFrame) and len(result_df.columns) > 0:
+            await asyncio.get_running_loop().run_in_executor(
+                None, functools.partial(result_df.to_csv, csv_path, index=False)
+            )
         if not os.path.exists(csv_path):
             yield ToolEndEvent(
                 type="tool.end",
@@ -305,7 +319,6 @@ Arguments:
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_file"})
 
-        import pandas as pd
         from uuid import uuid4
         from app.models.file import File
         from app.services.file_preview import _preview_csv
@@ -323,8 +336,9 @@ Arguments:
         dest_path = os.path.join("uploads", "files", unique_name)
         os.rename(csv_path, dest_path)
 
-        # Read full CSV for widget data
-        full_df = pd.read_csv(dest_path)
+        # Read full CSV for widget data (off the event loop: a large file
+        # parsed inline stalls every other stream/tool in the process).
+        full_df = await asyncio.get_running_loop().run_in_executor(None, pd.read_csv, dest_path)
         total_rows = len(full_df)
 
         # Format data for visualization (same structure as create_data)
@@ -333,7 +347,7 @@ Arguments:
             logger=None,
             context_hub=runtime_ctx.get("context_hub"),
         )
-        formatted = streamer.format_df_for_widget(full_df)
+        formatted = await streamer.format_df_for_widget_async(full_df)
         info = formatted.get("info", {})
         data_preview = full_df.head(5).to_string() if not full_df.empty else ""
 
@@ -373,6 +387,15 @@ Arguments:
             )
 
         await db.flush()
+
+        # Make the file visible to the tools that run after this one in the
+        # same turn: inspect_data / create_data resolve source_file_ids
+        # against runtime_ctx["excel_files"] and report.files, both loaded at
+        # run start. Without this the very next inspect_data on the file_id
+        # just returned said "source file(s) not found" (seen live in a
+        # sub-agent, trace f5e2f94f). Same registration execute_mcp does.
+        from app.ai.tools.implementations.execute_mcp import _register_same_turn
+        _register_same_turn(file, runtime_ctx, report)
 
         # Build data_model and view for visualization
         query_title = data.title or "Generated CSV"

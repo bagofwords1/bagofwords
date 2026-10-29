@@ -51,6 +51,9 @@ class ToolConfirmation(BaseSchema):
 
     # The decision.
     remember = Column(Boolean, nullable=False, default=False)
+    # Optional structured answer beyond allow/deny (e.g. the agents a user
+    # kept ticked on create_demo_dataset's card, or reject feedback).
+    response = Column(JSON, nullable=True)
     resolved_by_user_id = Column(String(36), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     expires_at = Column(DateTime, nullable=True)

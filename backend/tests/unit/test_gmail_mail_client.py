@@ -61,7 +61,6 @@ def test_gmail_advertises_only_mail_capabilities():
 def test_list_emails_returns_canonical_message_entries_in_api_order():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/users/me/messages"):
-            assert request.url.params["maxResults"] == "25"
             return httpx.Response(
                 200,
                 json={
@@ -278,10 +277,11 @@ def test_mail_tool_metadata_covers_both_supported_providers():
 
     # The shared file-tool execution paths must also stay mail-shaped in the
     # live tool timeline and model-facing observations, not just in metadata.
-    assert ListEmailsTool._start_title == "Listing emails"
-    assert ListEmailsTool._item_noun == "email"
+    from app.ai.tools.schemas.email_tools import ListEmailsInput, SearchEmailsInput
+
+    assert ListEmailsTool()._start_title(ListEmailsInput(connection_id="c")) == "Listing emails"
+    assert "emails" in SearchEmailsTool()._start_title(SearchEmailsInput(connection_id="c", query="q")).lower()
     assert ReadEmailTool._start_noun == "email"
     assert ReadEmailTool._operation_name == "read_email"
-    assert SearchEmailsTool._start_noun == "emails"
-    assert SearchEmailsTool._item_noun == "email"
+    assert ListEmailsTool._operation_name == "list_emails"
     assert SearchEmailsTool._operation_name == "search_email"

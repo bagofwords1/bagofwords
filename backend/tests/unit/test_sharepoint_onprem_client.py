@@ -2,7 +2,7 @@
 from app.schemas.data_source_registry import REGISTRY
 import io
 import json
-from urllib.parse import unquote
+from urllib.parse import unquote, parse_qs, urlsplit
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -31,10 +31,18 @@ def remote(monkeypatch):
         OTHER + "/rules.txt": b"Employees may expense travel up to 500 euros.",
     }
     state = {"blobs": blobs, "status": None, "next": None, "calls": [], "search_paths": [], "identities": []}
+    state["page_size"] = None
+    state["libraries"] = [
+        {"Id": "lib1", "Title": "Documents", "BaseType": 1, "BaseTemplate": 101, "Hidden": False,
+         "RootFolder": {"ServerRelativeUrl": ROOT}},
+        {"Id": "lib2", "Title": "Policies", "BaseType": 1, "BaseTemplate": 101, "Hidden": False,
+         "RootFolder": {"ServerRelativeUrl": OTHER}},
+    ]
 
     def meta(path):
         return {"Name": path.rsplit("/", 1)[1], "ServerRelativeUrl": path,
-                "Length": str(len(blobs[path])), "TimeLastModified": "2026-08-01T10:00:00Z"}
+                "Length": str(len(blobs[path])), "TimeLastModified": "2026-08-01T10:00:00Z",
+                "TimeCreated": "2026-07-01T09:00:00Z"}
 
     def respond(session, url, **kw):
         state["identities"].append(getattr(session.auth, "username", None))
@@ -42,11 +50,19 @@ def remote(monkeypatch):
         assert kw["allow_redirects"] is False
         assert session.verify is True
         assert session.trust_env is False
-        endpoint = unquote(url.split("/_api/", 1)[1])
+        endpoint = unquote(url.split("/_api/", 1)[1].split('?')[0])
         status, body = state["status"] or 200, {}
         if endpoint == "web/lists":
-            body = {"value": [{"Id": "lib1", "Title": "Documents", "RootFolder": {"ServerRelativeUrl": ROOT}},
-                              {"Id": "lib2", "Title": "Policies", "RootFolder": {"ServerRelativeUrl": OTHER}}]}
+            # Evaluate the supported OData equality predicates at the HTTP boundary.
+            libraries = state["libraries"]
+            for predicate in kw.get("params", {}).get("$filter", "").split(" and "):
+                field, operator, value = predicate.split()
+                assert operator == "eq"
+                value = {"true": True, "false": False}.get(value, value)
+                if isinstance(value, str):
+                    value = int(value)
+                libraries = [lib for lib in libraries if lib.get(field) == value]
+            body = {"value": libraries}
         elif endpoint == "web/DefaultDocumentLibrary":
             body = {"Id": "lib1"}
         elif endpoint == "web":
@@ -61,6 +77,13 @@ def remote(monkeypatch):
             path = endpoint.split("decodedurl='", 1)[1].rsplit("')", 1)[0].replace("''", "'")
             if endpoint.endswith("/Files"):
                 body = {"value": [meta(p) for p in blobs if p.rsplit("/", 1)[0] == path]}
+                if state["page_size"]:
+                    offset = int(parse_qs(urlsplit(url).query).get('offset', ['0'])[0])
+                    size = min(state['page_size'], (kw.get('params') or {}).get('$top', state['page_size']))
+                    rows = body['value']
+                    body['value'] = rows[offset:offset + size]
+                    if offset + size < len(rows):
+                        body['odata.nextLink'] = url.split('?')[0] + f'?offset={offset + size}'
                 if state["next"]:
                     body["odata.nextLink"] = state["next"]
             elif endpoint.endswith("/Folders"):
@@ -101,6 +124,34 @@ def test_library_selection_and_recursion(remote, library, recursive, count):
     assert len(files) == count
     assert len({f["id"] for f in files}) == count
     assert all(f["name"] and f["web_url"].startswith(SITE) for f in files)
+
+
+@pytest.mark.parametrize("template", [12042, 13057])
+@pytest.mark.parametrize("library", ["*", "Documents", ""])
+def test_custom_document_libraries_support_catalog_search_and_reads(remote, template, library):
+    remote["libraries"][0]["BaseTemplate"] = template
+    c = client(drive_name=library, recursive=True)
+    expected = {p for p in remote["blobs"] if library == "*" or p.startswith(ROOT + "/")}
+    files = c.list_files()
+    assert {f["id"] for f in files} == expected
+    assert {table.name for table in c.get_schemas()} == {f["path"] for f in files}
+    assert {f["id"] for f in c.search_files("revenue")} == {ROOT + "/revenue.csv"}
+    for path in expected:
+        assert c.read_raw_bytes(path)[0] == remote["blobs"][path]
+
+
+@pytest.mark.parametrize("attributes", [{"Hidden": True}, {"BaseType": 0}])
+def test_hidden_and_non_document_libraries_are_not_accessible(remote, attributes):
+    remote["libraries"][0].update(attributes)
+    c = client(recursive=True)
+    assert {f["id"] for f in c.list_files()} == {p for p in remote["blobs"] if p.startswith(OTHER + "/")}
+    with pytest.raises(ValueError):
+        c.read_raw_bytes(ROOT + "/revenue.csv")
+    selected = client(drive_name="Documents")
+    assert not selected.test_connection()["success"]
+    with pytest.raises(ValueError):
+        selected.read_raw_bytes(ROOT + "/revenue.csv")
+    assert not any("$value" in url for url, _ in remote["calls"])
 
 
 def test_scoped_catalog_and_live_reads_share_paths(remote):
@@ -252,3 +303,31 @@ def test_transient_read_failure_retries_a_fresh_session(remote, monkeypatch):
     monkeypatch.setattr(requests.Session, "get", fail_once)
     assert client().test_connection()["success"]
     assert sessions[0] is not sessions[1]
+
+@pytest.mark.parametrize('indexed', [True, False])
+def test_search_does_not_crawl_after_result_limit(remote, indexed):
+    remote['search_paths'] = [SITE.split('/sites/')[0] + ROOT + '/revenue.csv'] if indexed else []
+    # Following this next page would fail at the HTTP boundary. The first live
+    # page already contains a match, or the content index already satisfied us.
+    remote['next'] = SITE + '/_api/unneeded-next-page'
+    results = client(drive_name='Documents').search_files('revenue', limit=1)
+    assert len(results) == 1 and results[0]['name'] == 'revenue.csv'
+    file_requests = [url for url, _ in remote['calls'] if url.endswith('/Files')]
+    assert len(file_requests) == (0 if indexed else 1)
+
+
+def test_content_indexing_over_modern_rest(remote):
+    c = client(drive_name="Documents", recursive=True, index_mode="content")
+    rows = {t.name: t.metadata_json["sharepoint_onprem"] for t in c.get_schemas()}
+    assert set(rows) == {f["path"] for f in c.list_files()}
+    assert all(m["indexed"] and m["created_at"] and m["modified_at"] for m in rows.values())
+    assert any("revenue" in m["keywords"] for m in rows.values())
+    downloads = sum(url.endswith("/$value") for url, _ in remote["calls"])
+    assert downloads == len(rows)
+    c.get_schemas(prior_catalog={t: {"sharepoint_onprem": m} for t, m in rows.items()})
+    assert sum(url.endswith("/$value") for url, _ in remote["calls"]) == downloads
+
+
+def test_unknown_index_mode_is_rejected():
+    with pytest.raises(ValueError):
+        client(index_mode="embeddings")

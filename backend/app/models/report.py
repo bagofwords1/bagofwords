@@ -32,6 +32,18 @@ class Report(BaseSchema):
     # completion: prompt.model_id (explicit per-message) > report.model_id >
     # user default > org default.
     model_id = Column(String(36), nullable=True)
+    # Report-level reasoning effort, picked with the model in the composer and
+    # stored beside it. null = Default (the model's own default / trigger
+    # words). Each turn also records its effort on completion.prompt.
+    reasoning_effort = Column(String(16), nullable=True)
+    # Per-conversation opt-outs for API integrations (see
+    # app.schemas.report_api_settings). null / missing = the org setting
+    # decides; False = off for every turn on this report, including the turns
+    # the agent continues on its own (sub-agents, fan-in, wait wakes, steers,
+    # eval wakes, check-ins). They can only switch things off.
+    follow_ups = Column(Boolean, nullable=True)
+    suggest_instructions = Column(Boolean, nullable=True)
+    tools = Column(JSON, nullable=True)  # {public tool key: false}
     
     # Sharing visibility: 'none' | 'shared' | 'internal' | 'public'
     # 'none' = only owner, 'shared' = specific users, 'internal' = org, 'public' = anyone
@@ -70,6 +82,12 @@ class Report(BaseSchema):
     # subset. Never Auto: a viewer's chat can only narrow from here — the
     # effective set is this ∩ the viewer's own accessible agents.
     artifact_chat_data_source_ids = Column(JSON, nullable=True, default=None)
+    # Default LLM for artifact-page chat, chosen by the owner. null = inherit
+    # this report's own model_id; 'org_default' = the organization default
+    # (nothing pinned); else an llm_models id. Applied to each
+    # viewer's chat report on every message, so owner edits take effect at once;
+    # a viewer who cannot use the model falls back to their own default.
+    artifact_chat_model_id = Column(String(36), nullable=True, default=None)
 
     cron_schedule = Column(String, nullable=True)
     # Rerun the artifact's queries when a viewer opens the shared report page
@@ -99,11 +117,20 @@ class Report(BaseSchema):
 
     # Fork lineage
     forked_from_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
+    # A fork from a published dashboard's page (dashfc07): the dashboard, not
+    # the owner's conversation (forked_from_id stays empty for it).
+    forked_from_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_forked_from_artifact_id',
+                                                            ondelete='SET NULL'), nullable=True, index=True)
     forked_from = relationship("Report", remote_side="Report.id", lazy="selectin")
 
     # Project membership (shared folder). NULL = personal root list. Moving a
     # report between projects is just an update of this column.
     project_id = Column(String(36), ForeignKey('projects.id'), nullable=True, index=True)
+
+    # A viewer's chat thread (report_type='artifact_chat') records the
+    # dashboard it was opened from (dashfc01; not read yet).
+    source_artifact_id = Column(String(36), ForeignKey('artifacts.id', name='fk_reports_source_artifact_id'),
+                                nullable=True, index=True)
     project = relationship("Project", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
@@ -142,7 +169,8 @@ class Report(BaseSchema):
     # Parent Artifact rows (identity: mode + title), NOT versions — cheap to
     # selectin-load. Version rows hang off `artifact_versions` and are only
     # loaded on explicit request (their content JSON can be ~100kB each).
-    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
+    artifacts = relationship("Artifact", back_populates="report", lazy="selectin",
+                             foreign_keys="Artifact.report_id")
     artifact_versions = relationship("ArtifactVersion", back_populates="report", lazy="select")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")

@@ -179,6 +179,10 @@ async def export_eval_yaml(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
 ) -> str:
+    # Same bar as GET /tests/suites/{id}/export: exporting a suite dumps every
+    # case's prompt and expectations, which is eval-authoring material.
+    if await _require_manage_evals(db, organization, current_user) is not None:
+        raise HTTPException(status_code=403, detail="You do not have permission to manage evals.")
     # Look up suite by name within org → delegate to existing export_yaml
     q = await db.execute(
         select(TestSuite).where(

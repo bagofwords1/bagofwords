@@ -67,7 +67,7 @@
             </li>
           </ul>
           <div v-if="projectFiles.length > 0" class="w-full mt-3">
-            <div class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+            <div class="text-2xs font-semibold text-ink-muted uppercase tracking-wider mb-1">
               {{ $t('projects.overview.fromProject', { name: projectName }) }}
             </div>
             <ul class="w-full max-h-32 overflow-y-auto">
@@ -75,7 +75,7 @@
                 v-for="file in projectFiles"
                 :key="file.id"
                 class="text-xs py-1.5 text-gray-500 dark:text-gray-400 flex items-center gap-1.5 border-b border-gray-100 dark:border-gray-800 last:border-b-0">
-                <Icon name="heroicons-folder" class="w-3.5 h-3.5 flex-shrink-0 text-gray-400" />
+                <Icon name="heroicons-folder" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
                 <span class="truncate">{{ file.filename }}</span>
               </li>
             </ul>

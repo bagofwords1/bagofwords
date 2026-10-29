@@ -27,7 +27,7 @@
                             ref="nameInput"
                             v-model="form.name"
                             type="text"
-                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
                             placeholder="e.g., Finance"
                             required
                         />
@@ -38,7 +38,7 @@
                         <textarea
                             v-model="form.description"
                             rows="3"
-                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+                            class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
                             placeholder="Short description (optional)"
                         />
                     </div>
@@ -54,7 +54,7 @@
                                     <div class="flex items-center gap-2">
                                         <span class="w-4 h-4 rounded-full border border-gray-300 dark:border-gray-600" :style="{ backgroundColor: form.color }"></span>
                                     </div>
-                                    <Icon :name="open ? 'heroicons:chevron-up' : 'heroicons:chevron-down'" class="w-4 h-4 text-gray-400" />
+                                    <Icon :name="open ? 'heroicons:chevron-up' : 'heroicons:chevron-down'" class="w-4 h-4 text-ink-muted" />
                                 </button>
                             </template>
                             <template #panel>
@@ -98,7 +98,7 @@
                                 Cancel
                             </UButton>
                             <UButton
-                                class="!bg-blue-500 !text-white"
+                                class="!bg-blue-600 !text-white"
                                 :loading="isSaving"
                                 @click="submit"
                                 :disabled="!canSubmit"

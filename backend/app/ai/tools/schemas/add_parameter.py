@@ -15,7 +15,8 @@ class AddParameterInput(BaseModel):
 
     query_id: str = Field(..., description=(
         "Id of the EXISTING query to parameterize (from create_data results or the Summary panel). "
-        "The query keeps its identity — visualizations bound to it pick up the parameter automatically."
+        "The query keeps its identity — visualizations bound to it pick up the parameter automatically. "
+        "A visualization id ('viz_id') is also accepted here and resolves to the query behind it."
     ))
     parameter: ParamSpec = Field(..., description=(
         "The parameter to add (same ParamSpec contract as create_data: name, type, label, default, "

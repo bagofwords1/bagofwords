@@ -4,7 +4,7 @@ from datetime import timedelta
 # Bump when the rollup logic changes: the startup sweep re-indexes every run
 # whose ``rollup_version`` is older, so a fix to how cost or a score is
 # computed reaches historical rows without a hand-run script.
-ROLLUP_VERSION = 1
+ROLLUP_VERSION = 2  # 2: input tokens include cache for every provider; cache_read_tokens
 
 # A run still ``in_progress`` this long after it started never finished (the
 # process died mid-run): the query language calls it ``status:stale``, the

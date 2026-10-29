@@ -9,11 +9,6 @@ from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
 # prompt overhead negligible.
 MEMBERSHIP_NOTE_MAX_LENGTH = 500
 
-# Per-user, per-org agent memory. Always injected into the planner, so the cap
-# is deliberately small — a full-document rewrite, not an append log. Forcing a
-# bound is what keeps memory curated (the agent must prune to add).
-MEMBERSHIP_MEMORY_MAX_LENGTH = 2000
-
 class OrganizationCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -30,10 +25,16 @@ class MembershipCreate(BaseModel):
     email: Optional[str] = None
     role: Optional[str] = "member"
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
+    # Admin-set attributes identifying the member in other systems (e.g.
+    # {"qlik_user_id": "dana"}); consumed by connection identity mappings.
+    # Validated by services/member_attributes.normalize_custom_attributes.
+    custom_attributes: Optional[Dict[str, str]] = None
 
 class MembershipUpdate(BaseModel):
     role: Optional[str] = None
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
+    # Replaces the member's whole attribute set when present ({} clears it).
+    custom_attributes: Optional[Dict[str, Optional[str]]] = None
 
 
 # Import row outcomes returned to the caller. Mirrors what the UI shows
@@ -42,6 +43,9 @@ class MembershipImportRow(BaseModel):
     row: int  # 1-based source row (header is row 1, first data row is row 2)
     email: Optional[str] = None
     note: Optional[str] = None
+    # Attributes this row sets (from attr.<key> columns); merged into the
+    # member's existing attributes, never replacing ones the file omits.
+    custom_attributes: Optional[Dict[str, str]] = None
     status: str  # "created" | "updated" | "unchanged" | "error"
     error: Optional[str] = None
 

@@ -1,0 +1,12 @@
+{
+  "production": true,
+  "measured": {
+    "font": "15px",
+    "lineHeight": "24px",
+    "fade": ".18s"
+  },
+  "gap": 0,
+  "top": 180,
+  "preserved": 180,
+  "errors": []
+}

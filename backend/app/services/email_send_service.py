@@ -17,12 +17,17 @@ import os
 import re
 import tempfile
 import logging
+from sqlalchemy.exc import IntegrityError
 
 from app.ai.tools.schemas.send_email import (
     EmailAttachmentSpec,
     SendEmailAttachmentResult,
     SendEmailOutput,
 )
+
+# `_UNSET` ("no reader given") renders the stored snapshot, as every caller got
+# before per-recipient rendering. Distinct from None: a reader with no account.
+from app.services.artifact_payload import UNSCOPED as _UNSET
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +106,25 @@ _MIME = {
 }
 
 
+PERSONAL_DATA_WITHHELD = (
+    "Not attached: it contains data scoped to each viewer that this recipient "
+    "cannot receive — open it in the app instead"
+)
+
+
+async def _artifact_identity_scoped(db, artifact) -> bool:
+    """Whether any visualization this artifact renders is identity-scoped."""
+    from app.services.artifact_payload import _viz_steps
+    from app.services.report_bursting import identity_scoped_step_ids
+
+    included = set((artifact.content or {}).get("visualization_ids") or [])
+    step_ids = [
+        str(step.id) for viz, _q, step in await _viz_steps(db, artifact)
+        if step is not None and (not included or str(viz.id) in included)
+    ]
+    return bool(await identity_scoped_step_ids(db, step_ids))
+
+
 def _slugify(name: str) -> str:
     name = (name or "attachment").strip()
     name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
@@ -155,6 +179,27 @@ def _write_temp(content: bytes, suffix: str) -> str:
 class EmailSendService:
     """Resolve report-scoped attachments and send a free-form email."""
 
+    @staticmethod
+    async def _claim_agent_delivery(db, agent_execution_id: str, recipient: str) -> bool:
+        """Persist a unique claim before the irreversible provider call.
+
+        A provider timeout can mean the message was accepted, so a claim is
+        intentionally retained even if the send later reports an error.
+        """
+        from app.models.email_delivery_claim import EmailDeliveryClaim
+
+        try:
+            async with db.begin_nested():
+                db.add(EmailDeliveryClaim(
+                    agent_execution_id=agent_execution_id,
+                    recipient=recipient.strip().lower(),
+                ))
+                await db.flush()
+        except IntegrityError:
+            return False
+        await db.commit()
+        return True
+
     async def send(
         self,
         db,
@@ -168,6 +213,8 @@ class EmailSendService:
         organization: Any = None,
         system_completion: Any = None,
         user: Any = None,
+        agent_execution_id: Optional[str] = None,
+        recipient_user: Any = _UNSET,
     ) -> SendEmailOutput:
         """Send an email to ``recipient`` with the given attachments.
 
@@ -179,6 +226,9 @@ class EmailSendService:
         mailbox, gets a report deep link appended, and is threaded so the
         recipient's reply re-attaches to this report (``system_completion`` is
         stamped with the thread root).
+
+        ``recipient_user`` is who the attachments are rendered for (see
+        resolve_attachment); omitted, they export the stored snapshot.
         """
         attachment_specs = attachment_specs or []
 
@@ -188,7 +238,7 @@ class EmailSendService:
         try:
             for spec in attachment_specs:
                 result, att_dict, temp_path = await self.resolve_attachment(
-                    spec, db, report, organization, user=user
+                    spec, db, report, organization, user=user, recipient=recipient_user,
                 )
                 attachment_results.append(result)
                 if att_dict:
@@ -232,6 +282,17 @@ class EmailSendService:
             body = self._append_report_link(
                 body, subtype, report, can_reply=bool(integration and integration.get("inbound"))
             )
+
+            if agent_execution_id and not await self._claim_agent_delivery(
+                db, agent_execution_id, recipient
+            ):
+                return SendEmailOutput(
+                    success=False,
+                    recipient=recipient,
+                    subject=subject,
+                    attachments=attachment_results,
+                    error="An email was already attempted for this recipient in this agent run.",
+                )
 
             send_result = await notification_service.send_custom_email(
                 recipients=[recipient],
@@ -345,19 +406,29 @@ class EmailSendService:
     # ---- attachment resolution ----
 
     async def resolve_attachment(
-        self, spec: EmailAttachmentSpec, db, report: Any, organization: Any, user: Any = None
+        self, spec: EmailAttachmentSpec, db, report: Any, organization: Any, user: Any = None,
+        recipient: Any = _UNSET,
     ) -> Tuple[SendEmailAttachmentResult, Optional[Dict[str, Any]], Optional[str]]:
         """Resolve a single attachment spec to a fastapi-mail attachment dict.
 
         Returns (result, attachment_dict_or_None, temp_path_to_cleanup_or_None).
         On any failure, result.success is False with an error and the dict is None.
+
+        ``recipient`` is the User the attachment is for (None for an address
+        with no account). Identity-scoped content is rendered for THAT reader
+        — their own rows, through viewer_data_policy.resolve_step_data after
+        running their identity-scoped steps as them — and withheld from a
+        reader with no account or no access. The report owner, a missing
+        recipient, and content that is not identity-scoped all export the
+        stored snapshot exactly as before.
         """
+        viewer = self._attachment_viewer(report, recipient)
         res = SendEmailAttachmentResult(ref_type=spec.ref_type, ref_id=spec.ref_id, success=False)
         try:
             if spec.ref_type in ("visualization", "query"):
-                return await self._resolve_tabular(spec, db, report, organization, res)
+                return await self._resolve_tabular(spec, db, report, organization, res, viewer=viewer)
             if spec.ref_type == "artifact":
-                return await self._resolve_artifact(spec, db, report, res)
+                return await self._resolve_artifact(spec, db, report, res, viewer=viewer)
             if spec.ref_type == "file":
                 return await self._resolve_file(spec, db, report, organization, res, user)
             res.error = f"Unknown ref_type '{spec.ref_type}'"
@@ -373,7 +444,39 @@ class EmailSendService:
         org_id = str(getattr(organization, "id", "")) if organization is not None else None
         return report_id, org_id
 
-    async def _resolve_tabular(self, spec, db, report, organization, res):
+    @staticmethod
+    def _attachment_viewer(report: Any, recipient: Any) -> Any:
+        """UNSCOPED (stored snapshot) unless the reader is someone other than
+        the report's owner."""
+        from app.services.artifact_payload import UNSCOPED
+
+        if report is None or recipient is UNSCOPED:
+            return UNSCOPED
+        if recipient is not None and str(getattr(recipient, "id", "")) == str(getattr(report, "user_id", "")):
+            return UNSCOPED
+        return recipient
+
+    async def _viewer_copy_ready(self, db, report: Any, viewer: Any) -> bool:
+        """Run `viewer`'s identity-scoped steps as them (once per send).
+
+        False when the reader has no account, cannot open the report, or has
+        no access to its agent — identity-scoped content is then withheld."""
+        if viewer is None or report is None:
+            return False
+        cache = self.__dict__.setdefault("_viewer_prep", {})
+        key = (str(report.id), str(viewer.id))
+        if key not in cache:
+            from app.services.report_bursting import prepare_recipient_copy
+
+            try:
+                prep = await prepare_recipient_copy(db, str(report.id), viewer)
+                cache[key] = prep.skip_reason is None
+            except Exception:  # noqa: BLE001
+                logger.exception("Preparing %s's copy of report %s failed", viewer.id, report.id)
+                cache[key] = False
+        return cache[key]
+
+    async def _resolve_tabular(self, spec, db, report, organization, res, viewer: Any = _UNSET):
         """visualization_id / query_id -> CSV or XLSX of the underlying step data."""
         from sqlalchemy import select
         from app.models.visualization import Visualization
@@ -387,7 +490,7 @@ class EmailSendService:
         title = None
         if spec.ref_type == "visualization":
             viz = await db.get(Visualization, spec.ref_id)
-            if not viz:
+            if not viz or viz.artifact_release_id:  # a published dashboard's copy is not attachable here
                 res.error = "Visualization not found"
                 return res, None, None
             if report_id and str(viz.report_id) != report_id:
@@ -397,11 +500,12 @@ class EmailSendService:
             query = await db.get(Query, viz.query_id) if viz.query_id else None
         else:  # query
             query = await db.get(Query, spec.ref_id)
-            if not query:
+            if not query or query.artifact_release_id:  # a published dashboard's copy is not attachable here
                 res.error = "Query not found"
                 return res, None, None
             # Queries may be report-scoped or global-to-org; require one to match.
-            q_report = str(query.report_id) if query.report_id else None
+            from app.services.row_owner import query_report_id
+            q_report = await query_report_id(db, query)
             q_org = str(query.organization_id) if query.organization_id else None
             if report_id and q_report and q_report != report_id and (not org_id or q_org != org_id):
                 res.error = "Query does not belong to this report or organization"
@@ -424,7 +528,23 @@ class EmailSendService:
             res.error = "No executed result available to export"
             return res, None, None
 
-        df, _ = await StepService().export_step_to_csv(db, step.id)
+        from app.services.artifact_payload import UNSCOPED
+        from app.services.report_bursting import identity_scoped_step_ids
+
+        if viewer is not UNSCOPED and str(step.id) in await identity_scoped_step_ids(db, [str(step.id)]):
+            # Identity-scoped rows: the stored snapshot is the owner's slice.
+            from app.services.viewer_data_policy import resolve_step_data
+
+            if not await self._viewer_copy_ready(db, report, viewer):
+                res.error = PERSONAL_DATA_WITHHELD
+                return res, None, None
+            resolution = await resolve_step_data(db, step, report, viewer)
+            if resolution.withheld:
+                res.error = PERSONAL_DATA_WITHHELD
+                return res, None, None
+            df = StepService.data_to_dataframe(resolution.data)
+        else:
+            df, _ = await StepService().export_step_to_csv(db, step.id)
         if df is None or df.empty:
             res.error = "Result is empty — nothing to export"
             return res, None, None
@@ -454,7 +574,7 @@ class EmailSendService:
         res.success = True
         return res, _att_dict(temp_path, filename, maintype, subtype), temp_path
 
-    async def _resolve_artifact(self, spec, db, report, res):
+    async def _resolve_artifact(self, spec, db, report, res, viewer: Any = _UNSET):
         """artifact_id -> PPTX (slides) or PDF (page)."""
         from app.models.artifact import ArtifactVersion
 
@@ -474,7 +594,19 @@ class EmailSendService:
         base = spec.filename or _slugify(artifact.title or "artifact")
         base = re.sub(r"\.(pptx|pdf)$", "", base, flags=re.IGNORECASE)
 
+        from app.services.artifact_payload import UNSCOPED
+
+        personal = viewer is not UNSCOPED and await _artifact_identity_scoped(db, artifact)
+        if personal and not await self._viewer_copy_ready(db, report, viewer):
+            res.error = PERSONAL_DATA_WITHHELD
+            return res, None, None
+
         if fmt == "pptx":
+            if personal and (artifact.content or {}).get("slides"):
+                # A legacy deck is stored as finished slide JSON with the
+                # owner's numbers baked in — nothing to re-run per reader.
+                res.error = PERSONAL_DATA_WITHHELD
+                return res, None, None
             if mode != "slides":
                 res.error = "PPTX export is only available for slides artifacts"
                 return res, None, None
@@ -494,6 +626,23 @@ class EmailSendService:
 
         # pdf
         from app.services.report_pdf_service import ReportPdfService
+        if personal:
+            import uuid as _uuid
+
+            # This reader's own copy, under its own file name — deleted after
+            # the send, and never the shared export path another reader's
+            # download could pick up.
+            pdf_path = await ReportPdfService().generate_for_artifact(
+                str(artifact.id), viewer=viewer, out_key=f"burst-{_uuid.uuid4().hex}",
+            )
+            if not pdf_path or not os.path.isfile(pdf_path):
+                res.error = PERSONAL_DATA_WITHHELD
+                return res, None, None
+            filename = f"{base}.pdf"
+            maintype, subtype = _MIME["pdf"]
+            res.filename = filename
+            res.success = True
+            return res, _att_dict(pdf_path, filename, maintype, subtype), pdf_path
         pdf_path = await ReportPdfService().generate_for_artifact(str(artifact.id))
         if not pdf_path or not os.path.isfile(pdf_path):
             res.error = "PDF generation failed"

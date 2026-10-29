@@ -1,6 +1,6 @@
 <template>
     <div v-if="tools.length" class="flex items-center gap-2 mt-4 flex-wrap">
-        <span class="text-xs text-gray-400 me-0.5 flex-shrink-0">{{ $t('monitoring.diagnosis.toolsInRuns') }}</span>
+        <span class="text-xs text-ink-muted me-0.5 flex-shrink-0">{{ $t('monitoring.diagnosis.toolsInRuns') }}</span>
         <button
             v-for="t in tools"
             :key="t.tool"
@@ -14,7 +14,7 @@
         >
             <span class="font-mono" :class="isActive(t.tool) ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'">{{ t.tool }}</span>
             <span class="text-gray-500">{{ t.calls.toLocaleString() }}</span>
-            <span :class="t.errors ? 'text-red-700 dark:text-red-400' : 'text-gray-400'">{{ $t('monitoring.diagnosis.toolErrors', { n: t.errors }) }}</span>
+            <span :class="t.errors ? 'text-red-700 dark:text-red-400' : 'text-ink-muted'">{{ $t('monitoring.diagnosis.toolErrors', { n: t.errors }) }}</span>
             <span class="text-gray-500">{{ $t('monitoring.diagnosis.toolAvg', { d: fmtDuration(t.avg_ms) }) }}</span>
         </button>
     </div>

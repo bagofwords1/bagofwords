@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException
 
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, get_current_organization, ensure_path_organization_matches
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.resource_grant import ResourceGrant
@@ -26,7 +26,10 @@ from app.core.auth import forbid_service_account_principal
 
 # Service accounts must never manage roles, groups, assignments, or grants —
 # this is the self-escalation guard (a leaked SA key cannot grant itself more).
-router = APIRouter(tags=["rbac"], dependencies=[Depends(forbid_service_account_principal)])
+router = APIRouter(
+    tags=["rbac"],
+    dependencies=[Depends(forbid_service_account_principal), Depends(ensure_path_organization_matches)],
+)
 
 
 # ── Permission Registry ──────────────────────────────────────────────────
@@ -70,7 +73,7 @@ async def create_role(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    role = await rbac_service.create_role(db, organization_id, data)
+    role = await rbac_service.create_role(db, organization_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.created",
@@ -94,7 +97,7 @@ async def update_role(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    role = await rbac_service.update_role(db, organization_id, role_id, data)
+    role = await rbac_service.update_role(db, organization_id, role_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.updated",
@@ -241,6 +244,7 @@ async def add_group_member(
     await rbac_service.add_group_member(
         db, organization_id, group_id,
         user_id=data.user_id, membership_id=data.membership_id,
+        actor_id=current_user.id,
     )
     try:
         await audit_service.log(
@@ -301,7 +305,7 @@ async def create_role_assignment(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    assignment = await rbac_service.create_role_assignment(db, organization_id, data)
+    assignment = await rbac_service.create_role_assignment(db, organization_id, data, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.assigned",

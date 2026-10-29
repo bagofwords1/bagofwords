@@ -11,8 +11,39 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.connection import Connection
 from app.models.file_reference import FileReference
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["file_references"])
+
+
+async def _report_in_org(db, report_id: str, organization) -> Report:
+    report = await db.get(Report, report_id)
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+async def _require_report_read(db, report_id: str, user, organization) -> Report:
+    """Reading a report's file references needs read access to the report
+    (owner, full admin, or the report's visibility/project) — the same rule as
+    the report's files. 404 rather than 403 so report IDs are not probeable."""
+    from app.services.file_access_service import user_can_view_report, CONVERSATION_OR_ARTIFACT
+    report = await _report_in_org(db, report_id, organization)
+    if not await user_can_view_report(db, user, organization, report, CONVERSATION_OR_ARTIFACT):
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
+async def _require_report_write(db, report_id: str, user, organization) -> Report:
+    """Adding/removing a report's file references is a report edit: the
+    report's owner, or a full admin."""
+    from app.services.file_access_service import user_owns_report, is_full_admin
+    report = await _require_report_read(db, report_id, user, organization)
+    if user_owns_report(user, report) or await is_full_admin(db, user, organization):
+        return report
+    raise HTTPException(status_code=403, detail="Only the report's owner can change its file references.")
 
 
 def _ref_dict(r: FileReference) -> dict:
@@ -29,6 +60,7 @@ async def list_file_references(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
+    await _require_report_read(db, report_id, current_user, organization)
     rows = (await db.execute(
         select(FileReference).where(
             FileReference.report_id == report_id,
@@ -49,12 +81,12 @@ async def create_file_reference(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    report = await db.get(Report, report_id)
-    if not report or str(report.organization_id) != str(organization.id):
-        raise HTTPException(status_code=404, detail="Report not found")
+    await _require_report_write(db, report_id, current_user, organization)
     conn = await db.get(Connection, connection_id)
     if not conn or str(conn.organization_id) != str(organization.id):
         raise HTTPException(status_code=404, detail="Connection not found")
+    from app.routes.connection import _ensure_can_read_connection
+    await _ensure_can_read_connection(db, organization, current_user, conn)
     ref = FileReference(
         report_id=report_id, connection_id=connection_id,
         external_file_id=external_file_id, name=name, mime=mime,
@@ -76,6 +108,12 @@ async def delete_file_reference(
     ref = await db.get(FileReference, reference_id)
     if not ref or str(ref.organization_id) != str(organization.id):
         raise HTTPException(status_code=404, detail="Reference not found")
+    try:
+        await _require_report_write(db, ref.report_id, current_user, organization)
+    except HTTPException as e:
+        if e.status_code == 404:
+            raise HTTPException(status_code=404, detail="Reference not found")
+        raise
     await db.delete(ref)
     await db.commit()
     return {"success": True}
@@ -94,6 +132,8 @@ async def list_connection_files(
     conn = await db.get(Connection, connection_id)
     if not conn or str(conn.organization_id) != str(organization.id):
         raise HTTPException(status_code=404, detail="Connection not found")
+    from app.routes.connection import _ensure_can_read_connection
+    await _ensure_can_read_connection(db, organization, current_user, conn)
     from app.services.connection_service import ConnectionService
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
@@ -101,7 +141,11 @@ async def list_connection_files(
     except NotImplementedError:
         raise HTTPException(status_code=400, detail="This connection does not support file listing.")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
+        # The raw exception can carry hostnames, paths or upstream bodies; log
+        # it (redacted) and return a generic message.
+        from app.errors.redact import redact_error
+        logger.warning("list_connection_files failed for connection %s: %s", connection_id, redact_error(e))
+        raise HTTPException(status_code=400, detail="Failed to list files for this connection.")
     out = []
     for f in (files or [])[:50]:
         out.append({"id": f.get("id"), "name": f.get("name"), "mime": f.get("mimeType")})

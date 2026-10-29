@@ -1,4 +1,26 @@
 import { defineNuxtConfig } from "nuxt/config"
+import { createHash } from "node:crypto"
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
+
+// Content hash per vendored /libs file, baked into the bundle as
+// __BOW_LIB_HASHES__ (utils/artifactIframe.ts libUrl). The libs are
+// downloaded before `nuxt generate` (Dockerfile, boot_stack.sh), so a hashed
+// URL changes exactly when the file does — which is what lets the backend
+// serve hashed /libs URLs with an immutable Cache-Control (app/core/spa.py).
+function artifactLibHashes(): Record<string, string> {
+  const root = typeof __dirname !== "undefined" ? __dirname : process.cwd()
+  const dir = join(root, "public", "libs")
+  const out: Record<string, string> = {}
+  if (!existsSync(dir)) return out
+  for (const name of readdirSync(dir)) {
+    if (!/\.(js|css)$/.test(name)) continue
+    const file = join(dir, name)
+    if (!statSync(file).isFile()) continue
+    out[name] = createHash("sha256").update(readFileSync(file)).digest("hex").slice(0, 16)
+  }
+  return out
+}
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -69,6 +91,11 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    // tokens.css first: it defines the CSS variables (and the global
+    // baseline) that the sheets below, and tailwind.config.ts, resolve
+    // against. Order matters — anything that overrides a token must load
+    // after it.
+    '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
@@ -92,6 +119,25 @@ export default defineNuxtConfig({
     },
     fallbackToApi: false,
   },
+
+  // NOTE: no `app.pageTransition` / `app.layoutTransition` here, deliberately.
+  //
+  // They were added in 710c22b and reverted in the same PR after they blanked
+  // the home route. Vue's <Transition> can only animate a component whose
+  // template has a SINGLE ELEMENT root; anything else renders a Fragment and
+  // Vue bails with "node that cannot be animated". A leading HTML comment
+  // counts as a root node, so `<!-- … --> <div>` is already a fragment.
+  //
+  // 15 of this app's 68 pages are fragments today, among them the ones that
+  // matter most: index.vue, reports/[id]/index.vue, r/[id]/index.vue and all
+  // four users/* auth pages. Enabling route transitions would mean giving
+  // every one of them a single wrapper element — restructuring the DOM of the
+  // app's most important routes for a 160ms fade — and any new page that
+  // starts with a comment would silently break again.
+  //
+  // If you want this back, the prerequisite is a lint rule or test that
+  // enforces a single element root on every page component. Until then the
+  // trade is not worth it.
 
   colorMode: {
     preference: 'system'
@@ -134,17 +180,25 @@ export default defineNuxtConfig({
             rewrite: (path) => `/api${path}`
         },
         '/api': {
+            xfwd: true, // Append the actual client address; backend trusts only configured proxy peers.
             target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive',
-                // changeOrigin rewrites Host to the upstream, so the backend
-                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
-                // NGINX sets these in production; mirror that in dev.
-                'X-Forwarded-Host': 'localhost:3000',
-                'X-Forwarded-Proto': 'http'
+                'Connection': 'keep-alive'
+            },
+            // changeOrigin rewrites Host to the upstream, so the backend would
+            // otherwise derive OAuth redirect_uri from 127.0.0.1:8000. Pass the
+            // X-Forwarded-Host/Proto of a proxy in front of us (ingress, tunnel)
+            // through unchanged, and only default to localhost:3000 over http
+            // for direct local dev. Set on proxyReq because static `headers`
+            // would overwrite the incoming values.
+            configure: (proxy) => {
+                proxy.on('proxyReq', (proxyReq, req) => {
+                    proxyReq.setHeader('X-Forwarded-Host', req.headers['x-forwarded-host'] || 'localhost:3000')
+                    proxyReq.setHeader('X-Forwarded-Proto', req.headers['x-forwarded-proto'] || 'http')
+                })
             }
         }
     }
@@ -168,14 +222,12 @@ export default defineNuxtConfig({
         signInResponseTokenPointer: '/access_token',
         type: 'Bearer',
         maxAgeInSeconds: 60 * 60 * 24 * 7, // 7 days
-        cookie: {
-          name: 'auth_token',
-          options: {
-            path: '/',
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax'
-          }
-        }
+        // nuxt-auth 0.9 reads these flat keys; the cookie keeps its default
+        // name (auth.token) so existing sessions survive. `Secure` is turned on
+        // at runtime for HTTPS origins by plugins/00.auth-cookie-secure.client.ts,
+        // because one build serves both HTTPS and plain-HTTP self-hosted installs.
+        sameSiteAttribute: 'lax',
+        secureCookieAttribute: false
       },
       sessionDataType: { id: 'integer', name: 'string', email: 'string', is_superuser: 'boolean',
         organizations: '{ name: string, description: string | null, id: string, role: string, roles?: string[], permissions?: string[], resource_permissions?: Record<string, string[]>, is_enterprise?: boolean, usage_quota?: any }[]'
@@ -207,12 +259,43 @@ export default defineNuxtConfig({
 
   // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
   vite: {
+    define: {
+      __BOW_LIB_HASHES__: JSON.stringify(artifactLibHashes()),
+    },
     server: {
-      allowedHosts: [
-        '.ngrok-free.app'
-      ]
+      // Vite rejects requests whose Host header is not listed here (dev only).
+      // Set BOW_ALLOWED_HOSTS (comma-separated, leading dot = any subdomain) to
+      // allow specific hosts, e.g., ".ngrok-free.app,.sndbx.bagofwords.com".
+      allowedHosts: process.env.BOW_ALLOWED_HOSTS
+        ? process.env.BOW_ALLOWED_HOSTS.split(',').map(h => h.trim()).filter(Boolean)
+        : [],
+      // Dev only. Devboxes keep node_modules outside the checkout (a symlink
+      // to a hard-linked tree on the node's dependency cache). Vite serves
+      // raw ESM from node_modules for the excluded tiptap packages below and
+      // refuses paths outside its allow list, so add that directory.
+      fs: {
+        allow: ['.', ...(process.env.BOW_NODE_MODULES_DIR ? [process.env.BOW_NODE_MODULES_DIR] : [])],
+      },
+      // Dev only. Pre-transform the app's own modules when the dev server
+      // starts instead of on the first browser visit, which otherwise has
+      // Vite compile several hundred files on demand (slow first page, and the
+      // single Node process stops answering health probes meanwhile). Runs in
+      // the background after the server is listening; HMR is unaffected.
+      warmup: {
+        clientFiles: [
+          './layouts/**/*.vue',
+          './pages/**/*.vue',
+          './components/**/*.vue',
+          './composables/**/*.ts',
+        ],
+      },
     },
     optimizeDeps: {
+      // Heavy libraries that only load behind lazy component imports. Listing
+      // them pre-bundles them at startup, so opening the first page that uses
+      // one does not trigger a "new dependencies optimized, reloading" stall.
+      // Must stay out of the exclude list below (not tiptap/prosemirror).
+      entries: ['./pages/**/*.vue'],
       // nuxt-tiptap-editor puts the tiptap packages it registers into
       // build.transpile, which excludes them from Vite's dev pre-bundling —
       // they are served as raw ESM. The app's own tiptap deps
@@ -225,7 +308,14 @@ export default defineNuxtConfig({
       // tiptap/prosemirror family so dev resolves exactly one copy of each
       // module. Production builds are unaffected (single Rollup graph).
       // CJS deps of excluded packages still need prebundling for ESM interop
-      include: ['tiptap-markdown > markdown-it-task-lists'],
+      include: [
+        'tiptap-markdown > markdown-it-task-lists',
+        'monaco-editor',
+        'mermaid',
+        'ag-grid-vue3',
+        '@vue-flow/core',
+        'dagre-d3-es',
+      ],
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
@@ -260,6 +350,14 @@ export default defineNuxtConfig({
   },
 
   routeRules: {
+    '/libs/fonts/**': { headers: { 'Access-Control-Allow-Origin': '*' } },
+    // Artifact/MCP shells must never be framed by URL (an attacker page would
+    // become their parent and feed them artifact code in the app origin).
+    // Mirrors ARTIFACT_SHELL_HEADERS in backend/app/core/spa.py, which serves
+    // these files in production.
+    '/mcp-artifact-app.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
+    '/mcp-visualization-app.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
+    '/artifact-sandbox.html': { headers: { 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' } },
     '/data': { redirect: '/agents' },
     '/data/**': { redirect: '/agents/**' },
     // The org-wide evals page is gone — evals live in the Agents explorer, under

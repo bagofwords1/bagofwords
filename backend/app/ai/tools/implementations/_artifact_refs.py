@@ -150,6 +150,21 @@ def referenced_viz_ids(code: str, viz_ids: List[str]) -> List[str]:
     return [vid for vid in ids if vid in referenced]
 
 
+def option_source_viz_ids(vizs: List[Dict[str, Any]]) -> set:
+    """Payload vizs whose query only feeds a filter's choices: another viz's
+    parameter names it as ``options_source``. The page never renders them --
+    useParamOptions() gets the choices, resolved server-side -- so they need
+    no reference in the code."""
+    sources = set()
+    for v in vizs:
+        for spec in v.get("parameters") or []:
+            src = spec.get("options_source") if isinstance(spec, dict) else getattr(spec, "options_source", None)
+            qid = src.get("query_id") if isinstance(src, dict) else getattr(src, "query_id", None)
+            if qid:
+                sources.add(str(qid))
+    return {str(v.get("id")) for v in vizs if v.get("id") and str(v.get("query_id") or "") in sources}
+
+
 def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     """Contract check: viz references in code must match the data payload.
 
@@ -158,7 +173,8 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
       section survived the edit) — renders null/crashes or, worse, nothing;
     - a positional index outside the payload — silently undefined;
     - a payload viz that the code never references at all (dropped chart) —
-      unless the code iterates the whole list, which satisfies coverage.
+      unless the code iterates the whole list, which satisfies coverage, or
+      the viz only feeds a filter's choices (``option_source_viz_ids``).
     """
     src = code or ""
     vizs = [v for v in (artifact_data or {}).get("visualizations") or [] if isinstance(v, dict)]
@@ -193,7 +209,8 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     # worst case — a chartless page — and is always an error.
     if ids and src.strip():
         referenced = set(referenced_viz_ids(src, ids))
-        missing = [vid for vid in ids if vid not in referenced]
+        option_sources = option_source_viz_ids(vizs)
+        missing = [vid for vid in ids if vid not in referenced and vid not in option_sources]
         if missing:
             names = ", ".join(f"\"{titles.get(vid, 'Untitled')}\" (vizById(\"{vid}\"))" for vid in missing)
             if not referenced:

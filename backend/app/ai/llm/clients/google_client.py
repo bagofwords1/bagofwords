@@ -1,4 +1,5 @@
 import base64
+import contextvars
 import json
 import uuid
 from typing import AsyncGenerator, AsyncIterator, Optional
@@ -6,7 +7,13 @@ from typing import AsyncGenerator, AsyncIterator, Optional
 from google import genai
 from google.genai import types
 
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
+
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.reasoning import (
+    THINKING_BUDGETS, capability_model as _capability_model, clamp_effort, client_mode,
+    efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
+)
 from app.ai.llm.types import (
     ImageInput,
     LLMResponse,
@@ -26,6 +33,15 @@ from app.ai.llm.types import (
 )
 
 
+# Largest thinking budget every Gemini 2.5 model accepts (Flash: 24,576).
+GEMINI_MAX_THINKING_BUDGET = 24576
+# Families that take a named thinking_level rather than a token budget.
+GEMINI_LEVEL_PREFIXES = ("gemini-3", "gemini-4")
+# Families documented with thinking_level only (no thinking_budget, no off):
+# the "no thinking" floor is the lowest level instead of a minimum budget.
+GEMINI_LEVEL_ONLY_PREFIXES = ("gemini-4",)
+
+
 class Google(LLMClient):
     # Newer Gemini models (gemini-flash-latest / 3.6-flash, gemini-flash-lite-latest,
     # the pro line) cannot have thinking turned off: a thinking_budget of 0 is
@@ -35,7 +51,8 @@ class Google(LLMClient):
     MIN_THINKING_BUDGET = 128
 
     def __init__(self, api_key: str | None = None, temperature: float | None = None,
-                 default_headers: dict | None = None, vertex: dict | None = None):
+                 default_headers: dict | None = None, vertex: dict | None = None,
+                 identity_headers: IdentityHeaders | None = None):
         super().__init__()
         # ``vertex`` routes Gemini through Vertex AI instead of the Gemini
         # Developer API: {"project", "location", "credentials"}. google-genai
@@ -51,8 +68,24 @@ class Google(LLMClient):
             }
         else:
             client_kwargs = {"api_key": api_key}
-        if default_headers:
-            client_kwargs["http_options"] = types.HttpOptions(headers=default_headers)
+        # Identity-forwarding headers resolve per request via an httpx hook on
+        # the (sync) client this wrapper uses.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+        # Our own httpx clients on the process-wide pool (app.core.llm_transport),
+        # so a message reuses the previous one's connection to Google.
+        import httpx
+        from app.core.llm_transport import shared_transports
+        from app.core.tls import shared_ssl_context
+        tls = shared_ssl_context()
+        sync_t, async_t = shared_transports(pinned=False)
+        client_kwargs["http_options"] = types.HttpOptions(
+            headers=default_headers or None,
+            httpx_client=httpx.Client(
+                transport=sync_t, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {})),
+            httpx_async_client=httpx.AsyncClient(
+                transport=async_t, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {})),
+        )
         self.client = genai.Client(**client_kwargs)
         # Admin-configured override, or the historical default.
         self.temperature = 0.3 if temperature is None else temperature
@@ -81,17 +114,57 @@ class Google(LLMClient):
         contents.append(types.Part.from_text(text=prompt.strip()))
         return contents
 
+    def _reasoning_config(self, model_id, thinking):
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        requested = selected_effort(thinking) if thinking else None
+        effort = (clamp_effort(requested, efforts_for_client(self, model_id)) or requested) if requested else None
+        family = _capability_model(self, model_id).lower().rsplit("/", 1)[-1]
+        if mode != "custom" and family.startswith(GEMINI_LEVEL_ONLY_PREFIXES) and (requested == "off" or not effort):
+            # Gemini 4 cannot turn thinking off and documents no budget, so the
+            # floor is its lowest level.
+            thinking_config = types.ThinkingConfig(thinking_level="LOW", include_thoughts=False)
+        elif requested == "off":
+            # Preserve the existing minimum for models that cannot disable
+            # thinking; a disabled marker must not become a 1024-token budget.
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
+        elif thinking and mode != "custom" and effort and family.startswith(GEMINI_LEVEL_PREFIXES):
+            # Gemini 3 and 4 take a named level; a budget would be converted
+            # imprecisely, and sending both is a 400.
+            thinking_config = types.ThinkingConfig(thinking_level=effort.upper(), include_thoughts=True)
+        elif thinking:
+            budget = thinking.get("budget_tokens")
+            if effort in THINKING_BUDGETS and (thinking.get("effort") or not budget):
+                budget = min(THINKING_BUDGETS[effort], GEMINI_MAX_THINKING_BUDGET)
+            thinking_config = types.ThinkingConfig(thinking_budget=self._thinking_budget(budget or 1024), include_thoughts=True)
+        else:
+            thinking_config = types.ThinkingConfig(
+                thinking_budget=self._thinking_budget(), include_thoughts=False
+            )
+        config_kwargs: dict = {
+            "thinking_config": thinking_config,
+            "temperature": self.temperature,
+        }
+        raw = raw_params_for(self, requested, effort) if requested else {}
+        if raw:
+            # Raw fields use GenerateContentConfig names, e.g.
+            # {"thinking_config": {"thinking_budget": 2048}}. In custom mode
+            # they replace our thinking config instead of merging into it.
+            base_thinking = {} if mode == "custom" else thinking_config.model_dump(exclude_none=True)
+            merged = merge_raw_params({"thinking_config": base_thinking, **{k: v for k, v in config_kwargs.items() if k != "thinking_config"}}, raw, passthrough_key=None)
+            tc = merged.pop("thinking_config", None)
+            config_kwargs = {**merged, "thinking_config": types.ThinkingConfig(**tc) if isinstance(tc, dict) and tc else thinking_config}
+        return config_kwargs
+
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` maps to Gemini's native system_instruction. This client
         surfaces no cached-token counts, so the split costs nothing and buys
         nothing here today; it keeps the interface uniform across clients."""
-        thinking_budget = self._thinking_budget()
-
-        _cfg: dict = {
-            "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
-            "temperature": self.temperature,
-        }
+        _cfg = self._reasoning_config(model_id, thinking)
         if system:
             _cfg["system_instruction"] = system
         response = self.client.models.generate_content(
@@ -185,6 +258,14 @@ class Google(LLMClient):
             text_blocks = [b for b in blocks if b.get("type") == "text"]
             tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
+            # Tool images ride the transcript as image blocks hoisted into the
+            # tool-result turn (they are not on the side channel then), so
+            # dropping them here meant the model never saw a read_file page.
+            image_parts = [
+                p for p in (Google._image_part(b) for b in blocks if b.get("type") == "image")
+                if p is not None
+            ]
+            text = " ".join(b.get("text", "") for b in text_blocks if b.get("text"))
 
             if tool_results:
                 parts = []
@@ -199,6 +280,14 @@ class Google(LLMClient):
                         response={"output": content},
                     ))
                 out.append(types.Content(role="user", parts=parts))
+                # The images and the turn's own text (clock, steering, nudges)
+                # follow as their own user turn: a function-response turn
+                # carries function responses only.
+                extra = list(image_parts)
+                if text.strip():
+                    extra.append(types.Part.from_text(text=text))
+                if extra:
+                    out.append(types.Content(role="user", parts=extra))
             elif tool_uses:
                 parts = []
                 for tc in tool_uses:
@@ -216,9 +305,46 @@ class Google(LLMClient):
                     parts.append(part)
                 out.append(types.Content(role="model", parts=parts))
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append(types.Content(role=role, parts=[types.Part.from_text(text=text)]))
+                parts = list(image_parts)
+                if text.strip() or not parts:
+                    parts.append(types.Part.from_text(text=text))
+                out.append(types.Content(role=role, parts=parts))
         return out
+
+    @staticmethod
+    def _attach_images(contents: list, images: list) -> None:
+        """Side-channel images (user uploads; tool images on the legacy
+        planner path) into the request, ahead of the closing user text.
+
+        They join the last user turn unless that turn answers function calls —
+        then they go in a user turn of their own after it."""
+        parts = []
+        for img in images or []:
+            if img.source_type == "url":
+                parts.append(types.Part.from_uri(file_uri=img.data, mime_type=img.media_type))
+            elif img.data:
+                parts.append(types.Part.from_bytes(data=base64.b64decode(img.data), mime_type=img.media_type))
+        if not parts:
+            return
+        last = contents[-1] if contents else None
+        if (last is not None and last.role == "user"
+                and not any(getattr(p, "function_response", None) for p in (last.parts or []))):
+            last.parts = parts + list(last.parts or [])
+        else:
+            contents.append(types.Content(role="user", parts=parts))
+
+    @staticmethod
+    def _image_part(block: dict):
+        """A transcript ``{"type": "image", "source": {...}}`` block as a
+        Gemini Part; None when the source is empty."""
+        src = block.get("source") or {}
+        if src.get("type") == "url":
+            url = src.get("url") or ""
+            return types.Part.from_uri(file_uri=url, mime_type=src.get("media_type") or "image/png") if url else None
+        data = src.get("data")
+        if not data:
+            return None
+        return types.Part.from_bytes(data=base64.b64decode(data), mime_type=src.get("media_type") or "image/png")
 
     # Fields not accepted by Google's FunctionDeclaration schema validator
     _GOOGLE_SCHEMA_STRIP = frozenset({
@@ -303,23 +429,17 @@ class Google(LLMClient):
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
     ) -> AsyncIterator[LLMStreamEvent]:
-        if thinking:
-            budget = self._thinking_budget(thinking.get("budget_tokens") or 1024)
-            thinking_config = types.ThinkingConfig(thinking_budget=budget, include_thoughts=True)
-        else:
-            thinking_config = types.ThinkingConfig(
-                thinking_budget=self._thinking_budget(), include_thoughts=False
-            )
-        config_kwargs: dict = {
-            "thinking_config": thinking_config,
-            "temperature": self.temperature,
-        }
+        config_kwargs = self._reasoning_config(model_id, thinking)
         if system:
             config_kwargs["system_instruction"] = system
         if tools:
             config_kwargs["tools"] = self._translate_tools(tools)
 
         contents = self._translate_messages(messages)
+        # Without this the `images` argument was silently dropped: an image the
+        # user uploaded never reached Gemini on the native-tool path.
+        if images:
+            self._attach_images(contents, images)
         prompt_tokens = 0
         completion_tokens = 0
         stop_reason = "end_turn"
@@ -338,7 +458,9 @@ class Google(LLMClient):
                 chunks.append(chunk)
             return chunks
 
-        chunks = await loop.run_in_executor(None, _collect)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        chunks = await loop.run_in_executor(None, contextvars.copy_context().run, _collect)
 
         # Gemini doesn't hand out tool-call ids, so we mint them. Scope them to
         # this request: a bare counter restarts at 0 every turn, and the

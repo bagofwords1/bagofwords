@@ -1,20 +1,22 @@
 <template>
   <div class="grid-container h-full">
+    <!-- Data, columns and pagination go in through gridOptions and are updated
+         through this grid's own API (see the watchers below), never as reactive
+         props: ag-grid-vue3 v31 batches prop changes in one module-level buffer
+         shared by every grid, so when two grids change in the same tick (e.g.
+         a filter applied to a result shown in both the chat and the side
+         panel) all changes land on the first grid and the second never
+         updates. -->
     <ag-grid-vue
-      :columnDefs="columnDefs"
-      :rowData="rowData"
+      ref="gridRef"
       :class="[agThemeClass, 'ag-grid']"
-      :gridOptions="gridOptions"
-      :pagination="paginationEnabled"
-      :paginationPageSize="PAGE_SIZE"
-      :loadingOverlayComponent="CustomLoadingRenderer"
-      :loadingOverlayComponentParams="{ columns: columnCount }">
+      :gridOptions="gridOptions">
     </ag-grid-vue>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, toRaw } from 'vue';
 import { AgGridVue } from 'ag-grid-vue3';
 import CustomHeader from './CustomHeader.vue'; // Import the CustomHeader component
 import CustomLoadingRenderer from './CustomLoadingRenderer.vue'; // Import the CustomLoadingRenderer component
@@ -31,6 +33,27 @@ const agThemeClass = computed(() =>
 );
 
 const isLoading = ref(true);
+const { t } = useI18n();
+
+// A cell whose whole value is an http(s) URL (SharePoint/Outlook web links,
+// monday `item_url`, …) renders as a short "Open ↗" link in a new tab instead
+// of a long raw URL. Built as a DOM node — never innerHTML — so cell text can't
+// inject markup; anything that isn't a single absolute URL stays plain text.
+const URL_RE = /^https?:\/\/\S+$/i;
+const linkCellRenderer = (params: any) => {
+  const value = params.value;
+  if (typeof value !== 'string' || !URL_RE.test(value.trim())) {
+    return value ?? '';
+  }
+  const a = document.createElement('a');
+  a.href = value.trim();
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = value.trim();
+  a.className = 'ag-link-cell';
+  a.textContent = `${t('common.openLink')} ↗`;
+  return a;
+};
 
 const props = defineProps({
   columnDefs: {
@@ -46,11 +69,16 @@ const props = defineProps({
 
 const PAGE_SIZE = 50;
 
-const gridOptions = ref({
+const gridRef = ref<any>(null);
+const gridApi = () => gridRef.value?.api;
+
+// Read once at mount by ag-grid-vue; later changes go through gridApi().
+const gridOptions = {
   autoHeaderHeight: false,
   suppressServerSideFullWidthLoadingRow: true,
   defaultColDef: {
     loadingCellRenderer: () => '',
+    cellRenderer: linkCellRenderer,
     resizable: true,
     sortable: true,
     // Fill the available width so columns aren't stuck at the ~200px default
@@ -60,8 +88,10 @@ const gridOptions = ref({
     minWidth: 110,
   },
   loadingOverlayComponent: CustomLoadingRenderer,
-  enableCellTextSelection: true
-});
+  loadingOverlayComponentParams: { columns: props.columnDefs.length },
+  enableCellTextSelection: true,
+  paginationPageSize: PAGE_SIZE,
+} as Record<string, any>;
 
 // Only paginate when there are actually more rows than a page. A small preview
 // (the common case for a data tool result) otherwise gets ag-grid's paging
@@ -86,6 +116,10 @@ const columnDefs = ref(props.columnDefs.map(col => ({
 
 const rowData = ref(props.rowData);
 
+gridOptions.columnDefs = toRaw(columnDefs.value);
+gridOptions.rowData = toRaw(rowData.value);
+gridOptions.pagination = paginationEnabled.value;
+
 watch(() => props.columnDefs, (newVal) => {
   columnDefs.value = newVal.map(col => ({
     ...col,
@@ -101,14 +135,21 @@ watch(() => props.rowData, (newVal) => {
   rowData.value = newVal;
 });
 
-// Dynamically set the number of columns for the skeleton loader
-const columnCount = ref(0);
-onMounted(() => {
-  columnCount.value = columnDefs.value.length;
-});
+watch(columnDefs, (defs) => gridApi()?.setGridOption('columnDefs', toRaw(defs)));
+watch(rowData, (rows) => gridApi()?.setGridOption('rowData', toRaw(rows)));
+watch(paginationEnabled, (on) => gridApi()?.setGridOption('pagination', on));
 </script>
 
 <style>
+.ag-link-cell {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dark .ag-link-cell {
+  color: rgb(96 165 250);
+}
+
 .grid-container {
   width: 100%;
   display: flex;

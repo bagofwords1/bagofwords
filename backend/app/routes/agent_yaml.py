@@ -85,6 +85,7 @@ async def get_agent_yaml(
     organization: Organization = Depends(get_current_organization),
     user: User = Depends(current_user),
 ) -> str:
+    # The service enforces the same `manage` bar as re-applying the manifest.
     return await service.export(db, organization, user, name)
 
 

@@ -3,6 +3,8 @@ from typing import List, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.utils.reasoning_effort import normalize_effort
+
 
 WebhookSource = Literal["github", "jira", "generic"]
 AuthMode = Literal["hmac", "token", "url_token"]
@@ -48,7 +50,14 @@ class TriggerCreate(BaseModel):
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
     model_id: Optional[str] = None
+    # Reasoning level paired with model_id (null = Default).
+    reasoning_effort: Optional[str] = None
     data_source_ids: List[str] = Field(default_factory=list)
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
     # Optional project home: spawned sessions are created inside it.
     project_id: Optional[str] = None
 
@@ -64,7 +73,14 @@ class TriggerUpdate(BaseModel):
     task_template: Optional[str] = None
     mode: Optional[TriggerMode] = None
     model_id: Optional[str] = None
+    # Explicit null clears back to Default.
+    reasoning_effort: Optional[str] = None
     data_source_ids: Optional[List[str]] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
     # "" clears the project (back to the root), mirroring ReportUpdate.
     project_id: Optional[str] = None
 
@@ -113,6 +129,7 @@ class WebhookSchema(BaseModel):
         return "chat"
 
     model_id: Optional[str] = None
+    reasoning_effort: Optional[str] = None
     project_id: Optional[str] = None
     project_name: Optional[str] = None
     # Owner — every delivery runs as this user, with their access and quota.

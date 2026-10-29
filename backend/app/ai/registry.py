@@ -28,12 +28,30 @@ class ToolCatalogFilter:
 class ToolRegistry:
     """Enhanced metadata-driven tool registry with research flow support."""
 
+    # Discovery result shared by every registry in the process: AgentV2 builds
+    # a registry per message, and scanning + registering every tool class cost
+    # ~65 ms each time for a result that never changes once modules are loaded.
+    _discovered: Optional[tuple] = None
+
     def __init__(self) -> None:
         self._factories: Dict[str, Callable[[], Tool]] = {}
         self._metadata_cache: Dict[str, ToolMetadata] = {}
 
         # Auto-register all Tool subclasses found under app.ai.tools.implementations
+        cached = ToolRegistry._discovered
+        if cached is not None and cached[0] == self._implementation_modules():
+            self._factories, self._metadata_cache = dict(cached[1]), dict(cached[2])
+            return
         self._auto_register_all()
+        ToolRegistry._discovered = (
+            self._implementation_modules(), dict(self._factories), dict(self._metadata_cache),
+        )
+
+    @staticmethod
+    def _implementation_modules() -> frozenset:
+        """Loaded implementation modules; a new one (e.g. a plugin imported
+        later) invalidates the shared discovery result."""
+        return frozenset(m for m in list(sys.modules) if m.startswith("app.ai.tools.implementations"))
 
     def register(self, tool_class: type[Tool]) -> None:
         """Register a tool class with metadata extraction."""
@@ -128,6 +146,10 @@ class ToolRegistry:
         for metadata in metadata_list:
             # Skip inactive tools from catalog
             if hasattr(metadata, "is_active") and metadata.is_active is False:
+                continue
+            # Gateway-only tools (e.g. submit_list) are executable but never
+            # advertised: the planner sees their native per-resource aliases.
+            if "catalog_hidden" in (metadata.tags or []):
                 continue
             catalog.append({
                 "name": metadata.name,

@@ -1,0 +1,37 @@
+[
+  {
+    "locale": "en",
+    "dimensions": {
+      "font": "15px",
+      "lineHeight": "24px",
+      "heading": "20px",
+      "column": 768,
+      "dir": "ltr"
+    },
+    "animation": {
+      "duration": "180ms",
+      "bottomGap": 0
+    },
+    "lateGap": 0,
+    "detachedTop": 14,
+    "preservedTop": 14,
+    "overflow": false,
+    "errors": [],
+    "reducedMotion": {
+      "animation": "none",
+      "opacity": "1"
+    },
+    "compactFont": "13px"
+  },
+  {
+    "locale": "he",
+    "dimensions": {
+      "font": "15px",
+      "lineHeight": "24px",
+      "heading": "20px",
+      "column": 768,
+      "dir": "rtl"
+    },
+    "errors": []
+  }
+]

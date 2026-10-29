@@ -12,6 +12,9 @@ import * as path from 'path'
 
 const SHOTS = path.resolve('test-results/mcp-forwarding')
 const ECHO_URL = process.env.ECHO_MCP_URL || 'http://127.0.0.1:3333/mcp'
+// Dynamic params: the allow-list {key: default} of per-question values the
+// caller may send as prompt.metadata (null = only when sent).
+const DYN = { chat_id: null, message_id: null, env: 'prod' }
 
 // Unique email per run: this suite runs against a freshly-reset DB (see
 // tools/agent/reset_backend.sh), so signup always claims the bootstrap admin.
@@ -88,6 +91,13 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
   // ── open the MCP connection form ────────────────────────────────────
   await page.goto('/agents/new', { waitUntil: 'load' })
   await page.waitForLoadState('networkidle').catch(() => {})
+  // A fresh org can be sent to onboarding on its first real page; skip it and
+  // come back.
+  if (page.url().includes('/onboarding')) {
+    await dismissOnboarding(page)
+    await page.goto('/agents/new', { waitUntil: 'load' })
+    await page.waitForLoadState('networkidle').catch(() => {})
+  }
   await shot(page, '00-agents-new')
 
   // The Add Connection modal auto-opens when the org has no connections;
@@ -104,7 +114,7 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
 
   // Modal step 2: the MCP form.
   await expect(page.locator('[data-test="mcp-name"]')).toBeVisible({ timeout: 15000 })
-  await page.locator('[data-test="mcp-name"]').fill('Echo LN MCP')
+  await page.locator('[data-test="mcp-name"]').fill('Echo MCP')
   await page.locator('[data-test="mcp-url"]').fill(ECHO_URL)
   await page.locator('[data-test="mcp-transport"]').selectOption('streamable_http')
   await shot(page, '01-form-filled')
@@ -138,6 +148,21 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
 
   await shot(page, '02-forwarding-configured')
 
+  // Dynamic params: toggle on, a non-object is rejected inline and blocks
+  // saving, a JSON object is accepted.
+  const saveBtn = page.getByRole('button', { name: /^(Connect|Add connection|Save)$/ })
+  await page.locator('[data-test="dyn-params-toggle"]').click()
+  const dynJson = page.locator('[data-test="dyn-params-json"]')
+  await expect(dynJson).toBeVisible({ timeout: 10000 })
+  await dynJson.fill('["not", "an object"]')
+  await expect(page.locator('[data-test="dyn-params-error"]')).toBeVisible()
+  await expect(saveBtn).toBeDisabled()
+  await shot(page, '02a-dynamic-params-invalid')
+  await dynJson.fill(JSON.stringify(DYN, null, 2))
+  await expect(page.locator('[data-test="dyn-params-error"]')).toBeHidden()
+  await expect(saveBtn).toBeEnabled()
+  await shot(page, '02b-dynamic-params')
+
   // ── live Test Connection against the echo server ────────────────────
   const testBtn = page.getByRole('button', { name: /Test Connection|Verify/ })
   await testBtn.click()
@@ -159,7 +184,7 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
   const list = await page.request.get('/api/connections', { headers: apiHeaders })
   expect(list.ok()).toBeTruthy()
   const conns = await list.json()
-  const conn = (Array.isArray(conns) ? conns : conns.items || []).find((c: any) => c.name === 'Echo LN MCP')
+  const conn = (Array.isArray(conns) ? conns : conns.items || []).find((c: any) => c.name === 'Echo MCP')
   expect(conn, 'created MCP connection should exist').toBeTruthy()
 
   const detailRes = await page.request.get(`/api/connections/${conn.id}`, { headers: apiHeaders })
@@ -178,4 +203,7 @@ test('MCP context forwarding: configure, test, save through the UI', async ({ pa
   const ai = fields.find((f: any) => f.name === 'department')
   expect(locked).toMatchObject({ source: 'membership.attr:employeeId', mode: 'locked' })
   expect(ai).toMatchObject({ source: 'membership.role', mode: 'ai' })
+  // Dynamic params allow-list persisted as a real JSON object, toggle on
+  expect(cfg.metadata_injection?.dynamic_params_enabled).toBe(true)
+  expect(cfg.metadata_injection?.dynamic_params).toEqual(DYN)
 })

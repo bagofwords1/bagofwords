@@ -120,46 +120,59 @@ def test_system_prompt_mentions_user_profile_handling():
     assert "context" in built.system.lower()
 
 
-# --- <user_memory> injection (agent-curated per-user memory) ---
+# --- <memory> injection (tiered per-user memory entries) ---
 
 
-def test_user_memory_injected_in_user_turn_not_system():
+def test_memory_injected_in_user_turn_not_system():
     planner_input = _input(
-        user_memory="Prefers figures in ₪K. Likes cohort breakdowns.",
+        user_memory="[m1] style: Prefers figures in ₪K.\n[m2] preferences: Likes cohort breakdowns.",
     )
     built = PromptBuilderV3.build(planner_input)
 
     user_msg = built.messages[0]["content"]
-    assert "<user_memory>" in user_msg
+    assert "<memory>" in user_msg
     assert "Prefers figures in ₪K" in user_msg
     # Memory is per-user — must not leak into the cached system prefix.
     assert "cohort breakdowns" not in built.system
 
 
-def test_user_memory_omitted_when_empty():
+def test_memory_omitted_when_empty():
     for val in (None, "", "   "):
         planner_input = _input(user_memory=val)
         built = PromptBuilderV3.build(planner_input)
         user_msg = built.messages[0]["content"]
-        assert "<user_memory>" not in user_msg
+        assert "<memory>" not in user_msg
 
 
-def test_user_memory_and_profile_coexist():
+def test_memory_and_profile_coexist():
     planner_input = _input(
         user_name="Alice",
         user_note="CFO",
-        user_memory="Wants concise answers, no emoji.",
+        user_memory="[m1] style: Wants concise answers, no emoji.",
     )
     built = PromptBuilderV3.build(planner_input)
     user_msg = built.messages[0]["content"]
     assert "<user_profile>" in user_msg
-    assert "<user_memory>" in user_msg
+    assert "<memory>" in user_msg
     assert "Wants concise answers" in user_msg
 
 
-def test_system_prompt_explains_memory_subordinate_to_instructions():
-    """The system prompt must tell the model memory yields to org instructions."""
-    planner_input = _input(user_memory="Prefers Python")
-    built = PromptBuilderV3.build(planner_input)
-    assert "<user_memory>" in built.system  # guidance mentions the tag
-    assert "update_user_memory" in built.system
+def test_system_prompt_states_memory_is_not_business_logic():
+    """The rules must separate personal memory from instructions and point at
+    the memory tools (save on noticing, edit instead of duplicating, search)."""
+    built = PromptBuilderV3.build(_input(user_memory="[m1] style: Prefers Python"))
+    assert "<memory>" in built.system
+    for tool in ("create_memory", "edit_memory", "search_memory"):
+        assert tool in built.system
+    assert "<instructions>" in built.system
+    assert "update_user_memory" not in built.system
+
+
+def test_memory_hint_renders_next_to_the_ask_only_when_set():
+    hint = "<memory_hint>This message may carry durable personal context (style correction).</memory_hint>"
+    def all_text(built):
+        return "\n".join(m["content"] if isinstance(m["content"], str) else str(m["content"]) for m in built.messages)
+    with_hint = all_text(PromptBuilderV3.build(_input(memory_hint=hint)))
+    without = all_text(PromptBuilderV3.build(_input()))
+    assert "<memory_hint>" in with_hint and "<memory_hint>" not in without
+    assert with_hint.index("<memory_hint>") > with_hint.index("how many orders last month?")

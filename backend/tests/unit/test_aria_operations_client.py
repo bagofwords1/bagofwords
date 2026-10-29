@@ -241,6 +241,12 @@ def test_ca_bundle_used_for_verification(patch_requests):
     c = _client(ca_bundle="/etc/ssl/corp.pem", verify_ssl=True)
     assert c._verify == "/etc/ssl/corp.pem"
     assert _client(verify_ssl=False)._verify is False
+    assert _client(verify_ssl=True)._verify is True
+
+
+def test_verify_ssl_off_wins_over_ca_bundle(patch_requests):
+    # The toggle is authoritative: a saved CA bundle must not keep verification on.
+    assert _client(ca_bundle="/etc/ssl/corp.pem", verify_ssl=False)._verify is False
 
 
 # ── pagination ────────────────────────────────────────────────────────────────
@@ -415,7 +421,7 @@ def test_relationships_edge_direction_and_depth(patch_requests):
 
 # ── alerts / symptoms ─────────────────────────────────────────────────────────
 
-def test_alerts_window_keeps_open_and_overlapping_alerts(patch_requests):
+def test_explicit_overlap_keeps_open_and_overlapping_alerts(patch_requests):
     alerts = [
         {"alertId": "a-open", "resourceId": "vm-1", "alertLevel": "CRITICAL", "status": "ACTIVE", "startTimeUTC": 500, "updateTimeUTC": 500, "cancelTimeUTC": 0},
         {"alertId": "a-in", "resourceId": "ds-1", "alertLevel": "WARNING", "status": "CANCELED", "startTimeUTC": 1500, "updateTimeUTC": 1800, "cancelTimeUTC": 1800},
@@ -429,7 +435,7 @@ def test_alerts_window_keeps_open_and_overlapping_alerts(patch_requests):
         return _page("alerts", rows)
 
     fake = patch_requests({**_dictionary_routes(), ("POST", "/alerts/query"): alerts_query})
-    df = _client().execute_query('{"table": "alerts", "start_time": 1000, "end_time": 2000}')
+    df = _client().execute_query('{"table": "alerts", "time_mode": "overlap", "start_time": 1000, "end_time": 2000}')
     assert list(df.alertId) == ["a-open", "a-in"]          # sorted by start; old + future excluded
     assert df.resourceName.tolist() == ["prod-db-01", "ds_prod_db_01"]
     body = next(c[4] for c in fake.calls if c[1].endswith("/alerts/query"))
@@ -451,17 +457,76 @@ def test_contributing_symptoms_flatten(patch_requests):
         {"symptomId": "s-1", "symptomDefinitionsIds": ["SD-1"], "alertConditions": [{"severity": "CRITICAL"}]}]}}]}
     patch_requests({("GET", "/alerts/contributingsymptoms"): payload})
     df = _client().execute_query('{"table": "contributing_symptoms", "alert_id": "a-1"}')
-    assert df.iloc[0].to_dict() == {"alertId": "a-1", "symptomId": "s-1", "symptomDefinitionId": "SD-1", "severity": "CRITICAL"}
+    assert df.iloc[0][["alertId", "symptomId", "symptomDefinitionId", "severity"]].to_dict() == {"alertId": "a-1", "symptomId": "s-1", "symptomDefinitionId": "SD-1", "severity": "CRITICAL"}
+
+
+@pytest.mark.parametrize("filters", [
+    {},
+    {"adapter_kind": "AdapterA"},
+    {"resource_kind": "Pool"},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": ["Pool", "Disk"]},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": "Disk"},
+    {"adapter_kind": "AdapterA", "resource_kind": ["Pool", "Disk"]},
+    {"id": "rule-3"},
+    {"ids": ["rule-2", "rule-3"]},
+    {"ids": ["rule-2", "rule-3"], "adapter_kind": "AdapterA", "resource_kind": "Disk"},
+    {"adapter_kind": "missing"},
+    {"ids": ["missing"]},
+    {"search": "LATENCY"},
+    {"adapter_kind": ["AdapterA", "AdapterB"], "resource_kind": "Disk", "search": "latency"},
+])
+@pytest.mark.parametrize("limit", [1, 10])
+def test_alert_definitions_read_only_access_preserves_filters_and_pagination(patch_requests, filters, limit):
+    rows = [
+        {"id": "rule-1", "adapterKindKey": "AdapterC", "resourceKindKey": "Host", "name": "CPU"},
+        {"id": "rule-2", "adapterKindKey": "AdapterA", "resourceKindKey": "Pool", "name": "Latency"},
+        {"id": "rule-3", "adapterKindKey": "AdapterB", "resourceKindKey": "Disk", "description": "Latency"},
+        {"id": "rule-4", "adapterKindKey": "AdapterA", "resourceKindKey": "Disk", "name": "Latency"},
+    ]
+
+    def get_definitions(params, body):
+        assert body is None
+        assert set(params) <= {"adapterKind", "resourceKind", "id", "page", "pageSize"}
+        assert not (params.get("id") and (params.get("adapterKind") or params.get("resourceKind")))
+        selected = rows
+        for param, field in (("adapterKind", "adapterKindKey"), ("resourceKind", "resourceKindKey")):
+            if param in params:
+                assert isinstance(params[param], str)
+                selected = [row for row in selected if row[field] == params[param]]
+        if params.get("id"):
+            selected = [row for row in selected if row["id"] in params["id"]]
+        # The GET documentation warns that unsatisfied criteria can return all definitions.
+        selected = selected or rows
+        page = params["page"]
+        return {"alertDefinitions": selected[page:page + 1],
+                "pageInfo": {"page": page, "pageSize": 1, "totalCount": len(selected)}}
+
+    fake = patch_requests({
+        ("GET", "/alertdefinitions"): get_definitions,
+        ("POST", "/alertdefinitions/query"): _FakeResponse({"message": "Access denied"}, status_code=403),
+    })
+    expected = rows
+    for key, field in (("adapter_kind", "adapterKindKey"), ("resource_kind", "resourceKindKey"),
+                       ("id", "id"), ("ids", "id")):
+        if key in filters:
+            values = filters[key] if isinstance(filters[key], list) else [filters[key]]
+            expected = [row for row in expected if row[field] in values]
+    if filters.get("search"):
+        expected = [row for row in expected if filters["search"].lower() in
+                    f"{row.get('name', '')} {row.get('description', '')}".lower()]
+    result = _client().execute_query({"table": "alert_definitions", **filters, "limit": limit})
+    assert set(result.id) == {row["id"] for row in expected[:limit]}
+    assert all(call[0] == "GET" for call in fake.calls)
 
 
 def test_alert_definitions_severity_from_states(patch_requests):
     defs = _page("alertDefinitions", [{"id": "d1", "name": "Pool RT high", "description": "x", "adapterKindKey": "HitachiStorage",
                                        "resourceKindKey": "Pool", "waitCycles": 1, "cancelCycles": 1,
                                        "states": [{"severity": "CRITICAL"}]}])
-    fake = patch_requests({("POST", "/alertdefinitions/query"): defs})
+    fake = patch_requests({("GET", "/alertdefinitions"): defs})
     df = _client().execute_query('{"table": "alert_definitions", "adapter_kind": "HitachiStorage"}')
     assert df.iloc[0].severity == "CRITICAL"
-    assert next(c[4] for c in fake.calls)["adapterKinds"] == ["HitachiStorage"]
+    assert fake.calls[0][2]["adapterKind"] == "HitachiStorage"
 
 
 # ── validation / connection ───────────────────────────────────────────────────
@@ -493,3 +558,104 @@ def test_connection_auth_failure(patch_requests):
 def test_connection_requires_credentials():
     out = AriaOperationsClient(url="https://aria.corp.local").test_connection()
     assert out["success"] is False
+
+@pytest.mark.parametrize('table,key', [('alerts', 'alerts'), ('symptoms', 'symptom')])
+def test_incident_window_is_sent_and_limit_stops_pagination(patch_requests, table, key):
+    fake = patch_requests({('POST', f'/{table}/query'): _page(key, [], total=0)})
+    _client().execute_query({'table': table, 'start_time': 1000, 'end_time': 2000, 'limit': 2})
+    assert fake.calls[0][4]['startTimeRange'] == {'startTime': 1000, 'endTime': 2000}
+
+
+def test_server_page_size_does_not_truncate_results(patch_requests):
+    def pages(params, body):
+        page = params['page']
+        return {'resourceList': [_res(f'r{page}', 'synthetic', 'VirtualMachine')],
+                'pageInfo': {'totalCount': 2, 'page': page, 'pageSize': 1}}
+    patch_requests({('POST', '/resources/query'): pages})
+    assert len(_client().execute_query({'table': 'resources', 'limit': 2})) == 2
+
+
+def test_definition_search_precedes_limit(patch_requests):
+    patch_requests({('GET', '/alertdefinitions'): _page('alertDefinitions',
+        [{'id': 'd1', 'name': 'other'}, {'id': 'd2', 'name': 'needle'}])})
+    assert _client().execute_query({'table': 'alert_definitions', 'search': 'needle', 'limit': 1}).id.tolist() == ['d2']
+
+
+def test_thresholds_join_by_timestamp(patch_requests):
+    patch_requests({**_dictionary_routes(), ('POST', '/resources/stats/query'): {'values': [
+        {'resourceId': 'vm-1', 'stat-list': {'stat': [{'statKey': {'key': 'cpu'},
+         'timestamps': [1000, 2000], 'data': [10, 20], 'dtTimestamps': [500, 1000, 2000],
+         'minThresholdData': [2, 8, 18], 'maxThresholdData': [4, 12, 22]}]}}]}})
+    df = _client().execute_query({'table': 'metrics', 'resource_id': 'vm-1', 'stat_key': 'cpu', 'dt': True})
+    assert df.dt_min.tolist() == [8, 18]
+    assert df.dt_max.tolist() == [12, 22]
+
+
+def test_topn_official_stat_shape(patch_requests):
+    patch_requests({**_dictionary_routes(), ('GET', '/resources/stats/topn'): {'resourceStatGroups': [
+        {'groupKey': 'cpu', 'resourceStats': [{'resourceId': 'vm-1', 'stat': {
+            'statKey': {'key': 'cpu'}, 'timestamps': [1000], 'data': [10]}}]}]}})
+    df = _client().execute_query({'table': 'metrics_topn', 'resource_id': 'vm-1', 'stat_key': 'cpu'})
+    assert df.value.tolist() == [10]
+
+@pytest.mark.parametrize('table,key', [('alerts', 'alerts'), ('symptoms', 'symptom')])
+@pytest.mark.parametrize('active_only', [True, False])
+def test_incident_limit_bounds_api_work(patch_requests, table, key, active_only):
+    def pages(params, body):
+        assert params['pageSize'] == 2
+        return _page(key, [{'startTimeUTC': 1500}, {'startTimeUTC': 1600}], total=10000)
+    fake = patch_requests({('POST', f'/{table}/query'): pages})
+    df = _client().execute_query({'table': table, 'active_only': active_only,
+                                  'start_time': 1000, 'end_time': 2000, 'limit': 2})
+    assert len(df) == 2
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.parametrize('spec', [
+    {'table': 'alerts', 'startTime': 1000}, {'table': 'resources', 'start_time': 1000},
+    {'table': 'alerts', 'limit': -1}, {'table': 'alerts', 'active_only': 'false'},
+    {'table': 'metrics', 'duration_in_mins': 0}, {'table': 'symptoms', 'time_mode': 'unknown'},
+    {'table': 'alerts', 'start_time': '1000'}, {'table': 'metrics::VMWARE/VirtualMachine', 'dt': True},
+])
+def test_invalid_specs_fail_before_http(patch_requests, spec):
+    fake = patch_requests({})
+    with pytest.raises(ValueError):
+        _client().execute_query(spec)
+    assert not fake.calls and not fake.token_calls
+
+
+def test_pagination_cap_reports_incomplete_result(patch_requests, monkeypatch):
+    monkeypatch.setattr('app.data_sources.clients.aria_operations_client.MAX_PAGES', 1)
+    patch_requests({('POST', '/resources/query'): _page('resourceList', [_res('r1', 'test', 'VirtualMachine')], total=100)})
+    with pytest.raises(RuntimeError, match='pagination'):
+        _client().execute_query({'table': 'resources', 'limit': 100})
+
+
+def test_query_budget_stops_later_pages_and_resets(patch_requests, monkeypatch):
+    clock = [0.0]
+    monkeypatch.setattr('app.data_sources.clients.aria_operations_client.time.monotonic', lambda: clock[0])
+    def page(params, body):
+        clock[0] += 151
+        return _page('resourceList', [_res('r1', 'test', 'VirtualMachine')], total=100)
+    patch_requests({('POST', '/resources/query'): page})
+    client = _client()
+    with pytest.raises(RuntimeError, match='budget'):
+        client.execute_query({'table': 'resources', 'limit': 100})
+    assert len(client.execute_query({'table': 'resources', 'limit': 1})) == 1
+
+
+def test_nested_rule_and_contributing_definition_data_is_preserved(patch_requests):
+    states = [{'severity': 'WARNING', 'condition': {'type': 'AND'}}, {'severity': 'CRITICAL'}]
+    conditions = [{'severity': 'WARNING'}, {'severity': 'CRITICAL'}]
+    patch_requests({
+        ('GET', '/alertdefinitions'): _page('alertDefinitions', [{'id': 'd1', 'states': states}]),
+        ('GET', '/alerts/contributingsymptoms'): {'contributingSymptoms': [{'alertId': 'a1',
+            'contributingSymptoms': {'contributingSymptoms': [{'symptomId': 's1',
+                'symptomDefinitionsIds': ['d1', 'd2'], 'alertConditions': conditions}]}}]},
+    })
+    client = _client()
+    rules = client.execute_query({'table': 'alert_definitions'})
+    assert json.loads(rules.iloc[0]['states']) == states
+    contributors = client.execute_query({'table': 'contributing_symptoms', 'alert_id': 'a1'})
+    assert json.loads(contributors.iloc[0]['symptomDefinitionsIds']) == ['d1', 'd2']
+    assert json.loads(contributors.iloc[0]['alertConditions']) == conditions

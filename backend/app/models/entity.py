@@ -1,7 +1,7 @@
 from sqlalchemy import Column, String, Text, JSON, DateTime, ForeignKey, Table, UniqueConstraint, Boolean, Integer
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
-from app.ee.encryption import EncryptedJSON
+from app.ee.encryption import EncryptedJSON, EncryptedText
 
 
 # Association table for many-to-many relationship between entities and data sources
@@ -32,7 +32,7 @@ class Entity(BaseSchema):
     # Stored agent-free when it can be: `ds_clients["$agent:<connection type>"]`
     # instead of `ds_clients["<agent>:<connection>"]`, rendered for the agent
     # each run is made from. See app/services/entity_code.py.
-    code = Column(Text, nullable=False)  # single source of truth (SQL or expression)
+    code = Column(EncryptedText, nullable=False)  # single source of truth (SQL or expression)
     # How `code` binds to agents: templated | dynamic | bound | unresolved
     # (entity_code.MODE_*). NULL on rows no save/backfill has classified yet.
     code_mode = Column(String(20), nullable=True)
@@ -50,7 +50,7 @@ class Entity(BaseSchema):
     # resolve per viewer via entity_user_results.
     parameters = Column(JSON, nullable=True, default=list)
     # The resolved values the shared snapshot was produced with.
-    applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
+    applied_params = Column(EncryptedJSON(none_as_null=True), nullable=True, default=None)
     original_data_model = Column(JSON, nullable=True, default=dict)
     view = Column(JSON, nullable=True, default=dict)
 
@@ -71,7 +71,7 @@ class Entity(BaseSchema):
     reviewed_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
 
     # Provenance: link back to originating step (if created from a step)
-    source_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True)
+    source_step_id = Column(String(36), ForeignKey('steps.id'), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
     
     # AI provenance metadata
     trigger_reason = Column(String(255), nullable=True)

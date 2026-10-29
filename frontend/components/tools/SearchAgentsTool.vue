@@ -3,23 +3,23 @@
     <!-- Status header (click to expand/collapse results) -->
     <Transition name="fade" appear>
       <div
-        class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400"
+        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
         :class="agents.length ? 'cursor-pointer' : ''"
         @click="agents.length && toggleCollapsed()"
         :aria-expanded="!isCollapsed"
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-gray-400" />
+          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ llmTitle || (queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
           <Icon
             v-if="agents.length"
             :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 text-gray-400 me-1 flex-shrink-0 rtl-flip"
+            class="w-3 h-3 text-ink-muted me-1 flex-shrink-0 rtl-flip"
           />
           <span class="align-middle flex-shrink-0">{{ llmTitle || (total === 1 ? 'Found 1 agent' : `Found ${total} agents`) }}</span>
-          <span v-if="llmTitle" class="ms-1.5 text-[10px] text-gray-400 flex-shrink-0">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
+          <span v-if="llmTitle" class="ms-1.5 text-2xs text-ink-muted flex-shrink-0">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
           <!-- inline icon preview of the matched agents -->
           <span v-if="agents.length" class="ms-2 flex items-center gap-0.5 min-w-0 overflow-hidden">
             <DataSourceIcon
@@ -30,7 +30,7 @@
               :icon-token="a.icon_token" :icon="a.icon"
               class="w-3.5 h-3.5 flex-shrink-0"
             />
-            <span v-if="agents.length > 8" class="ms-0.5 text-[10px] text-gray-400 flex-shrink-0">+{{ agents.length - 8 }}</span>
+            <span v-if="agents.length > 8" class="ms-0.5 text-2xs text-ink-muted flex-shrink-0">+{{ agents.length - 8 }}</span>
           </span>
         </span>
       </div>
@@ -57,17 +57,19 @@
             </span>
             <span
               v-if="a.focused"
-              class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 flex-shrink-0"
+              class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 flex-shrink-0"
             >focused</span>
+            <!-- Lifecycle stage (Development / Training / Disabled), same as
+                 the agent selector — not the raw publish_status ("draft"). -->
             <span
-              v-else-if="a.status && a.status !== 'published'"
-              class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0"
-            >{{ a.status }}</span>
+              v-else-if="stageOf(a) !== 'production'"
+              :class="['ms-1.5 text-2xs px-1 py-0.5 rounded border flex-shrink-0', stageMeta(stageOf(a)).badge]"
+            >{{ $t('agentsPage.stage.' + stageOf(a)) }}</span>
             <button
               v-if="a.needs_signin"
               @click.stop="signInAgent(a)"
               :disabled="signingInId === a.id"
-              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors flex-shrink-0"
+              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors flex-shrink-0"
             >
               <Spinner v-if="signingInId === a.id" class="w-2.5 h-2.5 animate-spin" />
               <Icon v-else name="heroicons-key" class="w-2.5 h-2.5" />
@@ -79,7 +81,7 @@
     </Transition>
 
     <!-- Empty state -->
-    <div v-if="status !== 'running' && !agents.length" class="text-xs text-gray-400 ms-1">
+    <div v-if="status !== 'running' && !agents.length" class="text-xs text-ink-muted ms-1">
       No agents matched.
     </div>
 
@@ -96,6 +98,7 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
 
 const isCollapsed = ref(true)
 function toggleCollapsed() { isCollapsed.value = !isCollapsed.value }
@@ -129,6 +132,10 @@ const agents = computed<any[]>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return Array.isArray(rj.agents) ? rj.agents : []
 })
+
+function stageOf(a: any) {
+  return deriveStage(a.status, a.reliability_status)
+}
 
 const total = computed<number>(() => {
   const rj: any = props.toolExecution?.result_json || {}

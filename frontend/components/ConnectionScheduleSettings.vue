@@ -2,12 +2,12 @@
            Periodically re-indexes the shared catalog so tables stay fresh
            without a manual reindex. -->
       <details class="py-3 border-t border-gray-100 dark:border-gray-800" data-testid="auto-reindex-settings">
-        <summary class="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-gray-400" /><span>{{ $t('data.autoReindex') }}</span><span class="ms-auto text-xs text-gray-500 text-end">{{ scheduleSummary }}</span></summary>
+        <summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.autoReindex') }}</span><span class="ms-auto text-xs text-gray-500 text-end">{{ scheduleSummary }}</span></summary>
         <div class="pt-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.autoReindex') }}</span>
-            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-ink-muted" />
           </div>
           <UToggle
             :model-value="autoReindexEnabled"
@@ -16,7 +16,7 @@
             @update:model-value="onToggleAutoReindex"
           />
         </div>
-        <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+        <p class="text-2xs text-ink-muted mt-1">
           {{ autoReindexLicensed ? $t('data.autoReindexHint') : $t('data.autoReindexEnterprise') }}
         </p>
 
@@ -80,26 +80,26 @@
             />
           </div>
 
-          <p v-if="reindexScheduleError" class="text-[11px] text-amber-600">{{ reindexScheduleError }}</p>
-          <p v-else-if="reindexMode === 'time'" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('data.autoReindexTimeHint') }}</p>
+          <p v-if="reindexScheduleError" class="text-2xs text-amber-600">{{ reindexScheduleError }}</p>
+          <p v-else-if="reindexMode === 'time'" class="text-2xs text-ink-muted">{{ $t('data.autoReindexTimeHint') }}</p>
         </div>
 
       </div>
       </details>
         <!-- Last background failure, if any. -->
-        <p v-if="autoReindexError && !sameConnectionDiagnostic(autoReindexError, displayedError)" class="text-[11px] text-red-500 mt-1.5 truncate" :title="autoReindexError">
+        <p v-if="autoReindexError && !sameConnectionDiagnostic(autoReindexError, displayedError)" class="text-2xs text-red-500 mt-1.5 truncate" :title="autoReindexError">
           {{ $t('data.autoReindexLastError') }}: {{ autoReindexError }}
         </p>
 
 
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3"><summary class="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-gray-400" /><span>{{ $t('data.rateLimit') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(rateLimitEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.rateLimit') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(rateLimitEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
            Admin-only. Hard-blocks agent queries once a fixed per-window
            threshold is crossed; the budget is shared across all users. -->
       <div v-if="canManage" class="py-3 border-t border-gray-100 dark:border-gray-800">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
             <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.rateLimit') }}</span>
-            <UIcon v-if="!rateLimitLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
+            <UIcon v-if="!rateLimitLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-ink-muted" />
           </div>
           <UToggle
             :model-value="rateLimitEnabled"
@@ -108,7 +108,7 @@
             @update:model-value="onToggleRateLimit"
           />
         </div>
-        <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+        <p class="text-2xs text-ink-muted mt-1">
           {{ rateLimitLicensed ? $t('data.rateLimitHint') : $t('data.rateLimitEnterprise') }}
         </p>
 
@@ -130,13 +130,44 @@
                 class="w-24 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
                 @change="onRateLimitChange"
               />
-              <span class="text-[11px] text-gray-400 dark:text-gray-500 w-14">{{ w.unit }}</span>
+              <span class="text-2xs text-ink-muted w-14">{{ w.unit }}</span>
             </div>
           </div>
-          <p v-if="rateLimitError" class="text-[11px] text-red-500">{{ rateLimitError }}</p>
+          <p v-if="rateLimitError" class="text-2xs text-red-500">{{ rateLimitError }}</p>
         </div>
       </div>
 
+</details>
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-query-limits"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.queryLimits') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(queryLimitsCustom ? 'data.queryLimitsCustom' : 'data.queryLimitsInherited') }}</span></summary>      <!-- Per-connection query timeout + concurrency cap, overriding the org
+           defaults (Settings → AI). Blank = inherit. Not license-gated: the org
+           defaults these override are not either. -->
+      <div class="py-3 border-t border-gray-100 dark:border-gray-800">
+        <p class="text-2xs text-ink-muted">{{ $t('data.queryLimitsHint') }}</p>
+        <div class="mt-2 space-y-2">
+          <div
+            v-for="l in queryLimitRows"
+            :key="l.key"
+            class="flex items-center justify-between"
+          >
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ l.label }}</span>
+            <div class="flex items-center gap-1">
+              <input
+                type="number"
+                min="1"
+                :max="l.max"
+                v-model.number="l.model.value"
+                :disabled="savingQueryLimits"
+                :placeholder="l.placeholder"
+                :data-testid="`query-limit-${l.key}`"
+                class="w-28 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
+                @change="onQueryLimitChange"
+              />
+              <span class="text-2xs text-ink-muted w-14">{{ l.unit }}</span>
+            </div>
+          </div>
+          <p v-if="queryLimitsError" class="text-2xs text-red-500">{{ queryLimitsError }}</p>
+        </div>
+      </div>
 </details></div></template>
 <script setup lang="ts">
 import { sameConnectionDiagnostic } from '~/utils/connectionDiagnostics'
@@ -332,6 +363,76 @@ function onRateLimitChange() {
   saveRateLimit()
 }
 
+// ── Per-connection query limits (override the org defaults) ────────────────
+const MAX_QUERY_TIMEOUT_SECONDS = 3600
+const MAX_CONCURRENT_QUERIES = 100
+const queryTimeoutSeconds = ref<number | null>(null)
+const maxConcurrentQueries = ref<number | null>(null)
+const defaultQueryTimeout = ref<number | null>(null)
+const defaultMaxConcurrent = ref<number | null>(null)
+const queryLimitsError = ref<string | null>(null)
+const savingQueryLimits = ref(false)
+const queryLimitsCustom = computed(() => !!(queryTimeoutSeconds.value || maxConcurrentQueries.value))
+
+const queryLimitRows = computed(() => [
+  {
+    key: 'timeout', label: t('data.queryTimeout'), unit: t('data.queryTimeoutUnit'),
+    model: queryTimeoutSeconds, max: MAX_QUERY_TIMEOUT_SECONDS,
+    placeholder: t('data.queryLimitDefault', { value: defaultQueryTimeout.value ?? '—' }),
+  },
+  {
+    key: 'concurrency', label: t('data.maxConcurrentQueries'), unit: t('data.maxConcurrentQueriesUnit'),
+    model: maxConcurrentQueries, max: MAX_CONCURRENT_QUERIES,
+    placeholder: t('data.queryLimitDefault', { value: defaultMaxConcurrent.value ?? '—' }),
+  },
+])
+
+// Blank / non-positive → null (inherit); otherwise an int clamped to the ceiling.
+function normalizeQueryLimit(v: number | null, max: number): number | null {
+  const n = Number(v)
+  if (v === null || (v as any) === '' || !Number.isFinite(n) || n <= 0) return null
+  return Math.min(Math.floor(n), max)
+}
+
+function applyQueryLimitConfig(d: any) {
+  if (!d || !canManage.value) return
+  queryTimeoutSeconds.value = d.query_timeout_seconds ?? null
+  maxConcurrentQueries.value = d.max_concurrent_queries ?? null
+  defaultQueryTimeout.value = d.default_query_timeout_seconds ?? null
+  defaultMaxConcurrent.value = d.default_max_concurrent_queries ?? null
+}
+
+async function saveQueryLimits() {
+  if (!props.connection?.id || savingQueryLimits.value) return
+  savingQueryLimits.value = true
+  queryLimitsError.value = null
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
+      method: 'PUT',
+      // 0 clears the override so the organization default applies.
+      body: {
+        query_timeout_seconds: queryTimeoutSeconds.value ?? 0,
+        max_concurrent_queries: maxConcurrentQueries.value ?? 0,
+      },
+    })
+    if (error.value) {
+      const detail = (error.value as any)?.data?.detail
+      queryLimitsError.value = (Array.isArray(detail) ? detail.map((d: any) => d?.msg).filter(Boolean).join('; ') : detail)
+        || (error.value as any)?.message || t('data.queryLimitsSaveFailed')
+      toast.add({ title: t('data.queryLimitsSaveFailed'), description: String(queryLimitsError.value), color: 'red' })
+    }
+  } finally {
+    savingQueryLimits.value = false
+  }
+}
+
+function onQueryLimitChange() {
+  queryLimitsError.value = null
+  // Reflect the normalization back into the inputs so the UI is honest.
+  queryTimeoutSeconds.value = normalizeQueryLimit(queryTimeoutSeconds.value, MAX_QUERY_TIMEOUT_SECONDS)
+  maxConcurrentQueries.value = normalizeQueryLimit(maxConcurrentQueries.value, MAX_CONCURRENT_QUERIES)
+  saveQueryLimits()
+}
 
 watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (!id || !canManage.value) return
@@ -339,6 +440,7 @@ watch(() => [props.connection?.id, canManage.value], async ([id]) => {
   if (props.connection?.id !== id || !data.value) return
   applyAutoReindexConfig(data.value)
   applyRateLimitConfig(data.value)
+  applyQueryLimitConfig(data.value)
 }, { immediate: true })
 </script>
 <style scoped>

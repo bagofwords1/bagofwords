@@ -39,6 +39,9 @@ from app.models.data_source import DataSource
 from app.models.connection import Connection
 from app.services.data_source_service import DataSourceService
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 
 class _DummyClient:
     """Stand-in DB client so construct_clients does not import a real driver."""

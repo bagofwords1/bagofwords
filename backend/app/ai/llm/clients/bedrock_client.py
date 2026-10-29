@@ -1,9 +1,12 @@
 import asyncio
+import threading
 import base64
 import json
 
+from app.ai.llm.header_injection import IdentityHeaders
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import AsyncGenerator, AsyncIterator, Optional
 
@@ -12,6 +15,10 @@ from botocore import UNSIGNED
 from botocore.config import Config
 
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.reasoning import (
+    claude_off_params, _effort_to_thinking_config, capability_model as _capability_model, clamp_effort,
+    client_mode, efforts_for_client, merge_raw_params, raw_params_for, selected_effort,
+)
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.types import (
     ImageInput,
@@ -64,8 +71,40 @@ def _http_config(**overrides) -> Config:
     return Config(
         read_timeout=_READ_TIMEOUT_S,
         connect_timeout=_CONNECT_TIMEOUT_S,
+        # One session (connection pool) serves every Bedrock client in the
+        # process (_share_http_session), so allow concurrent runs to keep
+        # their connections instead of discarding them.
+        max_pool_connections=50,
         **overrides,
     )
+
+
+_shared_http_session = None
+_shared_http_session_lock = threading.Lock()
+
+
+def _share_http_session(client) -> None:
+    """Point ``client`` at the process-wide botocore HTTP session.
+
+    A boto3 client is built per message; each brought its own urllib3 pool,
+    so every message opened a new TLS connection to Bedrock. The session is
+    only the connection pool: signing, the Bearer key and custom headers are
+    per-client event hooks and stay with each client. Thread-safe (urllib3).
+    """
+    global _shared_http_session
+    try:
+        endpoint = client._endpoint
+    except AttributeError:
+        return
+    with _shared_http_session_lock:
+        if _shared_http_session is None:
+            _shared_http_session = endpoint.http_session
+            return
+        own, endpoint.http_session = endpoint.http_session, _shared_http_session
+    try:
+        own.close()
+    except Exception:
+        pass
 
 
 # Map MIME types to Bedrock image format strings
@@ -152,6 +191,7 @@ class BedrockClient(LLMClient):
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
         extra_headers: Optional[dict] = None,
+        identity_headers: Optional[IdentityHeaders] = None,
     ):
         super().__init__()
         if auth_mode not in self._SUPPORTED_AUTH_MODES:
@@ -195,21 +235,26 @@ class BedrockClient(LLMClient):
                 "bedrock-runtime", region_name=region, config=_http_config()
             )
 
-        if extra_headers:
+        if extra_headers or identity_headers is not None:
             # Same request-created hook the api_key Bearer injection uses. It
             # fires after SigV4 signing, and the signature only covers signed
             # headers, so appending unsigned custom headers here is safe for
-            # every auth mode.
-            _headers = dict(extra_headers)
+            # every auth mode. Identity headers resolve here, per request, so
+            # a value that changes mid-run reaches every call.
+            _headers = dict(extra_headers or {})
 
             def _add_extra_headers(request, **kwargs):
                 for name, value in _headers.items():
                     request.headers[name] = value
+                if identity_headers is not None:
+                    for name, value in identity_headers().items():
+                        request.headers[name] = value
 
             self.client.meta.events.register(
                 "request-created.bedrock-runtime.*", _add_extra_headers
             )
 
+        _share_http_session(self.client)
         self._region = region
         self._auth_mode = auth_mode
 
@@ -252,8 +297,40 @@ class BedrockClient(LLMClient):
         content.append({"text": prompt.strip()})
         return content
 
+    def _apply_reasoning(self, model_id, request_kwargs, thinking):
+        mode = client_mode(self)
+        if mode == "off":
+            thinking = None
+        if thinking:
+            requested = selected_effort(thinking)
+            effort = clamp_effort(requested, efforts_for_client(self, model_id)) or requested
+            fields: dict = {}
+            if requested == "off" and mode != "custom":
+                fields = claude_off_params(_capability_model(self, model_id))
+            elif mode != "custom":
+                # Claude 4.6+ on Bedrock takes adaptive thinking with the effort
+                # in output_config BESIDE thinking (inside it is a
+                # ValidationException); Sonnet 5 / Opus 4.7+ reject
+                # type=enabled outright. Older Claude keeps a token budget.
+                mapped = _effort_to_thinking_config(effort, _capability_model(self, model_id)) if effort else None
+                if mapped and mapped.get("type") == "adaptive":
+                    fields = {
+                        "thinking": {"type": "adaptive", "display": "summarized"},
+                        "output_config": {"effort": effort},
+                    }
+                else:
+                    budget = int((mapped or thinking).get("budget_tokens") or 5000)
+                    fields = {"thinking": {"type": "enabled", "budget_tokens": budget}}
+            merge_raw_params(fields, raw_params_for(self, requested, effort), passthrough_key=None)
+            if fields:
+                request_kwargs["additionalModelRequestFields"] = fields
+            # maxTokens must exceed the thinking budget or the request fails.
+            budget = int((fields.get("thinking") or {}).get("budget_tokens") or 0)
+            if budget and request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
+                request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
+
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half; see LLMClient.inference.
 
         On a cache-capable model family it also carries a Converse cache point,
@@ -268,6 +345,7 @@ class BedrockClient(LLMClient):
             _kwargs["system"] = [{"text": system}]
             if _bedrock_cache_enabled(model_id):
                 _kwargs["system"].append(_CACHE_POINT)
+        self._apply_reasoning(model_id, _kwargs, thinking)
         response = self.client.converse(**_kwargs)
 
         # Extract text from response
@@ -326,7 +404,9 @@ class BedrockClient(LLMClient):
                 # Always signal end of stream so the async generator unblocks
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
-        future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        future = loop.run_in_executor(_STREAM_EXECUTOR, contextvars.copy_context().run, _sync_stream)
 
         while True:
             chunk = await queue.get()
@@ -347,8 +427,21 @@ class BedrockClient(LLMClient):
             )
         )
 
-    @staticmethod
-    def _translate_messages(messages: list[Message]) -> list[dict]:
+    @classmethod
+    def _source_image_block(cls, block: dict) -> dict | None:
+        """A transcript ``{"type": "image", "source": {...}}`` block as a
+        Converse image block; None when it cannot be sent (URL source)."""
+        src = block.get("source") or {}
+        if src.get("type") == "url" or not src.get("data"):
+            return None
+        return cls._image_block(ImageInput(
+            data=src["data"],
+            media_type=src.get("media_type") or "image/png",
+            source_type="base64",
+        ))
+
+    @classmethod
+    def _translate_messages(cls, messages: list[Message]) -> list[dict]:
         out: list[dict] = []
         for msg in messages:
             role = "assistant" if msg.role == "assistant" else "user"
@@ -360,6 +453,14 @@ class BedrockClient(LLMClient):
             text_blocks = [b for b in blocks if b.get("type") == "text"]
             tool_uses = [b for b in blocks if b.get("type") == "tool_use"]
             tool_results = [b for b in blocks if b.get("type") == "tool_result"]
+            # Tool images ride the transcript as image blocks hoisted into the
+            # tool-result turn (they are not on the side channel then), so
+            # dropping them here meant the model never saw a read_file page.
+            image_blocks = [
+                ib for ib in (cls._source_image_block(b) for b in blocks if b.get("type") == "image")
+                if ib is not None
+            ]
+            text = " ".join(b.get("text", "") for b in text_blocks if b.get("text"))
 
             if tool_results:
                 content = []
@@ -373,6 +474,12 @@ class BedrockClient(LLMClient):
                             "content": [{"text": tr_content}],
                         }
                     })
+                # toolResult blocks lead the turn (Anthropic models reject any
+                # block before them); images, then the turn's own text
+                # (clock, steering, nudges) follow.
+                content.extend(image_blocks)
+                if text.strip():
+                    content.append({"text": text})
                 out.append({"role": "user", "content": content})
             elif tool_uses:
                 content = []
@@ -385,12 +492,13 @@ class BedrockClient(LLMClient):
                         }
                     })
                 if text_blocks:
-                    text = " ".join(b.get("text", "") for b in text_blocks)
-                    content.insert(0, {"text": text})
+                    content.insert(0, {"text": " ".join(b.get("text", "") for b in text_blocks)})
                 out.append({"role": "assistant", "content": content})
             else:
-                text = " ".join(b.get("text", "") for b in text_blocks)
-                out.append({"role": role, "content": [{"text": text}]})
+                content = list(image_blocks)
+                if text.strip() or not content:
+                    content.append({"text": text})
+                out.append({"role": role, "content": content})
         return out
 
     @staticmethod
@@ -460,14 +568,7 @@ class BedrockClient(LLMClient):
             if _cache_on:
                 # The system prompt is the most stable block in the request.
                 request_kwargs["system"].append(_CACHE_POINT)
-        if thinking:
-            budget = int(thinking.get("budget_tokens") or 5000)
-            request_kwargs["additionalModelRequestFields"] = {
-                "thinking": {"type": "enabled", "budget_tokens": budget}
-            }
-            # maxTokens must exceed the thinking budget or the request fails.
-            if request_kwargs["inferenceConfig"]["maxTokens"] <= budget:
-                request_kwargs["inferenceConfig"]["maxTokens"] = budget + 4096
+        self._apply_reasoning(model_id, request_kwargs, thinking)
         if tools:
             tc = self._translate_tools(tools)
             # disableParallelToolUse in toolChoice.auto requires botocore ≥ 1.37;
@@ -495,7 +596,9 @@ class BedrockClient(LLMClient):
             finally:
                 loop.call_soon_threadsafe(event_queue.put_nowait, None)
 
-        future = loop.run_in_executor(_STREAM_EXECUTOR, _sync_stream)
+        # The executor thread doesn't inherit contextvars; carry them so the
+        # per-request identity headers see this run's identity.
+        future = loop.run_in_executor(_STREAM_EXECUTOR, contextvars.copy_context().run, _sync_stream)
 
         # State for tracking open tool calls and reasoning blocks
         open_calls: dict[int, dict] = {}  # block_index → {id, name, args_buffer}

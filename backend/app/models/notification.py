@@ -12,7 +12,8 @@ SOURCE_REVIEW = "review"            # fanned out from a ReviewItem (low_confiden
 SOURCE_SHARE = "share"             # someone shared a dashboard/conversation with this user
 SOURCE_REPORT_TOOL = "report_tool"  # emitted by a tool from inside a report run
 SOURCE_SCHEDULE = "schedule"        # a scheduled report/prompt produced results
-SOURCES = {SOURCE_REVIEW, SOURCE_SHARE, SOURCE_REPORT_TOOL, SOURCE_SCHEDULE}
+SOURCE_CHECKIN = "checkin"          # the agent's own follow-up (agent check-ins)
+SOURCES = {SOURCE_REVIEW, SOURCE_SHARE, SOURCE_REPORT_TOOL, SOURCE_SCHEDULE, SOURCE_CHECKIN}
 
 # ── Severity (drives sort + accent; mirrors review_item) ────────────────────────
 SEVERITY_INFO = "info"

@@ -81,8 +81,14 @@ logger = logging.getLogger(__name__)
 # semantic model it targets is resolved from the tables it references (or
 # pinned explicitly); agents then get plain SQL over the local copy instead of
 # writing DAX against a rate-limited API.
+#
+# ClickHouse has a native source (fast/clickhouse_source.py) and was verified
+# against a live 24.8 server holding 20M rows. The run found two things a fake
+# would not have: an abandoned Arrow stream keeps the client's HTTP session
+# locked, and Arrow carries Enum columns as bare integer codes.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
-                  "bigquery", "mssql", "oracledb", "posthog", "powerbi"}
+                  "bigquery", "mssql", "oracledb", "posthog", "powerbi",
+                  "clickhouse"}
 UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 

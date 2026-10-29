@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Literal, Optional, List
 
 from .tool_execution_schema import ToolExecutionSchema
 from .step_schema import StepSchema
@@ -20,6 +20,29 @@ class SummaryInstructionItem(BaseModel):
     line_count: int
     message_id: str  # completion_id, for scrollToMessage
     build_id: Optional[str] = None  # draft build this change was staged in
+    # Review state of this conversation's change, read from the instruction
+    # itself (see ReportService.get_report_summary).
+    state: Literal["pending", "accepted", "rejected"] = "pending"
+
+
+class SummaryListSubmission(BaseModel):
+    tool_execution_id: str
+    message_id: str  # completion_id, for scrollToMessage
+
+
+class SummaryListItem(BaseModel):
+    """One Agent List the conversation wrote to, across all its submissions.
+
+    Counts are DISTINCT rows: a row added by one call and updated by a later
+    one counts once, as added; a row updated twice counts once.
+    """
+    list_id: str
+    list_name: str
+    data_source_id: str
+    agent_name: Optional[str] = None
+    inserted: int = 0
+    updated: int = 0
+    submissions: List[SummaryListSubmission] = []
 
 
 class PendingTrainingBuildSchema(BaseModel):
@@ -28,7 +51,29 @@ class PendingTrainingBuildSchema(BaseModel):
     total_instructions: int
 
 
+class SummarySubAgentItem(BaseModel):
+    """One delegated sub-agent (docs/design/sub-agents.md A9)."""
+    sub_agent_id: str
+    wave_id: str
+    wave_status: Optional[str] = None
+    message_id: Optional[str] = None  # the parent completion, for scrollToMessage
+    title: Optional[str] = None
+    status: Optional[str] = None
+    outcome: Optional[str] = None
+    confidence: Optional[float] = None
+    summary: Optional[str] = None
+    steps_used: Optional[int] = None
+    tokens: Optional[dict] = None
+    model: Optional[str] = None
+    profile: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    child_execution_id: Optional[str] = None
+
+
 class ReportSummaryResponse(BaseModel):
     queries: List[SummaryToolExecutionSchema]
     instructions: List[SummaryInstructionItem]
+    lists: List[SummaryListItem] = []
+    sub_agents: List[SummarySubAgentItem] = []
     pending_training_build: Optional[PendingTrainingBuildSchema] = None

@@ -1,12 +1,12 @@
 <template>
   <div class="mb-2">
     <!-- Header -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="isCollapsed = !isCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500 rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-gray-400 dark:text-gray-500" />
+    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="isCollapsed = !isCollapsed">
+      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-      <Icon v-else name="heroicons-document-text" class="w-3 h-3 me-1.5 text-gray-400" />
+      <Icon v-else name="heroicons-document-text" class="w-3 h-3 me-1.5 text-ink-muted" />
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.editDoc.editing') }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.editDoc.edited') }}</span>
@@ -17,21 +17,21 @@
       <span
         v-if="status === 'success' && diffApplied !== null"
         :class="[
-          'ms-2 px-1.5 py-0.5 rounded text-[10px] font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-2xs font-medium',
           diffApplied ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
         ]"
       >
         {{ diffApplied ? $t('tools.editDoc.diff') : $t('tools.editDoc.rewrite') }}
       </span>
-      <span v-if="docVersion" class="ms-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+      <span v-if="docVersion" class="ms-1.5 px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
         v{{ docVersion }}
       </span>
-      <span v-if="formatDuration" class="ms-1.5 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
+      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
-      <div v-if="editsCount > 0" class="mt-1 ms-[18px] text-xs text-gray-400 dark:text-gray-500">
+      <div v-if="editsCount > 0" class="mt-1 ms-[18px] text-xs text-ink-muted">
         {{ $t('tools.editDoc.editsCount', { n: editsCount }) }}
       </div>
       <div v-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500 dark:text-gray-400">
@@ -53,9 +53,9 @@
           <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
             {{ docTitle || $t('tools.createDoc.untitled') }}
           </div>
-          <div class="text-[10px] text-gray-400 dark:text-gray-500">{{ $t('tools.createDoc.openDocument') }}</div>
+          <div class="text-2xs text-ink-muted">{{ $t('tools.createDoc.openDocument') }}</div>
         </div>
-        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-400 flex-shrink-0" />
+        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-gray-600 dark:group-hover:text-gray-400 flex-shrink-0" />
       </div>
     </div>
   </div>

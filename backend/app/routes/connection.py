@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List
+from typing import Dict, List, Optional
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db, release_request_db
@@ -19,7 +19,9 @@ from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
-from app.core.permissions_decorator import requires_permission, requires_resource_permission
+from app.core.permissions_decorator import (
+    requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
+)
 from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
 from app.models.membership import Membership
 from app.schemas.connection_schema import (
@@ -55,6 +57,14 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
+from app.errors import AppError
+from app.services.member_attributes import require_attribute_admin
+from app.services.member_identity import (
+    member_mapped,
+    preview_member_identity,
+    resolve_member_credentials,
+    validate_member_bindings,
+)
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
@@ -63,10 +73,10 @@ indexing_service = ConnectionIndexingService()
 
 
 def _iso_utc(dt) -> "str | None":
-    """Serialize an indexing timestamp as an ISO string the browser will parse
-    as UTC. These columns are stored as naive `datetime.utcnow()`; a bare
-    `.isoformat()` (no offset) is parsed as *local* time by `new Date()`, which
-    skews the "Last indexed X ago" label by the viewer's timezone offset. Append
+    """Serialize a connection/indexing timestamp as an ISO string the browser
+    will parse as UTC. These columns are stored as naive `datetime.utcnow()`; a
+    bare `.isoformat()` (no offset) is parsed as *local* time by `new Date()`,
+    which skews labels like "Last checked" by the viewer's timezone offset. Append
     a `Z` for naive values (matching the event-log timestamps), and normalize
     any tz-aware value to a `Z`-suffixed UTC string.
     """
@@ -349,7 +359,7 @@ async def list_connections(
             is_active=conn.is_active,
             auth_policy=conn.auth_policy,
             allowed_user_auth_modes=conn.allowed_user_auth_modes,
-            last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
+            last_synced_at=_iso_utc(conn.last_synced_at),
             organization_id=str(conn.organization_id),
             table_count=0 if conn.type in _TOOL_PROVIDER_TYPES else table_count,
             tool_count=tool_count,
@@ -370,8 +380,11 @@ async def list_connections(
     return result
 
 
+# `create_connections` lets a member create connections; the creator owns what
+# they create (manage it + build/manage agents on it). Org `manage_connections`
+# implies it.
 @router.post("", response_model=ConnectionSchema)
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections'])
 async def create_connection(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),
@@ -389,6 +402,7 @@ async def create_connection(
         credentials=data.credentials,
         auth_policy=data.auth_policy,
         allowed_user_auth_modes=data.allowed_user_auth_modes,
+        member_bindings=data.member_bindings,
     )
     
     # Inline the latest indexing run so the modal can show progress
@@ -415,7 +429,7 @@ async def create_connection(
         # what was stored — omitting it made API-driven setup look like it had
         # silently failed (the list endpoint returns it, create/update did not).
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -443,8 +457,14 @@ async def get_connection(
     """Get connection details. Non-admins get a redacted view (no config/credentials) and must have access to at least one linked data source."""
     connection = await connection_service.get_connection(db, connection_id, organization)
 
+    # Two tiers. Connection managers (org connection admin, or a per-connection
+    # `manage_connection` grant — which includes the member who created the
+    # connection) can PUT its config, so they see it to edit it. Saved
+    # credential identifiers (credentials_meta / has_credentials) stay with
+    # org-level admins only.
     is_admin = await _is_org_admin(db, current_user, organization)
-    if not is_admin:
+    can_manage = is_admin or await _can_manage_connection(db, organization, current_user, connection)
+    if not can_manage:
         if not await _user_can_access_connection(db, current_user, connection):
             raise HTTPException(status_code=403, detail="Access denied to this connection")
 
@@ -457,11 +477,14 @@ async def get_connection(
         except:
             config = {}
 
-    # Strip sensitive fields for non-admins
+    # Strip sensitive fields for non-managers; credential metadata is admin-only.
     credentials_meta = None
-    if not is_admin:
+    if not can_manage:
         config = {}
         allowed_user_auth_modes = []
+        has_credentials = False
+    elif not is_admin:
+        allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = False
     else:
         allowed_user_auth_modes = connection.allowed_user_auth_modes
@@ -476,6 +499,8 @@ async def get_connection(
                     "authorize_url", "token_url", "client_id", "scopes", "audience",
                     "api_key_header", "token_endpoint_auth_method", "tenant_id",
                     "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    # Qlik on-prem: which account the certificate acts as.
+                    "user_directory", "user_id",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",
@@ -495,6 +520,7 @@ async def get_connection(
     )
     from app.services.connection_identity import management_requires_user_auth
     personal_management = management_requires_user_auth(connection)
+    query_limits = await _query_limit_fields(db, organization, config if can_manage else {})
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -502,8 +528,9 @@ async def get_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=allowed_user_auth_modes,
+        member_bindings=(connection.member_bindings or None) if can_manage else None,
         config=config or {},
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -517,21 +544,51 @@ async def get_connection(
         has_credentials=has_credentials,
         management_auth="user" if personal_management else "system",
         last_connection_status=None if personal_management else connection.last_connection_status,
-        last_connection_checked_at=(connection.last_connection_checked_at.isoformat() if not personal_management and connection.last_connection_checked_at else None),
+        last_connection_checked_at=(None if personal_management else _iso_utc(connection.last_connection_checked_at)),
         credentials_meta=credentials_meta,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
         reindex_schedule_mode=connection.reindex_schedule_mode or "interval",
         reindex_interval_minutes=connection.reindex_interval_minutes,
         reindex_at_time=connection.reindex_at_time,
-        next_retry_at=connection.next_retry_at.isoformat() if connection.next_retry_at else None,
+        next_retry_at=_iso_utc(connection.next_retry_at),
         last_reindex_error=connection.last_reindex_error,
         rate_limit_enabled=bool(connection.rate_limit_enabled),
         rate_limit_per_minute=connection.rate_limit_per_minute,
         rate_limit_per_hour=connection.rate_limit_per_hour,
         rate_limit_per_day=connection.rate_limit_per_day,
+        **query_limits,
         data_shape=data_shape_for(connection.type),
     )
+
+
+async def _query_limit_fields(db: AsyncSession, organization: Organization, config: dict) -> dict:
+    """The connection's query-limit overrides plus the org defaults they replace."""
+    from app.ai.code_execution.code_execution import DEFAULT_QUERY_TIMEOUT_SECONDS
+    from app.data_sources.query_concurrency import DEFAULT_MAX_CONCURRENT_QUERIES
+
+    def _positive(value):
+        return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+    def _org_value(settings, key, fallback):
+        try:
+            cfg = settings.get_config(key) if settings is not None else None
+            return _positive(cfg.value if hasattr(cfg, "value") else cfg) or fallback
+        except Exception:
+            return fallback
+
+    try:
+        settings = await organization.get_settings(db)
+    except Exception:
+        settings = None
+    config = config if isinstance(config, dict) else {}
+    return {
+        "query_timeout_seconds": _positive(config.get("query_timeout_seconds")),
+        "max_concurrent_queries": _positive(config.get("max_concurrent_queries")),
+        "default_query_timeout_seconds": _org_value(settings, "query_timeout_seconds", DEFAULT_QUERY_TIMEOUT_SECONDS),
+        "default_max_concurrent_queries": _org_value(
+            settings, "max_concurrent_queries_per_connection", DEFAULT_MAX_CONCURRENT_QUERIES),
+    }
 
 
 @router.put("/{connection_id}", response_model=ConnectionSchema)
@@ -545,6 +602,9 @@ async def update_connection(
 ):
     """Update a connection."""
     updates = data.dict(exclude_unset=True)
+    before = await connection_service.get_connection(db, connection_id, organization)
+    previous_bindings = dict(before.member_bindings or {})
+    previous_mapped = member_mapped(before)
     connection = await connection_service.update_connection(
         db=db,
         connection_id=connection_id,
@@ -552,6 +612,25 @@ async def update_connection(
         current_user=current_user,
         **updates,
     )
+    after_bindings = dict(connection.member_bindings or {})
+    if after_bindings != previous_bindings or member_mapped(connection) != previous_mapped:
+        # Bindings decide which account every member acts as on this source.
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.member_identity_changed",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection.id),
+                details={
+                    "connection_name": connection.name,
+                    "before": {"enabled": previous_mapped, "bindings": previous_bindings},
+                    "after": {"enabled": member_mapped(connection), "bindings": after_bindings},
+                },
+            )
+        except Exception:
+            pass
     
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
@@ -568,7 +647,7 @@ async def update_connection(
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
         allowed_user_auth_modes=connection.allowed_user_auth_modes,
-        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        last_synced_at=_iso_utc(connection.last_synced_at),
         organization_id=str(connection.organization_id),
         table_count=0 if connection.type in _TOOL_PROVIDER_TYPES else _catalog_tables,
         custom_queries_count=_catalog_custom_queries,
@@ -600,7 +679,7 @@ async def delete_connection(
 
 
 @router.post("/test-params")
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections'])
 async def test_connection_params(
     data: ConnectionCreate,
     current_user: User = Depends(current_user),
@@ -617,15 +696,28 @@ async def test_connection_params(
 
 
 @router.post("/test-tool", response_model=ConnectionToolTestResult)
-@requires_permission('manage_connections')
+@requires_permission(['manage_connections', 'create_connections', 'manage_connection'], resource_scoped=True)
 async def test_connection_tool(
     data: ConnectionToolTestRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Run one tool (endpoint) with sample arguments — pre- or post-save."""
+    """Run one tool (endpoint) with sample arguments — pre- or post-save.
+
+    Pre-save (no ``connection_id``) is part of creating a connection; against a
+    saved connection it needs ``manage_connection`` on THAT connection, since it
+    runs with the connection's stored credentials."""
     import json as _json
+    if data.connection_id:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", [str(data.connection_id)], "manage_connection",
+        )
+    else:
+        await require_org_permission(
+            db, str(current_user.id), str(organization.id), "create_connections",
+        )
     config = data.config or {}
     credentials = data.credentials or {}
     if data.connection_id and not credentials:
@@ -680,8 +772,96 @@ async def test_connection(
     )
 
 
+class MemberIdentityPreviewRequest(BaseModel):
+    # Unsaved bindings to preview; omit to preview the saved ones.
+    member_bindings: Optional[Dict[str, str]] = None
+
+
+@router.post("/{connection_id}/member-identity/preview")
+@requires_resource_permission('connection', 'manage_connection')
+async def preview_connection_member_identity(
+    connection_id: str,
+    body: MemberIdentityPreviewRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Which account each member acts as on this connection, and who is
+    blocked for a missing attribute. Full admins only: it reveals member
+    attributes."""
+    await require_attribute_admin(db, current_user.id, organization.id)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    bindings = None
+    if body.member_bindings is not None:
+        config = connection.config
+        if isinstance(config, str):
+            import json
+            config = json.loads(config or "{}")
+        bindings = validate_member_bindings(
+            connection.type, (config or {}).get("auth_type"), body.member_bindings
+        )
+    return await preview_member_identity(db, connection, bindings)
+
+
+class MemberIdentityTestRequest(BaseModel):
+    user_id: str
+    # Unsaved bindings to test; omit to test the saved ones.
+    member_bindings: Optional[Dict[str, str]] = None
+
+
+@router.post("/{connection_id}/member-identity/test", response_model=ConnectionTestResult)
+@requires_resource_permission('connection', 'manage_connection')
+async def test_connection_member_identity(
+    connection_id: str,
+    body: MemberIdentityTestRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Test the connection as one member: the saved bindings resolved from
+    that member's attributes. Full admins only."""
+    await require_attribute_admin(db, current_user.id, organization.id)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    import json
+    config = connection.config
+    if isinstance(config, str):
+        config = json.loads(config or "{}")
+    config = config or {}
+    bindings = None
+    if body.member_bindings is not None:
+        bindings = validate_member_bindings(connection.type, config.get("auth_type"), body.member_bindings)
+    elif not member_mapped(connection):
+        raise HTTPException(status_code=400, detail="This connection does not map member identities.")
+    member = await db.get(User, body.user_id)
+    in_org = member is not None and (await db.execute(
+        select(Membership.id).where(
+            Membership.user_id == str(member.id),
+            Membership.organization_id == str(organization.id),
+            Membership.deleted_at.is_(None),
+        )
+    )).first() is not None
+    if not in_org:
+        raise HTTPException(status_code=404, detail="Member not found")
+    try:
+        credentials = await resolve_member_credentials(db, connection, member, bindings)
+    except AppError as e:
+        return ConnectionTestResult(success=False, message=e.message, connectivity=False)
+    result = await connection_service.test_connection_params(
+        data_source_type=connection.type, config=config, credentials=credentials,
+    )
+    return ConnectionTestResult(
+        success=result.get("success", False),
+        message=result.get("message", ""),
+        connectivity=result.get("connectivity", result.get("success", False)),
+        schema_access=result.get("schema_access", False),
+        table_count=result.get("table_count", 0),
+        timings=result.get("timings"),
+        details=result.get("details"),
+    )
+
+
 @router.get("/{connection_id}/kerberos-access")
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def list_kerberos_access(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -812,11 +992,15 @@ async def set_connection_query_identity(
         raise HTTPException(status_code=400, detail="query_identity must be 'self' or 'service_account'")
 
     connection = await connection_service.get_connection(db, connection_id, organization)
+    # Authorize before saying anything about the connection's auth mode; a
+    # caller who may not manage it gets the same 404 as an unknown id.
+    if not await is_admin_or_owner(db, connection, current_user):
+        raise HTTPException(status_code=404, detail="Connection not found")
     if (connection.auth_policy or "system_only") != "user_required" or not supports_user_token(connection):
         raise HTTPException(status_code=400, detail="This connection does not support query-identity selection")
-    if not await is_admin_or_owner(db, connection, current_user):
-        raise HTTPException(status_code=403, detail="Only admins or owners can switch query identity")
 
+    from app.services.credential_coordination import lock_credential_writes
+    await lock_credential_writes(db, str(current_user.id))
     row = await get_user_conn_cred_row(db, connection, current_user)
     if row is None:
         # "self" is the default and needs no row. Only persist when choosing the
@@ -840,6 +1024,8 @@ async def set_connection_query_identity(
         row.metadata_json = md
         db.add(row)
         await db.commit()
+
+    await db.commit()  # also release the lock for an unchanged default identity
 
     try:
         await audit_service.log(
@@ -1019,7 +1205,24 @@ async def get_connection_indexing(
         row = await indexing_service.get_latest(db, connection_id)
     if row is None:
         raise HTTPException(status_code=404, detail="No indexing runs found for this connection")
-    return _indexing_to_progress(row)
+    progress = _indexing_to_progress(row)
+    if not await _can_manage_connection(db, organization, current_user, connection):
+        # A non-manager only learns about what they can see: the linked-agent
+        # count is the caller's visible agents, and the run's raw event log and
+        # unreadable-dataset diagnostics (catalog/agent internals) are withheld.
+        # The caller's own per-user run is theirs and is returned unredacted.
+        if progress.scope != "user":
+            stats = dict(progress.stats or {})
+            if "synced_domains" in stats:
+                stats["synced_domains"] = min(
+                    int(stats["synced_domains"] or 0),
+                    len(await visible_linked_agents(db, organization, current_user, connection)),
+                )
+            stats.pop("unreadable_datasets", None)
+            stats.pop("unreadable_dataset_count", None)
+            progress.stats = stats if progress.stats is not None else None
+            progress.events = []
+    return progress
 
 
 @router.post("/{connection_id}/indexing/cancel")
@@ -1057,6 +1260,9 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
         return
     if resolved.has_resource_permission("connection", str(connection.id), "view"):
         return
+    # Connection managers (incl. its owner) can read what they manage.
+    if resolved.has_resource_permission("connection", str(connection.id), "manage_connection"):
+        return
     granted_ds_ids = {
         rid for (rtype, rid) in resolved.resource_permissions if rtype == "data_source"
     }
@@ -1072,6 +1278,50 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     raise HTTPException(status_code=403, detail="Access denied to this connection")
 
 
+async def _can_manage_connection(db, organization, current_user, connection) -> bool:
+    """Connection managers (full admin, org ``manage_connections``, or a
+    per-connection ``manage_connection`` grant) see the whole connection:
+    every catalog table, every linked agent, the raw indexing log."""
+    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    return (
+        FULL_ADMIN in resolved.org_permissions
+        or resolved.has_org_permission("manage_connections")
+        or resolved.has_resource_permission("connection", str(connection.id), "manage_connection")
+    )
+
+
+async def visible_linked_agents(db, organization, current_user, connection) -> list:
+    """The agents linked to ``connection`` that this caller may see.
+
+    The one visibility rule every connection read surface shares
+    (accessible-agents, indexing, tables): connection managers see every
+    linked agent; everyone else sees an agent only when they can access it
+    (public, or a direct/group/role grant) AND its publishing lifecycle shows
+    it to them (``filter_live_data_sources``: no disabled/inactive agents,
+    drafts only to their managers, development agents only to agent admins) —
+    the same rules as the agent list.
+    """
+    linked = [
+        ds for ds in (connection.data_sources or [])
+        if getattr(ds, "deleted_at", None) is None
+    ]
+    if await _can_manage_connection(db, organization, current_user, connection):
+        return linked
+    from app.core.permission_resolver import get_accessible_data_source_ids
+    from app.services.data_source_service import DataSourceService
+    all_access, accessible_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    allowed = set(map(str, accessible_ids))
+    accessible = [
+        ds for ds in linked
+        if all_access or getattr(ds, "is_public", False) or str(ds.id) in allowed
+    ]
+    return await DataSourceService().filter_live_data_sources(
+        db, accessible, current_user, organization
+    )
+
+
 @router.get("/{connection_id}/accessible-agents")
 async def get_connection_accessible_agents(
     connection_id: str,
@@ -1080,18 +1330,11 @@ async def get_connection_accessible_agents(
     organization: Organization = Depends(get_current_organization),
 ):
     """Linked agents visible to this viewer, without exposing hidden agent names."""
-    from app.core.permission_resolver import get_accessible_data_source_ids
-
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
-    all_access, accessible_ids = await get_accessible_data_source_ids(
-        db, str(current_user.id), str(organization.id)
-    )
-    allowed = set(map(str, accessible_ids))
     agents = [
         {"id": str(agent.id), "name": agent.name, "icon": agent.icon}
-        for agent in (connection.data_sources or [])
-        if all_access or agent.is_public or str(agent.id) in allowed
+        for agent in await visible_linked_agents(db, organization, current_user, connection)
     ]
     return sorted(agents, key=lambda agent: (agent["name"].casefold(), agent["id"]))
 
@@ -1111,12 +1354,40 @@ async def get_connection_tables(
     )
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
+    # Non-managers see only the tables their visible agents have selected:
+    # a table deselected on every agent they can use is not theirs to browse.
+    selected_ids = None
+    if not await _can_manage_connection(db, organization, current_user, connection):
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        linked_ids = {str(ds.id) for ds in (connection.data_sources or [])}
+        manages_linked_agent = any(
+            resolved.has_resource_permission("data_source", ds_id, "manage")
+            for ds_id in linked_ids
+        )
+        if not manages_linked_agent:
+            agent_ids = [
+                str(ds.id) for ds in
+                await visible_linked_agents(db, organization, current_user, connection)
+            ]
+            selected_ids = set()
+            if agent_ids:
+                rows = await db.execute(
+                    select(DataSourceTable.connection_table_id).where(
+                        DataSourceTable.datasource_id.in_(agent_ids),
+                        DataSourceTable.is_active.is_(True),
+                        DataSourceTable.connection_table_id.isnot(None),
+                    )
+                )
+                selected_ids = {str(r) for (r,) in rows.all()}
+
     result = []
     for table in (connection.connection_tables or []):
         # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
         if table.kind == KIND_BOW or table.deleted_at is not None:
+            continue
+        if selected_ids is not None and str(table.id) not in selected_ids:
             continue
         result.append(ConnectionTableSchema(
             id=str(table.id),
@@ -1450,7 +1721,7 @@ async def preview_custom_query_as_user(
 # ==================== Tool Management Routes (MCP / Custom API) ====================
 
 @router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def refresh_connection_tools(
     connection_id: str,
     current_user: User = Depends(current_user),
@@ -1502,7 +1773,7 @@ async def get_connection_tools_list(
 
 
 @router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def batch_update_connection_tools(
     connection_id: str,
     data: BatchToolUpdate,
@@ -1513,7 +1784,9 @@ async def batch_update_connection_tools(
 ):
     """Batch enable/disable tools."""
     await connection_service.get_connection(db, connection_id, organization)
-    tools = await connection_service.batch_update_tools(db, data.tool_ids, data.is_enabled)
+    tools = await connection_service.batch_update_tools(
+        db, data.tool_ids, data.is_enabled, connection_id=str(connection_id),
+    )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="connection.tools_batch_updated",
@@ -1539,7 +1812,7 @@ async def batch_update_connection_tools(
 
 
 @router.put("/{connection_id}/tools/{tool_id}", response_model=ConnectionToolSchema)
-@requires_permission('manage_connections')
+@requires_resource_permission('connection', 'manage_connection')
 async def update_tool(
     connection_id: str,
     tool_id: str,
@@ -1552,7 +1825,8 @@ async def update_tool(
     """Enable/disable a tool or update its policy."""
     await connection_service.get_connection(db, connection_id, organization)
     tool = await connection_service.update_connection_tool(
-        db, tool_id, is_enabled=data.is_enabled, policy=data.policy
+        db, tool_id, is_enabled=data.is_enabled, policy=data.policy,
+        connection_id=str(connection_id),
     )
     try:
         await audit_service.log(

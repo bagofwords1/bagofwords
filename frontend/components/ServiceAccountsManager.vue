@@ -36,7 +36,7 @@
                             </td>
                             <td class="px-4 py-3">
                                 <UBadge v-for="r in sa.roles" :key="r.id" size="xs" color="gray" variant="subtle" class="me-1">{{ r.name }}</UBadge>
-                                <span v-if="!sa.roles.length" class="text-xs text-gray-400 italic">{{ $t('serviceAccounts.noRole') }}</span>
+                                <span v-if="!sa.roles.length" class="text-xs text-ink-muted italic">{{ $t('serviceAccounts.noRole') }}</span>
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{{ sa.key_count }}</td>
                             <td class="px-4 py-3">
@@ -50,7 +50,7 @@
                             </td>
                         </tr>
                         <tr v-if="!accounts.length">
-                            <td colspan="5" class="px-4 py-10 text-center text-sm text-gray-400">
+                            <td colspan="5" class="px-4 py-10 text-center text-sm text-ink-muted">
                                 {{ $t('serviceAccounts.empty') }}
                             </td>
                         </tr>
@@ -81,7 +81,7 @@
                             option-attribute="label"
                             :placeholder="$t('serviceAccounts.selectRole')"
                         />
-                        <p class="text-xs text-gray-400 mt-1">{{ $t('serviceAccounts.roleHint') }}</p>
+                        <p class="text-xs text-ink-muted mt-1">{{ $t('serviceAccounts.roleHint') }}</p>
                     </div>
                     <div class="flex justify-end gap-2 pt-2">
                         <UButton variant="ghost" type="button" @click="showCreateModal = false">{{ $t('common.cancel') }}</UButton>
@@ -133,7 +133,7 @@
                             </td>
                         </tr>
                         <tr v-if="!activeAccount.keys.length">
-                            <td colspan="4" class="px-2 py-6 text-center text-xs text-gray-400">{{ $t('serviceAccounts.noKeys') }}</td>
+                            <td colspan="4" class="px-2 py-6 text-center text-xs text-ink-muted">{{ $t('serviceAccounts.noKeys') }}</td>
                         </tr>
                     </tbody>
                 </table>

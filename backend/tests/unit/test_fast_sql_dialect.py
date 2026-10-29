@@ -262,15 +262,17 @@ def test_every_accelerable_type_has_an_explainer():
         "snowflake": "snowflake",
         "ms_fabric": "mssql",     # Fabric speaks T-SQL
     }
-    # BigQuery, Sybase, PostHog and Power BI do not go through the SQL dialect table at
+    # BigQuery, Sybase, PostHog, Power BI and ClickHouse do not go through the SQL dialect table at
     # all — each has a native extraction source instead. Assert that explicitly
     # rather than letting them fall through the map lookup.
     from app.data_sources.fast.bigquery_source import BigQuerySource
+    from app.data_sources.fast.clickhouse_source import ClickHouseSource
     from app.data_sources.fast.posthog_source import PostHogSource
     from app.data_sources.fast.powerbi_source import PowerBISource
     from app.data_sources.fast.sybase_source import SybaseSource
     native = {"bigquery": BigQuerySource, "sybase": SybaseSource,
-              "posthog": PostHogSource, "powerbi": PowerBISource}
+              "posthog": PostHogSource, "powerbi": PowerBISource,
+              "clickhouse": ClickHouseSource}
     for conn_type, source in native.items():
         assert conn_type in ACCELERABLE_TYPES
         assert hasattr(source, "estimate")
@@ -508,7 +510,7 @@ def test_sql_server_is_accelerable_under_its_registry_casing():
 def test_is_accelerable_type_still_excludes_the_rest():
     from app.services.custom_query_service import is_accelerable_type
 
-    assert not is_accelerable_type("clickhouse")
+    assert not is_accelerable_type("mongodb")
     assert not is_accelerable_type(None)
 
 

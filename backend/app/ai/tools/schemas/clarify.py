@@ -13,7 +13,15 @@ class ClarifyQuestion(BaseModel):
         description=(
             "Clickable answer choices rendered as selectable chips. "
             "Omit for free-form text input. "
-            "Include an 'Other…' entry when the list may not be exhaustive."
+            "Do NOT add an 'Other' entry here — set `allow_other` instead."
+        ),
+    )
+    allow_other: bool = Field(
+        False,
+        description=(
+            "Set true when `options` may not cover every case. The UI then adds its own "
+            "'Other' choice (in the user's language) with a text box for a custom answer. "
+            "Ignored for free-form questions."
         ),
     )
     multi_select: bool = Field(

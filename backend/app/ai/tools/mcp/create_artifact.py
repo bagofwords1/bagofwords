@@ -71,13 +71,15 @@ class CreateArtifactMCPTool(MCPTool):
 
         # Load report as ORM model (preserves Connection.get_credentials())
         try:
-            report = await self._load_report(db, input_data.report_id)
+            report = await self._load_report(db, input_data.report_id, user, organization)
         except Exception as e:
             return MCPCreateArtifactOutput(
                 report_id=input_data.report_id,
                 success=False,
                 error_message=f"Report not found: {str(e)}",
             ).model_dump()
+
+        await self._authorize_artifact_authoring(db, user, organization, report)
 
         # Create tracking context
         tracking = await self._create_tracking_context(
@@ -104,6 +106,29 @@ class CreateArtifactMCPTool(MCPTool):
                 success=False,
                 error_message="No default LLM model configured for this organization.",
             ).model_dump()
+
+        if input_data.resources is not None or input_data.code is not None:
+            from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+            runtime = {'db': db, 'user': user, 'organization': organization, 'report': report,
+                'model': rich_ctx.model, 'context_hub': rich_ctx.context_hub}
+            output, observation = {}, {}
+            async for event in CreateArtifactTool().run_stream({
+                'prompt': input_data.prompt, 'title': input_data.title, 'mode': input_data.mode,
+                'code': input_data.code, 'visualization_ids': input_data.visualization_ids,
+                'resources': [r.model_dump() for r in input_data.resources or []],
+            }, runtime):
+                if event.type == 'tool.end':
+                    output = event.payload.get('output') or {}
+                    observation = event.payload.get('observation') or {}
+            success = bool(output.get('artifact_id')) and output.get('success') is not False
+            await self._finish_tracking(db, tracking, success=success,
+                summary='Artifact authoring completed' if success else 'Artifact authoring requires repair')
+            from app.settings.config import settings
+            return MCPCreateArtifactOutput(report_id=str(report.id), success=success,
+                artifact_id=output.get('artifact_id'), resource_artifact_id=output.get('resource_artifact_id'),
+                error_message=None if success else str(observation.get('error') or 'Artifact requires repair'),
+                url=f"{settings.bow_config.base_url}/reports/{report.id}?artifact={output.get('artifact_id')}" if success else None,
+                mode=input_data.mode, visualization_ids=input_data.visualization_ids).model_dump()
 
         # Fetch all successful visualizations for this report
         visualizations, warnings = await self._fetch_successful_visualizations(

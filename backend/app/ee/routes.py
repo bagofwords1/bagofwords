@@ -5,7 +5,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -19,11 +19,12 @@ from app.ee.license import (
     LicenseInfo,
 )
 from app.ee.audit.routes import router as audit_router
+from app.ee.audit.streams.routes import router as audit_streams_router
 from app.ee.scim.routes import scim_admin_router
 from app.ee.ldap.routes import ldap_admin_router
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
-from app.core.auth import current_user
+from app.core.auth import current_user, current_user_optional
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.membership import Membership
@@ -33,19 +34,44 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["enterprise"])
 
-# Include sub-routers
+# Include sub-routers. Streams first: the audit router's "/{log_id}" route
+# would otherwise capture "/enterprise/audit/streams".
+router.include_router(audit_streams_router)
 router.include_router(audit_router)
 router.include_router(scim_admin_router)
 router.include_router(ldap_admin_router)
 
 
 @router.get("/license", response_model=LicenseInfo)
-async def get_license_status():
+async def get_license_status(
+    request: Request,
+    db: AsyncSession = Depends(get_async_db),
+    user: Optional[User] = Depends(current_user_optional),
+):
     """
-    Get current license status.
-    This endpoint is public and does not require authentication.
+    Current license status, disclosed by audience:
+
+    * anonymous — only what feature gating needs: ``licensed``, ``tier``,
+      ``features``. No licensee name, license id, expiry, or quotas.
+    * any signed-in user — plus ``expires_at`` (drives the expiry banner).
+    * ``manage_settings`` in the request's organization — everything
+      (Settings → License shows licensee, license id and quotas).
     """
-    return get_license_info()
+    info = get_license_info()
+    minimal = LicenseInfo(licensed=info.licensed, tier=info.tier, features=list(info.features or []))
+    if user is None:
+        return minimal
+    minimal.expires_at = info.expires_at
+    org_id = request.headers.get("X-Organization-Id")
+    if org_id:
+        from app.core.permission_resolver import resolve_permissions
+        try:
+            resolved = await resolve_permissions(db, str(user.id), str(org_id))
+        except Exception:
+            resolved = None
+        if resolved is not None and resolved.has_org_permission("manage_settings"):
+            return info
+    return minimal
 
 
 class LicenseUsage(BaseModel):
@@ -152,6 +178,18 @@ async def _audit_license(db, organization, user, action: str, details: dict) -> 
         logger.debug("license audit log failed", exc_info=True)
 
 
+def _ensure_instance_license_admin(current_user: User) -> None:
+    """The license is instance-wide, but manage_settings is per-org. With a
+    single org its admins own the instance; with multiple orgs any user can
+    create an org (and become its admin), so require an instance superuser."""
+    from app.settings.config import settings as _settings
+    if _settings.bow_config.features.allow_multiple_organizations and not current_user.is_superuser:
+        raise HTTPException(
+            status_code=403,
+            detail="Only an instance administrator can manage the license on a multi-organization instance",
+        )
+
+
 @router.get("/license/key", response_model=LicenseKeyStatus)
 @requires_permission('manage_settings')
 async def get_license_key_status(
@@ -176,6 +214,7 @@ async def update_license_key(
     The key is verified before it is stored, so an invalid or expired key is
     rejected outright rather than replacing a working license.
     """
+    _ensure_instance_license_admin(current_user)
     from app.services.license_service import save_license_key
 
     try:
@@ -198,6 +237,7 @@ async def delete_license_key(
     organization: Organization = Depends(get_current_organization),
 ):
     """Remove the stored key and fall back to bow-config / BOW_LICENSE_KEY."""
+    _ensure_instance_license_admin(current_user)
     from app.services.license_service import remove_license_key
 
     info = await remove_license_key(db, str(current_user.id))

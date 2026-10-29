@@ -37,11 +37,31 @@ TIER_FEATURES = {
         "pii_protection",
         "rls",
         "data_encryption",
+        "audit_log_streams",
     ],
 }
 
-# Data sources that require an enterprise license
-ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "zabbix", "splunk", "aria_operations", "kubernetes", "brocade"]
+def enterprise_datasources() -> frozenset:
+    """Data source types that require an enterprise license.
+
+    Derived from `requires_license="enterprise"` in the data source registry so
+    the server-side gate and the UI lock (which reads the same field) can't
+    drift apart. Imported lazily: the registry pulls in config modules that
+    must not load while `app.ee` is initialising.
+    """
+    from app.schemas.data_source_registry import REGISTRY
+
+    return frozenset(
+        ds_type for ds_type, entry in REGISTRY.items()
+        if entry.requires_license == "enterprise"
+    )
+
+
+def __getattr__(name: str):
+    # Back-compat for `from app.ee.license import ENTERPRISE_DATASOURCES`.
+    if name == "ENTERPRISE_DATASOURCES":
+        return enterprise_datasources()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Public key for license verification (RS256).
 #
@@ -330,7 +350,7 @@ def is_datasource_allowed(ds_type: str) -> bool:
     - If license has explicit ds_ features → check that list
     - Otherwise enterprise tier → all enterprise DS allowed
     """
-    if ds_type not in ENTERPRISE_DATASOURCES:
+    if ds_type not in enterprise_datasources():
         return True
 
     license_info = get_license_info()

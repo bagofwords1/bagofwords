@@ -32,25 +32,25 @@
                                         class="rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
                                     />
                                 </th>
-                                <th :class="[compact ? 'px-2 py-1.5 text-[10px]' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th :class="[compact ? 'px-2 py-1.5 text-2xs' : 'px-3 py-2 text-xs', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Instruction
                                 </th>
-                                <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-2xs w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Source
                                 </th>
-                                <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-2xs w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Category
                                 </th>
-                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-2xs w-24' : 'px-3 py-2 text-xs w-28', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Agents
                                 </th>
-                                <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-2xs w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Load
                                 </th>
-                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-[10px] w-28' : 'px-3 py-2 text-xs w-32', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showLabels" :class="[compact ? 'px-2 py-1.5 text-2xs w-28' : 'px-3 py-2 text-xs w-32', 'text-start font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Labels
                                 </th>
-                                <th v-if="showStatus" :class="[compact ? 'px-2 py-1.5 text-[10px] w-16' : 'px-3 py-2 text-xs w-20', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
+                                <th v-if="showStatus" :class="[compact ? 'px-2 py-1.5 text-2xs w-16' : 'px-3 py-2 text-xs w-20', 'text-center font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider']">
                                     Status
                                 </th>
                             </tr>
@@ -81,15 +81,15 @@
                                         <!-- Git source path (small) -->
                                         <p
                                             v-if="instruction.source_type === 'git' && instruction.title"
-                                            :class="compact ? 'text-[9px]' : 'text-[10px]'"
-                                            class="text-gray-400 dark:text-gray-600 font-mono truncate mb-0.5"
+                                            :class="compact ? 'text-2xs' : 'text-2xs'"
+                                            class="text-ink-muted font-mono truncate mb-0.5"
                                             :title="instruction.title"
                                         >
                                             {{ instruction.title }}
                                         </p>
                                         <!-- Instruction text -->
                                         <p
-                                            :class="[compact ? 'text-[11px]' : 'text-xs', { 'line-clamp-2': !expandedRows.has(instruction.id) }]"
+                                            :class="[compact ? 'text-2xs' : 'text-xs', { 'line-clamp-2': !expandedRows.has(instruction.id) }]"
                                             class="text-gray-900 dark:text-white leading-snug"
                                             :title="instruction.text"
                                         >
@@ -98,7 +98,7 @@
                                         <button
                                             v-if="instruction.text && instruction.text.length > 150"
                                             @click.stop="toggleExpand(instruction.id)"
-                                            :class="compact ? 'text-[9px]' : 'text-[10px]'"
+                                            :class="compact ? 'text-2xs' : 'text-2xs'"
                                             class="text-blue-500 hover:text-blue-700 mt-0.5 font-medium"
                                         >
                                             {{ expandedRows.has(instruction.id) ? 'less' : 'more' }}
@@ -140,7 +140,7 @@
                                 <!-- Category -->
                                 <td v-if="showCategory" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
                                     <span
-                                        :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getCategoryClass(instruction.category)]"
+                                        :class="[compact ? 'text-2xs px-1 py-0.5' : 'text-2xs px-1.5 py-0.5', 'rounded font-medium', helpers.getCategoryClass(instruction.category)]"
                                     >
                                         {{ helpers.formatCategory(instruction.category) }}
                                     </span>
@@ -156,22 +156,22 @@
                                                     :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'"
                                                     class="flex-shrink-0"
                                                 />
-                                                <span :class="[compact ? 'text-[9px] max-w-[60px]' : 'text-[10px] max-w-[70px]', 'text-gray-600 dark:text-gray-400 truncate']">
+                                                <span :class="[compact ? 'text-2xs max-w-[60px]' : 'text-2xs max-w-[70px]', 'text-gray-600 dark:text-gray-400 truncate']">
                                                     {{ instruction.data_sources[0]?.name || '—' }}
                                                 </span>
                                             </div>
                                         </UTooltip>
-                                        <span v-if="instruction.data_sources.length > 1" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400 dark:text-gray-600">
+                                        <span v-if="instruction.data_sources.length > 1" :class="compact ? 'text-2xs' : 'text-2xs'" class="text-ink-muted">
                                             +{{ instruction.data_sources.length - 1 }}
                                         </span>
                                     </div>
-                                    <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300 dark:text-gray-600">—</span>
+                                    <span v-else :class="compact ? 'text-2xs' : 'text-2xs'" class="text-gray-300 dark:text-gray-600">—</span>
                                 </td>
 
                                 <!-- Load mode -->
                                 <td v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
                                     <span
-                                        :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getLoadModeClass(instruction.load_mode)]"
+                                        :class="[compact ? 'text-2xs px-1 py-0.5' : 'text-2xs px-1.5 py-0.5', 'rounded font-medium', helpers.getLoadModeClass(instruction.load_mode)]"
                                     >
                                         {{ helpers.getLoadModeLabel(instruction.load_mode) }}
                                     </span>
@@ -187,7 +187,7 @@
                                                 :text="label.description || label.name"
                                             >
                                                 <span
-                                                    :class="compact ? 'text-[8px] px-1 py-0.5' : 'text-[9px] px-1.5 py-0.5'"
+                                                    :class="compact ? 'text-2xs px-1 py-0.5' : 'text-2xs px-1.5 py-0.5'"
                                                     class="inline-flex items-center gap-1 rounded-full border font-medium"
                                                     :style="{
                                                         borderColor: label.color || '#CBD5F5',
@@ -199,11 +199,11 @@
                                                     {{ label.name }}
                                                 </span>
                                             </UTooltip>
-                                            <span v-if="instruction.labels.length > 2" :class="compact ? 'text-[8px]' : 'text-[9px]'" class="text-gray-400 dark:text-gray-600">
+                                            <span v-if="instruction.labels.length > 2" :class="compact ? 'text-2xs' : 'text-2xs'" class="text-ink-muted">
                                                 +{{ instruction.labels.length - 2 }}
                                             </span>
                                         </template>
-                                        <span v-else :class="compact ? 'text-[9px]' : 'text-[10px]'" class="text-gray-300 dark:text-gray-600">—</span>
+                                        <span v-else :class="compact ? 'text-2xs' : 'text-2xs'" class="text-gray-300 dark:text-gray-600">—</span>
                                     </div>
                                 </td>
 
@@ -211,7 +211,7 @@
                                 <td v-if="showStatus" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2.5', 'text-center']">
                                     <UTooltip :text="helpers.getStatusTooltip(instruction)">
                                         <span
-                                            :class="[compact ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5', 'rounded font-medium', helpers.getStatusClass(instruction)]"
+                                            :class="[compact ? 'text-2xs px-1 py-0.5' : 'text-2xs px-1.5 py-0.5', 'rounded font-medium', helpers.getStatusClass(instruction)]"
                                         >
                                             {{ helpers.getStatusLabel(instruction) }}
                                         </span>
@@ -224,7 +224,7 @@
 
                 <!-- Pagination -->
                 <div v-if="showPagination" :class="[compact ? 'px-2 py-1.5' : 'px-3 py-2', 'border-t border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0 bg-gray-50 dark:bg-gray-900']">
-                    <div :class="compact ? 'text-[10px]' : 'text-xs'" class="text-gray-500 dark:text-gray-400">
+                    <div :class="compact ? 'text-2xs' : 'text-xs'" class="text-gray-500 dark:text-gray-400">
                         {{ (currentPage - 1) * pageSize + 1 }}–{{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }}
                     </div>
                     <div class="flex items-center gap-1">

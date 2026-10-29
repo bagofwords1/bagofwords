@@ -50,11 +50,11 @@
                                 type="text"
                                 :placeholder="$t('projects.searchPlaceholder')"
                                 data-testid="project-search"
-                                class="w-full ps-8 pe-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
+                                class="w-full ps-8 pe-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 placeholder:text-ink-subtle focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent"
                             />
                             <UIcon
                                 name="i-heroicons-magnifying-glass"
-                                class="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400"
+                                class="absolute start-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-ink-muted"
                             />
                         </div>
 
@@ -76,7 +76,7 @@
                                     <UIcon name="i-heroicons-funnel" class="h-4 w-4" />
                                     <span
                                         v-if="activeFilterCount > 0"
-                                        class="absolute -top-1 -end-1 inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 text-[10px] font-semibold rounded-full bg-blue-600 text-white"
+                                        class="absolute -top-1 -end-1 inline-flex items-center justify-center min-w-[15px] h-[15px] px-1 text-2xs font-semibold rounded-full bg-blue-600 text-white"
                                     >
                                         {{ activeFilterCount }}
                                     </span>
@@ -165,7 +165,7 @@
                             <UIcon
                                 name="i-heroicons-folder"
                                 class="w-5 h-5"
-                                :class="project.color ? '' : 'text-gray-400 dark:text-gray-500'"
+                                :class="project.color ? '' : 'text-ink-muted'"
                                 :style="project.color ? { color: project.color } : undefined"
                             />
                         </span>
@@ -182,14 +182,14 @@
                                 </NuxtLink>
                                 <span
                                     v-if="isShared(project)"
-                                    class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-[11px] text-gray-400 dark:text-gray-500"
+                                    class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-2xs text-ink-muted"
                                 >
                                     <UIcon name="i-heroicons-user-group" class="w-3 h-3" />
                                     {{ $t('projects.sharedBadge') }}
                                 </span>
                             </div>
                             <!-- Sub-label: reports, members, owner, description -->
-                            <div class="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 flex-wrap">
+                            <div class="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted flex-wrap">
                                 <span class="inline-flex items-center gap-1">
                                     <UIcon name="i-heroicons-document-text" class="h-3.5 w-3.5" />
                                     {{ $t('projects.reportCount', { count: project.report_count }, project.report_count) }}
@@ -213,7 +213,7 @@
                         </div>
 
                         <!-- Right metadata: date -->
-                        <div class="shrink-0 hidden sm:block text-xs text-gray-400 dark:text-gray-500">
+                        <div class="shrink-0 hidden sm:block text-xs text-ink-muted">
                             {{ formatDate((project as any).created_at) }}
                         </div>
 
@@ -231,7 +231,7 @@
                 <p class="text-sm font-medium text-gray-900 dark:text-white">
                     {{ emptyTitle }}
                 </p>
-                <p class="text-sm text-gray-400 dark:text-gray-500" :class="canCreateFromEmpty ? 'mb-4' : ''">
+                <p class="text-sm text-ink-muted" :class="canCreateFromEmpty ? 'mb-4' : ''">
                     {{ emptyHint }}
                 </p>
                 <!-- A shared project belongs to someone else and a filtered-out
@@ -253,7 +253,7 @@
                  size to 50 never hides the only way back to 10. -->
             <div
                 v-if="!isLoading && pagedProjects.length && filteredProjects.length > rowsPerPageOptions[0]"
-                class="mt-3 flex items-center justify-between gap-3 text-xs text-gray-400 dark:text-gray-500"
+                class="mt-3 flex items-center justify-between gap-3 text-xs text-ink-muted"
             >
                 <div class="flex items-center gap-1.5">
                     <span class="whitespace-nowrap">{{ $t('projects.pagination.rowsPerPage') }}</span>
@@ -293,7 +293,7 @@
             <UModal v-model="createOpen" :ui="{ width: 'sm:max-w-sm' }">
                 <div class="p-5">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">{{ $t('projects.createTitle') }}</h3>
-                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-3">{{ $t('projects.createHint') }}</p>
+                    <p class="text-xs text-ink-muted mb-3">{{ $t('projects.createHint') }}</p>
                     <input
                         v-model="createName"
                         type="text"

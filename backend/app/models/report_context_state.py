@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, JSON, ForeignKey, Integer, DateTime
 from sqlalchemy.orm import relationship
+from app.ee.encryption import EncryptedJSON
 from .base import BaseSchema
 
 
@@ -17,7 +18,8 @@ class ReportContextState(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, unique=True, index=True)
     report = relationship('Report', foreign_keys=[report_id])
 
-    summary_json = Column(JSON, nullable=False, default=dict)
+    # Rolling LLM summary of the conversation; it quotes results, so encrypted.
+    summary_json = Column(EncryptedJSON, nullable=False, default=dict)
     # Watermark: completions with created_at <= this completion are covered
     # by summary_json and excluded from the detailed message window.
     covers_until_completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True)

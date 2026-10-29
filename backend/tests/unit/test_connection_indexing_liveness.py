@@ -261,3 +261,99 @@ async def test_discovery_that_keeps_reporting_outlives_the_idle_window(env, monk
     await asyncio.wait_for(svc._run(str(row.id)), timeout=10)
 
     assert (await _row(maker, row.id)).status == ConnectionIndexingStatus.COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_cancel_recorded_by_another_worker_is_not_overwritten(env, monkeypatch):
+    """`request_cancel` handled by another worker only changes the row (its
+    in-process cancel event is not ours). Finalize must not flip it back."""
+    maker, connection = env
+    svc = ConnectionIndexingService()
+
+    async def discovery(self, **kwargs):
+        # Raw write: the cancel route would also set THIS process's event,
+        # which is exactly what another worker cannot do.
+        async with maker() as db:
+            row = await svc.get_active(db, str(connection.id))
+            row.status = ConnectionIndexingStatus.CANCELLED.value
+            row.finished_at = datetime.utcnow()
+            row.error = "Cancelled by user"
+            await db.commit()
+        return []
+
+    monkeypatch.setattr(ConnectionService, "refresh_schema", discovery)
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct_client)
+    async with maker() as db:
+        row = await svc.start(db=db, connection=connection, kick_off=False)
+    await asyncio.wait_for(svc._run(str(row.id)), timeout=10)
+
+    assert (await _row(maker, row.id)).status == ConnectionIndexingStatus.CANCELLED.value
+
+
+class _CatalogClient(_Client):
+    def __init__(self, tables):
+        self._tables = tables
+
+    async def aget_schemas(self, **kwargs):
+        return self._tables
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("table_count", [3, 1201])
+async def test_run_log_records_discovery_and_save_before_writing_the_catalog(
+    env, monkeypatch, table_count,
+):
+    """A worker killed while saving (out of memory) leaves no error behind, so
+    the run's own event log must already say it reached discovery and saving,
+    with the worker's memory, before the catalog write starts."""
+    maker, connection = env
+    tables = [
+        {"name": f"dbo.t{i}", "columns": [{"name": "id", "dtype": "int"}, {"name": "v", "dtype": "text"}]}
+        for i in range(table_count)
+    ]
+
+    async def construct_client(self, *args, **kwargs):
+        return _CatalogClient(tables)
+
+    monkeypatch.setattr(ConnectionService, "construct_client", construct_client)
+    svc = ConnectionIndexingService()
+    async with maker() as db:
+        row = await svc.start(db=db, connection=connection, kick_off=False)
+    await asyncio.wait_for(svc._run(str(row.id)), timeout=30)
+
+    done = await _row(maker, row.id)
+    assert done.status == ConnectionIndexingStatus.COMPLETED.value
+    assert done.stats_json["table_count"] == table_count
+    with_memory = [e["phase"] for e in done.events_json if "rss" in e["message"]]
+    assert "discovered" in with_memory and "saving" in with_memory
+    assert with_memory.index("discovered") < with_memory.index("saving")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rounds", [5, 40])
+async def test_event_log_keeps_every_entry_when_progress_and_run_events_interleave(
+    env, monkeypatch, rounds,
+):
+    """Progress reports and the runner's own events are written to the same
+    log by different writers. Neither may overwrite the other's entries."""
+    maker, connection = env
+
+    async def discovery(self, *, progress_callback=None, diagnostics_hook=None, **kwargs):
+        for i in range(rounds):
+            progress_callback(f"stage-{i}", f"dbo.t{i}", i + 1, rounds)
+            await diagnostics_hook("discovered", {"tables": i, "columns": i})
+        return []
+
+    monkeypatch.setattr(ConnectionService, "refresh_schema", discovery)
+    monkeypatch.setattr(ConnectionService, "construct_client", _construct_client)
+    svc = ConnectionIndexingService()
+    async with maker() as db:
+        row = await svc.start(db=db, connection=connection, kick_off=False)
+    await asyncio.wait_for(svc._run(str(row.id)), timeout=30)
+
+    events = (await _row(maker, row.id)).events_json
+    phases = [e["phase"] for e in events]
+    assert all(f"stage-{i}" in phases for i in range(rounds)), phases
+    assert phases.count("discovered") == rounds, phases
+    stage_positions = [phases.index(f"stage-{i}") for i in range(rounds)]
+    assert stage_positions == sorted(stage_positions)

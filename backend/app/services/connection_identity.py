@@ -38,7 +38,7 @@ def management_requires_user_auth(connection: Connection, config_overrides: dict
     scopes/catalog ownership, not presence of an encrypted credentials blob.
     """
     import json
-    from app.schemas.data_source_registry import REGISTRY
+    from app.schemas.data_source_registry import REGISTRY, catalog_ownership_for
 
     config = connection.config
     config = json.loads(config) if isinstance(config, str) else dict(config or {})
@@ -49,7 +49,7 @@ def management_requires_user_auth(connection: Connection, config_overrides: dict
         return True
     if entry:
         variant = entry.credentials_auth.by_auth.get(auth_type)
-        return entry.catalog_ownership == 'per_user' or bool(variant and 'system' not in variant.scopes)
+        return catalog_ownership_for(connection.type, config) == 'per_user' or bool(variant and 'system' not in variant.scopes)
     return False
 
 
@@ -230,6 +230,9 @@ async def build_token_identity_status(
         cred_index.connection_row(connection.id) if cred_index is not None
         else await get_user_conn_cred_row(db, connection, user)
     )
+    if row is None:
+        from app.services.obo_recovery_service import schedule_stored_login_recovery
+        schedule_stored_login_recovery(str(user.id), connection)
     admin_or_owner = await is_admin_or_owner(db, connection, user)
     pref = identity_pref_from_row(row)
     has_token = row_has_token(row)

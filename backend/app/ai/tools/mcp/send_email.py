@@ -90,9 +90,8 @@ class SendEmailMCPTool(MCPTool):
                 error="Could not resolve your email address.",
             ).model_dump()
 
-        # Attachments are scoped to a report. Require report_id and verify the
-        # report belongs to the caller's org before trusting it for scoping —
-        # _load_report alone does not check ownership.
+        # Attachments are scoped to a report. Require report_id; _load_report
+        # only resolves reports the caller owns in this organization.
         report = None
         if input_data.attachments:
             if not input_data.report_id:
@@ -101,7 +100,7 @@ class SendEmailMCPTool(MCPTool):
                     error="report_id is required when sending attachments.",
                 ).model_dump()
             try:
-                report = await self._load_report(db, input_data.report_id)
+                report = await self._load_report(db, input_data.report_id, user, organization)
             except Exception:
                 return MCPSendEmailOutput(
                     success=False, subject=input_data.subject,
@@ -116,7 +115,7 @@ class SendEmailMCPTool(MCPTool):
             # No attachments but a report was named — used only for the in-app
             # deep link; still verify org ownership before trusting it.
             try:
-                report = await self._load_report(db, input_data.report_id)
+                report = await self._load_report(db, input_data.report_id, user, organization)
                 if str(report.organization_id) != str(organization.id):
                     report = None
             except Exception:

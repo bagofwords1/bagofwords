@@ -60,7 +60,7 @@ def _write_capture(payload: dict[str, Any]) -> None:
 
 
 @mcp.tool(
-    description="Query LN production orders. Echoes the arguments and headers it received.",
+    description="Query production orders. Echoes the arguments and headers it received.",
 )
 def query_production_orders(
     prompt: str,

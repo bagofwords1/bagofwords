@@ -11,12 +11,12 @@
 -->
 <template>
   <aside class="h-full overflow-y-auto p-3 space-y-3" data-testid="params-panel">
-    <div class="text-[11px] text-gray-500 dark:text-gray-400">
+    <div class="text-2xs text-gray-500 dark:text-gray-400">
       Typed inputs the code receives as <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">params</code>.
       <b>input</b> params are viewer-editable controls; <b>identity</b> params are locked to each viewer and bound server-side.
       Save enforces that the code reads every declared param.
     </div>
-    <div v-if="specs.length === 0" class="text-xs text-gray-400 border border-dashed rounded p-3 text-center">
+    <div v-if="specs.length === 0" class="text-xs text-ink-muted border border-dashed rounded p-3 text-center">
       No parameters declared.
     </div>
     <div v-for="(spec, idx) in specs" :key="idx" class="border border-gray-200 dark:border-gray-700 rounded p-2 space-y-1.5" :data-testid="`param-row-${spec.name || idx}`">
@@ -33,7 +33,7 @@
           <option value="identity">identity (locked to viewer)</option>
           <option value="input_identity_default">input, defaults to viewer</option>
         </select>
-        <label class="text-[11px] text-gray-500 flex items-center gap-1">
+        <label class="text-2xs text-gray-500 flex items-center gap-1">
           <input type="checkbox" v-model="spec.required" /> req
         </label>
       </div>
@@ -44,7 +44,7 @@
              space (e.g. 'Genres' feeding the genre control) — choices then
              never self-narrow. -->
         <div v-if="optionQueries.length" class="flex items-center gap-1.5">
-          <span class="text-[11px] text-gray-500">choices</span>
+          <span class="text-2xs text-gray-500">choices</span>
           <select :value="spec.options_source ? 'query' : 'static'" class="px-1.5 py-1 text-xs border rounded" :data-testid="`param-opts-mode-${spec.name || idx}`"
             @change="setOptionsMode(spec, ($event.target as HTMLSelectElement).value)">
             <option value="static">static list</option>
@@ -82,7 +82,7 @@
             <option value="viewer.groups">viewer.groups</option>
             <option v-if="spec.identity_binding && spec.identity_binding.startsWith('viewer.profile_attributes.')" :value="spec.identity_binding">{{ spec.identity_binding }}</option>
           </select>
-          <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 whitespace-nowrap">viewer-scoped</span>
+          <span class="text-2xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 whitespace-nowrap">viewer-scoped</span>
         </div>
         <input placeholder="or profile attribute key (e.g. department)" class="w-full px-2 py-1 text-xs border rounded"
           @change="spec.identity_binding = ($event.target as HTMLInputElement).value ? ('viewer.profile_attributes.' + ($event.target as HTMLInputElement).value) : spec.identity_binding" />
@@ -95,7 +95,7 @@
     <div v-if="editable.length" class="border-t pt-2 space-y-1.5">
       <div class="text-xs font-medium text-gray-700 dark:text-gray-300">Test values</div>
       <div v-for="spec in editable" :key="spec.name" class="flex items-center gap-1.5">
-        <span class="text-[11px] text-gray-500 font-mono w-24 truncate">{{ spec.name }}=</span>
+        <span class="text-2xs text-gray-500 font-mono w-24 truncate">{{ spec.name }}=</span>
         <input v-model="testValues[spec.name]" :placeholder="testValuePlaceholder(code, spec)"
           class="flex-1 min-w-0 px-2 py-1 text-xs border rounded" :data-testid="`param-value-${spec.name}`" />
       </div>
@@ -108,7 +108,7 @@
     <!-- What the last run actually bound — makes '0 rows' legible. -->
     <div v-if="appliedParams && Object.keys(appliedParams).length" class="border-t pt-2 space-y-1" data-testid="applied-params">
       <div class="text-xs font-medium text-gray-700 dark:text-gray-300">Last run used</div>
-      <div v-for="(v, k) in appliedParams" :key="k" class="text-[11px] font-mono text-gray-600 dark:text-gray-400">
+      <div v-for="(v, k) in appliedParams" :key="k" class="text-2xs font-mono text-gray-600 dark:text-gray-400">
         {{ k }} = <span :class="v === null ? 'text-amber-600' : ''">{{ v === null ? 'NULL' : JSON.stringify(v) }}</span>
       </div>
     </div>

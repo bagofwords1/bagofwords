@@ -11,6 +11,7 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from fastapi_users.password import PasswordHelper
 
@@ -18,6 +19,7 @@ from app.models.user import User
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.ee.scim.models import ScimToken
+from app.ee.scim.errors import ScimError
 from app.ee.scim.schemas import (
     ScimUser, ScimUserCreate, ScimPatchOp, ScimMeta, ScimName, ScimEmail,
     ScimListResponse, ScimTokenCreate, ScimTokenResponse, ScimTokenCreated,
@@ -122,6 +124,23 @@ def _parse_scim_filter(filter_str: Optional[str]) -> dict:
 
     attr, value = match.group(1), match.group(2)
     return {attr: value}
+
+
+def _scim_bool(value) -> bool:
+    """SCIM boolean from a PATCH value.
+
+    Entra apps without the `aadOptscim062020` flag send booleans as strings
+    ("False"), and bool("False") is True — which would turn a deprovisioning
+    PATCH into a no-op that leaves the user able to sign in.
+    """
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1"):
+            return True
+        if lowered in ("false", "0"):
+            return False
+        raise HTTPException(status_code=400, detail=f"Invalid boolean value: {value!r}")
+    return bool(value)
 
 
 def _user_to_scim(user: User, membership: Optional[Membership] = None, base_url: str = "") -> ScimUser:
@@ -374,8 +393,7 @@ class ScimUserService:
         if data.externalId is not None:
             user.scim_external_id = data.externalId
 
-        await db.commit()
-        await db.refresh(user)
+        await self._commit_user_update(db, user)
         return _user_to_scim(user, membership, base_url)
 
     async def patch_user(
@@ -409,9 +427,33 @@ class ScimUserService:
                 if op.path and op.path.lower() == "externalid":
                     user.scim_external_id = None
 
-        await db.commit()
-        await db.refresh(user)
+        await self._commit_user_update(db, user)
         return _user_to_scim(user, membership, base_url)
+
+    async def _commit_user_update(self, db: AsyncSession, user: User) -> None:
+        """Commit a PUT/PATCH, answering an email that belongs to another
+        account with 409 uniqueness (what Entra/Okta expect) instead of the
+        raw constraint error."""
+        conflict = ScimError(409, "userName is already in use by another user", "uniqueness")
+        if user.email:
+            # no_autoflush: the pending email change must not hit the unique
+            # index before we have checked it.
+            with db.no_autoflush:
+                taken = await db.scalar(
+                    select(User.id).where(
+                        func.lower(User.email) == user.email.lower(),
+                        User.id != user.id,
+                    )
+                )
+            if taken:
+                await db.rollback()
+                raise conflict
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise conflict
+        await db.refresh(user)
 
     def _apply_replace(self, user: User, path: Optional[str], value) -> None:
         """Apply a replace operation to user attributes."""
@@ -426,7 +468,7 @@ class ScimUserService:
         """Set a single user attribute from SCIM path/key."""
         attr_lower = attr.lower()
         if attr_lower == "active":
-            user.is_active = bool(value)
+            user.is_active = _scim_bool(value)
         elif attr_lower == "username":
             user.email = str(value)
         elif attr_lower == "displayname":
@@ -466,3 +508,8 @@ class ScimUserService:
         user, membership = row
         user.is_active = False
         await db.commit()
+        try:
+            from app.services.wait_service import wait_service
+            wait_service.cancel_waits_for_user(str(user_id))
+        except Exception:
+            logger.warning("SCIM delete: failed to cancel pending waits", exc_info=True)

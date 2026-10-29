@@ -1,3 +1,6 @@
 # Frozen vendor-derived specifications; review the generator and endpoint inventory.
 backend/app/data_sources/clients/netapp/catalog.json linguist-generated=true
 docs/design/netapp-ontap-9141-endpoints.json linguist-generated=true
+
+# PR evidence media is not shipped in the air-gap source archive.
+**/media/pr/** export-ignore

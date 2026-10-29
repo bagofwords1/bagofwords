@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, StrictBool, field_validator
 from typing import List, Optional, Literal
 from .widget_schema import WidgetSchema
 from app.schemas.user_schema import UserSchema
@@ -7,6 +7,8 @@ from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 from app.schemas.project_schema import ProjectMiniSchema
+from app.utils.reasoning_effort import normalize_effort
+from app.schemas.report_api_settings import validate_tools
 
 class ReportBase(BaseModel):
     title: Optional[str] = None
@@ -27,6 +29,24 @@ class ReportCreate(ReportBase):
     # so omitted/None simply means "no override, resolve the default at run
     # time" — which is also what Auto sends.
     model_id: Optional[str] = None
+    # Reasoning level picked with the model (low|medium|high|max). Omitted /
+    # None = Default.
+    reasoning_effort: Optional[str] = None
+    # Per-conversation opt-outs for API integrations (app.schemas.report_api_settings).
+    # Omitted / null = the org setting decides; false = off on every turn.
+    follow_ups: Optional[StrictBool] = None
+    suggest_instructions: Optional[StrictBool] = None
+    tools: Optional[dict] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
+
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v):
+        return validate_tools(v)
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None
@@ -42,6 +62,33 @@ class ReportUpdate(BaseModel):
     # Report-level LLM override. Sentinel-aware: omit to leave unchanged, send a
     # model id to set, send "" (empty string) to clear back to user/org default.
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id. Sentinel-aware the same way:
+    # omit to leave unchanged, "" or "default" to clear back to Default.
+    reasoning_effort: Optional[str] = None
+
+    # Per-conversation opt-outs (see ReportCreate). Omit to leave unchanged;
+    # send null to hand the decision back to the org setting. tools merges by
+    # key: {"clarify": null} clears that one key.
+    follow_ups: Optional[StrictBool] = None
+    suggest_instructions: Optional[StrictBool] = None
+    tools: Optional[dict] = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        if v is None:
+            return None
+        # Keep the clear sentinel distinguishable from "omitted".
+        return normalize_effort(v) or ""
+
+    @field_validator("tools")
+    @classmethod
+    def _validate_tools(cls, v):
+        # Keep null entries here: in an update they clear that key.
+        if v is None:
+            return None
+        validate_tools(v)
+        return v
     # Project membership. Sentinel-aware like model_id: omit to leave unchanged,
     # send a project id to move into that project, send "" to move back to the
     # personal root list.
@@ -91,6 +138,12 @@ class ReportSchema(ReportBase):
 
     # Report-level LLM override (null = user/org default resolves at run time)
     model_id: Optional[str] = None
+    # Reasoning level stored beside model_id (null = Default)
+    reasoning_effort: Optional[str] = None
+    # Per-conversation API opt-outs (null = the org setting decides)
+    follow_ups: Optional[bool] = None
+    suggest_instructions: Optional[bool] = None
+    tools: Optional[dict] = None
     # Agent focus: subset of attached agents whose full schema is in context.
     # null/empty = no explicit focus (planner renders all when few / auto-seeds when many).
     focused_data_source_ids: Optional[List[str]] = None
@@ -111,6 +164,9 @@ class ReportSchema(ReportBase):
     # Owner's agent allowlist for artifact-page chat: null = inherit the
     # report's attached roster, [] = dashboard data only, list = subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Owner's default model for artifact-page chat: null = inherit the
+    # report's model; "org_default" = the organization default; else a model id.
+    artifact_chat_model_id: Optional[str] = None
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
@@ -118,6 +174,10 @@ class ReportSchema(ReportBase):
     # share dialog only shows the run-identity toggle then — on system-only
     # credentials creator vs viewer identity resolves to the same credentials.
     has_user_scoped: bool = False
+    # Org setting allow_public_sharing. False = the share dialog hides
+    # "anyone with the link", and a 'public' share here only opens for org
+    # members (see app/services/public_sharing_policy.py).
+    public_sharing_allowed: bool = True
     artifact_shared_user_ids: List[str] = []
     conversation_shared_user_ids: List[str] = []
     artifact_shared_group_ids: List[str] = []
@@ -145,6 +205,7 @@ class ReportSchema(ReportBase):
     scheduled_prompt_id: Optional[str] = None
     # Fork lineage
     forked_from_id: Optional[str] = None
+    forked_from_artifact_id: Optional[str] = None  # a fork from /d (phase 8)
     forked_from_title: Optional[str] = None
     forked_from_user_name: Optional[str] = None
     # Project (folder) membership; project carries name/icon for the chip.
@@ -213,6 +274,10 @@ class ReportVisibilityUpdate(BaseModel):
     # omitted = leave unchanged; [] = dashboard data only; ["*"] = reset to
     # inherit the report's attached roster (null); a list = explicit subset.
     artifact_chat_data_source_ids: Optional[List[str]] = None
+    # Artifact sharing only: default model for chat. Sentinel-aware like
+    # ReportUpdate.model_id: omitted = leave unchanged; "" = clear (inherit the
+    # report's model); "org_default" = the organization default model.
+    artifact_chat_model_id: Optional[str] = None
 
 
 class ViewerRunResultSchema(BaseModel):

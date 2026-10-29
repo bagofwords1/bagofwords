@@ -180,11 +180,16 @@ def test_get_context_refilters_shared_report_by_visibility(
                      arguments={"title": "shared"}, api_key=admin_key)
     assert {"Public DS", "Private DS"} <= {d["name"] for d in rep["data_sources"]}
 
-    # Member opens the same report's context.
-    ctx = _tool_call(test_client, name="get_context",
-                     arguments={"report_id": rep["report_id"]}, api_key=member_key)
-    names = {d["name"] for d in ctx["data_sources"]}
-    assert "Private DS" not in names, f"private DS schema leaked via shared report: {names}"
+    # Member tries to open the admin's report context. MCP report tools are
+    # owner-only, so this is refused outright; whatever comes back must not
+    # carry the private DS schema either way.
+    resp = _mcp(test_client, method="tools/call",
+                params={"name": "get_context", "arguments": {"report_id": rep["report_id"]}},
+                api_key=member_key)
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["isError"] is True, f"member read another user's report context: {result}"
+    assert "Private DS" not in json.dumps(result), f"private DS schema leaked: {result}"
 
 
 @pytest.mark.e2e

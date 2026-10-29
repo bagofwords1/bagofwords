@@ -135,3 +135,4 @@ class TestForeignKeyVisibilityFilter:
     def test_empty_and_malformed_are_safe(self):
         assert self._filter(None, {"a"}) == []
         assert self._filter([{"no_ref": 1}], {"a"}) == []
+

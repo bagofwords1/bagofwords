@@ -10,14 +10,19 @@ from .inspect_data import InspectDataMCPTool
 from .create_data import CreateDataMCPTool
 from .create_artifact import CreateArtifactMCPTool
 from .edit_artifact import EditArtifactMCPTool
+from .artifact_resources import ManageArtifactResourcesMCPTool
 from .send_email import SendEmailMCPTool
 from .list_agent_tools import ListAgentToolsMCPTool
 from .execute_mcp import ExecuteMCPMCPTool
 from .instructions import (
     ListInstructionsMCPTool,
+    ReadInstructionMCPTool,
     CreateInstructionMCPTool,
+    EditInstructionMCPTool,
     DeleteInstructionMCPTool,
 )
+from .entities import DescribeEntityMCPTool, ListEntitiesMCPTool
+from .schema_tools import DescribeTablesMCPTool, EditSchemaMCPTool
 from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
 
 MCP_TOOLS = {
@@ -27,14 +32,23 @@ MCP_TOOLS = {
     "create_data": CreateDataMCPTool,
     "create_artifact": CreateArtifactMCPTool,
     "edit_artifact": EditArtifactMCPTool,
+    "manage_artifact_resources": ManageArtifactResourcesMCPTool,
     "send_email": SendEmailMCPTool,
     # Agent tool gateway (MCP servers + custom APIs attached to an agent)
     "list_agent_tools": ListAgentToolsMCPTool,
     "execute_mcp": ExecuteMCPMCPTool,
     # Instruction management tools
     "list_instructions": ListInstructionsMCPTool,
+    "read_instruction": ReadInstructionMCPTool,
     "create_instruction": CreateInstructionMCPTool,
+    "edit_instruction": EditInstructionMCPTool,
     "delete_instruction": DeleteInstructionMCPTool,
+    # Saved queries (catalog entities)
+    "list_entities": ListEntitiesMCPTool,
+    "describe_entity": DescribeEntityMCPTool,
+    # Agent schema tools (read: anyone who can see the agent; write: agent managers)
+    "describe_tables": DescribeTablesMCPTool,
+    "edit_schema": EditSchemaMCPTool,
     # App-only tools (hidden from LLM, used by MCP App UIs)
     "get_visualization": GetVisualizationMCPTool,
     "get_artifact_data": GetArtifactDataMCPTool,

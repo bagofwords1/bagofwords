@@ -1,0 +1,137 @@
+[
+  {
+    "check": "setup: one stream per destination",
+    "ok": true,
+    "detail": "datadog, splunk, sentinel, s3, gcs, https, syslog"
+  },
+  {
+    "check": "B1 happy path: datadog received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: splunk received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: sentinel received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: s3 received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: gcs received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: https received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B1 happy path: syslog received every DB event",
+    "ok": true,
+    "detail": "expected=73440 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B2 transient: splunk received every DB event",
+    "ok": true,
+    "detail": "expected=73515 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B2 transient: datadog received every DB event",
+    "ok": true,
+    "detail": "expected=73515 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B2 transient: splunk stayed active",
+    "ok": true,
+    "detail": "failures=0"
+  },
+  {
+    "check": "B2 transient: datadog stayed active",
+    "ok": true,
+    "detail": "failures=0"
+  },
+  {
+    "check": "B2 transient: mock saw the injected failures",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "check": "B3 invalid: stream moved to invalid",
+    "ok": true,
+    "detail": "token endpoint HTTP 401: {\"error\": \"invalid_client\"}"
+  },
+  {
+    "check": "B3 invalid: state change is audited",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "check": "B3 fixed: credentials updated and resumed",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "check": "B3 invalid \u2192 fixed: sentinel received every DB event",
+    "ok": true,
+    "detail": "expected=73562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: queue dropped nothing",
+    "ok": true,
+    "detail": "burst=10000 rows=10000 {\"queued\": 0, \"enqueued\": 6200, \"written\": 10000, \"failed\": 0, \"inline\": 3800, \"spilled\": 0, \"replayed\": 0, \"dropped\": 0} in 130.4s"
+  },
+  {
+    "check": "B4 burst: datadog received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: splunk received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: sentinel received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: s3 received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: gcs received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: https received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B4 burst: syslog received every DB event",
+    "ok": true,
+    "detail": "expected=83562 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B5 restart mid-batch: https received every DB event",
+    "ok": true,
+    "detail": "expected=83577 missing=0 dups=0 fmt_err=0"
+  },
+  {
+    "check": "B5 restart mid-batch: any duplicate is the identical event (same id)",
+    "ok": true,
+    "detail": "duplicates=0"
+  }
+]

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, event, UUID, DateTime
 from sqlalchemy.orm import relationship, selectinload
-from sqlalchemy import select
+from sqlalchemy import select, inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import DateTime
@@ -12,6 +12,7 @@ from app.streaming.completion_event_bus import websocket_manager
 import json
 from app.models.mention import MentionType
 from sqlalchemy.orm.exc import DetachedInstanceError
+from app.ee.encryption import EncryptedJSON
 
 # Add these imports for the new functionality
 from app.settings.database import create_async_session_factory
@@ -25,8 +26,11 @@ logger = get_logger(__name__)
 class Completion(BaseSchema):
     __tablename__ = 'completions'
 
-    prompt = Column(JSON, nullable=False, default="")
-    completion = Column(JSON, nullable=False, default="")
+    # User and assistant text restate query results, so both are encrypted at
+    # rest (enterprise data_encryption). Anything that searches these columns
+    # in SQL must handle ciphertext — see ReportService.get_reports.
+    prompt = Column(EncryptedJSON, nullable=False, default="")
+    completion = Column(EncryptedJSON, nullable=False, default="")
 
     status = Column(String, nullable=False, default='success')
     model = Column(String, nullable=False, default='gpt4o')
@@ -49,7 +53,7 @@ class Completion(BaseSchema):
     widget = relationship("Widget", back_populates="completions", lazy='selectin')
 
     # step - optional
-    step_id = Column(String(36), ForeignKey('steps.id'), nullable=True)
+    step_id = Column(String(36), ForeignKey('steps.id'), nullable=True, index=True)  # dashfc04: deleting a release's steps checks it
     step = relationship("Step", back_populates="completions", lazy='select')
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
@@ -173,84 +177,46 @@ async def broadcast_event(data):
             logger.error("Error: No report_id found in data")
             return
             
-        logger.debug("Broadcasting event to report %s: %s", report_id, data)
         await websocket_manager.broadcast_to_report(report_id, json.dumps(data))
-        logger.debug("Broadcast completed")
     except Exception as e:
         logger.error("Error broadcasting event: %s", e)
 
+def _bus_event(event_name: str, target) -> dict:
+    """Payload for the in-process completion event bus.
+
+    Its only subscriber is a same-worker AgentV2 run
+    (``_handle_completion_update``), which reads the Stop signal (sigkill) and
+    steering rows. The transcript (``completion``) and chat routing fields are
+    deliberately left out: every completion update used to serialize the full
+    transcript here only for the subscriber to parse and drop it.
+    """
+    data = {
+        "event": event_name,
+        "id": str(target.id),
+        "completion_id": str(target.id),
+        "report_id": str(target.report_id),
+        "status": target.status,
+        "role": target.role,
+        "message_type": target.message_type,
+        "parent_id": target.parent_id,
+        "sigkill": target.sigkill.isoformat() if target.sigkill else None,
+    }
+    if target.message_type == "steering":
+        data["prompt"] = target.prompt
+    return data
+
+
+_RUN_ENDED_STATUSES = ("success", "error", "stopped", "cancelled")
+
+
 def after_insert_completion(mapper, connection, target):
     try:
-
-        data = {
-            "event": "insert_completion",
-            "id": str(target.id),
-            "completion_id": str(target.id),
-            "completion": target.completion,
-            "prompt": target.prompt,
-            "status": target.status,
-            "sigkill": target.sigkill.isoformat() if target.sigkill else None,
-            "model": target.model,
-            "turn_index": target.turn_index,
-            "parent_id": target.parent_id,
-            "message_type": target.message_type,
-            "role": target.role,
-            "report_id": str(target.report_id),
-            "external_platform": target.external_platform,
-            "external_message_id": target.external_message_id,
-            "external_user_id": target.external_user_id,
-            "external_thread_ts": target.external_thread_ts,
-            "external_message_ts": target.external_message_ts,
-            "external_channel_id": target.external_channel_id,
-            "external_channel_type": target.external_channel_type,
-            "webhook_id": str(target.webhook_id) if target.webhook_id else None,
-            "trigger_source": target.trigger_source,
-        }
-
-
-        if target.widget_id:
-            data["widget_id"] = str(target.widget_id)
-        if target.step_id:
-            data["step_id"] = str(target.step_id)
-        
-        logger.debug("Triggered after_insert_completion with data: %s", data)
-        spawn(broadcast_event(data))
-
+        spawn(broadcast_event(_bus_event("insert_completion", target)))
     except Exception as e:
         logger.error("Error in after_insert_completion: %s", e)
 
 def after_update_completion(mapper, connection, target):
     try:
-        data = {
-            "event": "update_completion",
-            "id": str(target.id),
-            "completion_id": str(target.id),
-            "report_id": str(target.report_id),
-            "completion": target.completion,
-            "prompt": target.prompt,
-            "status": target.status,
-            "model": target.model,
-            "turn_index": target.turn_index,
-            "parent_id": target.parent_id,
-            "message_type": target.message_type,
-            "role": target.role,
-            "sigkill": target.sigkill.isoformat() if target.sigkill else None,
-            "external_platform": target.external_platform,
-            "external_message_id": target.external_message_id,
-            "external_user_id": target.external_user_id,
-            "external_thread_ts": target.external_thread_ts,
-            "external_message_ts": target.external_message_ts,
-            "external_channel_id": target.external_channel_id,
-            "external_channel_type": target.external_channel_type,
-            "webhook_id": str(target.webhook_id) if target.webhook_id else None,
-            "trigger_source": target.trigger_source,
-        }
-
-        if target.widget_id:
-            data["widget_id"] = str(target.widget_id)
-        if target.step_id:
-            data["step_id"] = str(target.step_id)
-
         # Send completion blocks to the chat platform when completion finishes.
         # WhatsApp is driven through the same path as Slack (text answer + step
         # data + eyes->checkmark reaction swap). Teams delivers via the
@@ -266,7 +232,19 @@ def after_update_completion(mapper, connection, target):
             from app.models.completion_block import send_completion_blocks_to_slack
             spawn(send_completion_blocks_to_slack(str(target.id)))
 
-        spawn(broadcast_event(data))
+        # Teams 1:1 progress bubble: the run just finished, failed or was
+        # stopped — let it close the bubble. (The run's own finally in
+        # completion_service reports it too; end_run counts each run once.)
+        if (target.external_platform == "teams" and
+            target.role == "system" and
+            target.status in _RUN_ENDED_STATUSES and
+            inspect(target).attrs.status.history.has_changes()):
+            from app.services.platform_adapters import teams_stream
+            spawn(teams_stream.end_run(
+                target.external_channel_id, str(target.id), failed=target.status == "error",
+            ))
+
+        spawn(broadcast_event(_bus_event("update_completion", target)))
 
     except Exception as e:
         logger.error("Error in after_update_completion: %s", e)

@@ -1,4 +1,7 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.utils.reasoning_effort import normalize_effort
+from app.utils.request_metadata import validate_request_metadata
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
 
@@ -34,6 +37,11 @@ class ToolExecutionUISchema(ToolExecutionSchema):
     created_step: Optional[StepSchema] = None
     created_visualizations: Optional[list[VisualizationSchema]] = None
     data_sources: Optional[list[ToolExecutionDataSourceSchema]] = None
+    # Running tool waiting on (or past) a user review: pending|approved|denied|expired.
+    # Lets a reload rebuild the approval card the live stream showed.
+    review_state: Optional[str] = None
+    confirmation: Optional[Dict[str, Any]] = None
+    progress_stage: Optional[str] = None
 
 
 class ArtifactChangeSchema(BaseModel):
@@ -61,14 +69,41 @@ class PromptSchema(BaseModel):
     widget_id: Optional[str] = None
     step_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    # The dashboard version open in the conversation's editor (collab01):
+    # the next edit builds on it, even when the conversation holds a newer
+    # one. None: the newest, as before.
+    artifact_version_id: Optional[str] = None
     mode: Optional[str] = 'chat'
     model_id: Optional[str] = None
     platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web
     platform_context: Optional[Dict[str, Any]] = None  # Platform-specific context (e.g. Excel selection data)
-    # Per-completion override for extended-thinking effort. Resolution order:
-    #   per-completion > trigger words > LLMModel.config default > "off"
-    # Currently honored on Anthropic only; ignored on other providers.
-    reasoning_effort: Optional[str] = None  # off|low|medium|high
+    # Per-completion reasoning effort (the model picker's level). Resolution:
+    #   per-completion > report level > trigger words > LLMModel.config default > off
+    # None = Default. Each provider client clamps it to what the model accepts.
+    reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
+    # Free-form values the calling app attaches to this question (e.g. its chat
+    # id). Stored with the completion; merged into MCP tool-call metadata on
+    # connections with Dynamic params on. Never shown to the LLM. See
+    # app.utils.request_metadata.
+    metadata: Optional[Dict[str, Any]] = None
+    # Set only on the hidden head completion of a sub-agent (mode='subagent'):
+    # the sub_agents row this child run reports to. See app.models.sub_agent.
+    sub_agent_id: Optional[str] = None
+    # Per-request opt-outs for end-of-turn extras an API caller may not render.
+    # They can only turn things off: False skips it for this turn; None/True
+    # leaves the org setting in charge (never turns on what the org disabled).
+    follow_ups: Optional[bool] = None  # suggested next questions (completion.follow_ups)
+    suggest_instructions: Optional[bool] = None  # knowledge harness (draft instruction suggestions)
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v):
+        return validate_request_metadata(v)
 
     class Config:
         from_attributes = True
@@ -78,11 +113,11 @@ class CompletionBase(BaseModel):
 
 class CompletionCreate(CompletionBase):
     stream: Optional[bool] = False
-    # When true and a completion is already running on the report, the prompt
-    # is persisted as a role='user' status='queued' row instead of starting a
-    # second concurrent agent run. The queue dispatcher starts it when the
-    # running turn finishes successfully.
+    # Explicit queue mode: enqueue immediately; the dispatcher starts it when idle.
     queue: Optional[bool] = False
+    # Opt-in for clients that can accept a queued JSON receipt if a concurrent
+    # parent starts before their normal direct/SSE request claims the report.
+    queue_if_busy: bool = False
 
 
 class CompactionStateSchema(BaseModel):
@@ -223,6 +258,7 @@ class CompletionV2Schema(BaseModel):
 
 class CompletionsV2Response(BaseModel):
     report_id: str
+    busy_completion_id: Optional[str] = None
     completions: List[CompletionV2Schema]
     total_completions: int
     total_blocks: int

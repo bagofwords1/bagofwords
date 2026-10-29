@@ -1,14 +1,16 @@
 import asyncio
 import json
 
-from app.ai.llm.reasoning import selected_effort, is_openai_reasoning_model
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 import uuid
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
 
 import httpx
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient, DefaultHttpxClient, OpenAI
+
+from app.ai.llm.header_injection import IdentityHeaders, httpx_identity_hooks
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import (
@@ -31,6 +33,38 @@ from app.ai.llm.types import (
 )
 
 
+
+def pinned_openai_http_clients(http_kwargs: dict[str, Any], sync_hooks=None, async_hooks=None):
+    """(sync, async) httpx clients for the OpenAI SDK whose connections are
+    pinned (admin tier). Keeps the timeouts each path had before: the SDK's
+    own defaults when nothing was overridden, plain httpx otherwise."""
+    import openai
+    from app.core.egress import AsyncPinnedTransport, PinnedTransport, Policy
+
+    from app.core.tls import shared_ssl_context
+
+    kw = dict(http_kwargs)
+    if http_kwargs:
+        sync_cls, async_cls = httpx.Client, httpx.AsyncClient
+    else:
+        sync_cls, async_cls = openai.DefaultHttpxClient, openai.DefaultAsyncHttpxClient
+    # verify=False stays off; otherwise the process-wide context (app.core.tls).
+    verify = kw.pop("verify") if "verify" in kw else shared_ssl_context()
+    if verify is shared_ssl_context():
+        # Shared, process-wide pinned pool (app.core.llm_transport).
+        from app.core.llm_transport import shared_transports
+        sync_t, async_t = shared_transports(pinned=True)
+    else:
+        sync_t = PinnedTransport(Policy.ADMIN, verify=verify)
+        async_t = AsyncPinnedTransport(Policy.ADMIN, verify=verify)
+    return (
+        sync_cls(transport=sync_t, verify=verify, **kw,
+                 **({"event_hooks": sync_hooks} if sync_hooks else {})),
+        async_cls(transport=async_t, verify=verify, **kw,
+                  **({"event_hooks": async_hooks} if async_hooks else {})),
+    )
+
+
 class OpenAi(LLMClient):
     # Class-level default so instances created without __init__ (test doubles
     # built via __new__) still resolve the attribute.
@@ -43,10 +77,19 @@ class OpenAi(LLMClient):
         verify_ssl: bool = True,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, str]] = None,
+        identity_headers: Optional[IdentityHeaders] = None,
         auth: Optional[httpx.Auth] = None,
         timeout: Optional[httpx.Timeout] = None,
+        prompt_cache_markers: bool = False,
+        pin_egress: bool = False,
     ):
         super().__init__()
+        # Claude caches only what the request marks. Behind an OpenAI-compatible
+        # gateway (LiteLLM, OpenRouter) the marks ride on content blocks as
+        # Anthropic's cache_control and the gateway forwards them; without them
+        # every call re-bills the whole prompt at the full input rate. Off for
+        # every other model: endpoints differ on whether they tolerate the field.
+        self.prompt_cache_markers = prompt_cache_markers
         # No temperature is sent unless one was explicitly configured. This
         # client serves every OpenAI-COMPATIBLE endpoint (custom providers,
         # LiteLLM, vLLM, Ollama), where model ids are gateway aliases — a
@@ -71,18 +114,37 @@ class OpenAi(LLMClient):
         if timeout is not None:
             http_kwargs["timeout"] = timeout
 
+        # Identity-forwarding headers resolve per request (they can change
+        # mid-run); a hook on the SDK's own default client keeps its defaults.
+        sync_hooks = httpx_identity_hooks(identity_headers, is_async=False)
+        async_hooks = httpx_identity_hooks(identity_headers, is_async=True)
+
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             kwargs["default_headers"] = default_headers
-        if http_kwargs:
-            kwargs["http_client"] = httpx.Client(**http_kwargs)
-        self.client = OpenAI(**kwargs)
-
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             async_kwargs["default_headers"] = default_headers
-        if http_kwargs:
-            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs)
+        if pin_egress:
+            # Admin-configured base_url: every request is validated and pinned
+            # to the checked address (app.core.egress) — closes DNS rebinding.
+            kwargs["http_client"], async_kwargs["http_client"] = pinned_openai_http_clients(
+                http_kwargs, sync_hooks, async_hooks)
+        elif http_kwargs:
+            from app.core.tls import shared_ssl_context
+            plain = {"verify": shared_ssl_context(), **http_kwargs}
+            kwargs["http_client"] = httpx.Client(**plain, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+            async_kwargs["http_client"] = httpx.AsyncClient(**plain, **({"event_hooks": async_hooks} if async_hooks else {}))
+        else:
+            # Always our own clients, on the process-wide TLS context: the SDK's
+            # implicit ones each load the CA bundle (app.core.tls).
+            from app.core.tls import shared_ssl_context
+            from app.core.llm_transport import shared_transports
+            tls = shared_ssl_context()
+            sync_t, async_t = shared_transports(pinned=False)
+            kwargs["http_client"] = DefaultHttpxClient(transport=sync_t, verify=tls, **({"event_hooks": sync_hooks} if sync_hooks else {}))
+            async_kwargs["http_client"] = DefaultAsyncHttpxClient(transport=async_t, verify=tls, **({"event_hooks": async_hooks} if async_hooks else {}))
+        self.client = OpenAI(**kwargs)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod
@@ -103,6 +165,30 @@ class OpenAi(LLMClient):
                 "image_url": {"url": image_url}
             })
         return content
+
+    def _mark_prompt_cache(self, messages: list[dict], tools: Optional[list[dict]] = None) -> None:
+        """Place Anthropic cache breakpoints the way the native client does:
+        the last tool and the system prompt (the run-invariant prefix, long
+        TTL) and the last settled turn (5-minute TTL — it moves every
+        iteration). Mutates in place; a no-op unless prompt_cache_markers."""
+        if not self.prompt_cache_markers:
+            return
+        from app.ai.llm.clients.anthropic_client import _prefix_cache_control
+
+        def mark(message: dict, control: dict) -> None:
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                message["content"] = [{"type": "text", "text": content, "cache_control": control}]
+            elif isinstance(content, list) and content:
+                content[-1] = {**content[-1], "cache_control": control}
+
+        if tools:
+            tools[-1] = {**tools[-1], "cache_control": _prefix_cache_control()}
+        if messages and messages[0].get("role") == "system":
+            mark(messages[0], _prefix_cache_control())
+        # Everything before the final message is settled for this request.
+        if len(messages) > 2 and messages[-2].get("role") != "system":
+            mark(messages[-2], {"type": "ephemeral"})
 
     def _build_chat_params(
         self,
@@ -154,10 +240,10 @@ class OpenAi(LLMClient):
         quality: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
     ) -> ImageOutput:
-        """Generate an image via the OpenAI Images API (e.g. gpt-image-1).
+        """Generate an image via the OpenAI Images API (e.g. gpt-image-2.5-sunburst).
 
         Uses the sync SDK off-thread (mirrors how the OpenAI-compatible client
-        runs elsewhere). gpt-image-1 always returns base64 (no url option), so we
+        runs elsewhere). GPT Image models return base64 (no url option), so we
         read ``b64_json`` directly. Reference ``images`` are not wired into the
         edit endpoint yet — text-to-image only for now.
         """
@@ -194,7 +280,7 @@ class OpenAi(LLMClient):
         )
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
-                  system: Optional[str] = None) -> LLMResponse:
+                  system: Optional[str] = None, thinking: Optional[dict] = None) -> LLMResponse:
         """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
 
         OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
@@ -204,6 +290,9 @@ class OpenAi(LLMClient):
         params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
         if system:
             params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+            self._mark_prompt_cache(params["messages"])
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
         chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
@@ -211,72 +300,94 @@ class OpenAi(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(
-        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None, *, max_output_tokens: Optional[int] = None, thinking: Optional[dict] = None
     ) -> AsyncGenerator[str, None]:
-        stream = await self.async_client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
-        )
+        client = self.async_client.with_options(max_retries=0) if max_output_tokens is not None else self.async_client
+        params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
+        if max_output_tokens is not None:
+            params["max_completion_tokens"] = max_output_tokens
+        if thinking is not None:
+            apply_chat_reasoning(self, model_id, params, thinking)
+        stream = await client.chat.completions.create(**params)
 
         prompt_tokens = 0
         completion_tokens = 0
-        async for chunk in stream:
-            if not chunk.choices:
+        try:
+            async for chunk in stream:
+                if not chunk.choices:
+                    usage = self._extract_usage(getattr(chunk, "usage", None))
+                    if usage.prompt_tokens or usage.completion_tokens:
+                        prompt_tokens = usage.prompt_tokens or prompt_tokens
+                        completion_tokens = usage.completion_tokens or completion_tokens
+                    continue
+
+                if max_output_tokens is not None and getattr(chunk.choices[0], 'finish_reason', None) == 'length':
+                    raise RuntimeError('Output token limit reached')
+                content = chunk.choices[0].delta.content
+                if content is not None:
+                    yield content
+
                 usage = self._extract_usage(getattr(chunk, "usage", None))
                 if usage.prompt_tokens or usage.completion_tokens:
                     prompt_tokens = usage.prompt_tokens or prompt_tokens
                     completion_tokens = usage.completion_tokens or completion_tokens
-                continue
 
-            content = chunk.choices[0].delta.content
-            if content is not None:
-                yield content
-
-            usage = self._extract_usage(getattr(chunk, "usage", None))
-            if usage.prompt_tokens or usage.completion_tokens:
-                prompt_tokens = usage.prompt_tokens or prompt_tokens
-                completion_tokens = usage.completion_tokens or completion_tokens
-
-        self._set_last_usage(
-            LLMUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
+        finally:
+            await (getattr(stream, "aclose", None) or stream.close)()
+            self._set_last_usage(
+                LLMUsage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                )
             )
-        )
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:
         if raw is None:
             return LLMUsage()
-        # OpenAI surfaces cache hits via prompt_tokens_details.cached_tokens.
-        # Caching is automatic on prefixes >= 1024 tokens; cached tokens
-        # are billed at 50% of normal input. There's no cache_creation
-        # concept on OpenAI — the cache is fully managed.
-        if isinstance(raw, dict):
-            prompt = raw.get("prompt_tokens") or 0
-            completion = raw.get("completion_tokens") or 0
-            details = raw.get("prompt_tokens_details") or {}
-            cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
-            # Reasoning tokens ride inside completion_tokens and bill at the
-            # output rate; tracked separately so thinking spend is attributable.
-            out_details = raw.get("completion_tokens_details") or {}
-            reasoning = (out_details.get("reasoning_tokens") if isinstance(out_details, dict) else 0) or 0
-            return LLMUsage(
-                prompt_tokens=int(prompt or 0),
-                completion_tokens=int(completion or 0),
-                cache_read_tokens=int(cache_read or 0),
-                reasoning_tokens=int(reasoning or 0),
-            )
-        prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
-        completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
-        details = getattr(raw, "prompt_tokens_details", None)
-        cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
-        out_details = getattr(raw, "completion_tokens_details", None)
-        reasoning = getattr(out_details, "reasoning_tokens", 0) if out_details is not None else 0
+        def _as_dict(obj: Any) -> dict:
+            # The SDK's usage models keep unknown fields, so a gateway's extras
+            # survive model_dump() and one dict path reads every shape.
+            if isinstance(obj, dict):
+                return obj
+            dumped = obj.model_dump() if hasattr(obj, "model_dump") else None
+            if isinstance(dumped, dict):
+                return dumped
+            return dict(vars(obj)) if hasattr(obj, "__dict__") else {}
+
+        raw = _as_dict(raw)
+
+        def _sub(key: str) -> dict:
+            value = raw.get(key)
+            return _as_dict(value) if value is not None else {}
+
+        # OpenAI surfaces cache hits via prompt_tokens_details.cached_tokens,
+        # inside prompt_tokens. Caching is automatic on prefixes >= 1024 tokens
+        # and OpenAI has no write concept. A gateway fronting Claude (LiteLLM)
+        # also reports the cache write it billed — cache_creation_tokens in the
+        # details, or Anthropic's own field name at the top level — and the
+        # TTL split behind it.
+        details = _sub("prompt_tokens_details")
+        cache_read = details.get("cached_tokens") or 0
+        cache_write = (details.get("cache_creation_tokens") or details.get("cache_write_tokens")
+                       or raw.get("cache_creation_input_tokens") or 0)
+        ttl = details.get("cache_creation_token_details")
+        ttl = _as_dict(ttl) if ttl is not None else {}
+        write_1h = int(ttl.get("ephemeral_1h_input_tokens") or 0)
+        write_5m = int(ttl.get("ephemeral_5m_input_tokens") or 0)
+        if cache_write and not (write_5m or write_1h):
+            write_5m = int(cache_write)  # no TTL split: the cheaper, default TTL
+        # Reasoning tokens ride inside completion_tokens and bill at the
+        # output rate; tracked separately so thinking spend is attributable.
+        reasoning = _sub("completion_tokens_details").get("reasoning_tokens") or 0
         return LLMUsage(
-            prompt_tokens=int(prompt or 0),
-            completion_tokens=int(completion or 0),
-            cache_read_tokens=int(cache_read or 0),
-            reasoning_tokens=int(reasoning or 0),
+            prompt_tokens=int(raw.get("prompt_tokens") or raw.get("prompt_tokens_cost") or 0),
+            completion_tokens=int(raw.get("completion_tokens") or raw.get("completion_tokens_cost") or 0),
+            cache_read_tokens=int(cache_read),
+            cache_creation_tokens=int(cache_write),
+            cache_write_5m_tokens=write_5m,
+            cache_write_1h_tokens=write_1h,
+            reasoning_tokens=int(reasoning),
         )
 
     # ------------------------------------------------------------------
@@ -449,12 +560,8 @@ class OpenAi(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        capability_model = getattr(self, "reasoning_model_id", None) or model_id
-        if is_openai_reasoning_model(capability_model):
-            effort = selected_effort(thinking)
-            if effort:
-                request_kwargs["reasoning_effort"] = effort
-            request_kwargs.pop("temperature", None)
+        self._mark_prompt_cache(oai_messages, request_kwargs.get("tools"))
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
         reasoning_text = ""
         reasoning_active = False
 
@@ -468,9 +575,10 @@ class OpenAi(LLMClient):
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
+        final_usage = LLMUsage()
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             # Usage arrives on the final chunk (stream_options include_usage)
             usage = self._extract_usage(getattr(chunk, "usage", None))
@@ -482,6 +590,8 @@ class OpenAi(LLMClient):
                 completion_tokens = usage.completion_tokens
             if usage.cache_read_tokens:
                 cache_read_tokens = usage.cache_read_tokens
+            if usage.cache_creation_tokens:
+                final_usage = usage
 
             if not chunk.choices:
                 continue
@@ -585,11 +695,17 @@ class OpenAi(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=final_usage.cache_creation_tokens,
+            cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
+            cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
             reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=final_usage.cache_creation_tokens,
+            cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
+            cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
             reasoning_tokens=reasoning_tokens,
         ))

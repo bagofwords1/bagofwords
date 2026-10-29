@@ -9,7 +9,10 @@ Every test here asserts the same invariant from a different angle: once a
 session has been revoked, *any* token issued before that point is refused on the
 whole authenticated API — while tokens minted afterwards keep working.
 """
+import base64
+import hashlib
 import uuid
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -194,3 +197,105 @@ def test_member_cannot_force_sign_out_another_member(
     )
     assert resp.status_code in (401, 403), resp.status_code
     assert _token_works(test_client, admin["token"])
+
+
+@pytest.mark.parametrize("credential", ["access", "refresh", "code"])
+def test_admin_revocation_invalidates_oauth_credentials(
+    test_client, create_user, login_user, whoami, create_oauth_client, credential
+):
+    admin = _new_account(create_user, login_user)
+    org_id = _org_id(whoami, admin["token"])
+    email = f"oauth_member_{uuid.uuid4().hex[:10]}@test.com"
+    invite = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers=_auth(admin["token"], org_id),
+    )
+    assert invite.status_code == 200
+    create_user(email=email, password="Test1234!")
+    member = {"email": email, "password": "Test1234!", "token": login_user(email, "Test1234!")}
+    members = test_client.get(
+        f"/api/organizations/{org_id}/members", headers=_auth(admin["token"], org_id)
+    ).json()
+    membership = next(m for m in members if m["user"]["email"] == member["email"])
+    client = create_oauth_client(admin["token"], org_id, scopes="app mcp",
+                                 redirect_uris=["http://localhost:4173/callback"])
+    verifier = "a" * 64
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+
+    def authorize(login_token):
+        response = test_client.post("/api/oauth/authorize", headers=_auth(login_token), json={
+            "client_id": client["client_id"], "redirect_uri": "http://localhost:4173/callback",
+            "scope": "app mcp", "code_challenge": challenge,
+        })
+        assert response.status_code == 200, response.text
+        return parse_qs(urlparse(response.json()["redirect_url"]).query)["code"][0]
+
+    def exchange(code):
+        return test_client.post("/api/oauth/token", data={
+            "grant_type": "authorization_code", "code": code,
+            "client_id": client["client_id"], "code_verifier": verifier,
+            "redirect_uri": "http://localhost:4173/callback",
+        })
+
+    code = authorize(member["token"])
+    tokens = exchange(code).json() if credential != "code" else None
+    other = exchange(authorize(admin["token"])).json()
+    if tokens:
+        assert _token_works(test_client, tokens["access_token"])
+    response = test_client.post(
+        f"/api/organizations/{org_id}/members/{membership['id']}/sign-out",
+        headers=_auth(admin["token"], org_id),
+    )
+    assert response.status_code == 204
+    if credential == "access":
+        assert not _token_works(test_client, tokens["access_token"])
+    elif credential == "refresh":
+        response = test_client.post("/api/oauth/token", data={
+            "grant_type": "refresh_token", "refresh_token": tokens["refresh_token"],
+            "client_id": client["client_id"],
+        })
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_grant"
+    else:
+        assert exchange(code).status_code == 400
+    assert _token_works(test_client, other["access_token"])
+    assert not _token_works(test_client, member["token"])
+    fresh = login_user(member["email"], member["password"])
+    assert _token_works(test_client, exchange(authorize(fresh)).json()["access_token"])
+
+
+@pytest.mark.parametrize("new_password", ["Changed1234!", "Other-Pass9876"])
+def test_password_change_revokes_oauth_access_and_refresh_tokens(
+    test_client, create_user, login_user, whoami, create_oauth_client, new_password
+):
+    acct = _new_account(create_user, login_user)
+    org_id = _org_id(whoami, acct["token"])
+    redirect = "http://localhost:4173/callback"
+    client = create_oauth_client(acct["token"], org_id, scopes="app", redirect_uris=[redirect])
+    verifier = "b" * 64
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    approved = test_client.post("/api/oauth/authorize", headers=_auth(acct["token"]), json={
+        "client_id": client["client_id"], "redirect_uri": redirect,
+        "scope": "app", "code_challenge": challenge,
+    })
+    assert approved.status_code == 200, approved.text
+    code = parse_qs(urlparse(approved.json()["redirect_url"]).query)["code"][0]
+    tokens = test_client.post("/api/oauth/token", data={
+        "grant_type": "authorization_code", "code": code, "client_id": client["client_id"],
+        "code_verifier": verifier, "redirect_uri": redirect,
+    }).json()
+    assert _token_works(test_client, tokens["access_token"])
+
+    resp = test_client.patch(
+        "/api/users/me", json={"password": new_password}, headers=_auth(acct["token"])
+    )
+    assert resp.status_code == 200, resp.json()
+
+    assert not _token_works(test_client, tokens["access_token"])
+    refreshed = test_client.post("/api/oauth/token", data={
+        "grant_type": "refresh_token", "refresh_token": tokens["refresh_token"],
+        "client_id": client["client_id"],
+    })
+    assert refreshed.status_code == 400
+    assert refreshed.json()["error"] == "invalid_grant"

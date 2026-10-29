@@ -2,7 +2,7 @@
 Schema Context Builder - builds TablesSchemaContext object for schemas
 """
 from typing import List, Optional, Dict, Any
-import re
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, func, and_, or_
@@ -10,6 +10,7 @@ from app.ai.context.sections.tables_schema_section import TablesSchemaContext, M
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
 from app.models.table_stats import TableStats
+from app.utils.safe_regex import compile_bounded_all
 from app.models.organization import Organization
 from app.models.report import Report
 from app.models.data_source import DataSource
@@ -17,6 +18,7 @@ from app.models.datasource_table import DataSourceTable
 from app.models.connection_table import ConnectionTable
 from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
+from app.ai.prompt_formatters import excluded_column_set, filter_columns, filter_fks
 
 
 # A BOW custom table is materialized to a local artifact and served by the
@@ -57,15 +59,62 @@ def _prune_unresolvable_fks(normalized):
     removes edges leaving the emitted set.
     """
     emitted_names = {item.get("name") for item in normalized}
+    # A column the agent manager hid on the REFERENCED table must not come back
+    # through the DDL of the referencing one (`references orders(secret_col)`).
+    excluded_by_name = {
+        item.get("name"): excluded_column_set(item.get("excluded_columns"))
+        for item in normalized
+    }
+
+    def _keep(fk):
+        ref = fk.get("references_name") if isinstance(fk, dict) else getattr(fk, "references_name", None)
+        if ref not in emitted_names:
+            return False
+        ref_col = fk.get("references_column") if isinstance(fk, dict) else getattr(fk, "references_column", None)
+        ref_col_name = (ref_col.get("name") if isinstance(ref_col, dict) else getattr(ref_col, "name", None)) or ""
+        return ref_col_name.lower() not in excluded_by_name.get(ref, frozenset())
+
     for item in normalized:
         item_fks = item.get("fks") or []
         if not item_fks:
             continue
-        item["fks"] = [
-            fk for fk in item_fks
-            if (fk.get("references_name") if isinstance(fk, dict)
-                else getattr(fk, "references_name", None)) in emitted_names
-        ]
+        item["fks"] = [fk for fk in item_fks if _keep(fk)]
+
+
+# Connector bookkeeping read by the CLIENT at query time (attach_table_metadata
+# reads the DB rows directly), never needed by the prompt — and each of these
+# names columns, including ones an agent manager excluded or a member cannot
+# see: the title map, a subform table's column-origin map and access path, and
+# the mandatory-column list.
+_CLIENT_ONLY_METADATA = {"priority_erp": ("column_titles", "columns", "path", "mandatory")}
+
+# Namespaces whose column metadata `title` is a fixed label (identical for every
+# user who can open the form), safe to carry into a per-user schema.
+_FIXED_COLUMN_TITLE_NAMESPACES = ("priority_erp",)
+
+
+def _fixed_column_title(table_metadata, column_metadata):
+    """The column title a per-user schema may carry over from the canonical
+    catalog: only a connector-declared fixed label, never free text."""
+    if not isinstance(table_metadata, dict) or not isinstance(column_metadata, dict):
+        return None
+    if not any(isinstance(table_metadata.get(ns), dict) for ns in _FIXED_COLUMN_TITLE_NAMESPACES):
+        return None
+    title = column_metadata.get("title")
+    return title if isinstance(title, str) and title.strip() else None
+
+
+def _strip_client_only_metadata(metadata_json):
+    """Drop client-only keys from table metadata bound for the prompt/UI."""
+    if not isinstance(metadata_json, dict):
+        return metadata_json
+    out = None
+    for ns, keys in _CLIENT_ONLY_METADATA.items():
+        blob = metadata_json.get(ns)
+        if isinstance(blob, dict) and any(k in blob for k in keys):
+            out = dict(metadata_json) if out is None else out
+            out[ns] = {k: v for k, v in blob.items() if k not in keys}
+    return out if out is not None else metadata_json
 
 
 def _redact_source_metadata(metadata_json):
@@ -185,6 +234,9 @@ def _cap_keeping_cached(tables, top_k: int):
     return cached + rest[: max(0, top_k - len(cached))]
 
 
+
+logger = logging.getLogger(__name__)
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -192,6 +244,11 @@ class SchemaContextBuilder:
     
     def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
+        # The conversation switched off "mcp" (report.tools): advertising its
+        # MCP tools would only send the planner into refused calls. Derived
+        # from the report here so every builder of this report agrees.
+        from app.schemas.report_api_settings import mcp_tools_hidden
+        self.hide_mcp_tools = mcp_tools_hidden(report)
         self.organization = organization
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
@@ -213,6 +270,7 @@ class SchemaContextBuilder:
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
         sort: str = "score",  # "score" | "usage" | "centrality" | "alpha"
+        split_file_scopes: bool = True,
     ) -> TablesSchemaContext:
         """Return TablesSchemaContext with optional filtering and sorting.
 
@@ -225,6 +283,9 @@ class SchemaContextBuilder:
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
             sort: Sort order for tables.
+            split_file_scopes: If True (default), file-source connections render
+                as scope descriptors and their per-file rows leave `tables`.
+                False keeps them as tables (for callers resolving a table by id).
         """
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
@@ -381,9 +442,14 @@ class SchemaContextBuilder:
                 visible_table_names = {
                     (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
                 }
+                # Only columns this user can still reach. A sync keeps the row
+                # of a column the user lost (is_accessible=False) rather than
+                # deleting it, so an unfiltered read put revoked columns back in
+                # the prompt. Same rule as read_user_data_source_schema.
                 cols_q = await self.db.execute(
                     select(UserDataSourceColumn).where(
-                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
+                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids),
+                        UserDataSourceColumn.is_accessible.is_(True),
                     )
                 )
                 cols = cols_q.scalars().all()
@@ -496,6 +562,7 @@ class SchemaContextBuilder:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
                     base = _canonical_for(ot)
+                    _base_meta = getattr(base, 'metadata_json', None) if base is not None else None
                     # The overlay decides WHICH columns this user may see; the
                     # canonical row describes WHAT they are. Column descriptors
                     # (measure role, hidden flag, return type) are model-level
@@ -529,7 +596,7 @@ class SchemaContextBuilder:
                                 for k in ("role", "kind", "hidden", "is_partition",
                                           "relationship_key", "returns", "format_string",
                                           "data_category", "display_folder", "sort_by_column",
-                                          "summarize_by", "contents")
+                                          "summarize_by", "contents", "from_form")
                                 if k in canon_meta
                             } or None
                         columns.append({
@@ -538,7 +605,11 @@ class SchemaContextBuilder:
                             # back to the canonical dtype so it still renders as
                             # a measure rather than an untyped column.
                             "dtype": getattr(c, 'data_type', None) or canon.get("dtype"),
-                            "description": None,
+                            # Free text stays behind (see above), but a column
+                            # TITLE a connector records as structured metadata
+                            # (Priority's form-column label, identical for every
+                            # user who can open the form) is carried across.
+                            "description": _fixed_column_title(_base_meta, canon_meta),
                             "metadata": safe_meta,
                         })
                     # Reported activation is the canonical flag (already gated
@@ -551,9 +622,17 @@ class SchemaContextBuilder:
                         if (fk.get('references_name') if isinstance(fk, dict) else None)
                         in visible_table_names
                     ] if base is not None else []
-                    metadata_json = _redact_source_metadata(
+                    # Columns the agent manager hid for this agent. Applied on
+                    # top of the user's own access: a delegated user sees the
+                    # intersection of what they can reach and what the agent
+                    # exposes, never more than either.
+                    excluded = getattr(base, 'excluded_columns', None) if base is not None else None
+                    columns = filter_columns(columns, excluded)
+                    pks = filter_columns(pks, excluded)
+                    fks = filter_fks(fks, excluded)
+                    metadata_json = _strip_client_only_metadata(_redact_source_metadata(
                         getattr(base, 'metadata_json', None) if base is not None else None
-                    )
+                    ))
                     # Extract connection info from the base table
                     conn_id = None
                     conn_name = None
@@ -594,6 +673,7 @@ class SchemaContextBuilder:
                         "degree_in": getattr(base, 'degree_in', None) if base is not None else None,
                         "degree_out": getattr(base, 'degree_out', None) if base is not None else None,
                         "entity_like": getattr(base, 'entity_like', None) if base is not None else None,
+                        "excluded_columns": excluded or None,
                         "is_active": canonical_is_active,
                         "connection_id": conn_id,
                         "connection_name": conn_name,
@@ -614,7 +694,8 @@ class SchemaContextBuilder:
                     # Skip inactive tables when active_only is True
                     if active_only and not table_is_active:
                         continue
-                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown"), "description": col.get("description"), "metadata": col.get("metadata")} for col in (getattr(t, 'columns', []) or [])]
+                    excluded = getattr(t, 'excluded_columns', None)
+                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown"), "description": col.get("description"), "metadata": col.get("metadata")} for col in filter_columns(getattr(t, 'columns', []) or [], excluded)]
 
                     # Extract connection info
                     conn_id = None
@@ -646,9 +727,10 @@ class SchemaContextBuilder:
                         "name": getattr(t, 'name', ''),
                         "table_id": str(t.id) if getattr(t, 'id', None) else None,
                         "columns": columns,
-                        "pks": getattr(t, 'pks', []) or [],
-                        "fks": getattr(t, 'fks', []) or [],
-                        "metadata_json": getattr(t, 'metadata_json', None),
+                        "pks": filter_columns(getattr(t, 'pks', []) or [], excluded),
+                        "fks": filter_fks(getattr(t, 'fks', []) or [], excluded),
+                        "excluded_columns": excluded or None,
+                        "metadata_json": _strip_client_only_metadata(getattr(t, 'metadata_json', None)),
                         "centrality_score": getattr(t, 'centrality_score', None),
                         "richness": getattr(t, 'richness', None),
                         "degree_in": getattr(t, 'degree_in', None),
@@ -710,6 +792,7 @@ class SchemaContextBuilder:
                 ]
 
                 tbl = PromptTable(
+                    id=item.get("table_id"),
                     name=item.get("name", ""),
                     columns=columns,
                     pks=pks,
@@ -729,6 +812,7 @@ class SchemaContextBuilder:
                     entity_like=item.get("entity_like"),
                     metadata_json=item.get("metadata_json"),
                     referenced_instructions_count=instruction_ref_counts.get(item.get("table_id", ""), None) or None,
+                    excluded_columns=item.get("excluded_columns"),
                 )
 
                 if with_stats:
@@ -800,21 +884,15 @@ class SchemaContextBuilder:
             # Apply table-level filters (name matching only - active filtering already done above)
             if table_names or name_patterns:
                 name_set = set((table_names or []))
-                patterns = []
-                for p in (name_patterns or []):
-                    try:
-                        patterns.append(re.compile(p))
-                    except Exception:
-                        continue
+                # name_patterns carry model-written regex (describe_tables,
+                # create_widget) — matched with a timeout, never stdlib re.
+                patterns = compile_bounded_all(name_patterns)
                 def _match(n: str) -> bool:
                     if name_set and n in name_set:
                         return True
                     for rp in patterns:
-                        try:
-                            if rp.search(n or ''):
-                                return True
-                        except Exception:
-                            continue
+                        if rp.search(n or ''):
+                            return True
                     return (not name_set) and (not patterns)
                 filtered = []
                 for t in tables:
@@ -826,7 +904,11 @@ class SchemaContextBuilder:
             # Pull file-source connections OUT of the table pool: they render as
             # compact scope descriptors, not per-file <table> rows — so they
             # never consume the top_k budget or bloat the prompt.
-            file_scopes, tables = self._build_file_scopes(ds, tables)
+            if split_file_scopes:
+                file_scopes, tables = self._build_file_scopes(ds, tables)
+                await self._stamp_index_times(file_scopes)
+            else:
+                file_scopes = []
 
             tables = _cached_first(tables)
 
@@ -835,7 +917,7 @@ class SchemaContextBuilder:
                 tables = _cap_keeping_cached(tables, top_k)
 
             # Query MCP tools for this data source's MCP/custom_api connections
-            mcp_tools = await self._build_mcp_tools(ds)
+            mcp_tools = [] if self.hide_mcp_tools else await self._build_mcp_tools(ds)
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(
@@ -882,10 +964,11 @@ class SchemaContextBuilder:
                 bow_allowed = False
             if bow_allowed and (not ds_filter or SOURCE_ID in ds_filter):
                 bow_tables = []
+                bow_patterns = compile_bounded_all(name_patterns)
                 for name, columns in catalog().items():
                     if table_names and name not in table_names:
                         continue
-                    if name_patterns and not any(re.search(p, name) for p in name_patterns):
+                    if name_patterns and not any(p.search(name) for p in bow_patterns):
                         continue
                     bow_tables.append(PromptTable(
                         name=name, columns=[PromptTableColumn(name=c, dtype=column_type(c)) for c in columns],
@@ -897,32 +980,57 @@ class SchemaContextBuilder:
                     tables=bow_tables,
                 ))
 
-        self._apply_native_mcp_decision(ds_sections)
+        # Agent Lists: bow.<agent>.lists.<list> tables, in every mode, for lists
+        # on this report's agents that the user can view. Not gated on
+        # connection_ids: a list belongs to the agent, not to a connection, so a
+        # files-only agent (sharepoint/network_dir) or a connection-scoped
+        # rebuild must still see the lists it can read back.
+        if self.user is not None:
+            try:
+                await self._append_list_tables(ds_sections, ds_filter, table_names, name_patterns)
+            except Exception as exc:
+                logger.warning("agent list tables skipped: %s", exc)
 
         return TablesSchemaContext(data_sources=ds_sections)
 
-    def _apply_native_mcp_decision(self, ds_sections) -> bool:
-        """Tell each agent section where its MCP tools' schemas will live.
+    async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
+        from app.schemas.bow_source_schema import SOURCE_ID
+        from app.services.agent_lists.bow_lists import describe_table, list_tables
 
-        Native registration is decided once for the whole report, so the count
-        driving it has to be the report-wide one. Deciding per agent would
-        disagree with the planner whenever a report spans several agents, and
-        the tools would then carry their schema in both places or in neither.
-
-        Falls back to False (inline the schemas) on any error — a schema sent
-        twice is wasteful, a schema sent nowhere costs a discovery round trip.
-        """
-        try:
-            from app.ai.tools.mcp_tool_registry import native_tools_enabled
-            native_on = native_tools_enabled(
-                self.organization_settings,
-                sum(len(s.mcp_tools or []) for s in ds_sections),
-            )
-        except Exception:
-            native_on = False
-        for s in ds_sections:
-            s.native_mcp = native_on
-        return native_on
+        if ds_filter and SOURCE_ID not in ds_filter:
+            return
+        ds_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+        entries = await list_tables(self.db, self.user, self.organization, ds_ids)
+        tables = []
+        list_patterns = compile_bounded_all(name_patterns)
+        for e in entries:
+            if table_names and e["name"] not in table_names:
+                continue
+            if name_patterns and not any(p.search(e["name"]) for p in list_patterns):
+                continue
+            tables.append(PromptTable(
+                name=e["name"],
+                columns=[PromptTableColumn(name=c, dtype=t) for c, t in e["columns"]],
+                pks=[PromptTableColumn(name="_row_id", dtype="string")], fks=[],
+                connection_name="bow", connection_type="bow",
+                description=describe_table(e),
+                is_active=True,
+            ))
+        if not tables:
+            return
+        existing = next((s for s in ds_sections if str(s.info.id) == SOURCE_ID), None)
+        if existing is not None:
+            existing.tables = list(existing.tables or []) + tables
+            return
+        ds_sections.append(TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(
+                id=SOURCE_ID, name="BOW", type="bow",
+                context=("Built-in BOW source. Agent Lists (records the agents saved with their submit_* tools) "
+                         "are tables here. In create_data use tables_by_source=[{data_source_id:'builtin:bow', "
+                         "tables:['bow.<agent>.lists.<list>']}] and query via ds_clients['bow'] with the table's list_id."),
+            ),
+            tables=tables,
+        ))
 
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
@@ -943,6 +1051,31 @@ class SchemaContextBuilder:
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
     _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail"}
+
+    async def _stamp_index_times(self, file_scopes) -> None:
+        """Attach each file scope's last completed shared index time, so the
+        model knows how fresh the catalog behind list_files/search_files is."""
+        ids = [fs.connection_id for fs in file_scopes if fs.connection_id]
+        if not ids:
+            return
+        try:
+            from sqlalchemy import func, select
+
+            from app.models.connection_indexing import ConnectionIndexing, ConnectionIndexingStatus
+            rows = (await self.db.execute(
+                select(ConnectionIndexing.connection_id, func.max(ConnectionIndexing.finished_at)).where(
+                    ConnectionIndexing.connection_id.in_(ids),
+                    ConnectionIndexing.user_id.is_(None),
+                    ConnectionIndexing.status == ConnectionIndexingStatus.COMPLETED.value,
+                ).group_by(ConnectionIndexing.connection_id)
+            )).all()
+        except Exception:
+            return
+        latest = {str(cid): ts for cid, ts in rows if ts is not None}
+        for fs in file_scopes:
+            ts = latest.get(str(fs.connection_id))
+            if ts is not None:
+                fs.indexed_at = ts.replace(microsecond=0).isoformat() + "Z"
 
     def _build_file_scopes(self, ds, tables):
         """Turn the data source's file-source connections into compact scope
@@ -1006,10 +1139,14 @@ class SchemaContextBuilder:
             per_user = (getattr(c, "auth_policy", None) == "user_required"
                         and "oauth" in (getattr(c, "allowed_user_auth_modes", None) or []))
             enforces_scope = c.type not in self._TOKEN_SCOPED_TYPES
+            try:
+                cap = int(cfg.get("max_catalog_objects") or 0)
+            except (TypeError, ValueError):
+                cap = 0
             scopes.append(FileScopeItem(
                 connection_id=cid, name=c.name, type=c.type, base=base,
                 globs=globs, index_mode=index_mode, file_count=len(ftabs),
-                capped=False, sample=sample, topics=topics,
+                capped=bool(cap and len(ftabs) >= cap), sample=sample, topics=topics,
                 supports_search=supports_search, writable=bool(cfg.get("writable")),
                 per_user=bool(per_user), enforces_scope=enforces_scope,
             ))

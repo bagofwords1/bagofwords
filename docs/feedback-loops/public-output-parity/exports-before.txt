@@ -1,0 +1,25 @@
+== identity: public JSON view rows per query (anonymous) = [0]
+   pdf  anonymous http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+   pdf  owner     http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+   pptx anonymous http 409  {"detail":"PowerPoint export is not available for this report"}
+   pptx owner     http 409  {"detail":"PowerPoint export is not available for this report"}
+== plain: public JSON view rows per query (anonymous) = [4]
+   pdf  anonymous http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4
+   pdf  owner     http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4
+   pptx anonymous http 409  {"detail":"PowerPoint export is not available for this report"}
+   pptx owner     http 409  {"detail":"PowerPoint export is not available for this report"}
+== mixed: public JSON view rows per query (anonymous) = [0, 4]
+   pdf  anonymous http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=4
+   pdf  owner     http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=4
+   pptx anonymous http 409  {"detail":"PowerPoint export is not available for this report"}
+   pptx owner     http 409  {"detail":"PowerPoint export is not available for this report"}
+== deck_id: public JSON view rows per query (anonymous) = [0]
+   pdf  anonymous http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+   pdf  owner     http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+   pptx anonymous http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+   pptx owner     http 200  SECRET-ROW labels=4 PUBLIC-ROW labels=0
+== deck_plain: public JSON view rows per query (anonymous) = [4]
+   pdf  anonymous http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4
+   pdf  owner     http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4
+   pptx anonymous http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4
+   pptx owner     http 200  SECRET-ROW labels=0 PUBLIC-ROW labels=4

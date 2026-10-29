@@ -244,3 +244,54 @@ def test_duplicate_and_list_speak_artifact_id(
     assert body["artifact_id"] == by_id[dash_v1]["artifact_id"]
     assert body["version"] == 3
     assert body["title"] == "Dash", "title must survive the thumbnail-copy flush (expire_on_flush)"
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize('with_resources', [False, True])
+def test_non_analytical_pages_keep_a_stable_resource_identity(
+    create_report, create_user, login_user, whoami, test_client, stub_render_validation,
+    update_organization_settings, with_resources,
+):
+    report, token, org = _make_report(create_report, create_user, login_user, whoami, 'Non analytical app')
+    update_organization_settings({'enable_artifact_resources': {'value': True}}, user_token=token, org_id=org)
+    definitions = [{'name': 'notes', 'fields': {'title': {'type': 'string', 'required': True}}}] if with_resources else []
+    result = _run(_run_create(report['id'], {'prompt': 'A small app', 'code': PAGE_CODE, 'resources': definitions}))
+    output = result['output']
+    assert output.get('artifact_id'), result.get('observation')
+    saved = _run(_version_row(output['artifact_id']))
+    assert output['resource_artifact_id'] == saved['artifact_id']
+    response = test_client.get(f"/api/artifacts/{saved['artifact_id']}/runtime/resources",
+        headers={'Authorization': 'Bearer '+token, 'X-Organization-Id': org})
+    assert response.status_code == 200
+    assert {item['name'] for item in response.json()['items']} == ({'notes'} if with_resources else set())
+
+@pytest.mark.e2e
+@pytest.mark.parametrize('resupply', [False, True])
+def test_resource_rebuild_preserves_definitions_data_and_sdk_metadata(
+    create_report, create_user, login_user, whoami, test_client, stub_render_validation,
+    update_organization_settings, resupply,
+):
+    report, token, org = _make_report(create_report, create_user, login_user, whoami, 'Rebuild app')
+    update_organization_settings({'enable_artifact_resources': {'value': True}}, user_token=token, org_id=org)
+    definitions = [{'name': 'n' * 63, 'fields': {'title': {'type': 'string', 'required': True}}}]
+    first = _run(_run_create(report['id'], {'prompt': 'Notes', 'code': PAGE_CODE, 'resources': definitions}))
+    assert first['output'].get('artifact_id'), first
+    version = first['output']['artifact_id']
+    parent = first['output']['resource_artifact_id']
+    headers = {'Authorization': 'Bearer '+token, 'X-Organization-Id': org}
+    base = f'/api/artifacts/{parent}/runtime'
+    created = test_client.post(base+'/collections/'+definitions[0]['name']+'/records', headers=headers, json={'action':'create','data':{'title':'Retain this'},'idempotency_key':str(uuid.uuid4())})
+    assert created.status_code == 200, created.text
+    second = _run(_run_create(report['id'], {'prompt':'Rebuild the layout','code':PAGE_CODE,'replaces_artifact_id':version,'resources':definitions if resupply else []}))
+    assert second['output'].get('artifact_id'), second
+    saved = test_client.get('/api/artifacts/'+second['output']['artifact_id'],headers=headers).json()
+    assert saved['artifact_id'] == parent
+    assert saved['content']['sdk_version'] == 1
+    assert definitions[0]['name'] in saved['content']['resource_requirements']
+    rows = test_client.post(base+'/collections/'+definitions[0]['name']+'/records',headers=headers,json={'action':'list'}).json()['items']
+    assert rows[0]['data']['title'] == 'Retain this'
+    assert test_client.get(base+'/resources',headers=headers).json()['items'][0]['revision'] == 1
+    changed = [{**definitions[0], 'permissions': {'read': {'audience': 'public'}}}]
+    rejected = _run(_run_create(report['id'], {'prompt':'Rebuild','code':PAGE_CODE,'replaces_artifact_id':saved['id'],'resources':changed}))
+    assert not rejected['output'].get('success')
+    assert test_client.get(base+'/resources',headers=headers).json()['items'][0]['permissions']['read']['audience'] != 'public'

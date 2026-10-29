@@ -16,6 +16,8 @@ from typing import Optional, Tuple
 from sqlalchemy import case, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.session_revocation import lock_user_sessions
+from app.core.url_safety import is_safe_redirect_uri
 from app.models.oauth_server import (
     OAuthAccessToken,
     OAuthAuthorizationCode,
@@ -95,6 +97,7 @@ class OAuthServerService:
             "redirect_uris": json.loads(client.redirect_uris),
             "scopes": (client.scopes or "").split(),
             "trusted": bool(client.trusted),
+            "entra_exchange": client.entra_exchange,
             "active_token_count": active_token_count,
             "last_used_at": last_used_at.isoformat() if last_used_at else None,
             "last_issued_at": last_issued_at.isoformat() if last_issued_at else None,
@@ -111,6 +114,7 @@ class OAuthServerService:
         scopes: str,
         redirect_uris: Optional[list[str]] = None,
         trusted: bool = False,
+        entra_exchange: Optional[dict] = None,
     ) -> dict:
         """Create an OAuth client for an organization.
 
@@ -131,6 +135,7 @@ class OAuthServerService:
             redirect_uris=json.dumps(redirect_uris),
             scopes=scopes,
             trusted=trusted,
+            entra_exchange=entra_exchange,
         )
         db.add(client)
         await db.commit()
@@ -150,6 +155,8 @@ class OAuthServerService:
         redirect_uris: Optional[list[str]] = None,
         scopes: Optional[str] = None,
         trusted: Optional[bool] = None,
+        entra_exchange: Optional[dict] = None,
+        update_entra_exchange: bool = False,
     ) -> Optional[dict]:
         """Update an existing client's metadata, access surfaces, and trust.
 
@@ -178,6 +185,15 @@ class OAuthServerService:
             client.scopes = scopes
         if trusted is not None:
             client.trusted = trusted
+        exchange_changed = update_entra_exchange and client.entra_exchange != entra_exchange
+        if update_entra_exchange:
+            client.entra_exchange = entra_exchange
+        if exchange_changed:
+            await db.execute(update(OAuthAccessToken).where(
+                OAuthAccessToken.client_id == client.client_id,
+                OAuthAccessToken.refresh_token_hash.is_(None),
+                OAuthAccessToken.deleted_at.is_(None),
+            ).values(deleted_at=datetime.utcnow()))
         if scopes_changed:
             now = datetime.utcnow()
             # A scope edit changes the client's security boundary. Revoke both
@@ -353,7 +369,15 @@ class OAuthServerService:
 
         return client
 
-    def validate_redirect_uri(self, client: OAuthClient, redirect_uri: str) -> bool:
+    def validate_redirect_uri(
+        self, client: OAuthClient, redirect_uri: str, request_origin: Optional[str] = None,
+    ) -> bool:
+        # Re-checked at use time so a row stored before scheme validation
+        # existed (e.g. a javascript: URI) can never be redirected to.
+        # ``request_origin`` is the authorize request's own origin; it only
+        # matters for an http own-origin URI when base_url is unset.
+        if not is_safe_redirect_uri(redirect_uri, request_origin):
+            return False
         allowed = json.loads(client.redirect_uris)
         return redirect_uri in allowed
 
@@ -421,8 +445,12 @@ class OAuthServerService:
         redirect_uri: str,
         scope: str,
         code_challenge: str,
-    ) -> str:
+        session_epoch: Optional[int] = None,
+    ) -> Optional[str]:
         """Create and return an authorization code."""
+        epoch = await lock_user_sessions(db, user_id)
+        if session_epoch is not None and epoch != session_epoch:
+            return None
         code = secrets.token_urlsafe(32)
 
         auth_code = OAuthAuthorizationCode(
@@ -470,6 +498,11 @@ class OAuthServerService:
         auth_code = result.scalar_one_or_none()
         if not auth_code:
             logger.warning("exchange_code failed: authorization code not found or already used (client_id=%s)", client_id)
+            return None
+
+        await lock_user_sessions(db, auth_code.user_id)
+        await db.refresh(auth_code)
+        if auth_code.deleted_at is not None:
             return None
 
         if not set((auth_code.scope or "").split()).issubset(
@@ -562,6 +595,11 @@ class OAuthServerService:
             logger.warning("refresh_access_token failed: refresh token not found or already rotated (client_id=%s)", client_id)
             return None
 
+        await lock_user_sessions(db, token_record.user_id)
+        await db.refresh(token_record)
+        if token_record.deleted_at is not None:
+            return None
+
         # Check refresh token expiration
         if token_record.refresh_expires_at and token_record.refresh_expires_at < datetime.utcnow():
             logger.warning("refresh_access_token failed: refresh token expired at %s (client_id=%s)", token_record.refresh_expires_at, client_id)
@@ -640,6 +678,12 @@ class OAuthServerService:
         if not token_record or token_record.expires_at < datetime.utcnow():
             return None
 
+        if token_record.exchange_context:
+            from app.services.entra_token_exchange import active_config
+            try:
+                active_config(token_record.exchange_context)
+            except (ValueError, KeyError, TypeError):
+                return None
         scopes = frozenset((token_record.scope or "").split())
         if required_scope and required_scope not in scopes:
             return None
@@ -650,6 +694,8 @@ class OAuthServerService:
             .where(OAuthClient.deleted_at.is_(None))
         )).scalar_one_or_none()
         if not client:
+            return None
+        if token_record.exchange_context and client.entra_exchange != token_record.exchange_context:
             return None
         if not scopes.issubset(set((client.scopes or "").split())):
             return None

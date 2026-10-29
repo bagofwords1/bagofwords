@@ -1,15 +1,15 @@
 <template>
   <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
     <div class="w-full max-w-[360px]">
-      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+      <h1 class="text-2xl leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
         {{ $t('auth.welcomeTitle') }}
       </h1>
       <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.signInSubtitle') }}
       </p>
 
-      <p v-if="error_message" v-html="error_message"
-         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+      <p v-if="error_message"
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line">{{ error_message }}</p>
 
       <div v-if="showSso" class="mt-7">
         <AuthProviderButtons
@@ -26,7 +26,7 @@
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+          <span class="px-3 text-2xs uppercase tracking-widest text-ink-muted bg-white dark:bg-gray-950">
             {{ $t('auth.or') }}
           </span>
         </div>
@@ -44,7 +44,7 @@
             <NuxtLink
               v-if="smtpEnabled"
               to="/users/forgot-password"
-              class="mb-1.5 text-[13px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+              class="mb-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
             >
               {{ $t('auth.forgotPassword') }}
             </NuxtLink>
@@ -89,6 +89,7 @@
   interface AuthProvider {
     name: string
     enabled?: boolean
+    protocol?: 'saml' | 'oidc'
     label?: string
     brand?: 'microsoft' | 'google' | 'custom'
     icon?: string | null
@@ -146,7 +147,7 @@
   const showSso = computed(() =>
     authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
-  const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
+  const labelClass = 'block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5'
 
   // Monochrome controls: the only color on the page is the provider logos and
   // the one primary action.
@@ -178,6 +179,7 @@
   const email = ref('');
   const password = ref('');
 
+  const SSO_ERROR_CODES = ['saml_login_failed', 'invitation_required', 'oauth_email_missing', 'oauth_login_failed']
   const error_message = ref('')
   // Extract the signIn function from useAuth
   const { signIn, getSession } = useAuth();
@@ -230,8 +232,8 @@
   onMounted(async () => {
     try {
       const settings = await $fetch('/api/settings')
-      if (settings?.oidc_providers?.length) {
-        oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+      if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
+        oidcProviders.value = [...(settings.oidc_providers || []), ...(settings.saml_providers || [])].filter((p: any) => p.enabled)
       }
       if (settings?.auth?.mode) {
         authMode.value = settings.auth.mode
@@ -246,9 +248,11 @@
         return navigateTo('/users/sign-up')
       }
     } catch (_) {}
-    const inviteError = route.query.error as string
-    if (inviteError) {
-      error_message.value = inviteError
+    // SSO callbacks report failures as a fixed code, never free text: anything
+    // in the URL is attacker-controlled, so only known codes map to a message.
+    const errorCode = route.query.error_code as string
+    if (errorCode && SSO_ERROR_CODES.includes(errorCode)) {
+      error_message.value = t(`errors.${errorCode}`)
     }
     // SSO hands back a single-use code, not the token — see
     // app/models/login_exchange_code.py for why the JWT must not ride in a URL.
@@ -307,7 +311,7 @@
       && embeddedAuthorizeFlow.value
       && !localOverride.value
       && !ldapEnabled.value
-      && !inviteError
+      && !route.query.error_code
       && ssoProviderCount.value === 1
     ) {
       const provider = oidcProviders.value[0]
@@ -412,7 +416,9 @@
     try {
       loadingProvider.value = name
       persistRedirectForOAuth()
-      const response = await $fetch(`/api/auth/${name}/authorize`, {
+      const provider = oidcProviders.value.find((p) => p.name === name)
+      const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+      const response = await $fetch(`/api/auth/${path}/authorize`, {
         method: 'GET',
         query: loginHint.value ? { login_hint: loginHint.value } : undefined,
       })

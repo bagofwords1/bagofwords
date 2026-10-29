@@ -5,7 +5,7 @@
             <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 flex items-center">
                 <span>{{ $t('monitoring.charts.performanceSubtitle') }}</span>
                 <UTooltip v-if="!isJudgeEnabled" :text="$t('monitoring.cards.judgeDisabled')">
-                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-2 text-gray-400 cursor-help" />
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ms-2 text-ink-muted cursor-help" />
                 </UTooltip>
             </p>
         </div>
@@ -19,7 +19,7 @@
                 </div>
                 <div v-else-if="!chartOptions" class="flex items-center justify-center h-full">
                     <div class="text-center">
-                        <div class="text-gray-400 dark:text-gray-600 text-sm">No performance data available</div>
+                        <div class="text-ink-muted text-sm">No performance data available</div>
                         <div class="text-gray-300 dark:text-gray-600 text-xs mt-1">No activity with performance metrics found</div>
                     </div>
                 </div>

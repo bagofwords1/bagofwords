@@ -198,6 +198,8 @@ done
 # same process via SERVE_FRONTEND=1). tini reaps it on shutdown.
 exec uvicorn main:app \
     --host 0.0.0.0 \
+    --proxy-headers \
+    --forwarded-allow-ips "${FORWARDED_ALLOW_IPS:-127.0.0.1}" \
     --port 3000 \
     --ws websockets \
     --log-level info \

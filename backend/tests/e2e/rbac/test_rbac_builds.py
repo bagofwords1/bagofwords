@@ -269,3 +269,43 @@ def test_publish_build_denied_when_touching_unauthorized_ds(
         headers=_hdr(author["token"], org_id),
     )
     assert cross.status_code == 403, cross.text
+
+
+@pytest.mark.e2e
+def test_rollback_denials_do_not_disclose_build_existence(test_client, builds_world):
+    """Scoped managers cannot distinguish hidden builds from nonexistent IDs."""
+    from uuid import uuid4
+
+    org_id = builds_world["org_id"]
+    admin = builds_world["principals"]["admin"]
+    author = builds_world["principals"]["ds_a_author"]
+    created = test_client.post(
+        "/api/instructions",
+        json={
+            "text": "Restricted rollback instruction",
+            "status": "draft",
+            "category": "general",
+            "data_source_ids": [builds_world["ds_b"]["id"]],
+        },
+        headers=_hdr(admin["token"], org_id),
+    )
+    assert created.status_code == 200, created.text
+    main = test_client.get("/api/builds/main", headers=_hdr(admin["token"], org_id))
+    assert main.status_code == 200, main.text
+    target_id = main.json()["id"]
+    contents_url = f"/api/builds/{target_id}/contents"
+    before = test_client.get(contents_url, headers=_hdr(admin["token"], org_id)).json()
+    responses = [
+        test_client.post(
+            f"/api/builds/{bid}/rollback", headers=_hdr(author["token"], org_id)
+        )
+        for bid in (target_id, str(uuid4()))
+    ]
+    assert [r.status_code for r in responses] == [404, 404]
+    assert responses[0].json() == responses[1].json()
+    after = test_client.get(contents_url, headers=_hdr(admin["token"], org_id)).json()
+    assert after == before
+    allowed = test_client.post(
+        f"/api/builds/{target_id}/rollback", headers=_hdr(admin["token"], org_id)
+    )
+    assert allowed.status_code == 200, allowed.text

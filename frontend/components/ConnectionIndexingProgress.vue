@@ -2,7 +2,7 @@
     <div class="space-y-2" :class="{ 'compact-progress': compact }">
         <!-- Running / pending state -->
         <template v-if="isActive">
-            <div class="text-[11px] text-gray-500">{{ $t('data.setupCurrentStage') }}</div>
+            <div class="text-2xs text-gray-500">{{ $t('data.setupCurrentStage') }}</div>
             <div class="flex items-start justify-between gap-3 text-xs text-gray-700 dark:text-gray-300">
                 <span class="font-medium break-words min-w-0">{{ summary }}</span>
                 <div class="flex items-center gap-2 flex-none">
@@ -66,13 +66,13 @@
             </div>
         </div>
 
-        <p v-if="elapsed !== null && isActive" class="text-xs text-gray-400">
+        <p v-if="elapsed !== null && isActive" class="text-xs text-ink-muted">
             {{ $t('data.setupElapsed', { time: formatDuration(elapsed) }) }}<template v-if="sinceActivity !== null && !looksStuck"> · {{ $t('data.setupLastActivity', { time: formatDuration(sinceActivity) }) }}</template>
         </p>
         <p v-if="looksStuck" class="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1" role="status" data-testid="indexing-no-activity">
             <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 shrink-0" />{{ $t('data.setupNoActivity', { time: formatDuration(sinceActivity) }) }}
         </p>
-        <div v-if="previousPhases.length && isActive" class="text-xs text-gray-400 space-y-1">
+        <div v-if="previousPhases.length && isActive" class="text-xs text-ink-muted space-y-1">
             <div>{{ $t('data.setupPreviousStages') }}</div>
             <div v-for="phase in previousPhases" :key="phase!" class="flex items-center gap-1.5"><UIcon name="i-heroicons-chevron-right" class="w-3 h-3" />{{ phaseLabel(phase) }}</div>
         </div>
@@ -85,15 +85,15 @@
         <div v-if="showLogs && diagnosticEvents.length > 0" class="pt-1">
             <button
                 type="button"
-                class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-1"
+                class="text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 inline-flex items-center gap-1"
                 @click="logsOpen = !logsOpen"
             >
                 <UIcon :name="logsOpen ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
                 {{ logsOpen ? $t('data.hideLogs', { n: diagnosticEvents.length }) : $t(compact ? 'data.detailsAndLogs' : 'data.showLogs', { n: diagnosticEvents.length }) }}
             </button>
-            <div v-if="logsOpen" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-2 text-[11px] font-mono text-gray-700 dark:text-gray-300 space-y-0.5">
+            <div v-if="logsOpen" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-2 text-2xs font-mono text-gray-700 dark:text-gray-300 space-y-0.5">
                 <div v-for="(ev, i) in diagnosticEvents" :key="i" class="flex gap-2">
-                    <span class="text-gray-400 dark:text-gray-600 flex-none">{{ formatTs(ev.ts) }}</span>
+                    <span class="text-ink-muted flex-none">{{ formatTs(ev.ts) }}</span>
                     <span class="min-w-0 break-words whitespace-pre-wrap" :class="levelClass(ev.level)">{{ ev.message }}</span>
                 </div>
             </div>

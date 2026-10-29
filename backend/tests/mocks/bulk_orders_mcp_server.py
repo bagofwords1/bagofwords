@@ -193,12 +193,12 @@ def query_work_orders_with_prompt(
 
 @mcp.tool(
     description=(
-        "Fetch one LN production order by company and order number. Returns "
+        "Fetch one production order by company and order number. Returns "
         "the full BOD ShowResponse envelope with all order header fields."
     ),
 )
 def get_production_order(company: str = "", order: str = "", ctx: Context = None) -> str:
-    """The LN regression shape: ONE wide record buried four envelope levels
+    """The regression shape: ONE wide record buried four envelope levels
     deep, whose only array is a tiny project-pegging sidecar. The old pipeline
     reduced the whole response to that sidecar ("1 records") and told the agent
     it had seen everything; the header fields around it never reached context.

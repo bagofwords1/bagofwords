@@ -1,5 +1,254 @@
 # Release Notes
 
+## Version 0.0.600 (October 28, 2026)
+- Added Amazon CloudWatch Logs as an audit log stream destination (#1499)
+- Added encryption at rest for conversation text, agent context, dashboard content, run parameters and entity SQL under the `data_encryption` setting (#1501)
+- Added voice input to the chat prompt box, transcribed in the browser (#1503) — off by default; turn on with the Voice input setting under AI settings
+- Added search to the agent picker in the prompt box (#1496)
+- Added the line range, grep matches and outline of a `read_instruction` read to its row in chat (#1497)
+- Changed the Helm chart to ship PostgreSQL on the official postgres image instead of the Bitnami subchart (#1500)
+- Fixed renaming a dashboard also renaming its conversation, and dashboards listing under their conversation's name (#1502)
+- Fixed Priority connections reporting every HTTP 501 as missing `$apply` instead of the server's own reason (#1498)
+- Fixed the agent picker's hover card jumping to the window edge instead of staying beside the hovered row (#1495)
+
+## Version 0.0.599 (October 28, 2026)
+- Added Publish for dashboards: viewers see the published version until the next Publish succeeds (#1455)
+- Added a link, people, schedule, refresh-on-open, chat and Data tab for each dashboard, instead of one per conversation (#1455)
+- Added Can view / Can edit sharing for dashboards, with a Google Docs–style Share dialog (#1459)
+- Added editing a dashboard together: each editor works in their own conversation and every query runs again as them (#1459)
+- Added one version list with the Live version marked, Publish vN and Restore of the last 5 releases (#1459)
+- Added a Settings window for dashboards: name, link, refresh, viewers, access, data, notes and history (#1459)
+- Added live presence on dashboards, showing who else is editing and which chart another editor's agent is changing (#1459)
+- Added a warning before publishing over a newer live version, naming both versions and who published (#1459)
+- Added an organization setting to turn off public link sharing (#1491)
+- Changed the dashboard API to /api/artifacts/…; rollback is now restore (#1459)
+- Changed dashboard wording to "document" or "presentation" for docs and slides (#1459)
+- Fixed a published dashboard disappearing when its conversation is deleted (#1455)
+- Fixed a dashboard brought into a conversation showing no data until a reload; it now shows its queries running as you, then fills in (#1455)
+- Fixed currency amounts like "$2,329 … $5.65" rendering as math in chat (#1461)
+- Fixed the shared dashboard page's top bar, banner and badge staying in English (#1463)
+
+## Version 0.0.598 (October 27, 2026)
+- Added GPT-6.1 Terra to the OpenAI catalog and made it the provider default in place of GPT-5.6 Terra (#1476)
+- Added saved queries to the BOW MCP server, so external clients run the organization's definitions instead of inventing their own (#1478)
+- Added a shared service-account option for Google Drive, so members read the shared files without connecting their own Google account (#1483) — Service Account (shared) on the Drive connection
+- Added Push to Git to the Agents page, pushing an instruction build as a branch and a pull request (#1473)
+- Added a Copy button on finished AI replies in chat, copying the answer as markdown (#1469)
+- Added an estimated token count under the instruction editor while editing (#1471)
+- Added a live progress bubble while the agent works in 1:1 Teams chats (#1465)
+- Added worker memory to indexing run events, and cut memory use while saving the catalog, so a run killed for memory can be diagnosed from its log (#1485)
+- Added line-range and grep reads to `read_instruction`, so a long instruction is reachable past the first page (#1481)
+- Fixed chat on a shared dashboard answering from the creator's rows instead of the viewer's (#1477)
+- Fixed an agent's library files never reaching Auto chats, or chats where the file was uploaded afterwards (#1481)
+- Fixed `grep_files` describing itself as connector-only, so the agent would not search a conversation's files (#1481)
+- Fixed file tools missing in Auto chats, so the agent could not read files without a pinned agent (#1480)
+- Fixed page images from `read_file` never reaching Bedrock and Gemini models (#1480)
+- Fixed the agent asking for dashboard code it had already read, on large dashboards (#1470)
+- Fixed `/swagger` showing a blank page on air-gapped installs, and enabled it in the air-gap bundle (#1472)
+- Fixed the @mention menu finding no results when a mention is typed mid-sentence (#1475)
+- Fixed an @instruction mention in chat showing a table icon instead of an instruction (#1474)
+- Fixed indexing progress entries dropping out of a run's event log (#1485)
+- Fixed an agent linked to a connection during its first indexing run being left with no tables (#1485)
+
+## Version 0.0.597 (October 26, 2026)
+- Added per-group default models, usable by the group even when restricted (#1466) — Settings → LLM → Group default models
+- Changed the organization default model so it can be restricted; members without access get their group's default (#1466)
+
+## Version 0.0.596 (October 23, 2026)
+- Added a clear-all button to the Diagnosis query bar (#1452)
+- Changed dashboards on /r and /reports to load faster (#1449)
+- Fixed dashboards crashing when their code uses aliased imports such as `useState as useLocal` (#1450)
+- Fixed dashboards opening on the wrong slice instead of the default (#1450)
+
+## Version 0.0.595 (October 21, 2026)
+- Added a "Create connections" role permission: members create connections and manage only their own, plus the agents on them (#1447) — `create_connections`
+- Added deleting list rows from chat, after confirming the rows on a card (#1443)
+- Changed sub-agents to run on the main conversation's model by default instead of the small model (#1444) — set `sub_agent_model` to `small` to keep the old behavior
+- Fixed result filters not applying to the table in the side pane (#1446)
+- Fixed trigger-spawned sessions titled with raw event data instead of a readable name (#1445)
+- Fixed sub-agents refused a model the user can use when several providers offer it (#1444)
+- Fixed the dashboard ⓘ icon showing as an empty box under some dashboard styles, and covering short labels (#1442)
+
+## Version 0.0.594 (October 20, 2026)
+- Added scheduling dashboard refreshes at any minute, not only on the hour (#1436)
+- Fixed dashboard refreshes running on the server clock instead of the organization's timezone (#1437) — existing schedules move to the org timezone on upgrade
+
+## Version 0.0.593 (October 19, 2026)
+- Added instruction and table-selection tools to the BOW MCP server for agent managers (#1427) — `read_instruction`, `edit_instruction`, `describe_tables`, `edit_schema`
+- Added a cap on MCP tools offered to the agent, with tool search for the rest (#1426) — `tools_max` in AI Settings → Tools & MCP (default 50)
+- Added Priority form and column titles to the agent's context and to result headers (#1396)
+- Changed agent replies to arrive faster: shared LLM and MCP connections, fewer context rebuilds, and earlier non-streaming API responses (#1426)
+- Changed MCP tools to follow the agents a run uses, in Auto and pinned agents (#1426)
+- Fixed MCP instruction tools ignoring agent permissions: members could attach rules to agents they can't see, and owners couldn't delete them (#1427)
+- Fixed users without a grant getting a restricted model when the org has no default model (#1430)
+- Fixed a failed Test connection on a per-user agent turning the agent off for the whole org (#1425)
+- Fixed chat streams stalling behind buffering proxies (#1424)
+- Fixed overflow recovery not running when OpenAI reports a context overflow mid-stream (#1416)
+- Fixed Priority subform reads hanging on large companies (#1417)
+- Fixed slow Priority queries when a line column only breaks ties (#1418)
+- Fixed the training Summary showing the wrong review state for instructions (#1419)
+- Fixed the trigger modal disappearing when switching to Edit (#1423)
+- Fixed browser-tool pages failing to embed public iframes such as reCAPTCHA (#1428)
+
+## Version 0.0.592 (October 17, 2026)
+- Added paging through long files with `offset`/`length` on every file connection and on chat uploads (#1401)
+- Added reading and searching .eml and Outlook .msg emails, including their attachments, on every file connection (#1402)
+- Added sub-agents saving rows into the parent conversation's lists (#1394)
+- Added messages between agents and their sub-agents, with send receipts and questions that pause the sub-agent until answered (#1406)
+- Added listing every folder of a file connection in one call (#1410) — `group_by="folder"` on `list_files`
+- Added saving a whole file or folder listing as a CSV the agent can query, so large libraries need one call instead of hundreds (#1415) — `persist=true` on `list_files`
+- Added a compact card in chat for Polish requests from the dashboard element picker, instead of the raw prompt (#1413)
+- Fixed long runs over scanned PDFs stopping with "Conversation too long for this model" (#1414)
+- Fixed the agent failing to read files uploaded to a conversation (#1403)
+- Fixed paged reads of text files on Files & Directories and S3 skipping text between pages (#1405)
+- Fixed SharePoint 2010 file search running slow live crawls instead of answering from the index (#1409)
+- Fixed agents being unable to read back the lists they fill (#1408)
+- Fixed list saves rejecting partial updates and flat records (#1407)
+- Fixed SharePoint Server deep search missing matches inside file contents (#1387)
+- Fixed org admins being denied private or selectively shared reports on the share page (#1400)
+- Fixed SharePoint Server file reads giving one error for both a missing and an ambiguous path (#1399)
+- Fixed the dashboard breaking when the ⓘ icon is clicked in Polish mode (#1393)
+- Fixed agents looping on empty saves while filling a list (#1398)
+- Fixed Priority subforms failing when queried as tables (#1391)
+- Changed the chat submit arrow to point up (#1412)
+
+## Version 0.0.591 (October 15, 2026)
+- Added keyword search and full-library browsing with paging, sorting and date filters for SharePoint Server connections (#1387) — `content` indexing option
+- Added opening a saved list beside the chat, with rows updating live as the agent saves them (#1388)
+- Added per-conversation API settings on reports (#1378) — `follow_ups`, `suggest_instructions`, `tools` on `POST`/`PUT /api/reports`
+- Added list creation and editing by the agent in training mode, approved on a review card (#1390)
+- Fixed one-time scheduled tasks running more than once or at the wrong time (#1386)
+- Fixed removed table references reappearing on instructions (#1379)
+- Fixed Git repository connections failing for SSH-style repo URLs with an access token (#1385)
+- Fixed slow SharePoint file listing on large libraries (#1384)
+
+## Version 0.0.590 (October 14, 2026)
+- Bug fixes and security hardening (#1304)
+
+## Version 0.0.589 (October 14, 2026)
+- Fixed missing custom document libraries in on-prem SharePoint connections (#1380)
+
+## Version 0.0.588 (October 13, 2026)
+- Added read-only SharePoint 2010 connections (#1368)
+- Added Elasticsearch query guardrails and per-connection query limits (#1372)
+- Added a token cap for sub-agents (#1374) — `sub_agent_max_tokens` org setting (default 400,000)
+- Added AI suggestions that turn an instruction on or off (#1375)
+- Added `agent.name` as an LLM identity header, for per-agent usage in gateways such as LiteLLM (#1366)
+- Added completions API opt-outs for follow-ups and instruction suggestions (#1365) — `follow_ups: false`, `suggest_instructions: false`
+- Added an "Open report" link to Diagnosis runs for full admins (#1369)
+- Fixed sub-agents reporting internal stop messages as findings, writing duplicate notes, and showing on shared pages (#1374)
+- Fixed LLM calls failing on non-ASCII identity header values (#1366)
+- Fixed "New report" from an agent page falling back to Auto (#1371)
+- Fixed chart previews flickering while a report runs (#1373)
+- Fixed Aria Operations alert definitions failing with 403 (#1367)
+- Fixed Mermaid syntax errors leaving error graphics on the page (#1364)
+- Fixed agent search freezing the server on certain queries (#1323)
+
+## Version 0.0.587 (October 13, 2026)
+- Added sub-agents: the agent delegates independent sub-questions (one hypothesis each in a root-cause analysis) to bounded background runs that report back in one fan-in turn (#1362) — controlled by the `enable_sub_agents` org setting and its `sub_agent_*` limits
+- Added delegate cards with live progress, a background-tasks indicator with per-run stop, a Sub-agents section in the report Summary, and a Checkout Ops demo dataset for root-cause analysis (#1362)
+- Added dynamic params for MCP connections (#1359) — values sent per question in `prompt.metadata`, limited to an admin allow-list
+- Added admin-set member attributes in Settings → Members (#1361) — key/value pairs set on invite, edit or members import (`attr.<key>` columns)
+- Added per-member identity for Qlik on-prem connections with per-user auth, taken from admin-set member attributes (#1363)
+- Fixed adding a filter to a chart failing when the agent passed the chart's id (#1347)
+- Added a chat card for added filters, showing the filter, query and errors (#1348)
+- Fixed Run evals including draft and archived cases and following the Tests search (#1352)
+- Fixed untranslated Accept/Reject buttons and statuses on training-mode review cards (#1346)
+- Fixed Reload not refreshing the schema of shared connections (#1358)
+
+## Version 0.0.586 (October 10, 2026)
+- Bug fixes and UI improvements (#1291)
+
+## Version 0.0.585 (October 10, 2026)
+- Added the source code archive to air-gap releases
+
+## Version 0.0.584 (October 8, 2026)
+- Fixed directory profile sync with separate Entra SSO and Fabric apps — requires `offline_access` for SSO
+
+## Version 0.0.583 (October 8, 2026)
+- Added demo dataset generation for training mode (#1278)
+- Added forking data apps with their resource definitions, without records (#1274)
+- Added per-agent column visibility (#1275)
+
+## Version 0.0.582 (October 7, 2026)
+- Added Claude Haiku 5.5 as a preset Anthropic model, with adaptive reasoning effort (low to max) and its $0.10 / $0.50 per million token pricing
+
+## Version 0.0.581 (October 7, 2026)
+- Fixed recovery of missing Fabric and Power BI access for signed-in Entra users (#1271)
+
+## Version 0.0.580 (October 6, 2026)
+- Fixed agents saving to an Agent List over and over instead of finishing after the first save (#1268)
+
+## Version 0.0.579 (October 6, 2026)
+- Added prompt caching for Claude models behind an OpenAI-compatible gateway such as LiteLLM or OpenRouter (#1266)
+- Fixed SSO users' disconnected on-behalf-of connections not reconnecting on their next login (#1261)
+- Fixed SSO login failing on Postgres when recording the last login time (#1262)
+- Fixed PDF export of docs failing behind a proxy with an internal certificate authority (#1264)
+- Fixed Priority queries failing with a bare "400 Bad Request" instead of the server's error message (#1265)
+
+## Version 0.0.578 (October 5, 2026)
+- Fixed high-severity dependency vulnerabilities flagged by Snyk: upgraded the backend `mcp` client to 1.30.0 and the frontend `seroval` transitive to 1.6.8
+
+## Version 0.0.577 (October 4, 2026)
+- Added ION service-account authentication for Infor EPM connections
+
+## Version 0.0.576 (October 4, 2026)
+- Added SCIM group provisioning from Microsoft Entra ID, Okta and other identity providers (#1236) — synced groups are managed by the IdP and their members can't be edited in Settings
+- Fixed Prometheus indexing failing on VictoriaMetrics servers that cap matched series, and labels missing for some metrics on large servers (#1237)
+- Fixed scheduled agents sending the same email twice to one recipient in a single run (#1239)
+- Fixed eight high-severity PDF parsing vulnerabilities by upgrading pypdf to 6.19.0 (#1238)
+
+## Version 0.0.575 (October 3, 2026)
+- Added artifact resources: persistent records, files and AI streaming (#1220) — default off in organization settings
+- Added audit log streams to Datadog, Splunk, Microsoft Sentinel, Amazon S3, Google Cloud Storage, HTTPS webhooks and syslog (#1232) — Settings → Audit Logs → Streams
+- Added an event details drawer, user, resource and time filters, and JSON/CSV export to the audit log
+- Fixed audit log rows overlapping on actions with more than two parts
+- Fixed AI tool audit events being dropped under load or when the database was briefly unavailable
+- Made six connectors available without an enterprise license and unified license checks (#1225)
+- Fixed report scrolling, dashboard refresh, reasoning settings and access checks; updated the not-found page (#1227, #1228, #1230, #1231)
+
+## Version 0.0.574 (October 3, 2026)
+- Added SAML single sign-on with any SAML 2.0 identity provider (#1219) — configured under `saml_providers` in `bow-config.yaml`
+- Replaced the reasoning effort buttons with a Faster ↔ Smarter slider in the model picker (#1223)
+- Fixed the fastest effort still running OpenAI models at medium reasoning (#1223)
+
+## Version 0.0.573 (September 29, 2026)
+- Added Claude Sonnet 5.5 (`claude-sonnet-5-5`) as an Anthropic preset — the new Anthropic default for new providers
+- Added GPT-6.1 Sol (`gpt-6.1-sol`) as an OpenAI preset
+- Replaced GPT Image 1 with GPT Image 2.5 Sunburst and Flare for image generation — GPT Image 1 shuts down December 1, 2026
+- Fixed new image models reaching existing organizations unusable by image generation and listed in the chat model picker
+- Fixed cached-token cost for GPT-6 Sol and GPT-6.1 Sol being overstated
+
+## Version 0.0.572 (September 29, 2026)
+- Removed the "User overnight learning" setting — overnight memory upkeep now follows the User memory setting
+- Agent check-ins are now on by default — turn off with the `enable_agent_checkins` org setting
+
+## Version 0.0.571 (September 28, 2026)
+- Added agent check-ins: the agent schedules its own follow-up and notifies you only when something changed (#1200) — `enable_agent_checkins` org setting (default off)
+- Added per-user memory: the agent saves, edits and searches personal facts, managed from a new Memory tab in your profile (#1201) — `enable_user_memory` org setting (default on)
+- Added Agent Lists: typed tables an agent fills in from documents, emails or query results, with evidence, row history and CSV export (#1203)
+- Added overnight learning: agents merge repeated suggestions into one nightly suggestion, and each user's memory and follow-up check-ins are kept current overnight (#1205) — `enable_agent_dreaming` and `enable_user_dreaming` org settings (default on)
+- Added an expiry for unreviewed instruction suggestions (#1205) — `ai_suggestion_expiry_days` org setting (default 30, `0` = never)
+- Added reasoning effort (Default, Low, Medium, High, Max) and search to the model picker, saved per conversation, scheduled task, trigger, prompt and eval case (#1206)
+- Fixed Bedrock Sonnet 5 rejecting thinking requests, Azure GPT-6 failing tool calls on Chat Completions, and Gemini ignoring the reasoning level (#1206)
+- Fixed connector-backed agents showing a generic icon in the agent header and settings instead of their brand logo (#1204)
+- Fixed BOW monitoring queries and dashboards failing with "BOW history is still indexing" (#1202)
+- Fixed a hardcoded SSL verification bypass in the OpenAI Responses client flagged by Snyk (#1199)
+
+## Version 0.0.570 (September 24, 2026)
+- Added a member's own usage quota under their name in the sidebar, with the full breakdown in the account menu (#1196)
+- Added Infor EPM (Application Engine) connector (#1178)
+- Added default model setting for dashboard chat (#1180)
+- Fixed connection timestamps shown in the wrong timezone (#1179)
+- Fixed transcript rendering, artifact caching, default reasoning effort, and "Thought for" showing tool run time instead of reasoning time (#1181)
+- Fixed parallel data steps failing with "greenlet_spawn" errors (#1182)
+- Fixed revoked columns and unchecked @table mentions reaching the agent prompt (#1183)
+- Faster agent runs: lighter step saves, context refreshes, and token streaming (#1184, #1185, #1186, #1187)
+- Fixed deleting an agent linked to a project wiping its content before failing (#1193)
+- Fixed generated code hidden in monitoring traces for users with code access (#1194)
+- Fixed unlinking a connection from an agent failing on PostgreSQL (#1195)
+- Fixed a reached org usage quota being reported as a provider failure (#1197)
+
 ## Version 0.0.569 (September 22, 2026)
 - Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
 

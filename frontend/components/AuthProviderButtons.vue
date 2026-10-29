@@ -14,7 +14,7 @@
       <template v-else>
         <img v-if="iconSrc(p)" :src="iconSrc(p)!" alt="" aria-hidden="true" :class="iconClass" />
         <UIcon v-else name="i-heroicons-lock-closed" aria-hidden="true"
-               :class="[iconClass, 'text-gray-400 dark:text-gray-500']" />
+               :class="[iconClass, 'text-ink-muted']" />
         <span>{{ mode === 'sign-up'
           ? $t('auth.continueWithProvider', { provider: label(p) })
           : $t('auth.signInWithProvider', { provider: label(p) }) }}</span>
@@ -29,6 +29,7 @@ import Spinner from '~/components/Spinner.vue'
 interface AuthProvider {
   name: string
   enabled?: boolean
+  protocol?: 'saml' | 'oidc'
   // Derived server-side in /api/settings so the raw issuer (which can carry a
   // tenant id) never reaches an unauthenticated page.
   label?: string
@@ -117,7 +118,9 @@ async function start(name: string) {
   try {
     loadingProvider.value = name
     persistRedirectForOAuth()
-    const response = await $fetch(`/api/auth/${name}/authorize`, {
+    const provider = allProviders.value.find((p) => p.name === name)
+    const path = provider?.protocol === 'saml' ? `saml/${name}` : name
+    const response = await $fetch(`/api/auth/${path}/authorize`, {
       method: 'GET',
       query: props.loginHint ? { login_hint: props.loginHint } : undefined,
     })

@@ -17,11 +17,29 @@ from app.dependencies import async_session_maker
 from datetime import datetime
 import json
 from app.core.telemetry import telemetry
+from app.core.url_safety import UnsafeURLError, check_admin_url
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+# additional_config keys that decide which host a provider's credentials are
+# sent to (and whether TLS is verified). Changing any of these in a test must
+# not reuse stored secrets. Value is the default when the key is absent.
+_DESTINATION_CONFIG_KEYS = {"base_url": None, "endpoint_url": None, "verify_ssl": True}
+
+
+def _check_provider_url(url: str) -> None:
+    try:
+        check_admin_url(url)
+    except UnsafeURLError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# Upper bound for a manual context-window override (INTEGER column is 32-bit).
+MAX_CONTEXT_WINDOW_TOKENS = 2_147_483_647
+
 
 class LLMService:
     def __init__(self):
@@ -395,6 +413,7 @@ class LLMService:
                 status_code=400,
                 detail="Cannot delete the default or small default model. Make another model the default first.",
             )
+        await self._ensure_not_group_default(db, organization, [str(model.id)])
 
         provider = (await db.execute(
             select(LLMProvider).filter(LLMProvider.id == model.provider_id)
@@ -552,11 +571,21 @@ class LLMService:
                 return role_names.get(g.principal_id)
             return user_names.get(g.principal_id)
 
+        default_for_groups = await self._groups_defaulting_to(db, organization, [str(model.id)])
+
         return {
             "model_id": str(model.id),
             "is_restricted": bool(getattr(model, "is_restricted", False)),
             "is_default": bool(model.is_default),
             "is_small_default": bool(model.is_small_default),
+            # Groups whose members get this model as their default (and so may
+            # use it even while restricted).
+            "default_for_groups": [
+                {"group_id": str(g.id), "group_name": g.name,
+                 "is_default": str(g.default_llm_model_id or "") == str(model.id),
+                 "is_small_default": str(g.small_default_llm_model_id or "") == str(model.id)}
+                for g in default_for_groups
+            ],
             "members": [
                 {
                     "grant_id": g.id,
@@ -577,12 +606,11 @@ class LLMService:
         is_restricted: bool,
     ):
         """Toggle whether a model is access-restricted."""
+        # Org defaults may be restricted too: members who can't use a
+        # restricted org default inherit their group default instead (see
+        # resolve_inherited_default). get_default_coverage reports anyone left
+        # without one so the admin UI can warn.
         model = await self._get_owned_model(db, organization, model_id)
-        if is_restricted and (model.is_default or model.is_small_default):
-            raise HTTPException(
-                status_code=400,
-                detail="Default models are available to all members and cannot be restricted.",
-            )
         model.is_restricted = is_restricted
         db.add(model)
         await db.commit()
@@ -699,6 +727,160 @@ class LLMService:
             pass
         return {"success": True}
 
+    async def _groups_defaulting_to(self, db: AsyncSession, organization: Organization, model_ids: list):
+        """Groups in the org that use any of these models as default or small default."""
+        from app.models.group import Group
+        from sqlalchemy import or_
+        if not model_ids:
+            return []
+        result = await db.execute(
+            select(Group)
+            .where(
+                Group.organization_id == str(organization.id),
+                or_(Group.default_llm_model_id.in_(model_ids), Group.small_default_llm_model_id.in_(model_ids)),
+            )
+            .order_by(Group.name.asc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def _ensure_not_group_default(self, db: AsyncSession, organization: Organization, model_ids: list):
+        """Refuse to delete/disable a model that a group still uses as its default."""
+        groups = await self._groups_defaulting_to(db, organization, model_ids)
+        if groups:
+            names = ", ".join(g.name for g in groups)
+            raise AppError.bad_request(
+                ErrorCode.LLM_MODEL_IS_GROUP_DEFAULT,
+                f"This model is the default for group(s): {names}. Change their default first.",
+                groups=names,
+            )
+
+    def _group_defaults_row(self, group, models_by_id: dict) -> dict:
+        def _m(mid):
+            m = models_by_id.get(str(mid)) if mid else None
+            return {"id": str(m.id), "name": m.name or m.model_id} if m is not None else None
+        return {
+            "group_id": str(group.id),
+            "group_name": group.name,
+            "default_llm_model_id": group.default_llm_model_id,
+            "small_default_llm_model_id": group.small_default_llm_model_id,
+            "default_llm_priority": group.default_llm_priority if group.default_llm_priority is not None else 100,
+            "default_model": _m(group.default_llm_model_id),
+            "small_default_model": _m(group.small_default_llm_model_id),
+        }
+
+    async def list_group_defaults(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Every group in the org with its LLM defaults and priority."""
+        from app.models.group import Group
+        groups = (await db.execute(
+            select(Group)
+            .where(Group.organization_id == str(organization.id))
+            .order_by(Group.default_llm_priority.asc(), Group.name.asc())
+        )).scalars().unique().all()
+        ids = {str(i) for g in groups for i in (g.default_llm_model_id, g.small_default_llm_model_id) if i}
+        models_by_id = {}
+        if ids:
+            rows = (await db.execute(
+                select(LLMModel).filter(LLMModel.id.in_(ids), LLMModel.organization_id == organization.id)
+            )).scalars().unique().all()
+            models_by_id = {str(m.id): m for m in rows}
+        return [self._group_defaults_row(g, models_by_id) for g in groups]
+
+    async def set_group_defaults(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        group_id: str,
+        fields: dict,
+    ):
+        """Set a group's default / small default model and priority.
+
+        ``fields`` holds only the keys the caller sent; a None model id clears
+        it (the group then inherits the org default). Setting a model makes it
+        usable by the group's members even when restricted.
+        """
+        from app.models.group import Group
+        group = (await db.execute(
+            select(Group).where(Group.id == group_id, Group.organization_id == str(organization.id))
+        )).scalars().first()
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        for key in ("default_llm_model_id", "small_default_llm_model_id"):
+            if key not in fields:
+                continue
+            mid = fields[key]
+            if mid:
+                model = await self._live_chat_model(db, organization, mid)
+                if model is None:
+                    raise AppError.bad_request(
+                        ErrorCode.LLM_GROUP_DEFAULT_INVALID,
+                        "The model must exist in this organization, be enabled, and be a chat model.",
+                    )
+                setattr(group, key, str(model.id))
+            else:
+                setattr(group, key, None)
+        if "default_llm_priority" in fields and fields["default_llm_priority"] is not None:
+            group.default_llm_priority = int(fields["default_llm_priority"])
+
+        db.add(group)
+        await db.commit()
+        await db.refresh(group)
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="group.llm_defaults_changed",
+                user_id=str(current_user.id),
+                resource_type="group",
+                resource_id=str(group.id),
+                details={k: fields[k] for k in fields},
+            )
+        except Exception:
+            pass
+
+        ids = [i for i in (group.default_llm_model_id, group.small_default_llm_model_id) if i]
+        models_by_id = {}
+        if ids:
+            rows = (await db.execute(select(LLMModel).filter(LLMModel.id.in_(ids)))).scalars().unique().all()
+            models_by_id = {str(m.id): m for m in rows}
+        return self._group_defaults_row(group, models_by_id)
+
+    async def get_default_coverage(self, db: AsyncSession, organization: Organization, current_user: User):
+        """Members who inherit no proper default.
+
+        For every active member, resolve the default they inherit (group →
+        org). Anyone who only gets the "first model they may use" fallback, or
+        no model at all, is listed so admins can fix the gap (typically: the
+        org default is restricted and the member's groups have no default).
+        Personal preferences are ignored — they can go stale at any time.
+        """
+        from app.models.membership import Membership
+        from app.models.user import User as UserModel
+        rows = (await db.execute(
+            select(UserModel)
+            .join(Membership, Membership.user_id == UserModel.id)
+            .where(
+                Membership.organization_id == str(organization.id),
+                Membership.deleted_at.is_(None),
+            )
+            .order_by(UserModel.email.asc())
+        )).scalars().unique().all()
+        uncovered = []
+        for u in rows:
+            resolved = await self.resolve_inherited_default(db, organization, u)
+            if resolved["source"] in ("group", "org"):
+                continue
+            m = resolved["model"]
+            uncovered.append({
+                "user_id": str(u.id),
+                "name": u.name or u.email,
+                "email": u.email,
+                "fallback_model": ({"id": str(m.id), "name": m.name or m.model_id} if m is not None else None),
+            })
+        return {"members_total": len(rows), "members_without_default": uncovered}
+
     async def list_models_for_principal(
         self,
         db: AsyncSession,
@@ -784,6 +966,7 @@ class LLMService:
         for model in models:
             if model.is_default or model.is_small_default:
                 raise HTTPException(status_code=400, detail="Cannot delete models that are set as default or small default")
+        await self._ensure_not_group_default(db, organization, [str(m.id) for m in models])
 
         provider.deleted_at = datetime.now()
         provider.is_enabled = False
@@ -860,20 +1043,12 @@ class LLMService:
         result = await db.execute(query)
         models = result.unique().scalars().all()
 
-        # Per-model access control: hide restricted models the user can't use.
+        # Per-model access control: hide restricted models the user can't use
+        # (a restricted org default included; group defaults count as grants).
         # No-op when the feature is unlicensed (fail open) or nothing is restricted.
-        from app.core.permission_resolver import llm_access_control_active, get_accessible_model_ids
-        if current_user is not None and llm_access_control_active() and any(getattr(m, "is_restricted", False) for m in models):
-            is_admin, granted = await get_accessible_model_ids(db, current_user.id, organization.id)
-            if not is_admin:
-                granted_set = set(granted)
-                models = [
-                    m for m in models
-                    if not getattr(m, "is_restricted", False)
-                    or getattr(m, "is_default", False)
-                    or getattr(m, "is_small_default", False)
-                    or str(m.id) in granted_set
-                ]
+        from app.core.permission_resolver import filter_models_user_can_use
+        if current_user is not None:
+            models = await filter_models_user_can_use(db, current_user.id, organization.id, models)
 
         # Mark the caller's personal default so clients can preselect it without
         # a second request. Transient attribute (feeds LLMModelSchema.is_user_default),
@@ -884,8 +1059,22 @@ class LLMService:
         visible_ids = {str(m.id) for m in models}
         if user_default_id not in visible_ids:
             user_default_id = None
+        # Mark the default the caller inherits without a personal preference
+        # (group default → org default → fallback), so pickers preselect the
+        # right model and can say where it comes from.
+        inherited = {"model": None, "source": None, "group_name": None}
+        if current_user is not None:
+            try:
+                inherited = await self.resolve_inherited_default(db, organization, current_user)
+            except Exception:
+                logger.exception("inherited default resolution failed; model list unmarked")
+        inherited_id = str(inherited["model"].id) if inherited.get("model") is not None else None
         for m in models:
             m.is_user_default = (str(m.id) == user_default_id)
+            is_inherited = (str(m.id) == inherited_id)
+            m.is_inherited_default = is_inherited
+            m.inherited_default_source = inherited.get("source") if is_inherited else None
+            m.inherited_default_group_name = inherited.get("group_name") if is_inherited else None
 
         # Prefer small default models first, then regular default, then by provider/name
         def _sort_key(m):
@@ -996,6 +1185,8 @@ class LLMService:
 
         if model.is_default or model.is_small_default:
             raise HTTPException(status_code=400, detail="Cannot disable models that are set as default or small default")
+        if not enabled:
+            await self._ensure_not_group_default(db, organization, [str(model.id)])
 
         model.is_enabled = enabled
         await db.commit()
@@ -1076,8 +1267,10 @@ class LLMService:
 
         Sets an explicit override so the choice survives catalog re-syncs, and
         updates the effective `supports_image_generation` flag that gates the
-        generate_image tool. An image model is never a chat default, so enabling
-        it also clears any default/small-default flag on that model.
+        generate_image tool. An image model is never a chat default, so a model
+        that is the default or small default cannot be marked — the admin picks
+        another default first (mirrors toggle_model). Silently clearing the flag
+        here used to leave the org with no default at all.
         """
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
@@ -1090,12 +1283,16 @@ class LLMService:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
 
+        if enabled and (model.is_default or model.is_small_default):
+            raise HTTPException(
+                status_code=400,
+                detail="Default and small default models cannot be marked as image-generation models. Set another default first.",
+            )
+        if enabled:
+            await self._ensure_not_group_default(db, organization, [str(model.id)])
+
         model.supports_image_generation_override = enabled
         model.supports_image_generation = enabled
-        if enabled:
-            # Image models can never be the org's default / small default.
-            model.is_default = False
-            model.is_small_default = False
         await db.commit()
 
         logger.info("LLM model image-generation toggled: id=%s, name=%s, model_id=%s, supports_image_generation=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
@@ -1186,6 +1383,9 @@ class LLMService:
         """
         if tokens is not None and tokens <= 0:
             raise HTTPException(status_code=400, detail="Context window must be a positive number of tokens")
+        # Column is a 32-bit INTEGER; anything larger is a client error, not a DB crash.
+        if tokens is not None and tokens > MAX_CONTEXT_WINDOW_TOKENS:
+            raise HTTPException(status_code=400, detail="Context window is too large")
 
         model = await db.execute(
             select(LLMModel).join(LLMProvider).filter(
@@ -1303,6 +1503,115 @@ class LLMService:
             "input_cost_per_million_tokens_usd": model.input_cost_per_million_tokens_usd,
             "output_cost_per_million_tokens_usd": model.output_cost_per_million_tokens_usd,
         }
+
+    async def set_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        update: "ModelReasoningUpdate",
+    ):
+        """Set a model's reasoning settings (``LLMModel.config``).
+
+        Only the fields present in the request change: ``mode`` →
+        ``reasoning_mode``, ``like_model_id`` → ``reasoning_model_id``,
+        ``default_effort`` → ``reasoning_effort`` (the model's default level),
+        ``params`` → ``reasoning_params`` (raw request fields per level).
+        Other config keys (temperature, routing_hint) are preserved.
+        """
+        from app.ai.llm.reasoning import reasoning_info
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        fields = update.model_fields_set
+        if "mode" in fields:
+            if update.mode is None or update.mode == "auto":
+                cfg.pop("reasoning_mode", None)
+                cfg.pop("reasoning_model_id", None)
+            else:
+                cfg["reasoning_mode"] = update.mode
+                if update.mode != "like":
+                    cfg.pop("reasoning_model_id", None)
+        if "like_model_id" in fields:
+            if update.like_model_id:
+                cfg["reasoning_model_id"] = update.like_model_id
+            else:
+                cfg.pop("reasoning_model_id", None)
+        if cfg.get("reasoning_mode") == "like" and not cfg.get("reasoning_model_id"):
+            raise HTTPException(status_code=400, detail="Choose the model this one behaves like")
+        if "default_effort" in fields:
+            if update.default_effort:
+                cfg["reasoning_effort"] = update.default_effort
+            else:
+                cfg.pop("reasoning_effort", None)
+        if "params" in fields:
+            if update.params:
+                cfg["reasoning_params"] = update.params
+            else:
+                cfg.pop("reasoning_params", None)
+        if cfg.get("reasoning_mode") == "custom" and not cfg.get("reasoning_params"):
+            raise HTTPException(status_code=400, detail="Custom mode needs raw request fields for at least one level")
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model reasoning set: id=%s, model_id=%s, mode=%s, default=%s, levels_with_params=%s, org_id=%s",
+            model.id, model.model_id, cfg.get("reasoning_mode", "auto"), cfg.get("reasoning_effort"),
+            sorted((cfg.get("reasoning_params") or {}).keys()), organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.reasoning_updated",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={
+                    "name": model.name, "model_id": model.model_id,
+                    "mode": cfg.get("reasoning_mode", "auto"),
+                    "like_model_id": cfg.get("reasoning_model_id"),
+                    "default_effort": cfg.get("reasoning_effort"),
+                    "levels_with_params": sorted((cfg.get("reasoning_params") or {}).keys()),
+                },
+            )
+        except Exception:
+            pass
+        return {"success": True, "reasoning": reasoning_info(model.model_id, cfg)}
+
+    async def test_reasoning(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        effort: str,
+    ):
+        """Run one agent-shaped request at ``effort`` against the saved model
+        (its current reasoning settings included) and report what came back."""
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+                LLMModel.deleted_at == None,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        return await llm.test_agent_call(effort)
 
     async def set_routing_hint(
         self,
@@ -1723,6 +2032,7 @@ class LLMService:
         if provider.provider_type == "openai":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             elif "base_url" in credentials and (credentials.get("base_url") is None or credentials.get("base_url") == ""):
                 # Explicitly clear base_url
@@ -1749,6 +2059,7 @@ class LLMService:
         if provider.provider_type == "custom":
             base_url = credentials.get("base_url")
             if base_url:
+                _check_provider_url(base_url)
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
             if "verify_ssl" in credentials:
@@ -1759,6 +2070,10 @@ class LLMService:
                 else:
                     verify_ssl = bool(raw_verify_ssl)
                 existing_additional_config = { **existing_additional_config, "verify_ssl": verify_ssl }
+            if credentials.get("prompt_cache_markers") is not None:
+                raw_markers = credentials["prompt_cache_markers"]
+                markers = raw_markers.lower() not in ("false", "0", "no", "") if isinstance(raw_markers, str) else bool(raw_markers)
+                existing_additional_config = { **existing_additional_config, "prompt_cache_markers": markers }
 
         # Bedrock: region (required), auth_mode
         if provider.provider_type == "bedrock":
@@ -1840,6 +2155,12 @@ class LLMService:
                         detail="Vertex service account key JSON is missing 'private_key' — "
                                "paste the whole key file."
                     )
+                from app.core.egress import check_google_token_uri
+                from app.core.url_safety import UnsafeURLError
+                try:
+                    check_google_token_uri(parsed_key)
+                except UnsafeURLError as exc:
+                    raise HTTPException(status_code=400, detail=f"Vertex service account key: {exc}")
                 api_key = raw_key
                 # A key file names its own project; adopt it when the admin
                 # left the field blank so the common case needs one paste.
@@ -2099,7 +2420,10 @@ class LLMService:
         small: bool = False
     ):
         default_model = await db.execute(
-            select(LLMModel).filter(LLMModel.id == model_id)
+            select(LLMModel).filter(
+                LLMModel.id == model_id,
+                LLMModel.organization_id == organization.id,
+            )
         )
         default_model = default_model.scalar_one_or_none()
 
@@ -2161,38 +2485,143 @@ class LLMService:
         current_user: User,
         is_small: bool = False
     ):
-        """Get the default model for an organization. If is_small=True, prefer small default, fallback to regular, then first enabled."""
+        """Default model for a caller, ignoring their personal preference.
+
+        Resolution (each step skipped when stale or not usable by the caller):
+        1. is_small only: the small default of the caller's groups (by group
+           priority), then the org small default;
+        2. the default of the caller's groups (by group priority);
+        3. the org default;
+        4. the first enabled chat model the caller may use.
+
+        With no user (system jobs) group steps are skipped and the org
+        defaults are returned as-is, like before.
+        """
+        resolved = await self.resolve_inherited_default(db, organization, current_user, is_small=is_small)
+        return resolved["model"]
+
+    async def _user_groups_with_llm_defaults(self, db: AsyncSession, organization: Organization, user: User):
+        """The user's groups that carry an LLM default, highest priority first
+        (lower ``default_llm_priority`` wins, ties broken by name)."""
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+        from sqlalchemy import or_
+        if user is None:
+            return []
+        result = await db.execute(
+            select(Group)
+            .join(GroupMembership, GroupMembership.group_id == Group.id)
+            .where(
+                GroupMembership.user_id == str(user.id),
+                Group.organization_id == str(organization.id),
+                or_(Group.default_llm_model_id.isnot(None), Group.small_default_llm_model_id.isnot(None)),
+            )
+            .order_by(Group.default_llm_priority.asc(), Group.name.asc(), Group.id.asc())
+        )
+        return list(result.scalars().unique().all())
+
+    async def _live_chat_model(self, db: AsyncSession, organization: Organization, model_id):
+        """The model with this id if it is enabled, on a live provider, in the
+        org, and a chat model — else None."""
+        if not model_id:
+            return None
+        result = await db.execute(
+            select(LLMModel)
+            .join(LLMModel.provider)
+            .filter(LLMModel.id == str(model_id))
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMModel.is_enabled == True)
+            .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMProvider.deleted_at == None)
+            .filter(LLMProvider.is_enabled == True)
+        )
+        return result.unique().scalar_one_or_none()
+
+    async def resolve_inherited_default(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        user: User,
+        is_small: bool = False,
+    ) -> dict:
+        """Resolve the default a caller inherits (no personal preference).
+
+        Returns ``{"model", "source", "group_id", "group_name"}`` where source
+        is "group", "org", "fallback" or None (nothing usable).
+        """
+        from app.core.permission_resolver import llm_access_control_active, user_can_use_model
+        enforce = llm_access_control_active()
+
+        async def _usable(m) -> bool:
+            if m is None:
+                return False
+            if user is None or not enforce or not getattr(m, "is_restricted", False):
+                return True
+            return await user_can_use_model(db, user.id, organization.id, m)
+
+        def _out(model, source, group=None):
+            return {
+                "model": model,
+                "source": source,
+                "group_id": str(group.id) if group is not None else None,
+                "group_name": group.name if group is not None else None,
+            }
+
+        groups = await self._user_groups_with_llm_defaults(db, organization, user)
+
         if is_small:
-            small_default = await db.execute(
+            for g in groups:
+                m = await self._live_chat_model(db, organization, g.small_default_llm_model_id)
+                if await _usable(m):
+                    return _out(m, "group", g)
+            small_default = (await db.execute(
                 select(LLMModel)
                 .filter(LLMModel.organization_id == organization.id)
                 .filter(getattr(LLMModel, "is_small_default") == True)
                 .filter(LLMModel.is_enabled == True)
-            )
+            )).scalars().first()
             # .first() so a duplicated small-default flag resolves to one model
             # instead of raising MultipleResultsFound on the hot completion path.
-            small_default = small_default.scalars().first()
-            if small_default:
-                return small_default
-        # Regular default
-        default = await db.execute(
+            if await _usable(small_default):
+                return _out(small_default, "org")
+
+        for g in groups:
+            m = await self._live_chat_model(db, organization, g.default_llm_model_id)
+            if await _usable(m):
+                return _out(m, "group", g)
+
+        default_model = (await db.execute(
             select(LLMModel)
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
-        )
-        default_model = default.scalars().first()
-        if default_model:
-            return default_model
-        
-        # Fallback: return first enabled model (for custom providers without is_default set)
-        first_enabled = await db.execute(
+        )).scalars().first()
+        if await _usable(default_model):
+            return _out(default_model, "org")
+
+        # Fallback when nothing above is usable (no default set, or the org
+        # default is restricted and the caller has no group default): the
+        # first enabled chat model the caller may use. Unrestricted models
+        # come first; with no user (system jobs) only unrestricted models
+        # qualify.
+        candidates = await db.execute(
             select(LLMModel)
+            .join(LLMModel.provider)
             .filter(LLMModel.organization_id == organization.id)
             .filter(LLMModel.is_enabled == True)
-            .limit(1)
+            .filter(LLMModel.deleted_at == None)
+            .filter(LLMModel.supports_image_generation == False)
+            .filter(LLMProvider.is_enabled == True)
+            .filter(LLMProvider.deleted_at == None)
+            .order_by(LLMModel.is_restricted.asc(), LLMModel.created_at.asc(), LLMModel.id.asc())
         )
-        return first_enabled.scalar_one_or_none()
+        for model in candidates.unique().scalars().all():
+            if not enforce or not model.is_restricted:
+                return _out(model, "fallback")
+            if user is not None and await user_can_use_model(db, user.id, organization.id, model):
+                return _out(model, "fallback")
+        return _out(None, None)
 
     async def get_user_default_model_id(
         self,
@@ -2462,6 +2891,13 @@ class LLMService:
             getattr(model, "supports_vision_override", None),
             model_data.get("supports_vision", False),
         )
+        # Image generation follows the catalog the same way, admin override first.
+        # Without this a synced image model stayed unflagged: invisible to the
+        # generate_image tool and listed as a chat model.
+        model.supports_image_generation = LLMService._resolve_supports_vision(
+            getattr(model, "supports_image_generation_override", None),
+            model_data.get("supports_image_generation", False),
+        )
         # Same for the context window: an admin-set size survives catalog re-syncs.
         model.context_window_tokens = LLMService._resolve_context_window(
             getattr(model, "context_window_tokens_override", None),
@@ -2580,6 +3016,7 @@ class LLMService:
                     is_default=False,
                     is_small_default=False,
                     supports_vision=model_data.get("supports_vision", False),
+                    supports_image_generation=model_data.get("supports_image_generation", False),
                     context_window_tokens=model_data.get("context_window_tokens"),
                     max_output_tokens=model_data.get("max_output_tokens"),
                     input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),
@@ -2672,12 +3109,32 @@ class LLMService:
         # Seed encrypted credentials + config from the saved provider; any
         # credentials supplied in the payload override these below.
         if stored_provider is not None:
+            # The stored secret is bound to the stored provider type.
+            if provider.provider_type != stored_provider.provider_type:
+                raise HTTPException(status_code=400, detail="provider_type does not match the saved provider")
             provider_obj.api_key = stored_provider.api_key
             provider_obj.api_secret = stored_provider.api_secret
             provider_obj.additional_config = dict(stored_provider.additional_config or {})
 
         # Set credentials and merge provider-specific additional_config
         self._set_provider_credentials(provider_obj, provider.credentials or {})
+
+        # Never send a stored secret somewhere other than where it was saved
+        # for: if the payload moved the destination (endpoint, base URL,
+        # TLS verification), drop the stored secrets so
+        # only credentials typed into this request are used.
+        if stored_provider is not None:
+            stored_config = stored_provider.additional_config or {}
+            new_config = provider_obj.additional_config or {}
+            if any(
+                stored_config.get(k, default) != new_config.get(k, default)
+                for k, default in _DESTINATION_CONFIG_KEYS.items()
+            ):
+                provider_obj.api_key = None
+                provider_obj.api_secret = None
+                # Re-apply the payload: config is unchanged, secrets now come
+                # from the payload alone.
+                self._set_provider_credentials(provider_obj, provider.credentials or {})
 
         # Choose a model to test from user-provided list, preferring default or custom
         selected_model = None
@@ -2740,8 +3197,27 @@ class LLMService:
 
         # Run a lightweight connection test against the LLM client
         logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
-        llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        try:
+            llm = LLM(selected_model, usage_session_maker=async_session_maker)
+        except UnsafeURLError as e:
+            return {"success": False, "message": str(e)}
         result = await llm.test_connection()
+        # A plain text reply is not enough: every agent turn sends function
+        # tools, and some endpoints accept text but reject tools (e.g. GPT-6
+        # on Chat Completions at its default reasoning effort). Check the
+        # agent-shaped request too so the admin finds out here, not mid-chat.
+        if result.get("success"):
+            agent_check = await llm.test_agent_call()
+            result["checks"] = [
+                {"name": "text", "success": True},
+                {"name": "tools", "success": agent_check.get("success", False), "message": agent_check.get("message")},
+            ]
+            if not agent_check.get("success"):
+                result["success"] = False
+                result["message"] = (
+                    f"Connected, but a tool-calling request failed ({agent_check.get('api')}): "
+                    f"{agent_check.get('message')}"
+                )
         if result.get("success"):
             logger.info("LLM connection test passed: provider_type=%s, model_id=%s, org_id=%s", provider.provider_type, selected_model.model_id, organization.id)
         else:

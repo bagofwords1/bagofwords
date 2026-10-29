@@ -22,6 +22,9 @@ from app.models.step import Step
 from app.models.user import User
 from app.models.widget import Widget
 
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
+
 _MARKER = "later-row-must-not-enter-step-context-"
 
 

@@ -22,6 +22,7 @@ class EditArtifactInput(BaseModel):
     """
 
     artifact_id: str = Field(..., description="Id of the page-mode artifact to edit.")
+    expected_latest_version: Optional[int] = Field(default=None, ge=1, description='Optional concurrency guard: reject if the artifact has gained a newer UI version since it was read.')
     purpose: Literal["requested_change", "visual_refinement"] = Field(
         default="requested_change",
         description="Use visual_refinement for an optional screenshot-driven aesthetic edit after success (at most one per user request). Requested edits and functional repairs use requested_change.",

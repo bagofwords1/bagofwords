@@ -66,6 +66,27 @@ DEMO_DATA_SOURCES: Dict[str, DemoDataSourceDefinition] = {
             "For 'top X by Y' queries, use a bar chart to display the results."       
             ],
     ),
+    "checkout_ops": DemoDataSourceDefinition(
+        id="checkout_ops",
+        name="Checkout Ops",
+        connection_name="SQLite Checkout Ops",
+        description="Checkout operations with a planted incident: daily orders, sessions, deploys, payment-provider status, price changes and campaigns over Aug-Sep 2026. Built for root-cause analysis. Powered by SQLite.",
+        type="sqlite",
+        config={
+            "database": "demo-datasources/rca_incident.sqlite",
+        },
+        credentials={},
+        conversation_starters=[
+            "Paid orders dropped about 15% since mid-September. Why? Test the likely causes separately and tell me which one it is, with evidence, and which ones you ruled out.",
+            "How many paid orders did we have in September?",
+            "Show the daily checkout failure rate by platform",
+            "Which deploys shipped in September?",
+        ],
+        instructions=[
+            "Paid orders are rows in orders with status = 'paid'. Checkout failure rate is failed orders divided by all orders.",
+            "Conversion is checkout attempts (all orders rows) divided by sessions.",
+        ],
+    ),
     "stocks": DemoDataSourceDefinition(
         id="stocks",
         name="Financial Market Agent",

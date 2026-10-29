@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, List, Optional, Tuple
 import asyncio
 
@@ -27,6 +28,8 @@ from app.schemas.test_expectations import (
 def _normalize_phase(phase: Optional[str]) -> str:
     if phase == "knowledge_harness":
         return "knowledge"
+    if phase == "subagent":
+        return "subagent"
     if phase is None:
         return "main"
     return phase
@@ -127,6 +130,8 @@ class TestEvaluationService:
                     .where(
                         Completion.report_id == str(report_id),
                         Completion.role == "system",
+                        # Sub-agent children are hidden completions, not turns.
+                        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
                     )
                     .order_by(Completion.turn_index.asc(), Completion.created_at.asc())
                 )
@@ -429,6 +434,25 @@ class TestEvaluationService:
             await _latest_tool_args("create_scheduled_task"),
             ("task_prompt", "cron_schedule"),
         )
+
+        # Agent Lists: every record the agent successfully submitted in this
+        # report (submit_<list> tools run as the submit_list gateway), in order.
+        try:
+            rows = (await db.execute(
+                select(ToolExecution.arguments_json)
+                .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                .where(AgentExecution.report_id == str(report_id))
+                .where(ToolExecution.tool_name == "submit_list")
+                .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
+                .order_by(ToolExecution.started_at.asc(), ToolExecution.created_at.asc())
+            )).scalars().all()
+            records: List[Any] = []
+            for args in rows:
+                if isinstance(args, dict) and isinstance(args.get("records"), list):
+                    records.extend(args["records"])
+            snapshot["submit_list"] = {"records": records, "count": len(records)}
+        except Exception:
+            snapshot["submit_list"] = {"records": [], "count": 0}
 
         return snapshot
 
@@ -838,6 +862,36 @@ class TestEvaluationService:
                         push(ok, None if ok else msg, actual=values)
                         continue
                     push_skipped(f"{cat}.{field} not available")
+                    continue
+
+                # tool:submit_list.* — records saved to Agent Lists. field is
+                # "count" or a dot path into {"records": [...]}, e.g.
+                # "records.0.fields.annual_value.value".
+                if cat == "tool:submit_list":
+                    info = snapshot.get("submit_list") or {}
+                    if not info.get("records"):
+                        push_skipped("submit_list not called")
+                        continue
+                    if field == "count":
+                        value: Any = info.get("count", 0)
+                    else:
+                        value = {"records": info.get("records") or []}
+                        found = True
+                        for part in str(field or "").split("."):
+                            if isinstance(value, list) and part.isdigit() and int(part) < len(value):
+                                value = value[int(part)]
+                            elif isinstance(value, dict) and part in value:
+                                value = value[part]
+                            else:
+                                found = False
+                                break
+                        if not found:
+                            push(False, f"{cat}.{field} not found in submitted records", actual=None)
+                            continue
+                    if getattr(rule.matcher, "type", "") != "number.cmp" and not isinstance(value, str):
+                        value = "" if value is None else (json.dumps(value) if isinstance(value, (dict, list)) else str(value))
+                    ok, msg = self._apply_matcher(value, rule.matcher)
+                    push(ok, None if ok else msg, actual=value)
                     continue
 
                 # tool:create_scheduled_task.* (schedule + prompt argument checks)

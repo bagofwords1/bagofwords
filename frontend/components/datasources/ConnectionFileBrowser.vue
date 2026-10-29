@@ -33,7 +33,7 @@
         </template>
         <template v-else>
         <div class="relative w-44 shrink-0">
-          <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+          <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
           <input v-model="query" type="search" :placeholder="$t('agentsPage.fileBrowserSearch')"
                  class="w-full h-7 ps-7 pe-2 text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500" />
         </div>
@@ -48,7 +48,7 @@
       <!-- Listing a delegated source is a live call to the provider and can
            take a while; say so rather than render an empty browser. -->
       <ConnectionFilePreview v-if="opened" :key="opened.id" :ds-id="dsId" :connection-id="connectionId" :file="opened" @ready="revealPreview" />
-      <div v-else-if="loading && !loaded" class="text-xs text-gray-400 dark:text-gray-500 py-2 flex items-center gap-1.5">
+      <div v-else-if="loading && !loaded" class="text-xs text-ink-muted py-2 flex items-center gap-1.5">
         <UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />{{ $t('agentsPage.loadingFiles') }}
       </div>
       <div v-else-if="error !== null" class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded px-2 py-1.5 flex items-start justify-between gap-2">
@@ -63,7 +63,7 @@
                     @click="goTo(d.segments)">
               <UIcon name="i-heroicons-folder" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
               <span class="flex-1 min-w-0 truncate text-gray-800 dark:text-gray-200">{{ d.name }}</span>
-              <span class="shrink-0 text-gray-400 dark:text-gray-500">{{ $t('agentsPage.countFiles', { n: d.fileCount }, d.fileCount) }}</span>
+              <span class="shrink-0 text-ink-muted">{{ $t('agentsPage.countFiles', { n: d.fileCount }, d.fileCount) }}</span>
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600 rtl:rotate-180" />
             </button>
           </template>
@@ -73,17 +73,17 @@
                class="group flex items-center gap-2 px-2.5 py-1.5 text-xs"
                :class="previewSupported && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 focus:outline-none focus-visible:bg-gray-50 dark:focus-visible:bg-gray-800/60'"
                @click="previewSupported && openPreview(f)" @keydown.enter="previewSupported && openPreview(f)">
-            <UIcon :name="fileIcon(f.mime_type, fileName(f))" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
+            <UIcon :name="fileIcon(f.mime_type, fileName(f))" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
             <div class="flex-1 min-w-0">
               <!-- <bdi>: a file name or "4.1 KB" keeps its own direction on an RTL page. -->
               <div class="truncate text-gray-700 dark:text-gray-300" :title="fullPath(f)"><bdi>{{ fileName(f) }}</bdi></div>
               <!-- Search spans every folder, so say where each hit lives and let it jump there. -->
               <button v-if="searching && parentOf(f).length" type="button"
-                      class="block max-w-full truncate text-[11px] text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"
+                      class="block max-w-full truncate text-2xs text-ink-muted hover:text-blue-600 dark:hover:text-blue-400"
                       @click.stop="goTo(parentOf(f))" @keydown.enter.stop>{{ parentOf(f).join(' / ') }}</button>
             </div>
-            <span class="shrink-0 w-16 text-end tabular-nums text-gray-400 dark:text-gray-500"><bdi>{{ formatBytes(f.size) }}</bdi></span>
-            <span class="shrink-0 w-24 text-end text-gray-400 dark:text-gray-500 hidden sm:inline">{{ formatDate(f.modified_at) }}</span>
+            <span class="shrink-0 w-16 text-end tabular-nums text-ink-muted"><bdi>{{ formatBytes(f.size) }}</bdi></span>
+            <span class="shrink-0 w-24 text-end text-ink-muted hidden sm:inline">{{ formatDate(f.modified_at) }}</span>
             <a v-if="isWebUrl(f.web_url)" :href="f.web_url" target="_blank" rel="noopener noreferrer" :title="$t('agentsPage.fileBrowserOpenInSource')"
                class="shrink-0 text-gray-300 dark:text-gray-600 hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
                @click.stop @keydown.enter.stop>
@@ -91,17 +91,17 @@
             </a>
             <span v-else class="shrink-0 w-3.5" />
           </div>
-          <div v-if="searching && results.length === 0" class="px-2.5 py-3 text-xs text-gray-400 dark:text-gray-500 italic">
+          <div v-if="searching && results.length === 0" class="px-2.5 py-3 text-xs text-ink-muted italic">
             {{ $t('agentsPage.fileBrowserNoResults', { q: query.trim() }) }}
           </div>
-          <div v-else-if="files.length === 0" class="px-2.5 py-3 text-xs text-gray-400 dark:text-gray-500 italic">
+          <div v-else-if="files.length === 0" class="px-2.5 py-3 text-xs text-ink-muted italic">
             {{ $t('agentsPage.fileBrowserEmpty') }}
           </div>
         </div>
-        <div class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
+        <div class="mt-1.5 text-2xs text-ink-muted">
           {{ $t('agentsPage.fileBrowserSummary', { n: total }) }}
         </div>
-        <div v-if="total > files.length" class="mt-1 text-[11px] text-amber-700 dark:text-amber-300">
+        <div v-if="total > files.length" class="mt-1 text-2xs text-amber-700 dark:text-amber-300">
           {{ $t('agentsPage.fileBrowserTruncated', { shown: files.length, total }) }}
         </div>
       </template>

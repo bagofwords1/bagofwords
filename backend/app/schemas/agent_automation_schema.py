@@ -60,6 +60,11 @@ class AgentAutomationPolicy(BaseModel):
     auto_fix_on_failure: bool = False        # train -> re-eval on failure
     on_repeated_failure: str = ON_FAILURE_TRAINING
     max_iterations: int = Field(default=3, ge=1, le=10)
+    # Overnight learning: consolidate this agent's pending AI suggestions,
+    # feedback and usage nightly into one suggestion build. Only meaningful
+    # while the org's `enable_agent_dreaming` is on; what happens to the build
+    # follows ``mode`` like any other suggestion.
+    nightly_learning: bool = True
 
     @field_validator("mode")
     @classmethod

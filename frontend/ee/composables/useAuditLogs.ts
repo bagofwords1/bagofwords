@@ -114,6 +114,15 @@ export const useAuditLogs = () => {
     }
   }
 
+  const fetchResourceTypes = async (): Promise<string[]> => {
+    try {
+      const res = await useMyFetch('/api/enterprise/audit/resource-types')
+      return res.status.value === 'success' ? (res.data.value as string[]) : []
+    } catch {
+      return []
+    }
+  }
+
   return {
     logs,
     loading,
@@ -127,5 +136,6 @@ export const useAuditLogs = () => {
     prevPage,
     goToPage,
     fetchActionTypes,
+    fetchResourceTypes,
   }
 }

@@ -8,7 +8,7 @@ Table names are prefixed ``oauth_mcp_*`` for historical reasons; the underlying
 schema is generic OAuth 2.1 and can back any protected resource.
 """
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -24,6 +24,7 @@ class OAuthClient(BaseSchema):
     name = Column(String(255), nullable=False)
     redirect_uris = Column(Text, nullable=False)  # JSON array of allowed redirect URIs
     scopes = Column(String(255), nullable=False)
+    entra_exchange = Column(JSON, nullable=True)
     trusted = Column(Boolean, nullable=False, default=False, server_default="false")
 
     organization = relationship("Organization")
@@ -56,6 +57,7 @@ class OAuthAccessToken(BaseSchema):
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     scope = Column(String(255), nullable=False)
     expires_at = Column(DateTime, nullable=False)
+    exchange_context = Column(JSON, nullable=True)
     refresh_token_hash = Column(String(64), nullable=True, unique=True, index=True)  # SHA-256
     refresh_expires_at = Column(DateTime, nullable=True)
 

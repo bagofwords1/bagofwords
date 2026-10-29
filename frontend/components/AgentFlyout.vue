@@ -22,7 +22,7 @@
           :style="panelStyle"
         >
           <div v-if="loadingDetails" class="flex items-center justify-center py-8">
-            <Spinner class="w-5 h-5 text-gray-400 dark:text-gray-500 animate-spin" />
+            <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
 
           <div v-else class="px-4 py-3.5">
@@ -42,14 +42,14 @@
               <NuxtLink
                 v-if="agentId"
                 :to="`/agents/${agentId}`"
-                class="text-[11px] font-medium text-gray-400 hover:text-indigo-600 flex-shrink-0 whitespace-nowrap"
+                class="text-2xs font-medium text-ink-muted hover:text-indigo-600 flex-shrink-0 whitespace-nowrap"
               >
                 {{ $t('agentFlyout.openAgent') }}
               </NuxtLink>
             </div>
 
             <!-- Connections | counts -->
-            <div v-if="connectionNames || countsLabel" class="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500 truncate">
+            <div v-if="connectionNames || countsLabel" class="mt-1.5 text-2xs text-ink-muted truncate">
               <span v-if="connectionNames">{{ connectionNames }}</span>
               <span v-if="connectionNames && countsLabel" class="mx-1.5 text-gray-300 dark:text-gray-600">|</span>
               <span v-if="countsLabel">{{ countsLabel }}</span>
@@ -86,19 +86,26 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 const props = defineProps<{
   agentId: string | null
   visible: boolean
-  position: { top?: number; bottom?: number; left: number; maxHeight?: number }
+  position: { top?: number; bottom?: number; left?: number; right?: number; maxHeight?: number; maxWidth?: number }
 }>()
 
 const positionStyle = computed(() => {
-  const style: Record<string, string> = { left: `${props.position.left}px` }
+  const style: Record<string, string> = {}
+  // `right` lets a caller pin the flyout's right edge (e.g. against a dropdown
+  // on its right) without knowing how wide the card will render.
+  if (props.position.right !== undefined) style.right = `${props.position.right}px`
+  else style.left = `${props.position.left ?? 0}px`
   if (props.position.bottom !== undefined) style.bottom = `${props.position.bottom}px`
   else if (props.position.top !== undefined) style.top = `${props.position.top}px`
   return style
 })
 
 const panelStyle = computed(() => {
-  const h = props.position.maxHeight
-  return h ? { maxHeight: `${h}px` } : {}
+  const style: Record<string, string> = {}
+  const { maxHeight, maxWidth } = props.position
+  if (maxHeight) style.maxHeight = `${maxHeight}px`
+  if (maxWidth) style.maxWidth = `${maxWidth}px`
+  return style
 })
 
 const emit = defineEmits<{

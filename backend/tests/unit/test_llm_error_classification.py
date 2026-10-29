@@ -141,12 +141,38 @@ def test_internal_usage_limits_never_classify_as_quota(detail):
     """UsageLimitExceeded says "quota exceeded" too, and must not fall back.
 
     The provider is healthy; the org spent its own budget. Substituting a
-    model would only spend it somewhere else, so these stay 'unknown' —
-    surfaced verbatim, not retried, not eligible for substitution.
+    model would only spend it somewhere else, so these are neither retried
+    nor eligible for substitution.
     """
     code = _code("openai", detail)
-    assert code == "unknown"
+    assert code != "quota"
     assert code not in FALLBACK_ELIGIBLE_CODES
+    assert code not in _RETRYABLE_CODES
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "Monthly LLM token quota exceeded.",
+        "Monthly LLM spend quota exceeded.",
+        "Monthly usage quota exceeded.",
+    ],
+)
+def test_internal_usage_cap_headline_does_not_blame_the_provider(detail):
+    """The headline must name the org's own limit, not the vendor.
+
+    The report UI renders "{summary}: {provider_message}". While these fell
+    through to the terminal 'unknown' branch the summary was
+    "openai call failed", so an admin-set budget read as a vendor outage and
+    sent users to OpenAI support instead of to their own admin.
+    """
+    err = classify(_wrapped("openai", detail), provider="openai", model="m")
+
+    assert err.code == "usage_cap"
+    assert "openai" not in err.summary.lower()
+    assert "call failed" not in err.summary.lower()
+    # The cap's own wording still reaches the user verbatim.
+    assert detail.rstrip(".").lower() in err.provider_message.lower()
 
 
 # ── providers previously invisible to the classifier ───────────────────────
@@ -232,6 +258,71 @@ def test_openai_overflow_string_with_apostrophe_classifies_as_context_length():
             "is 128000 tokens. However, your messages resulted in 130000 tokens.\", "
             "'code': 'context_length_exceeded'}}")
     assert _code("openai", body) == "context_length"
+
+
+# Captured live from gpt-6-luna (2026-10-17) with a ~1.2M-token request. Neither
+# wording carries a "context length" marker; only the structured code does.
+_OPENAI_RESPONSES_OVERFLOW = {
+    "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+    "type": "invalid_request_error", "param": "input", "code": "context_length_exceeded",
+}
+_OPENAI_CHAT_OVERFLOW = {
+    "message": ("Input tokens exceed the configured limit of 922000 tokens. Your messages resulted "
+                "in 1200007 tokens. Please reduce the length of the messages."),
+    "type": "invalid_request_error", "param": "messages", "code": "context_length_exceeded",
+}
+
+
+def _openai_sdk_error(error: dict):
+    """The exception the openai SDK raises for a 400 with this error body."""
+    import httpx
+    import openai
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(400, request=request, json={"error": error})
+    return openai.BadRequestError(
+        f"Error code: 400 - {{'error': {error!r}}}", response=response, body=error,
+    )
+
+
+@pytest.mark.parametrize("error", [_OPENAI_RESPONSES_OVERFLOW, _OPENAI_CHAT_OVERFLOW],
+                         ids=["responses", "chat_completions"])
+def test_openai_current_overflow_is_context_length_not_a_retryable_provider_error(error):
+    for exc in (_openai_sdk_error(error), _wrapped("openai", f"Error code: 400 - {{'error': {error!r}}}")):
+        err = classify(exc, provider="openai", model="gpt-6-luna")
+        assert err.code == "context_length"
+        assert err.provider_message.startswith(error["message"][:40])
+        # Deterministic: same request, same rejection — never retried by the
+        # façade, never handed to another model as a "provider outage".
+        assert err.code not in _RETRYABLE_CODES
+        assert err.code not in FALLBACK_ELIGIBLE_CODES
+
+
+def test_openai_streamed_overflow_is_context_length_through_the_llm_wrapper():
+    """The live shape on the planner path (gpt-6-luna, Responses API stream):
+    the rejection arrives as a stream error event, the SDK raises a bare
+    APIError with no HTTP status, and LLM.inference_stream_v2 re-raises it as
+    RuntimeError("LLM v2 streaming failed …: <message>") from the original —
+    only the cause chain still knows the code."""
+    import httpx
+    import openai
+    error = dict(_OPENAI_RESPONSES_OVERFLOW)
+    stream_err = openai.APIError(error["message"], httpx.Request("POST", "https://api.openai.com/v1/responses"),
+                                 body=error)
+    try:
+        try:
+            raise stream_err
+        except Exception as e:
+            raise RuntimeError(f"LLM v2 streaming failed (provider=openai, model=gpt-6-luna): {e}") from e
+    except RuntimeError as wrapped:
+        err = classify(wrapped, provider="openai", model="gpt-6-luna")
+    assert err.code == "context_length"
+    assert "exceeds the context window" in err.provider_message
+
+
+def test_other_openai_400_codes_stay_what_they_were():
+    error = {"message": "Invalid value for 'temperature'.", "type": "invalid_request_error",
+             "param": "temperature", "code": "invalid_value"}
+    assert classify(_openai_sdk_error(error), provider="openai", model="m").code != "context_length"
 
 
 def test_gemini_overflow_string_classifies_as_context_length():

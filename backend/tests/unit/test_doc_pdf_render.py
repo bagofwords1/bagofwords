@@ -24,9 +24,28 @@ from app.services.report_pdf_service import (
 class TestRenderOrigin:
     """Where the headless browser looks for the app's own pages."""
 
+    @pytest.fixture(autouse=True)
+    def _no_self_served_frontend(self, monkeypatch):
+        monkeypatch.delenv("SERVE_FRONTEND", raising=False)
+
     def test_env_override_wins(self, monkeypatch):
         monkeypatch.setenv("BOW_RENDER_ORIGIN", "http://frontend.internal:3000/")
         assert _render_origin() == "http://frontend.internal:3000"
+
+    def test_env_override_wins_over_the_self_served_frontend(self, monkeypatch):
+        monkeypatch.setenv("SERVE_FRONTEND", "1")
+        monkeypatch.setenv("BOW_RENDER_ORIGIN", "http://frontend.internal:3000")
+        assert _render_origin() == "http://frontend.internal:3000"
+
+    def test_self_served_frontend_is_loaded_over_loopback(self, monkeypatch):
+        """The standard image: base_url is the public https address behind a
+        TLS proxy with an internal CA the bundled Chromium does not trust
+        (net::ERR_CERT_AUTHORITY_INVALID). The SPA is served by this process,
+        so the render must not go out through that proxy at all."""
+        monkeypatch.delenv("BOW_RENDER_ORIGIN", raising=False)
+        monkeypatch.setenv("SERVE_FRONTEND", "1")
+        _set_base_url(monkeypatch, "https://bow.example.internal")
+        assert _render_origin() == "http://127.0.0.1:3000"
 
     def test_listen_address_becomes_a_reachable_one(self, monkeypatch):
         """`0.0.0.0` is an address to listen on, not one to connect to — and it

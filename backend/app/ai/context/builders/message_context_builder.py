@@ -2,6 +2,7 @@
 Message Context Builder - Ports proven logic from agent._build_messages_context()
 """
 import json
+from app.ai.context.artifact_digest import ARTIFACT_DIGEST_TOOLS, digest_artifact
 from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
 
@@ -356,6 +357,62 @@ def _digest_eval_tool(tool_execution) -> str:
             return f"rejected: {output.get('rejected_reason') or output.get('message') or 'unknown'}"
         return f"run_id: {output.get('run_id')}; status={output.get('status')}"
 
+    return ""
+
+
+SUB_AGENT_TOOL_NAMES = ("delegate", "read_sub_agent", "stop_sub_agent", "message_sub_agent")
+
+
+def _not_sub_agent_child(stmt):
+    """Keep sub-agent children out of the parent's history.
+
+    A child runs on hidden completions of the same report
+    (trigger_source='sub_agent', docs/design/sub-agents.md A3); its goal prompt
+    and in-flight tool calls are not the parent's conversation, and a live
+    run showed the parent reading the children's pending calls as its own
+    "outcome_unknown" results. NULL-safe: trigger_source is NULL on
+    ordinary rows."""
+    return stmt.filter(
+        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent")
+    )
+
+
+def _digest_sub_agent_tool(tool_execution) -> str:
+    """One-line handle for a sub-agent tool call. `delegate` reads the record the
+    wave tracker wrote back onto the row when the child finished (result_json
+    = receipt + record); until then it reads as running. The full records
+    live in the fan-in turn's hidden prompt, so this stays a handle."""
+    rj = tool_execution.result_json if isinstance(tool_execution.result_json, dict) else {}
+    name = tool_execution.tool_name
+    if name == "delegate":
+        sid = rj.get("sub_agent_id")
+        if not sid:
+            return f"refused: {rj.get('refused') or 'not started'}"
+        rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
+        status = rj.get("status") or "running"
+        bits = [f"sub_agent {sid}", f"\"{(rj.get('title') or '')[:60]}\""]
+        if rec.get("outcome"):
+            conf = rec.get("confidence")
+            bits.append(f"{rec['outcome']}" + (f" ({conf})" if conf is not None else ""))
+        else:
+            bits.append(status)
+        if rj.get("steps_used") is not None:
+            bits.append(f"{rj['steps_used']} steps")
+        if rec.get("summary"):
+            bits.append(str(rec["summary"])[:160])
+        return " — ".join(bits)
+    if name == "read_sub_agent":
+        bits = [f"sub_agent {rj.get('sub_agent_id')}", f"\"{(rj.get('title') or '')[:60]}\"", str(rj.get("status") or "")]
+        rec = rj.get("record") if isinstance(rj.get("record"), dict) else {}
+        if rec.get("outcome"):
+            bits.append(f"{rec['outcome']} ({rec.get('confidence')})")
+        elif rj.get("steps_used") is not None:
+            bits.append(f"{rj['steps_used']} steps")
+        return " — ".join(b for b in bits if b)
+    if name == "message_sub_agent":
+        return f"message {rj.get('message_id')} to {rj.get('recipient')} — {rj.get('status')} — {str(rj.get('body') or '')[:300]}"
+    if name == "stop_sub_agent":
+        return f"sub_agent {rj.get('sub_agent_id')} → {rj.get('status')}"
     return ""
 
 
@@ -897,6 +954,7 @@ class MessageContextBuilder:
                 .filter(Completion.report_id == self.report.id)
                 .filter(Completion.deleted_at.is_(None))
                 .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+                .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"))
                 .order_by(Completion.created_at.asc())
                 .limit(PROTECT_FIRST_N)
             )).scalars().all()
@@ -1449,7 +1507,7 @@ class MessageContextBuilder:
         # iteration). +1 covers dropping a trailing in-progress user completion.
         # Queued prompts are not part of the conversation yet — they run later.
         summary_text, watermark_created_at = await self._compaction_state()
-        completions_query = (
+        completions_query = _not_sub_agent_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
@@ -1651,56 +1709,10 @@ class MessageContextBuilder:
                                             pass
                                     if names:
                                         tool_info += f" - tables: {', '.join(names)}"
-                                elif tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    digest_parts = []
-                                    if rj.get('title'):
-                                        digest_parts.append(f"artifact: {rj.get('title')}")
-                                    if rj.get('mode'):
-                                        digest_parts.append(f"mode: {rj.get('mode')}")
-                                    if rj.get('artifact_id'):
-                                        digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                    # Surface visualization_ids used to build the artifact
-                                    viz_ids = rj.get('visualization_ids') or []
-                                    if viz_ids:
-                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'edit_artifact' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    digest_parts = []
-                                    if rj.get('title'):
-                                        digest_parts.append(f"artifact: {rj.get('title')}")
-                                    if rj.get('mode'):
-                                        digest_parts.append(f"mode: {rj.get('mode')}")
-                                    if rj.get('artifact_id'):
-                                        digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                    # Surface visualization_ids (top-level or nested in artifact_preview)
-                                    viz_ids = rj.get('visualization_ids') or (rj.get('artifact_preview') or {}).get('visualization_ids') or []
-                                    if viz_ids:
-                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                    if rj.get('version'):
-                                        digest_parts.append(f"v{rj.get('version')}")
-                                    if rj.get('diff_applied') is not None:
-                                        digest_parts.append("diff" if rj.get('diff_applied') else "rewrite")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'read_artifact' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    digest_parts = []
-                                    if rj.get('title'):
-                                        digest_parts.append(f"artifact: {rj.get('title')}")
-                                    if rj.get('mode'):
-                                        digest_parts.append(f"mode: {rj.get('mode')}")
-                                    if rj.get('artifact_id'):
-                                        digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                    viz_ids = rj.get('visualization_ids') or []
-                                    if viz_ids:
-                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                    if rj.get('version'):
-                                        digest_parts.append(f"v{rj.get('version')}")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name in ARTIFACT_DIGEST_TOOLS:
+                                    digest = digest_artifact(tool_execution)
+                                    if digest:
+                                        tool_info += ' - ' + digest
                                 elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     digest_parts = []
@@ -1715,7 +1727,7 @@ class MessageContextBuilder:
                                         digest_parts.append(f"{dur}ms")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                                elif tool_execution.tool_name in ('search_mcps', 'search_tools') and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     obs = rj.get('observation') or rj
                                     digest_parts = []
@@ -1745,6 +1757,10 @@ class MessageContextBuilder:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in EVAL_TOOL_NAMES and tool_execution.result_json:
                                     digest = _digest_eval_tool(tool_execution)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                elif tool_execution.tool_name in SUB_AGENT_TOOL_NAMES and tool_execution.result_json:
+                                    digest = _digest_sub_agent_tool(tool_execution)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('write_officejs_code', 'write_to_excel', 'read_excel_range', 'read_excel_as_csv') and tool_execution.result_json:
@@ -1956,19 +1972,19 @@ class MessageContextBuilder:
 
         summary_text = None
         if completion_ids is not None:
-            report_completions = (await self.db.execute(
+            report_completions = (await self.db.execute(_not_sub_agent_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.id.in_([str(cid) for cid in completion_ids]))
                 .order_by(Completion.created_at.asc())
-            )).scalars().all()
+            ))).scalars().all()
             report_completions = list(report_completions)
         else:
             # Most-recent window only (was fetch-all + slice in Python),
             # scoped past the compaction watermark when one exists.
             # Queued prompts are not part of the conversation yet — they run later.
             summary_text, watermark_created_at = await self._compaction_state()
-            completions_query = (
+            completions_query = _not_sub_agent_child(
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
@@ -2428,56 +2444,10 @@ class MessageContextBuilder:
                                         pass
                                 if names:
                                     tool_info += f" - tables: {', '.join(names)}"
-                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                digest_parts = []
-                                if rj.get('title'):
-                                    digest_parts.append(f"artifact: {rj.get('title')}")
-                                if rj.get('mode'):
-                                    digest_parts.append(f"mode: {rj.get('mode')}")
-                                if rj.get('artifact_id'):
-                                    digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                # Surface visualization_ids used to build the artifact
-                                viz_ids = rj.get('visualization_ids') or []
-                                if viz_ids:
-                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'edit_artifact' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                digest_parts = []
-                                if rj.get('title'):
-                                    digest_parts.append(f"artifact: {rj.get('title')}")
-                                if rj.get('mode'):
-                                    digest_parts.append(f"mode: {rj.get('mode')}")
-                                if rj.get('artifact_id'):
-                                    digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                # Surface visualization_ids (top-level or nested in artifact_preview)
-                                viz_ids = rj.get('visualization_ids') or (rj.get('artifact_preview') or {}).get('visualization_ids') or []
-                                if viz_ids:
-                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                if rj.get('version'):
-                                    digest_parts.append(f"v{rj.get('version')}")
-                                if rj.get('diff_applied') is not None:
-                                    digest_parts.append("diff" if rj.get('diff_applied') else "rewrite")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'read_artifact' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                digest_parts = []
-                                if rj.get('title'):
-                                    digest_parts.append(f"artifact: {rj.get('title')}")
-                                if rj.get('mode'):
-                                    digest_parts.append(f"mode: {rj.get('mode')}")
-                                if rj.get('artifact_id'):
-                                    digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
-                                viz_ids = rj.get('visualization_ids') or []
-                                if viz_ids:
-                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
-                                if rj.get('version'):
-                                    digest_parts.append(f"v{rj.get('version')}")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.tool_name in ARTIFACT_DIGEST_TOOLS:
+                                digest = digest_artifact(tool_execution)
+                                if digest:
+                                    tool_info += ' - ' + digest
                             elif tool_execution.tool_name == 'inspect_data' and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 digest_parts = []
@@ -2492,7 +2462,7 @@ class MessageContextBuilder:
                                     digest_parts.append(f"{dur}ms")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.tool_name == 'search_mcps' and tool_execution.result_json:
+                            elif tool_execution.tool_name in ('search_mcps', 'search_tools') and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 obs = rj.get('observation') or rj
                                 digest_parts = []
@@ -2691,13 +2661,13 @@ class MessageContextBuilder:
             return "\n".join(parts)
         
         # Get recent messages
-        report_completions = await self.db.execute(
+        report_completions = await self.db.execute(_not_sub_agent_child(
             select(Completion)
             .options(lazyload("*"))
             .filter(Completion.report_id == self.report.id)
             .order_by(Completion.created_at.desc())
             .limit(max_messages)
-        )
+        ))
         recent_messages = report_completions.scalars().all()
         
         if recent_messages:

@@ -20,15 +20,15 @@ from sqlalchemy.orm import selectinload
 from app.dependencies import get_async_db
 from app.models.user import User
 from app.models.connection import Connection
-from app.models.user_connection_credentials import UserConnectionCredentials
 from app.core.auth import current_user, SECRET
+from app.core.url_safety import is_safe_http_url
 from app.settings.config import settings
 from app.settings.logging_config import get_logger
+from app.errors.redact import redact_error
 from app.services.connection_oauth_service import (
     generate_pkce_pair,
     get_oauth_params,
     exchange_code_for_tokens,
-    parse_expires_at,
 )
 
 logger = get_logger(__name__)
@@ -85,7 +85,7 @@ def _decode_state(state: str) -> dict:
     except pyjwt.ExpiredSignatureError:
         raise HTTPException(status_code=400, detail="OAuth state expired")
     except pyjwt.InvalidTokenError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {e}")
+        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {redact_error(e)}")
     return payload
 
 
@@ -128,10 +128,14 @@ async def _ensure_connection_access(
     db: AsyncSession, user: User, connection: Connection
 ) -> None:
     """Raise 403 if the user doesn't have access to this connection."""
-    from app.routes.connection import _user_can_access_connection, _is_org_admin
+    from app.routes.connection import _user_can_access_connection, _is_org_admin, _can_manage_connection
     org = connection.organization
     is_admin = await _is_org_admin(db, user, org) if org else False
     if is_admin:
+        return
+    # Connection managers (incl. its owner) may sign in to it before any
+    # agent is built on it.
+    if org and await _can_manage_connection(db, org, user, connection):
         return
     if await _user_can_access_connection(db, user, connection):
         return
@@ -195,13 +199,13 @@ async def oauth_authorize(
             from app.services.mcp_dcr_service import ensure_mcp_oauth_config
             await ensure_mcp_oauth_config(db, connection)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"MCP OAuth discovery/registration failed: {e}")
+            raise HTTPException(status_code=400, detail=f"MCP OAuth discovery/registration failed: {redact_error(e)}")
 
     # Get OAuth params for this connection type
     try:
         oauth_params = get_oauth_params(connection)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=redact_error(e))
 
     # PKCE verifier stays in a cookie (it's per-session, not security-sensitive to tamper).
     code_verifier, code_challenge = generate_pkce_pair()
@@ -249,7 +253,16 @@ async def oauth_authorize(
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):
         params["resource"] = oauth_params["audience"]
-    authorization_url = f"{oauth_params['authorize_url']}?{urlencode(params)}"
+    # The frontend navigates the browser here: only an absolute http(s) URL may
+    # leave this endpoint, whatever is stored in (or discovered for) the
+    # connection — a javascript: value would otherwise run in our origin.
+    authorize_base = (oauth_params.get("authorize_url") or "").strip()
+    if not is_safe_http_url(authorize_base):
+        raise HTTPException(
+            status_code=400,
+            detail="Connection OAuth authorization URL must be an absolute http(s) URL",
+        )
+    authorization_url = f"{authorize_base}?{urlencode(params)}"
 
     response = JSONResponse({"authorization_url": authorization_url})
     _set_verifier_cookie(response, code_verifier)
@@ -340,58 +353,9 @@ async def oauth_callback(
         # method / secret is diagnosable from the UI toast, not just the logs.
         return _error_redirect(frontend_url, f"Token exchange failed: {e}")
 
-    # Upsert UserConnectionCredentials, then verify the token actually works.
-    # A failed test must NOT strand a non-working credential, so capture the prior
-    # state and restore (existing row) or delete (new row) if verification fails.
-    stmt = select(UserConnectionCredentials).where(
-        UserConnectionCredentials.connection_id == connection_id,
-        UserConnectionCredentials.user_id == str(user.id),
-        UserConnectionCredentials.is_active == True,
-    )
-    existing = (await db.execute(stmt)).scalars().first()
-
-    prior_blob = existing.encrypted_credentials if existing else None
-    prior_expires = existing.expires_at if existing else None
-    prior_mode = existing.auth_mode if existing else None
-
-    # Preserve a previously-stored refresh token when this authorization didn't
-    # return one. Google (and some other providers) only mint a refresh token on
-    # first consent; a re-auth that omits it must not wipe the working token we
-    # already hold, or the credential would 401 as soon as the access token
-    # expires with nothing left to refresh. `prompt=consent` above makes Google
-    # send one every time, but this is a defense-in-depth backstop for any
-    # provider/flow that still returns a bare access token.
-    if not tokens.get("refresh_token") and prior_mode == "oauth" and existing is not None:
-        try:
-            prior_creds = existing.decrypt_credentials() or {}
-        except Exception:
-            prior_creds = {}
-        prior_refresh = prior_creds.get("refresh_token")
-        if prior_refresh:
-            tokens["refresh_token"] = prior_refresh
-
-    if existing:
-        row = existing
-        row.auth_mode = "oauth"
-        row.encrypt_credentials(tokens)
-        row.expires_at = parse_expires_at(tokens.get("expires_at"))
-        db.add(row)
-        is_new = False
-    else:
-        row = UserConnectionCredentials(
-            connection_id=connection_id,
-            user_id=str(user.id),
-            organization_id=str(connection.organization_id),
-            auth_mode="oauth",
-            is_active=True,
-            is_primary=True,
-            expires_at=parse_expires_at(tokens.get("expires_at")),
-        )
-        row.encrypt_credentials(tokens)
-        db.add(row)
-        is_new = True
-
-    await db.commit()
+    from app.services.credential_coordination import save_oauth_credentials, restore_failed_oauth_credentials
+    row, prior_credentials, saved_blob = await save_oauth_credentials(db, connection, user, tokens)
+    saved_row_id = str(row.id)
 
     # Verify with the freshly-saved credentials (test_user_connection uses
     # construct_client, which builds the right client for every OBO type).
@@ -414,14 +378,9 @@ async def oauth_callback(
         # Roll back so a failed sign-in doesn't leave a broken credential that
         # would then shadow the owner/system fallback and break every query.
         try:
-            if is_new:
-                await db.delete(row)
-            else:
-                row.encrypted_credentials = prior_blob
-                row.expires_at = prior_expires
-                row.auth_mode = prior_mode
-                db.add(row)
-            await db.commit()
+            await restore_failed_oauth_credentials(
+                db, str(user.id), saved_row_id, saved_blob, prior_credentials,
+            )
         except Exception:
             await db.rollback()
         logger.warning(f"OAuth connection test failed for user {user.id}: {test_msg}")

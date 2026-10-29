@@ -89,6 +89,11 @@ class PrebuiltSkill:
     #: An admin can still disable it; the install is a starting point, not a
     #: lock. See ``SkillCatalogService.ensure_defaults_for_org``.
     default_enabled: bool = False
+    #: Boolean org setting (OrganizationSettingsConfig key) that must be on for
+    #: the skill to be advertised. Lets a capability ship its skill installed
+    #: by default yet only surface it once an admin turns the feature on —
+    #: e.g. demo-data follows ``enable_demo_data_generation``.
+    requires_setting: Optional[str] = None
 
     def to_dict(self) -> Dict:
         return {
@@ -103,6 +108,7 @@ class PrebuiltSkill:
             "channels": list(self.channels),
             "order": self.order,
             "default_enabled": self.default_enabled,
+            "requires_setting": self.requires_setting,
         }
 
 
@@ -204,6 +210,16 @@ def _parse_skill_file(path: Path) -> Optional[PrebuiltSkill]:
         )
         return None
 
+    requires_setting = meta.get("requires_setting")
+    if requires_setting is not None and (
+        not isinstance(requires_setting, str) or not requires_setting.strip()
+    ):
+        logger.error(
+            "skill catalog: %s declares requires_setting %r — it must be a setting key",
+            path.name, requires_setting,
+        )
+        return None
+
     return PrebuiltSkill(
         key=key,
         title=str(meta["title"]).strip(),
@@ -216,6 +232,7 @@ def _parse_skill_file(path: Path) -> Optional[PrebuiltSkill]:
         channels=_str_tuple("channels"),
         order=order,
         default_enabled=default_enabled,
+        requires_setting=requires_setting.strip() if requires_setting else None,
     )
 
 

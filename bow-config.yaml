@@ -31,6 +31,22 @@ google_oauth:
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
 
+# SAML 2.0 SSO (any IdP with Redirect requests and POST responses).
+# Requires HTTPS base_url. See docs/guides/saml-sso.md and
+# configs/bow-config.saml-demo.yaml for a runnable localhost example.
+# saml_providers:
+#   - name: company-sso
+#     enabled: true
+#     label: Company SSO
+#     organization_id: ${BOW_SAML_ORGANIZATION_ID}
+#     idp:
+#       metadata_file: /etc/bow/company-idp.xml
+#     attributes:
+#       subject: name_id
+#       email: mail
+#       name: displayName
+#     auto_provision_users: false
+
 # LDAP / Active Directory
 # ldap:
 #   enabled: false
@@ -85,3 +101,12 @@ otel:
 
 # license:
 #    key: ${BOW_LICENSE_KEY}
+
+# security:
+#   # Python 3.13 rejects TLS chains whose CA-issued certs lack an Authority Key
+#   # Identifier ("Missing Authority Key Identifier"). A TLS-inspecting proxy
+#   # with a hand-made CA triggers this on every outbound HTTPS call (OIDC
+#   # discovery, Graph, LLM providers). Set false (or BOW_TLS_STRICT_X509=false)
+#   # to use the pre-3.13 checks while the proxy CA is fixed; chains are still
+#   # verified against the trust store and hostnames are still checked.
+#   tls_strict_x509: true

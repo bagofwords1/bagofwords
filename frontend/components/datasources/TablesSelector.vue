@@ -5,6 +5,13 @@
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
+    <div v-if="schemaConnections.length" class="hidden" aria-hidden="true">
+      <SchemaIdentityStatus v-for="connection in schemaConnections" :key="connection.id" headless
+        :ref="el => setSchemaStatusRef(connection.id, el)" :connection="connection"
+        :disabled="loading || refreshing || hasPendingChanges" @refreshed="reloadKnownCatalog"
+        @busy-change="onSchemaBusyChange(connection.id, $event)"
+        @finished="onSchemaRefreshFinished" />
+    </div>
     <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
         <slot name="reload-left" />
@@ -12,29 +19,57 @@
           <button v-for="view in ['table', 'erd'] as const" :key="view" type="button"
             :aria-pressed="tableView === view" @click="setTableView(view)"
             class="py-1.5 text-xs border-b-2 transition-colors"
-            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'">
+            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-ink-muted hover:text-gray-700 dark:hover:text-gray-200'">
             {{ t(`tableErd.${view}`) }}
           </button>
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
+        <span v-if="hasPendingChanges" class="text-2xs text-ink-muted">{{ t('tableErd.unsaved') }}</span>
         <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
-          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+          class="inline-flex items-center gap-1 text-2xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
           <UIcon name="i-heroicons-plus" class="w-3 h-3" />{{ t('tableErd.customQuery') }}
         </button>
         <NuxtLink v-else-if="!customQueriesEnabled && canAuthorCustomQueries" data-testid="custom-queries-disabled-hint"
           to="/settings/ai_settings" :title="t('tableErd.enableCustomQueries')"
-          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
+          class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
-          :aria-label="t('tableErd.reload')"
-          class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
-          <Spinner v-if="loading || refreshing" class="w-3 h-3" />
-          <UIcon v-else name="i-heroicons-arrow-path" class="w-3 h-3" />
-          <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
-        </button>
+        <div v-if="showRefresh" class="relative inline-flex rounded-md border border-gray-200 text-2xs text-gray-600 dark:border-gray-700 dark:text-gray-300">
+          <button type="button" :disabled="loading || refreshing || hasPendingChanges" @click="onRefresh"
+            class="inline-flex items-center gap-1.5 rounded-s-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-50 dark:hover:bg-gray-800">
+            <Spinner v-if="refreshing" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-arrow-path" class="h-3 w-3" />
+            {{ t('tableErd.reload') }}
+          </button>
+          <button v-if="refreshActions.length" ref="refreshButtonRef" type="button"
+            :disabled="loading || refreshing || hasPendingChanges"
+            aria-haspopup="menu" :aria-expanded="refreshMenuOpen"
+            :aria-label="t('schemaIdentity.refresh')" @click="toggleRefreshMenu"
+            class="inline-flex items-center rounded-e-md border-s border-gray-200 px-2 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:hover:bg-gray-800">
+            <Spinner v-if="anySchemaRefreshBusy" data-testid="schema-refresh-spinner" class="h-3 w-3" />
+            <UIcon v-else name="i-heroicons-chevron-down" class="h-3 w-3" />
+          </button>
+          <div v-if="refreshMenuOpen && refreshActions.length" ref="refreshMenuRef" role="menu"
+            class="absolute end-0 top-full z-30 mt-1 w-64 max-h-72 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-700 dark:bg-gray-900">
+            <div class="px-3 py-1.5 text-2xs font-medium text-ink-muted">{{ t('schemaIdentity.refresh') }}</div>
+            <button v-for="(action, index) in refreshActions" :key="`${action.connection.id}:${action.scope}`" type="button" role="menuitem"
+              :aria-label="t(action.scope === 'user' ? 'schemaIdentity.refreshMyFor' : 'schemaIdentity.refreshSharedFor', { name: action.connection.name })"
+              :disabled="busyConnectionIds.has(action.connection.id)"
+              class="flex w-full items-center gap-2.5 px-3 py-2 text-start text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-200 dark:hover:bg-gray-800"
+              :class="index > 0 && refreshActions[index - 1].connection.id !== action.connection.id ? 'border-t border-gray-100 dark:border-gray-800' : ''"
+              @click="runSchemaRefresh(action)">
+              <DataSourceIcon :type="action.connection.type" class="h-4 w-4 shrink-0" />
+              <span class="min-w-0 flex-1">
+                <span class="block truncate font-medium">{{ action.connection.name }}</span>
+                <span class="block text-2xs" :class="action.scope === 'user' ? 'text-blue-600 dark:text-blue-400' : 'text-violet-600 dark:text-violet-400'">
+                  {{ t(action.scope === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema') }}
+                </span>
+              </span>
+              <Spinner v-if="busyConnectionIds.has(action.connection.id)" class="h-3 w-3 shrink-0 text-blue-500" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -97,7 +132,7 @@
                is served the selected tables and nothing else, so filtering by
                selection would offer one no-op and one guaranteed-empty view. -->
           <div v-if="canUpdate" class="py-1 border-b border-gray-100 dark:border-gray-800">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider">Status</div>
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider">Status</div>
             <button
               type="button"
               class="w-full text-start px-2 py-1 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 flex items-center justify-between"
@@ -118,21 +153,21 @@
           
           <!-- Schema filter section -->
           <div class="py-1">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider flex items-center justify-between">
               <span>Schema</span>
               <button
                 v-if="selectedSchemas.length > 0"
                 type="button"
                 @click.stop="clearSchemaFilter"
-                class="text-[9px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+                class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
             </div>
-            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-gray-400 dark:text-gray-500">No schemas</div>
+            <div v-if="availableSchemas.length === 0" class="px-2 py-1 text-xs text-ink-muted">No schemas</div>
             <div v-else class="max-h-40 overflow-y-auto">
               <template v-for="(group, connName) in groupedSchemas" :key="connName">
-                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-[9px] font-medium text-gray-400 dark:text-gray-500 truncate">{{ connName }}</div>
+                <div v-if="connName !== '_default'" class="px-2 pt-1.5 pb-0.5 text-2xs font-medium text-ink-muted truncate">{{ connName }}</div>
                 <label
                   v-for="item in group"
                   :key="item.value"
@@ -153,13 +188,13 @@
 
           <!-- Connection filter section -->
           <div v-if="availableConnections.length >= 1" class="py-1 border-t border-gray-100 dark:border-gray-800">
-            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider flex items-center justify-between">
+            <div class="px-2 py-1 text-2xs font-medium text-ink-muted uppercase tracking-wider flex items-center justify-between">
               <span>Connection</span>
               <button
                 v-if="selectedConnections.length > 0"
                 type="button"
                 @click.stop="clearConnectionFilter"
-                class="text-[9px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
+                class="text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-400"
               >
                 Clear
               </button>
@@ -177,7 +212,7 @@
                   class="me-1.5 h-3 w-3 rounded border-gray-300 dark:border-gray-700 text-blue-600 focus:ring-blue-500"
                 />
                 <span class="truncate">{{ conn.name }}</span>
-                <span class="ms-1 text-[9px] text-gray-400 dark:text-gray-500">({{ conn.type }})</span>
+                <span class="ms-1 text-2xs text-ink-muted">({{ conn.type }})</span>
               </label>
             </div>
           </div>
@@ -187,7 +222,7 @@
             <button
               type="button"
               @click="clearAllFilters"
-              class="w-full text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
+              class="w-full text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
             >
               Clear all filters
             </button>
@@ -232,7 +267,7 @@
       </div>
       
       <!-- Stats row -->
-      <div class="mt-1 text-[10px] text-gray-500 dark:text-gray-400 flex items-center justify-between">
+      <div class="mt-1 text-2xs text-gray-500 dark:text-gray-400 flex items-center justify-between">
         <span v-if="isPaginated && hasActiveFilters">
           {{ totalMatching }} matching · Showing {{ paginationStart }}-{{ paginationEnd }}
         </span>
@@ -246,7 +281,7 @@
           <button
             @click="selectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            class="px-2 py-0.5 text-2xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Select all ({{ totalMatching }})</span>
@@ -255,7 +290,7 @@
           <button
             @click="deselectAllMatching"
             :disabled="loading || refreshing || bulkUpdating"
-            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
+            class="px-2 py-0.5 text-2xs rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
           >
             <span v-if="bulkUpdating">...</span>
             <span v-else-if="hasActiveFilters">Deselect all ({{ totalMatching }})</span>
@@ -266,7 +301,7 @@
       
       <!-- Active count row. A reader only ever sees active tables, so the
            ratio is always N/N — it reads as a stat but carries no information. -->
-      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-[10px] text-gray-500 dark:text-gray-400">
+      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-2xs text-gray-500 dark:text-gray-400">
         {{ draftSelectedCount }}/{{ totalTables }} active
       </div>
     </div>
@@ -274,7 +309,7 @@
     <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''" :aria-busy="!diagramReady && !catalogError">
       <div v-if="!catalogLoaded && !catalogError" :class="fill ? 'flex-1 min-h-[240px]' : 'h-[460px]'" />
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
-        <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
+        <Spinner class="w-6 h-6 text-ink-muted" aria-hidden="true" />
       </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
@@ -296,12 +331,12 @@
       <div v-if="tables.length === 0 && connectRequiredConn" class="py-8 flex flex-col items-center gap-1.5 text-center">
         <UIcon name="i-heroicons-key" class="w-5 h-5 text-blue-500" />
         <p class="text-sm text-gray-700 dark:text-gray-200">This connection runs with your own {{ connectRequiredConn.name }} credentials.</p>
-        <p class="text-xs text-gray-400 dark:text-gray-500">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
+        <p class="text-xs text-ink-muted">Connect your account to see the {{ props.itemNoun.plural }} you can access.</p>
         <button
           type="button"
           @click="onConnectAccount"
           :disabled="signingIn"
-          class="mt-2 inline-flex items-center gap-1.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+          class="mt-2 inline-flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
         >
           <Spinner v-if="signingIn" class="w-3.5 h-3.5" />
           Connect your account
@@ -314,7 +349,7 @@
       <div v-else-if="tables.length === 0 && catalogSyncing" class="py-8 flex flex-col items-center gap-1.5 text-center">
         <Spinner class="w-4 h-4" />
         <p class="text-sm text-gray-700 dark:text-gray-200">Building your {{ props.itemNoun.plural }} list…</p>
-        <p class="text-xs text-gray-400 dark:text-gray-500">
+        <p class="text-xs text-ink-muted">
           {{ catalogSyncPhase || 'This runs in the background — it can take a moment on large drives.' }}
         </p>
       </div>
@@ -355,14 +390,23 @@
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 dark:text-gray-400 rtl-flip" />
                     <template v-if="availableConnections.length > 1">
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
-                      <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
+                      <span class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
-                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-gray-400" :title="t('tableErd.customQuery')" />
+                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-ink-muted" :title="t('tableErd.customQuery')" />
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
-                    <span v-if="table.rls_enabled" class="ms-2 text-[10px] text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
-                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
-                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
+                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
+                    <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <UTooltip v-if="hiddenColumnCount(table)" :text="t('tableErd.columnsHiddenTooltip')">
+                      <span
+                        :data-testid="`cols-hidden-badge-${table.name}`"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+                      >
+                        <UIcon name="heroicons-eye-slash" class="w-3 h-3" />
+                        {{ t('tableErd.columnsInContext', { visible: (table.columns?.length || 0) - hiddenColumnCount(table), total: table.columns?.length || 0 }) }}
+                      </span>
+                    </UTooltip>
                     <!-- Relationships are listed in the expanded panel, which
                          means finding the connected tables costs one click per
                          row. The badge puts that on the collapsed row so a
@@ -370,14 +414,14 @@
                     <UTooltip v-if="relatedTableCount(table)" :text="relationshipSummary(table)">
                       <span
                         :data-testid="`rel-badge-${table.name}`"
-                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
                       >
                         <UIcon name="heroicons-link" class="w-3 h-3" />
                         {{ relatedTableCount(table) }}
                       </span>
                     </UTooltip>
                   </div>
-                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
+                  <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-2xs text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
                     <UTooltip text="Successful executed queries">
                       <span class="inline-flex items-center gap-1">
@@ -406,22 +450,44 @@
                   </span>
                 </button>
                 <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
-                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200">
                   <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
-                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded">
-                  <div class="grid grid-cols-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">
+                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`columns-panel-${table.name}`">
+                  <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                    <span class="flex items-center gap-1">
+                      <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
+                      {{ t('tableErd.columnsContextHint') }}
+                    </span>
+                    <span class="flex items-center gap-2 shrink-0">
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || !hiddenColumnCount(table)"
+                        :data-testid="`cols-show-all-${table.name}`" @click="setAllColumnsVisible(table, true)">{{ t('tableErd.showAllColumns') }}</button>
+                      <span class="text-gray-300 dark:text-gray-600">·</span>
+                      <button type="button" class="hover:text-gray-800 dark:hover:text-gray-200 disabled:opacity-50" :disabled="saving || hiddenColumnCount(table) === (table.columns?.length || 0)"
+                        :data-testid="`cols-hide-all-${table.name}`" @click="setAllColumnsVisible(table, false)">{{ t('tableErd.hideAllColumns') }}</button>
+                    </span>
+                  </div>
+                  <div class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1" :class="canUpdate ? 'grid-cols-[1.5rem_1fr_1fr]' : 'grid-cols-2'">
+                    <div v-if="canUpdate"></div>
                     <div>Name</div>
                     <div>Type</div>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <div v-for="col in table.columns" :key="col.name" class="grid grid-cols-2 text-xs px-2 py-1">
-                      <div class="text-gray-700 dark:text-gray-300">{{ col.name }}</div>
-                      <div class="text-gray-500 dark:text-gray-400">{{ col.dtype || col.type }}</div>
-                    </div>
+                    <label v-for="col in table.columns" :key="col.name" class="grid items-center text-xs px-2 py-1"
+                      :class="[canUpdate ? 'grid-cols-[1.5rem_1fr_1fr] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900' : 'grid-cols-2']"
+                      :data-testid="`col-row-${table.name}-${col.name}`">
+                      <UCheckbox v-if="canUpdate" color="blue" :model-value="isColumnVisible(table, col.name)" :disabled="saving"
+                        :aria-label="t('tableErd.includeColumn', { name: col.name })"
+                        @update:model-value="(val: boolean) => onColumnToggle(table, col.name, val)" />
+                      <div class="flex items-center gap-1.5 min-w-0">
+                        <span class="truncate" :class="isColumnVisible(table, col.name) ? 'text-gray-700 dark:text-gray-300' : 'text-ink-muted line-through'">{{ col.name }}</span>
+                        <span v-if="!isColumnVisible(table, col.name)" class="shrink-0 text-2xs px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ t('tableErd.columnHidden') }}</span>
+                      </div>
+                      <div :class="isColumnVisible(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-ink-muted'">{{ col.dtype || col.type }}</div>
+                    </label>
                   </div>
                 </div>
 
@@ -431,9 +497,9 @@
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
                     <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600 dark:text-gray-400">
                       <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
-                      <span class="text-gray-400 dark:text-gray-500 mx-1">→</span>
+                      <span class="text-ink-muted mx-1">→</span>
                       <span class="text-blue-600">{{ fk.references_name }}</span>
-                      <span class="text-gray-400 dark:text-gray-500">.</span>
+                      <span class="text-ink-muted">.</span>
                       <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>
                     </div>
                   </div>
@@ -442,13 +508,13 @@
                 <!-- Power BI Metadata -->
                 <div v-if="table.metadata_json?.powerbi" class="mt-2 text-xs text-gray-500 dark:text-gray-400 space-y-0.5">
                   <div v-if="table.metadata_json.powerbi.datasetName">
-                    <span class="text-gray-400 dark:text-gray-500">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
+                    <span class="text-ink-muted">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.workspaceName">
-                    <span class="text-gray-400 dark:text-gray-500">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
+                    <span class="text-ink-muted">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
                   </div>
                   <div v-if="table.metadata_json.powerbi.reports?.length">
-                    <span class="text-gray-400 dark:text-gray-500">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
+                    <span class="text-ink-muted">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
                   </div>
                 </div>
 
@@ -458,19 +524,19 @@
                     <div class="text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">Report details</div>
                     <div class="text-xs text-gray-600 dark:text-gray-400 px-2 py-1 space-y-0.5">
                       <div v-if="table.metadata_json.powerbi_report_server.report_type">
-                        <span class="text-gray-400 dark:text-gray-500">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
+                        <span class="text-ink-muted">Type:</span> {{ table.metadata_json.powerbi_report_server.report_type }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.path">
-                        <span class="text-gray-400 dark:text-gray-500">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
+                        <span class="text-ink-muted">Path:</span> {{ table.metadata_json.powerbi_report_server.path }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_by">
-                        <span class="text-gray-400 dark:text-gray-500">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
+                        <span class="text-ink-muted">Modified by:</span> {{ table.metadata_json.powerbi_report_server.modified_by }}
                       </div>
                       <div v-if="table.metadata_json.powerbi_report_server.modified_date">
-                        <span class="text-gray-400 dark:text-gray-500">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
+                        <span class="text-ink-muted">Modified:</span> {{ table.metadata_json.powerbi_report_server.modified_date }}
                       </div>
                       <div>
-                        <span class="text-gray-400 dark:text-gray-500">Queryable:</span>
+                        <span class="text-ink-muted">Queryable:</span>
                         <span :class="table.metadata_json.powerbi_report_server.queryable ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'">
                           {{ table.metadata_json.powerbi_report_server.queryable ? 'yes' : 'no (metadata only)' }}
                         </span>
@@ -505,7 +571,7 @@
                   </div>
 
                   <div v-if="table.metadata_json.powerbi_report_server.parameters?.length" class="text-xs text-gray-600 dark:text-gray-400">
-                    <span class="text-gray-400 dark:text-gray-500">Parameters:</span>
+                    <span class="text-ink-muted">Parameters:</span>
                     <span
                       v-for="(p, idx) in table.metadata_json.powerbi_report_server.parameters"
                       :key="idx"
@@ -571,7 +637,7 @@
       <button 
         @click="onSave" 
         :disabled="saving || bulkUpdating || catalogLoading"
-        class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+        class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>
@@ -584,6 +650,8 @@
 <script setup lang="ts">
 import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
+import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
+import { useCan } from '~/composables/usePermissions'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
@@ -601,6 +669,8 @@ type Table = {
   name: string;
   is_active: boolean;
   columns?: Column[];
+  // Column names hidden from this agent's context (null/absent = none).
+  excluded_columns?: string[] | null;
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
@@ -791,7 +861,54 @@ const bulkUpdating = ref(false)
 // connections instead of an unexplained empty list.
 const authConnections = ref<any[]>([])
 const signingIn = ref(false)
-
+// Keep one status per table connection, regardless of connector type.
+const schemaConnections = computed(() => {
+  const ids = props.connectionFilter.split(',').filter(Boolean)
+  return authConnections.value.filter(c =>
+    (!ids.length || ids.includes(c.id))
+    && ['tables', 'objects'].includes(c.data_shape || 'tables')
+    && c.catalog_ownership !== 'none')
+})
+type SchemaRefreshAction = { connection: any; scope: 'user' | 'org' }
+const refreshActions = computed<SchemaRefreshAction[]>(() => {
+  const actions: SchemaRefreshAction[] = []
+  for (const connection of schemaConnections.value) {
+    const identity = connection.user_status?.effective_auth
+    if (identity === 'user') actions.push({ connection, scope: 'user' })
+    if ((connection.auth_policy !== 'user_required' || identity === 'system' || identity === 'user')
+        && connection.catalog_ownership !== 'per_user'
+        && useCan('manage_connection', { type: 'connection', id: connection.id })) {
+      actions.push({ connection, scope: 'org' })
+    }
+  }
+  return actions
+})
+const schemaStatusRefs = new Map<string, any>()
+const busyConnectionIds = ref<Set<string>>(new Set())
+const anySchemaRefreshBusy = computed(() => busyConnectionIds.value.size > 0)
+function onSchemaBusyChange(id: string, active: boolean) {
+  const next = new Set(busyConnectionIds.value)
+  if (active) next.add(id)
+  else next.delete(id)
+  busyConnectionIds.value = next
+}
+function onSchemaRefreshFinished(result: { message: string; warning: boolean }) {
+  toast.add({ title: result.message, color: result.warning ? 'amber' : 'green' })
+}
+function setSchemaStatusRef(id: string, el: any) {
+  if (el) schemaStatusRefs.set(id, el)
+  else schemaStatusRefs.delete(id)
+}
+const refreshMenuOpen = ref(false)
+const refreshMenuRef = ref<HTMLElement | null>(null)
+const refreshButtonRef = ref<HTMLElement | null>(null)
+function toggleRefreshMenu() {
+  refreshMenuOpen.value = !refreshMenuOpen.value
+}
+function runSchemaRefresh(action: SchemaRefreshAction) {
+  refreshMenuOpen.value = false
+  schemaStatusRefs.get(action.connection.id)?.refreshSchema(action.scope)
+}
 const connectRequiredConn = computed(() => {
   return authConnections.value.find((c: any) =>
     c?.auth_policy === 'user_required'
@@ -1007,9 +1124,27 @@ const canvasActiveIds = computed(() => new Set(catalog.value.filter(table => isT
 const canvasMatchIds = computed(() => new Set(catalogMatches.value.map(tableId)))
 const draftSelectedCount = computed(() => catalogLoaded.value ? canvasActiveIds.value.size : selectedCount.value + [...currentActiveState.value].reduce((n, [key, value]) => n + Number(value) - Number(originalActiveState.value.get(key)), 0))
 
+// Per-table column visibility draft, keyed like the activation draft. Values
+// are sorted lowercase-insensitive name lists so equality is a string compare.
+const originalExcluded = ref(new Map<string, string[]>())
+const currentExcluded = ref(new Map<string, string[]>())
+const tableByKey = new Map<string, Table>()
+
+function normalizeExcluded(list?: string[] | null): string[] {
+  return [...new Set(list || [])].sort((a, b) => a.localeCompare(b))
+}
+function sameList(a: string[] = [], b: string[] = []): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
 function registerTables(rows: Table[]) {
   for (const table of rows) {
     const key = tableKey(table)
+    tableByKey.set(key, table)
+    if (!currentExcluded.value.has(key) || sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))) {
+      originalExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
+      currentExcluded.value.set(key, normalizeExcluded(table.excluded_columns))
+    }
     // Refresh clean rows while keeping unsaved choices made in either view.
     if (!currentActiveState.value.has(key) || currentActiveState.value.get(key) === originalActiveState.value.get(key)) {
       originalActiveState.value.set(key, table.is_active)
@@ -1153,8 +1288,11 @@ const hasPendingChanges = computed(() => {
     const originalVal = originalActiveState.value.get(name)
     if (originalVal !== currentVal) return true
   }
-  return false
+  return columnChangeKeys.value.length > 0
 })
+const columnChangeKeys = computed(() =>
+  [...currentExcluded.value].filter(([key, list]) => !sameList(list, originalExcluded.value.get(key))).map(([key]) => key)
+)
 
 // Helper functions
 function tableKey(table: Table): string {
@@ -1199,7 +1337,33 @@ function relationshipSummary(table: Table): string {
 function isTableDirty(key: string): boolean {
   const original = originalActiveState.value.get(key)
   const current = currentActiveState.value.get(key)
-  return original !== current
+  return original !== current || !sameList(currentExcluded.value.get(key), originalExcluded.value.get(key))
+}
+
+function hiddenColumnCount(table: Table): number {
+  const excluded = currentExcluded.value.get(tableKey(table)) ?? normalizeExcluded(table.excluded_columns)
+  if (!excluded.length) return 0
+  const hidden = new Set(excluded.map(n => n.toLowerCase()))
+  return (table.columns || []).filter(c => hidden.has(c.name.toLowerCase())).length
+}
+
+function isColumnVisible(table: Table, column: string): boolean {
+  const excluded = currentExcluded.value.get(tableKey(table)) ?? normalizeExcluded(table.excluded_columns)
+  const lc = column.toLowerCase()
+  return !excluded.some(n => n.toLowerCase() === lc)
+}
+
+function onColumnToggle(table: Table, column: string, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  const key = tableKey(table)
+  const lc = column.toLowerCase()
+  const rest = (currentExcluded.value.get(key) || []).filter(n => n.toLowerCase() !== lc)
+  currentExcluded.value.set(key, normalizeExcluded(visible ? rest : [...rest, column]))
+}
+
+function setAllColumnsVisible(table: Table, visible: boolean) {
+  if (!props.canUpdate || saving.value) return
+  currentExcluded.value.set(tableKey(table), visible ? [] : normalizeExcluded((table.columns || []).map(c => c.name)))
 }
 
 function onTableToggle(key: string, newValue: boolean) {
@@ -1285,6 +1449,9 @@ function clearAllFilters() {
 
 function onGlobalClick(e: MouseEvent) {
   const target = e.target as Node
+  if (refreshMenuOpen.value && !refreshMenuRef.value?.contains(target) && !refreshButtonRef.value?.contains(target)) {
+    refreshMenuOpen.value = false
+  }
   if (filterMenuOpen.value) {
     const inside = (filterMenuRef.value?.contains(target)) || (filterButtonRef.value?.contains(target))
     if (!inside) filterMenuOpen.value = false
@@ -1461,12 +1628,20 @@ async function onSave() {
       }
     }
 
-    if (toActivate.length > 0 || toDeactivate.length > 0) {
+    // Column visibility rides the same delta: table id -> full hidden list.
+    const excludedColumns: Record<string, string[]> = {}
+    for (const key of columnChangeKeys.value) {
+      const id = (knownTables.get(key) || tableByKey.get(key))?.id
+      if (id) excludedColumns[id] = currentExcluded.value.get(key) || []
+    }
+
+    if (toActivate.length > 0 || toDeactivate.length > 0 || Object.keys(excludedColumns).length > 0) {
       const result: any = await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',
         body: {
           activate: toActivate,
-          deactivate: toDeactivate
+          deactivate: toDeactivate,
+          excluded_columns: excludedColumns,
         }
       })
       if (result.status?.value !== 'success') throw new Error(t('tableErd.saveError'))
@@ -1476,9 +1651,16 @@ async function onSave() {
     const savedRows = catalogLoaded.value ? catalog.value : tables.value
     selectedCount.value = draftSelectedCount.value
     for (const table of savedRows) table.is_active = isTableActive(tableKey(table))
+    for (const key of columnChangeKeys.value) {
+      const row = knownTables.get(key) || tableByKey.get(key)
+      const list = currentExcluded.value.get(key) || []
+      if (row) row.excluded_columns = list.length ? list : null
+    }
     // Refresh the baseline without losing selection in parent-owned Save flows.
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    originalExcluded.value.clear()
+    currentExcluded.value.clear()
     registerTables(savedRows)
     if (!props.skipRefreshOnSave) {
       await fetchTables()
@@ -1507,31 +1689,22 @@ async function onSave() {
 
 async function onRefresh() {
   if (loading.value || refreshing.value) return
+  refreshMenuOpen.value = false
+  // A shared (non-user_required) connection has a single way to refresh its
+  // schema, so Reload runs it: the same background job as the menu's "Shared
+  // schema" entry. user_required connections keep the explicit scope choice in
+  // the menu. Started before `refreshing` flips, while the headless
+  // controllers' `disabled` prop is still false.
+  for (const action of refreshActions.value) {
+    if (action.scope === 'org' && action.connection.auth_policy !== 'user_required') {
+      schemaStatusRefs.get(action.connection.id)?.refreshSchema('org')
+    }
+  }
   refreshing.value = true
 
   try {
-    if (endpointForSchema() === 'full_schema') {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
-      if (res.error?.value) {
-        // Surface the real reason (e.g. 403 "Connect required: this connection
-        // runs queries with your own credentials…") — a silent no-op here left
-        // users staring at an empty list with no explanation.
-        const err: any = res.error.value
-        const detail = err?.data?.detail || err?.message || 'Failed to reload'
-        toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: String(detail), color: 'red' })
-      }
-    }
-
-    invalidateCatalog()
-    // Clear all tracking on refresh
-    originalActiveState.value.clear()
-    currentActiveState.value.clear()
-    selectedConnections.value = []
-    page.value = 1
-
-    await fetchTables()
+    await reloadKnownCatalog()
     await loadAuthConnections()
-    if (tableView.value === 'erd') await loadCatalog()
   } catch (e: any) {
     toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: e?.message || String(e), color: 'red' })
   } finally {
@@ -1554,6 +1727,9 @@ watch(() => [props.dsId, props.schema, props.connectionFilter, props.canUpdate],
     filters.value.selectedState = null
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    originalExcluded.value.clear()
+    currentExcluded.value.clear()
+    tableByKey.clear()
     fetchTables()
     loadAuthConnections()
   }

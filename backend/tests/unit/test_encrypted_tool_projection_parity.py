@@ -25,6 +25,10 @@ from app.ai.context.builders.message_context_builder import (
 from app.dependencies import async_session_maker
 from app.ee.encryption import types as enc
 from app.models.tool_execution import ToolExecution
+from tests.fixtures.encryption import seed_encryption_graph
+
+pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
+
 
 
 CREATE_DATA_RESULT = {
@@ -59,11 +63,13 @@ READ_QUERY_RESULT = {
 
 async def _insert(db, result_json, *, tool_name, encrypted):
     tid = str(uuid.uuid4())
+    # PostgreSQL enforces the agent_executions FK; seed a real parent chain.
+    g = await seed_encryption_graph(db)
     original = enc.encryption_active
     enc.encryption_active = (lambda: encrypted)
     try:
         await db.execute(ToolExecution.__table__.insert().values(
-            id=tid, agent_execution_id="ae-" + tid, tool_name=tool_name,
+            id=tid, agent_execution_id=g["execution"], tool_name=tool_name,
             status="success", success=True, arguments_json={},
             result_json=result_json,
         ))

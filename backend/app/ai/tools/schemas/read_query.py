@@ -23,6 +23,19 @@ class ReadQueryInput(BaseModel):
             "Found in previous create_data results as 'viz_id' in the conversation history."
         ),
     )
+    offset: Optional[int] = Field(
+        default=None, ge=0,
+        description=(
+            "Read rows page by page: 0-based index of the first row to return. Use it (with limit) "
+            "when the preview is truncated or you need rows beyond it; continue from the returned "
+            "page.next_offset until page.eof. Rows past the saved snapshot are fetched by re-running "
+            "the query (queries in this report only)."
+        ),
+    )
+    limit: Optional[int] = Field(
+        default=None, ge=1, le=500,
+        description="Rows per page when paging (default 100, max 500; also capped by the org row limit and a size budget).",
+    )
 
 
 class ReadQueryResult(BaseModel):
@@ -42,6 +55,10 @@ class ReadQueryResult(BaseModel):
     )
     applied_params: Optional[Dict[str, Any]] = Field(
         None, description="Param values the step's snapshot was produced with"
+    )
+    page: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Rows window when offset/limit were given: {offset, limit, returned, total_rows, next_offset, eof, source, columns, rows}",
     )
     error: Optional[str] = Field(None, description="Error message if this lookup failed")
 

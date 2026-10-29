@@ -1,6 +1,6 @@
 """MCP Tool: list_agent_tools — discover an agent's MCP / custom-API tools.
 
-External twin of the internal ``search_mcps`` planner tool. ``get_context``
+External twin of the internal ``search_tools`` planner tool. ``get_context``
 advertises tool *names*; this returns each tool's full ``input_schema`` so an
 external client knows exactly how to call ``execute_mcp``.
 """
@@ -56,7 +56,7 @@ class ListAgentToolsMCPTool(MCPTool):
             )
             data_sources = list(rows.scalars().all())
         elif input_data.report_id:
-            report = await self._load_report(db, input_data.report_id)
+            report = await self._load_report(db, input_data.report_id, user, organization)
             data_sources = list(report.data_sources or [])
         else:
             return []

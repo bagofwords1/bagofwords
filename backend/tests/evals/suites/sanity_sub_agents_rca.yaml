@@ -1,0 +1,67 @@
+name: Sanity · Sub-agents RCA
+description: >
+  A "why did it drop" ask on the planted Checkout Ops incident must fan out to
+  one sub-agent per candidate cause in a single response, end the turn, and
+  conclude in the fan-in turn with the planted cause (iOS 5.2.0 on PayFlow),
+  cited evidence, and the decoys ruled out. A "how many" must not delegate.
+  Pins the DELEGATION posture, the finish_subtask contract and the wave fan-in
+  (docs/design/sub-agents.md, docs/feedback-loops/sub-agents.md Loop B).
+
+tags: [sub_agents, rca]
+
+data_source_slugs:
+  - Checkout Ops
+
+cases:
+  - name: rca_fans_out_and_concludes
+    prompt:
+      content: >
+        Paid orders dropped about 15% since mid-September. Why? Test the
+        likely causes separately and tell me which one it is, with evidence,
+        and which ones you ruled out.
+    expectations:
+      spec_version: 1
+      order_mode: flexible
+      rules:
+        # fan-out: at least three hypotheses delegated from the parent
+        - type: tool.calls
+          tool: delegate
+          min_calls: 3
+          max_calls: 6
+          phase: main
+        # every child honours the contract and never reaches for parent-only tools
+        - type: tool.calls
+          tool: finish_subtask
+          min_calls: 3
+          phase: subagent
+        - type: tool.calls
+          tool: clarify
+          max_calls: 0
+        - type: tool.calls
+          tool: create_artifact
+          max_calls: 0
+        # the fan-in turn concludes with the planted cause and the decoys
+        - type: judge
+          prompt: >
+            The final answer (the last assistant reply in the trace) must do
+            ALL of the following: (a) name the app release 5.2.0 / the deploy
+            of 2026-09-14 affecting iOS payments through PayFlow as the cause
+            of the drop in paid orders; (b) cite at least one concrete number
+            for it (a failure rate, a paid share, or a paid-orders delta); and
+            (c) explicitly rule out at least two of: the premium price change,
+            the APAC campaign, the us-east PayFlow blip, seasonality. It must
+            not show a sub-agent id to the user. Answer "pass" only if (a), (b)
+            and (c) are all clearly true; cite the sentences you relied on.
+
+  - name: simple_ask_does_not_delegate
+    prompt:
+      content: How many paid orders did we have in September 2026?
+    expectations:
+      spec_version: 1
+      rules:
+        - type: tool.calls
+          tool: delegate
+          max_calls: 0
+        - type: tool.calls
+          tool: create_data
+          min_calls: 1

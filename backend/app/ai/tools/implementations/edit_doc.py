@@ -104,8 +104,10 @@ class EditDocTool(Tool):
             )
         )
         artifact = result.scalar_one_or_none()
-        if artifact is None:
-            yield self._fail(data.doc_id, f"Document {data.doc_id} not found.")
+        # Report check BEFORE any mode-specific message, with the same answer
+        # as an unknown id: a foreign report's artifact must be indistinguishable.
+        if artifact is None or not report_id or str(artifact.report_id) != report_id:
+            yield self._fail(data.doc_id, f"Document {data.doc_id} not found in this report.")
             return
         if artifact.mode != "doc":
             yield self._fail(
@@ -113,9 +115,6 @@ class EditDocTool(Tool):
                 f"Artifact {data.doc_id} is a '{artifact.mode}' artifact, not a document. "
                 f"Use edit_artifact for dashboards/slides.",
             )
-            return
-        if report_id and str(artifact.report_id) != report_id:
-            yield self._fail(data.doc_id, f"Document {data.doc_id} does not belong to this report.")
             return
 
         current_markdown = ""

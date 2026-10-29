@@ -100,7 +100,6 @@ async def seed_graph(report_id: str):
     # defined outside app/models too, e.g. ee modules).
     import main  # noqa: F401
     from app.dependencies import async_session_maker
-    from app.models.artifact import Artifact
     from app.models.query import Query
     from app.models.report import Report
     from app.models.step import Step
@@ -150,23 +149,26 @@ async def seed_graph(report_id: str):
         db.add(viz)
         await db.flush()
 
-        db.add(Artifact(
-            report_id=report_id,
-            user_id=user_id,
-            organization_id=org_id,
-            title="Monthly Revenue",
-            mode="page",
-            version=1,
-            content={"code": ARTIFACT_CODE, "visualization_ids": [str(viz.id)]},
-            status="completed",
-        ))
         await db.commit()
-        return {"query_id": str(query.id), "step_id": str(step.id)}
+        # The artifact is created through the API by main(): artifacts are a
+        # header row plus versioned content, which the service assembles.
+        return {"query_id": str(query.id), "step_id": str(step.id), "viz_id": str(viz.id)}
 
 
 def main():
     client, headers, report = api_setup()
     ids = asyncio.run(seed_graph(report["id"]))
+    r = client.post(
+        "/api/artifacts",
+        json={
+            "report_id": report["id"],
+            "title": "Monthly Revenue",
+            "mode": "page",
+            "content": {"code": ARTIFACT_CODE, "visualization_ids": [ids.pop("viz_id")]},
+        },
+        headers=headers,
+    )
+    r.raise_for_status()
     r = client.put(
         f"/api/reports/{report['id']}/visibility/artifact",
         json={"visibility": "internal"},

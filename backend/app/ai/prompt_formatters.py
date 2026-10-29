@@ -126,7 +126,16 @@ async def build_codegen_context(
             enable_load_step=_ls_enabled,
             step_max_age_seconds=_ls_max_age,
         )
-        if resolver.db is not None and resolver.report is not None:
+        # A read on its own short-lived session: this runs inside parallel
+        # tool calls, and the agent's shared session is not safe for
+        # concurrent use (a collision here used to drop the section silently).
+        _read_sm = runtime_ctx.get("read_session_maker") if isinstance(runtime_ctx, dict) else None
+        if _read_sm is not None and resolver.report is not None:
+            async with _read_sm() as _read_db:
+                resolver.db = _read_db
+                section = await resolver.list_for_discovery()
+            loadables_context = section.render() if section else ""
+        elif resolver.db is not None and resolver.report is not None:
             section = await resolver.list_for_discovery()
             loadables_context = section.render() if section else ""
     except Exception:
@@ -239,6 +248,61 @@ class Table(BaseModel):
     score: Optional[float] = None
     # Instruction reference count (how many instructions reference this table)
     referenced_instructions_count: Optional[int] = None
+    # Columns the agent manager hid from context (see
+    # DataSourceTable.excluded_columns). Carried so late column fills — e.g.
+    # describe_tables sampling a thin table live — re-apply the same filter.
+    excluded_columns: Optional[list[str]] = None
+
+
+def excluded_column_set(excluded) -> frozenset:
+    """Normalize a DataSourceTable.excluded_columns value to a lookup set.
+
+    Matched case-insensitively: warehouses differ on identifier case and a
+    re-sync can change it, which must not silently re-expose a hidden column.
+    """
+    if not excluded:
+        return frozenset()
+    return frozenset(str(c).lower() for c in excluded if c)
+
+
+def _col_name(col) -> str:
+    if isinstance(col, dict):
+        return str(col.get("name") or "")
+    return str(getattr(col, "name", "") or "")
+
+
+def filter_columns(columns, excluded) -> list:
+    """Drop excluded columns (dicts or TableColumn) from a column list."""
+    ex = excluded if isinstance(excluded, frozenset) else excluded_column_set(excluded)
+    if not ex:
+        return list(columns or [])
+    return [c for c in (columns or []) if _col_name(c).lower() not in ex]
+
+
+def filter_fks(fks, excluded) -> list:
+    """Drop foreign keys whose LOCAL column is excluded (dicts or models)."""
+    ex = excluded if isinstance(excluded, frozenset) else excluded_column_set(excluded)
+    if not ex:
+        return list(fks or [])
+    out = []
+    for fk in fks or []:
+        col = fk.get("column") if isinstance(fk, dict) else getattr(fk, "column", None)
+        if _col_name(col).lower() in ex:
+            continue
+        out.append(fk)
+    return out
+
+
+def apply_column_exclusions(table: "Table", excluded) -> "Table":
+    """Return `table` with excluded columns removed from columns/pks/fks."""
+    ex = excluded_column_set(excluded)
+    if not ex:
+        return table
+    table.columns = filter_columns(table.columns, ex)
+    table.pks = filter_columns(table.pks, ex)
+    table.fks = filter_fks(table.fks, ex)
+    table.excluded_columns = sorted(ex)
+    return table
 
 
 class ServiceFormatter:

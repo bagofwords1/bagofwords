@@ -300,6 +300,32 @@ class UsageLimitContext:
         import time as _time
         self._cache_loaded_at = _time.monotonic()
 
+    async def _ensure_fresh(self) -> None:
+        import time as _time
+        now = _time.monotonic()
+        # Need a refresh? First call ever, or TTL expired.
+        if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+            # Serialize concurrent refreshers — only one DB roundtrip even
+            # when N tasks race here at the same agent run's first call.
+            if self._cache_lock is None:
+                self._cache_lock = asyncio.Lock()
+            async with self._cache_lock:
+                if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
+                    await self._refresh_quota_cache()
+
+    async def prefetch(self) -> None:
+        """Load the quota cache ahead of the first LLM call, so that call's
+        check_tokens does not wait on the DB. Enforces nothing; errors are
+        left for check_tokens to meet."""
+        if self._parent is not None:
+            return await self._root().prefetch()
+        if not has_feature("usage_limits") or self.session_maker is None:
+            return
+        try:
+            await self._ensure_fresh()
+        except Exception:
+            pass
+
     async def check_tokens(self, requested_tokens: int) -> None:
         """Cheap pre-LLM-call quota check. Hits the DB at most once per
         TTL window; otherwise compares against the cached limit/used.
@@ -315,17 +341,7 @@ class UsageLimitContext:
         if requested_tokens <= 0:
             requested_tokens = 1
 
-        import time as _time
-        now = _time.monotonic()
-        # Need a refresh? First call ever, or TTL expired.
-        if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
-            # Serialize concurrent refreshers — only one DB roundtrip even
-            # when N tasks race here at the same agent run's first call.
-            if self._cache_lock is None:
-                self._cache_lock = asyncio.Lock()
-            async with self._cache_lock:
-                if self._cache_loaded_at < 0 or (now - self._cache_loaded_at) >= self._CACHE_TTL_SECONDS:
-                    await self._refresh_quota_cache()
+        await self._ensure_fresh()
 
         # Spend cap: this call's dollar cost isn't known until after the
         # provider responds, so we can't project it. Instead we stop once
@@ -1350,6 +1366,20 @@ class UsagePolicyService:
         policy_id: str,
         overrides: List[UsagePolicyConnectionOverrideInput],
     ) -> None:
+        # Validate before writing: a duplicate or unknown/foreign connection id
+        # used to fail at flush time (unique/FK violation) as a 500.
+        requested = [str(o.connection_id) for o in (overrides or [])]
+        if len(set(requested)) != len(requested):
+            raise HTTPException(status_code=422, detail="Each connection can only have one override")
+        if requested:
+            found = set((await db.execute(
+                select(Connection.id).where(
+                    Connection.id.in_(requested),
+                    Connection.organization_id == org_id,
+                )
+            )).scalars().all())
+            if found != set(requested):
+                raise HTTPException(status_code=422, detail="Unknown connection in connection_overrides")
         await db.execute(delete(UsagePolicyConnectionOverride).where(UsagePolicyConnectionOverride.policy_id == policy_id))
         for override in overrides or []:
             db.add(

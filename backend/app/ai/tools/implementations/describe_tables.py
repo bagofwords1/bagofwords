@@ -84,6 +84,11 @@ class DescribeTablesTool(Tool):
                         break
                     if (getattr(t, "columns", None) or []):
                         continue  # already has columns — nothing to sample
+                    if getattr(t, "excluded_columns", None):
+                        # Empty because the agent manager hid columns, not
+                        # because the source is schema-on-read: sampling would
+                        # put them straight back.
+                        continue
                     if ds_id not in clients_cache:
                         try:
                             clients_cache[ds_id] = await dss.construct_clients(db, ds_obj, user) or {}

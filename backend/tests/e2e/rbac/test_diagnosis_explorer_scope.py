@@ -58,7 +58,8 @@ def world(bootstrap_admin, invite_user_to_org, sqlite_data_source, grant_resourc
     }
     rollup_agent_executions()
     return {"org_id": org_id, "admin": admin, "manager_b": manager_b, "member": member,
-            "ds_a": ds_a, "ds_b": ds_b, "ids": ids}
+            "ds_a": ds_a, "ds_b": ds_b, "ids": ids,
+            "reports": {"a": r_a["id"], "b": r_b["id"], "ab": r_ab["id"], "none": r_none["id"]}}
 
 
 def _runs(test_client, world, token, q="", **params):

@@ -20,6 +20,8 @@ from typing import Optional, Tuple
 
 import aiosmtplib
 
+from app.services.email.pinned import PinnedSMTP, send_pinned
+
 from app.services.email.oauth import OAuthSettings, get_xoauth2_string
 
 logger = logging.getLogger(__name__)
@@ -174,7 +176,7 @@ async def _send_xoauth2(cfg: SmtpConfig, msg: EmailMessage) -> bool:
     # Let aiosmtplib negotiate TLS during connect() — passing start_tls here
     # (instead of calling starttls() afterwards) avoids the "Connection already
     # using TLS" error from a double STARTTLS.
-    client = aiosmtplib.SMTP(
+    client = PinnedSMTP(
         hostname=cfg.host,
         port=cfg.port,
         use_tls=(cfg.security == "ssl"),
@@ -249,7 +251,7 @@ async def send_message_result(cfg: SmtpConfig, msg: EmailMessage) -> Tuple[bool,
         if cfg.auth_type == "password" and cfg.username and cfg.password:
             kwargs["username"] = cfg.username
             kwargs["password"] = cfg.password
-        await aiosmtplib.send(msg, **kwargs)
+        await send_pinned(msg, **kwargs)
         return True, None, STAGE_SEND
     except Exception as e:  # noqa: BLE001 — transport errors must not crash the agent
         stage = classify_error(e)

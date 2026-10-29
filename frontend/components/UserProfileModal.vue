@@ -1,6 +1,6 @@
 <template>
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-4xl' }">
-    <div class="grid grid-cols-[210px_1fr] min-h-[480px] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
+    <div class="grid grid-cols-[210px_1fr] min-h-[480px] max-h-[85vh] bg-white dark:bg-gray-900 rounded-lg overflow-hidden">
       <!-- Left column (smaller): user header + section nav -->
       <aside class="border-e border-gray-200/80 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 flex flex-col">
         <div class="px-4 pt-5 pb-4 flex flex-col items-center text-center gap-2">
@@ -10,12 +10,12 @@
             alt=""
             class="w-12 h-12 rounded-full object-cover bg-gray-100 dark:bg-gray-800"
           />
-          <div v-else class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-500 text-white text-lg font-bold">
+          <div v-else class="flex items-center justify-center w-12 h-12 rounded-full bg-blue-600 text-white text-lg font-bold">
             {{ userInitial }}
           </div>
           <div class="min-w-0 w-full">
             <div class="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{{ currentUserName }}</div>
-            <div class="text-[11px] text-gray-500 dark:text-gray-400 truncate">{{ currentUserEmail }}</div>
+            <div class="text-2xs text-gray-500 dark:text-gray-400 truncate">{{ currentUserEmail }}</div>
           </div>
         </div>
 
@@ -25,7 +25,7 @@
             :key="item.key"
             @click="activeTab = item.key"
             :class="[
-              'flex items-center gap-2.5 w-full px-3 py-1.5 rounded-md text-[13px] transition-colors',
+              'flex items-center gap-2.5 w-full px-3 py-1.5 rounded-md text-sm transition-colors',
               activeTab === item.key
                 ? 'bg-gray-200/70 dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/60'
@@ -39,7 +39,7 @@
       </aside>
 
       <!-- Right column: content -->
-      <section class="relative flex flex-col min-w-0">
+      <section class="relative flex flex-col min-w-0 min-h-0">
         <UButton
           class="absolute top-3 end-3 z-10"
           color="gray"
@@ -68,7 +68,7 @@
                 />
                 <div
                   v-else
-                  class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-500 text-white text-2xl font-bold"
+                  class="flex items-center justify-center w-16 h-16 rounded-full bg-blue-600 text-white text-2xl font-bold"
                 >
                   {{ userInitial }}
                 </div>
@@ -90,7 +90,7 @@
                   v-if="avatarUrl"
                   type="button"
                   :disabled="avatarBusy"
-                  class="text-[11px] text-gray-400 hover:text-red-500 disabled:opacity-50"
+                  class="text-2xs text-ink-muted hover:text-red-500 disabled:opacity-50"
                   @click="removeAvatar"
                 >
                   {{ $t('profile.general.removePhoto') }}
@@ -124,7 +124,7 @@
               </div>
 
               <div v-if="modelsLoading" class="py-2">
-                <Spinner class="w-4 h-4 text-gray-400" />
+                <Spinner class="w-4 h-4 text-ink-muted" />
               </div>
               <UPopover v-else :popper="{ strategy: 'absolute', placement: 'bottom-start', offset: [0, 8] }">
                 <button
@@ -139,7 +139,7 @@
                   />
                   <Icon v-else name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
                   <span class="ms-1.5 truncate">{{ selectedDefaultModelLabel }}</span>
-                  <Icon name="heroicons-chevron-down" class="w-3.5 h-3.5 ms-1.5 flex-shrink-0 text-gray-400" />
+                  <Icon name="heroicons-chevron-down" class="w-3.5 h-3.5 ms-1.5 flex-shrink-0 text-ink-muted" />
                 </button>
                 <template #panel="{ close }">
                   <div class="p-2 text-xs max-h-64 overflow-y-auto w-[240px]">
@@ -152,8 +152,8 @@
                         <Icon name="heroicons-building-office" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                       </div>
                       <div class="flex flex-col flex-1 text-start min-w-0">
-                        <span class="font-medium truncate">{{ $t('profile.general.orgDefault') }}</span>
-                        <span v-if="orgDefaultModel" class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ orgDefaultModel.name }}</span>
+                        <span class="font-medium truncate">{{ inheritedDefaultLabel }}</span>
+                        <span v-if="orgDefaultModel" class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ orgDefaultModel.name }}</span>
                       </div>
                       <Icon v-if="!userDefaultModelId" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                     </div>
@@ -168,13 +168,29 @@
                       </div>
                       <div class="flex flex-col flex-1 text-start min-w-0">
                         <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
-                        <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
+                        <span class="text-gray-500 dark:text-gray-400 text-2xs truncate">{{ m.provider?.name }}</span>
                       </div>
                       <Icon v-if="userDefaultModelId === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
                     </div>
                   </div>
                 </template>
               </UPopover>
+            </div>
+
+            <!-- Agent check-ins: personal opt-out (only while the org has them on) -->
+            <div v-if="checkins.available" class="pt-2 border-t border-gray-100 dark:border-gray-800" data-testid="profile-checkins">
+              <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0">
+                  <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('profile.general.checkinsTitle') }}</div>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.general.checkinsSubtitle') }}</p>
+                </div>
+                <UToggle
+                  :model-value="checkins.enabled"
+                  :disabled="savingCheckins"
+                  data-testid="profile-checkins-toggle"
+                  @update:model-value="saveCheckins"
+                />
+              </div>
             </div>
 
             <!-- External platforms summary -->
@@ -192,8 +208,8 @@
                 >
                   <UIcon :name="platformMeta(p.platform_type).icon" class="w-4 h-4 text-gray-500 dark:text-gray-400 shrink-0" />
                   <div class="min-w-0 flex-1">
-                    <div class="text-[13px] text-gray-800 dark:text-gray-200 truncate">{{ platformMeta(p.platform_type).label }}</div>
-                    <div v-if="p.external_name || p.external_email" class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                    <div class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ platformMeta(p.platform_type).label }}</div>
+                    <div v-if="p.external_name || p.external_email" class="text-2xs text-gray-500 dark:text-gray-400 truncate">
                       {{ p.external_name || p.external_email }}
                     </div>
                   </div>
@@ -206,7 +222,7 @@
                   </UBadge>
                 </div>
               </div>
-              <p v-else class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('profile.general.noPlatforms') }}</p>
+              <p v-else class="text-xs text-ink-muted italic">{{ $t('profile.general.noPlatforms') }}</p>
             </div>
 
             <!-- Directory profile (synced from Entra ID) -->
@@ -229,7 +245,7 @@
             </div>
           </div>
 
-          <!-- Custom Instructions & Memory -->
+          <!-- Custom Instructions (membership note) -->
           <div v-else-if="activeTab === 'instructions'" class="space-y-4">
             <div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.instructions.title') }}</h3>
@@ -237,7 +253,7 @@
             </div>
 
             <div v-if="instructionsLoading" class="py-6 flex justify-center">
-              <Spinner class="w-5 h-5 text-gray-400" />
+              <Spinner class="w-5 h-5 text-ink-muted" />
             </div>
             <template v-else>
               <!-- User-authored custom instructions (membership note) -->
@@ -248,22 +264,9 @@
                 :placeholder="$t('profile.instructions.placeholder')"
                 autoresize
               />
-              <div class="text-[11px] text-gray-400 dark:text-gray-500">{{ noteInput.length }}/500</div>
 
-              <!-- Agent memory (membership.memory): AI-curated, user can prune -->
-              <div class="pt-2 border-t border-gray-150 dark:border-gray-800">
-                <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('profile.memory.title') }}</h4>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('profile.memory.subtitle') }}</p>
-              </div>
-              <UTextarea
-                v-model="memoryInput"
-                :rows="6"
-                :maxlength="MEMORY_MAX"
-                :placeholder="$t('profile.memory.placeholder')"
-                autoresize
-              />
               <div class="flex items-center justify-between">
-                <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ memoryInput.length }}/{{ MEMORY_MAX }}</span>
+                <span class="text-2xs text-ink-muted">{{ noteInput.length }}/500</span>
                 <UButton
                   color="blue"
                   size="sm"
@@ -276,6 +279,9 @@
               </div>
             </template>
           </div>
+
+          <!-- Memory: the agent's per-user memory entries (gated by enable_user_memory) -->
+          <UserMemoryPanel v-else-if="activeTab === 'memory' && isUserMemoryEnabled" @open-instructions="activeTab = 'instructions'" />
 
           <!-- Usage -->
           <div v-else-if="activeTab === 'usage'" class="space-y-4">
@@ -290,22 +296,22 @@
             <template v-if="usage.enabled">
               <div class="grid grid-cols-3 gap-3">
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
+                  <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.tokens') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.tokens.used) }}</div>
-                  <div v-if="usage.tokens.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.tokens.limit) }}</div>
+                  <div v-if="usage.tokens.limit" class="text-2xs text-ink-muted">/ {{ formatNumber(usage.tokens.limit) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
+                  <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.queries') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatNumber(usage.queries.used) }}</div>
-                  <div v-if="usage.queries.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatNumber(usage.queries.limit) }}</div>
+                  <div v-if="usage.queries.limit" class="text-2xs text-ink-muted">/ {{ formatNumber(usage.queries.limit) }}</div>
                 </div>
                 <div class="rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 px-4 py-3">
-                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
+                  <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ $t('profile.usage.data') }}</div>
                   <div class="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">{{ formatBytes(usage.data_bytes.used) }}</div>
-                  <div v-if="usage.data_bytes.limit" class="text-[11px] text-gray-400 dark:text-gray-500">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
+                  <div v-if="usage.data_bytes.limit" class="text-2xs text-ink-muted">/ {{ formatBytes(usage.data_bytes.limit) }}</div>
                 </div>
               </div>
-              <p class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('profile.usage.windowNote') }}</p>
+              <p class="text-2xs text-ink-muted">{{ $t('profile.usage.windowNote') }}</p>
 
               <!-- Daily breakdown since the start of the month, one small
                    multiple per metric (single series each, so no legends). -->
@@ -317,8 +323,8 @@
                 >
                   <div class="flex items-baseline gap-2">
                     <span class="inline-block w-2 h-2 rounded-sm" :style="{ backgroundColor: chart.color }" />
-                    <span class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ chart.title }}</span>
-                    <span class="text-[11px] text-gray-400 dark:text-gray-500">· {{ $t('profile.usage.dailyNote') }}</span>
+                    <span class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ chart.title }}</span>
+                    <span class="text-2xs text-ink-muted">· {{ $t('profile.usage.dailyNote') }}</span>
                   </div>
                   <ClientOnly>
                     <VChart class="!h-28 w-full" :option="chart.option" autoresize />
@@ -366,15 +372,15 @@
                   {{ $t('profile.apiKeys.copy') }}
                 </UButton>
               </div>
-              <p class="text-[11px] text-amber-600 dark:text-amber-400">{{ $t('profile.apiKeys.newKeyWarning') }}</p>
+              <p class="text-2xs text-amber-600 dark:text-amber-400">{{ $t('profile.apiKeys.newKeyWarning') }}</p>
             </div>
 
             <div v-if="apiKeysLoading" class="py-6 flex justify-center">
-              <Spinner class="w-5 h-5 text-gray-400" />
+              <Spinner class="w-5 h-5 text-ink-muted" />
             </div>
 
             <template v-else>
-              <p v-if="!apiKeys.length" class="text-xs text-gray-400 dark:text-gray-500 italic">{{ $t('profile.apiKeys.empty') }}</p>
+              <p v-if="!apiKeys.length" class="text-xs text-ink-muted italic">{{ $t('profile.apiKeys.empty') }}</p>
               <div v-else class="border border-gray-200 dark:border-gray-800 rounded-lg divide-y divide-gray-200 dark:divide-gray-800">
                 <div
                   v-for="key in apiKeys"
@@ -383,10 +389,10 @@
                 >
                   <div class="min-w-0">
                     <div class="flex items-center gap-2">
-                      <span class="text-[13px] font-medium text-gray-800 dark:text-gray-200 truncate">{{ key.name }}</span>
-                      <code class="font-mono text-[11px] text-gray-500 dark:text-gray-400">{{ key.key_prefix }}…</code>
+                      <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ key.name }}</span>
+                      <code class="font-mono text-2xs text-gray-500 dark:text-gray-400">{{ key.key_prefix }}…</code>
                     </div>
-                    <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                    <div class="text-2xs text-ink-muted mt-0.5">
                       {{ $t('profile.apiKeys.created', { date: formatApiKeyDate(key.created_at) }) }}
                       ·
                       {{ key.last_used_at ? $t('profile.apiKeys.lastUsed', { date: formatApiKeyDate(key.last_used_at) }) : $t('profile.apiKeys.neverUsed') }}
@@ -394,7 +400,7 @@
                   </div>
                   <button
                     @click="deleteApiKey(key)"
-                    class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    class="text-ink-muted hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     :title="$t('profile.apiKeys.deleteTitle')"
                   >
                     <UIcon name="i-heroicons-trash" class="w-4 h-4" />
@@ -453,7 +459,7 @@
             </div>
 
             <div v-if="mcpLoading" class="py-12 flex items-center justify-center">
-              <Spinner class="w-6 h-6 text-gray-400" />
+              <Spinner class="w-6 h-6 text-ink-muted" />
             </div>
 
             <template v-else>
@@ -471,7 +477,7 @@
 
               <!-- Configuration -->
               <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
+                <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.configuration') }}</div>
                 <div class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
                   <pre class="px-3 py-2.5 pr-20 font-mono text-xs text-gray-700 dark:text-gray-300 overflow-x-auto">{{ mcpConfig }}</pre>
                   <div class="absolute top-2 right-2">
@@ -491,7 +497,7 @@
 
               <!-- Access token -->
               <div>
-                <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
+                <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('mcpServerModal.accessToken') }}</div>
                 <div v-if="apiKeys.length === 0 && !mcpCurrentToken" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center">
                   <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{{ $t('mcpServerModal.noTokenYet') }}</p>
                   <UButton size="sm" color="blue" :loading="mcpCreating" @click="regenerateMcpToken">
@@ -502,7 +508,7 @@
                 <div v-else class="relative bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
                   <div class="px-3 py-2 pr-20 flex items-center gap-3">
                     <code class="font-mono text-xs text-gray-700 dark:text-gray-300 truncate">{{ mcpCurrentToken || '••••••••••••••••••••••••••••••••' }}</code>
-                    <span v-if="!mcpCurrentToken && apiKeys.length > 0" class="text-[10px] text-gray-400 shrink-0">{{ mcpFormatDate(apiKeys[0].created_at) }}</span>
+                    <span v-if="!mcpCurrentToken && apiKeys.length > 0" class="text-2xs text-ink-muted shrink-0">{{ mcpFormatDate(apiKeys[0].created_at) }}</span>
                   </div>
                   <div class="absolute top-1/2 -translate-y-1/2 right-2">
                     <UTooltip :text="mcpCurrentToken ? '' : $t('mcpServerModal.regenerateTokenToCopy')" :popper="{ placement: 'top' }">
@@ -521,7 +527,7 @@
 
               <!-- Manage tokens -->
               <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors">
+                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-ink-muted hover:text-gray-600 transition-colors">
                   <UIcon :name="mcpShowTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
                   {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
                 </button>
@@ -529,9 +535,9 @@
                   <div v-for="key in apiKeys" :key="key.id" class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group">
                     <div class="flex items-center gap-3 min-w-0">
                       <code class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ key.key_prefix }}•••••••••</code>
-                      <span class="text-[10px] text-gray-400">{{ mcpFormatDate(key.created_at) }}</span>
+                      <span class="text-2xs text-ink-muted">{{ mcpFormatDate(key.created_at) }}</span>
                     </div>
-                    <button @click="deleteApiKey(key)" class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" :title="$t('mcpServerModal.deleteTokenTitle')">
+                    <button @click="deleteApiKey(key)" class="text-ink-muted hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" :title="$t('mcpServerModal.deleteTokenTitle')">
                       <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -550,6 +556,7 @@ import { markRaw } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
+import UserMemoryPanel from '~/components/profile/UserMemoryPanel.vue'
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
@@ -563,18 +570,23 @@ const { t } = useI18n()
 const toast = useToast()
 const { data: currentUser, getSession } = useAuth()
 const { organization } = useOrganization()
-const { isMcpEnabled } = useOrgSettings()
+const { isMcpEnabled, isUserMemoryEnabled } = useOrgSettings()
 const colorMode = useColorMode()
 
-const activeTab = ref<'general' | 'instructions' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
+const activeTab = ref<'general' | 'instructions' | 'memory' | 'usage' | 'apiKeys' | 'mcp' | 'appearance'>('general')
 
 const navItems = computed(() => {
   const items: any[] = [
     { key: 'general', label: t('profile.nav.general'), icon: 'i-heroicons-user-circle' },
     { key: 'instructions', label: t('profile.nav.instructions'), icon: 'i-heroicons-sparkles' },
+  ]
+  if (isUserMemoryEnabled.value) {
+    items.push({ key: 'memory', label: t('profile.nav.memory'), icon: 'i-heroicons-bookmark' })
+  }
+  items.push(
     { key: 'usage', label: t('profile.nav.usage'), icon: 'i-heroicons-chart-bar' },
     { key: 'apiKeys', label: t('profile.nav.apiKeys'), icon: 'i-heroicons-key' },
-  ]
+  )
   if (isMcpEnabled.value) {
     items.push({ key: 'mcp', label: t('nav.mcpServer'), iconComponent: markRaw(McpIcon) })
   }
@@ -680,10 +692,19 @@ const modelsLoaded = ref(false)
 const userDefaultModelId = ref<string | null>(null)
 const savingDefaultModel = ref(false)
 
-const orgDefaultModel = computed(() => models.value.find((m: any) => m.is_default) || null)
+// What the user gets with no personal preference: their group's default, else
+// the org default (the backend marks it as is_inherited_default).
+const orgDefaultModel = computed(() =>
+  models.value.find((m: any) => m.is_inherited_default) || models.value.find((m: any) => m.is_default) || null
+)
+const inheritedDefaultLabel = computed(() =>
+  orgDefaultModel.value?.inherited_default_source === 'group' && orgDefaultModel.value?.inherited_default_group_name
+    ? t('profile.general.groupDefault', { group: orgDefaultModel.value.inherited_default_group_name })
+    : t('profile.general.orgDefault')
+)
 const selectedDefaultModel = computed(() => models.value.find((m: any) => m.id === userDefaultModelId.value) || null)
 const selectedDefaultModelLabel = computed(() =>
-  selectedDefaultModel.value?.name || t('profile.general.orgDefault')
+  selectedDefaultModel.value?.name || inheritedDefaultLabel.value
 )
 
 async function loadModels() {
@@ -725,6 +746,39 @@ async function saveDefaultModel(modelId: string | null) {
   }
 }
 
+// --- General: agent check-ins (personal opt-out) ---
+const checkins = ref<{ enabled: boolean; available: boolean }>({ enabled: true, available: false })
+const savingCheckins = ref(false)
+
+async function loadCheckins() {
+  try {
+    const res = await useMyFetch('/users/me/checkins')
+    if (res.status.value === 'success' && res.data.value) checkins.value = res.data.value as any
+  } catch {
+    // non-fatal; the section stays hidden
+  }
+}
+
+async function saveCheckins(enabled: boolean) {
+  const previous = checkins.value.enabled
+  checkins.value = { ...checkins.value, enabled }
+  savingCheckins.value = true
+  try {
+    const res = await useMyFetch('/users/me/checkins', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (res.status.value !== 'success') throw new Error(t('profile.general.checkinsFailed'))
+    toast.add({ title: t('profile.general.checkinsSaved'), color: 'green' })
+  } catch (e: any) {
+    checkins.value = { ...checkins.value, enabled: previous }
+    toast.add({ title: e?.message || t('profile.general.checkinsFailed'), color: 'red' })
+  } finally {
+    savingCheckins.value = false
+  }
+}
+
 // --- General: external platforms ---
 const externalPlatforms = computed<any[]>(() => (currentUser.value as any)?.external_user_mappings || [])
 
@@ -740,15 +794,12 @@ function platformMeta(type: string): { label: string; icon: string } {
   return map[type] || { label: type, icon: 'i-heroicons-puzzle-piece' }
 }
 
-// --- Custom instructions (membership note) + agent memory (membership.memory) ---
-const MEMORY_MAX = 2000
+// --- Custom instructions (membership note). Memory lives in its own tab
+// (UserMemoryPanel, /users/me/memory entries). ---
 const noteInput = ref('')
 const noteOriginal = ref('')
-const memoryInput = ref('')
-const memoryOriginal = ref('')
 const noteDirty = computed(() => noteInput.value.trim() !== noteOriginal.value.trim())
-const memoryDirty = computed(() => memoryInput.value.trim() !== memoryOriginal.value.trim())
-const instructionsDirty = computed(() => noteDirty.value || memoryDirty.value)
+const instructionsDirty = computed(() => noteDirty.value)
 const instructionsLoading = ref(false)
 const savingNote = ref(false)
 const instructionsLoaded = ref(false)
@@ -759,11 +810,8 @@ async function loadInstructions() {
   try {
     const res = await useMyFetch('/users/me/instructions')
     const note = (res.data?.value as any)?.note || ''
-    const memory = (res.data?.value as any)?.memory || ''
     noteInput.value = note
     noteOriginal.value = note
-    memoryInput.value = memory
-    memoryOriginal.value = memory
     profileAttributes.value = (res.data?.value as any)?.profile_attributes || {}
     instructionsLoaded.value = true
   } catch {
@@ -810,23 +858,16 @@ async function loadProfileAttributes() {
 async function saveNote() {
   savingNote.value = true
   try {
-    // Both fields are sent together — the endpoint sets each from the payload,
-    // so we always include the current value of the other to avoid clearing it.
     const res = await useMyFetch('/users/me/instructions', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        note: noteInput.value.trim() || null,
-        memory: memoryInput.value.trim() || null,
-      }),
+      body: JSON.stringify({ note: noteInput.value.trim() || null }),
     })
     if (res.status.value !== 'success') {
       throw new Error((res.error?.value as any)?.data?.detail || t('profile.instructions.saveFailed'))
     }
     noteOriginal.value = (res.data?.value as any)?.note || ''
     noteInput.value = noteOriginal.value
-    memoryOriginal.value = (res.data?.value as any)?.memory || ''
-    memoryInput.value = memoryOriginal.value
     toast.add({ title: t('profile.instructions.saved'), color: 'green' })
   } catch (e: any) {
     toast.add({ title: e?.message || t('profile.instructions.saveFailed'), color: 'red' })
@@ -1162,6 +1203,7 @@ watch(isOpen, (open) => {
     syncNameInput()
     loadOrgLocale()
     loadModels()
+    loadCheckins()
     loadProfileAttributes()
     if (activeTab.value === 'instructions') loadInstructions()
     if (activeTab.value === 'apiKeys') loadApiKeys()

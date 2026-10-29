@@ -7,7 +7,7 @@
           <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ $t('prompts.title') }}</h1>
           <button
             @click="openNew"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
           >
             <UIcon name="heroicons-plus" class="w-3.5 h-3.5" />
             {{ $t('prompts.newPrompt') }}
@@ -17,7 +17,7 @@
         <!-- Filters -->
         <div class="mt-3 flex flex-wrap items-center gap-2">
           <div class="relative flex-1 min-w-[180px]">
-            <UIcon name="heroicons-magnifying-glass" class="absolute start-2.5 top-2.5 w-4 h-4 text-gray-400" />
+            <UIcon name="heroicons-magnifying-glass" class="absolute start-2.5 top-2.5 w-4 h-4 text-ink-muted" />
             <input
               v-model="search"
               type="text"
@@ -31,7 +31,7 @@
             <button
               v-for="opt in scopeFilterOptions"
               :key="opt.value"
-              class="px-2.5 py-1 text-[11px] rounded transition-colors"
+              class="px-2.5 py-1 text-2xs rounded transition-colors"
               :class="scopeFilter === opt.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
               @click="scopeFilter = opt.value"
             >{{ opt.label }}</button>

@@ -8,3 +8,7 @@
 # Vendored fonts (+ the generated @font-face sheet) are downloaded too.
 fonts/
 artifact-fonts.css
+
+!artifact-sdk.js
+# Swagger UI bundle + css, downloaded by scripts/download-vendor-libs.sh
+swagger-ui/
