@@ -4033,6 +4033,7 @@
     "instruction.version_mismatch": "A versão não pertence a esta instrução",
     "integration.not_found": "Integração não encontrada",
     "resource.conflict": "O recurso já existe ou conflita com o estado atual",
+    "review.stale_main": "Isto mudou desde a última vez que você viu. Atualize e tente novamente.",
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "Falha ao atualizar configuração",
     "query": {

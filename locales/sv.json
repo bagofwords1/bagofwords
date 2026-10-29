@@ -4033,6 +4033,7 @@
     "instruction.version_mismatch": "Versionen tillhör inte den här instruktionen",
     "integration.not_found": "Integrationen hittades inte",
     "resource.conflict": "Resursen finns redan eller står i konflikt med befintligt tillstånd",
+    "review.stale_main": "Detta har ändrats sedan du senast såg det. Uppdatera och försök igen.",
     "resource.duplicate": "Duplicerad resurs",
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {

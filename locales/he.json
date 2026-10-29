@@ -4315,6 +4315,7 @@
     "instruction.version_mismatch": "הגרסה אינה שייכת להנחיה הזו",
     "integration.not_found": "האינטגרציה לא נמצאה",
     "resource.conflict": "המשאב כבר קיים או סותר את המצב הקיים",
+    "review.stale_main": "זה השתנה מאז שצפית בו לאחרונה. רעננו ונסו שוב.",
     "resource.duplicate": "משאב כפול",
     "setting.update_failed": "עדכון ההגדרה נכשל",
     "query": {

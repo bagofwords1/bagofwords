@@ -2156,3 +2156,39 @@ def test_duplicate_selection_is_not_reported_as_staleness(
     )
     assert resp.status_code == 409, resp.json()
     assert "moved since you viewed" not in resp.json()["detail"]
+    # The invalid-selection 409 must NOT carry the stale-main code, or the client
+    # would retry it into the refresh loop this test guards against.
+    assert resp.json()["error_code"] != "review.stale_main"
+
+
+@pytest.mark.e2e
+def test_stale_main_resolve_carries_the_retry_code(
+    test_client, create_global_instruction, create_user, login_user, whoami,
+):
+    """A resolve naming a main build that has since moved 409s with the
+    machine-readable `review.stale_main` code — distinct from the invalid-
+    selection 409 above. The client (utils/reviewRetry.isReviewConflict) keys the
+    one-shot retry off this code, so if it ever stops being emitted the retry
+    silently never fires and the multi-card race the PR fixes comes back."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    iid = create_global_instruction(
+        text="one two three four", user_token=token, org_id=org_id, status="published",
+    )["id"]
+    bid = _inject_suggestion_build(org_id, iid, "one TWO three four")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    (hunk,) = review["suggestions"][0]["hunks"]
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        json={"against_main_build_id": "00000000-0000-0000-0000-000000000000",  # not current main
+              "against_main_version_id": review["main_version_id"],
+              "hunks": [{"build_id": bid, "hunk_key": hunk["key"]}]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.json()
+    assert resp.json()["error_code"] == "review.stale_main", resp.json()
+    assert "moved since you viewed" in resp.json()["detail"]
