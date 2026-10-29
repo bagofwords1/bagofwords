@@ -3,7 +3,7 @@
 Reached from the artifact's sandbox only through the page's runtime broker
 (frontend/composables/useArtifactRuntime.ts), like the rest of the runtime.
 The viewer is the app session or an embed session (core/embed_auth.py); the
-policy is the artifact's chat settings (services/artifact_conversations.py).
+policy is in services/artifact_conversations.py (independent of the chat bubble).
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ async def conversation_policy(artifact_id: str, request: Request, db: AsyncSessi
         artifact, release, organization, user = await _viewer(artifact_id, request, db, user, "read")
     except AppError as e:
         if e.error_code == ErrorCode.CONVERSATION_UNAVAILABLE.value:
-            return {"available": False, "reason": "disabled", "agents": []}
+            return {"available": False, "reason": "not_member", "agents": []}
         raise
     return await conversations.policy(db, artifact, release, organization, user)
 

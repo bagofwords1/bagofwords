@@ -57,9 +57,10 @@ for await (const event of bow.ai.stream(operationName,
 CONVERSATIONS: chat-assistant apps talk to the organization's agents (the
 same agents, tools and data access as a BOW conversation, as the viewer), not
 to a bare model. Use bow.conversations for that; use bow.ai only for one-off
-text operations without data. They work once the published dashboard's chat
-is on (Settings → Viewers → Chat, which also picks the agents and model); tell
-the user to switch it on. Each viewer sees only their own conversations.
+text operations without data. Conversations use the agents this artifact was
+built with (the conversation's agents), as each viewer may use them; no
+setting needs switching on. Each viewer sees only their own conversations.
+Show policy().reason when available is false (auth_required, not_member).
 const policy = await bow.conversations.policy(); // {available,reason?,scope,agents:[{id,name}]}
 const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
 const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}

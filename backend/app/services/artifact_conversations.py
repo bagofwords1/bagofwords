@@ -2,16 +2,19 @@
 
 A conversation is the viewer's own hidden ``artifact_chat`` report on the
 artifact (reports.source_artifact_id), the same kind of thread the dashboard's
-chat bubble uses (services/dashboard_chat.py), under the same policy:
+chat bubble uses (services/dashboard_chat.py). It is the artifact's own
+capability, not the bubble's, so the bubble's settings (Allow chat, its
+"dashboard data only" scope) do not limit it:
 
 * who: whoever may read the published artifact, signed in (an app session or
-  an embed session), a live member of its organization, with the artifact's
-  chat switched on;
-* the agents: those the artifact's chat allows (chat_data_source_ids, else
-  the release's own) that the viewer may use, live. A conversation may name a
-  subset when it starts (a report can carry several agents); each message
-  re-checks it, so a revoked agent drops out at once;
-* the model: the artifact's chat_model_id;
+  an embed session), a live member of its organization; and its editors on
+  the draft, before it is published, so they can try the app they build;
+* the agents: the ones the artifact was built with (the release's, or the
+  draft's conversation's) plus any the chat settings name, that the viewer
+  may use, live. A conversation may name a subset when it starts (a report
+  can carry several agents); each message re-checks it, so a revoked agent
+  drops out at once;
+* the model: the artifact's chat_model_id, else the organization's;
 * the context: the live release, the rows this viewer may see.
 
 A viewer may hold any number of conversations on an artifact and sees only
@@ -36,25 +39,54 @@ PAGE_LIMIT = 50
 
 
 async def open_for(db, artifact_id: str, user):
-    """(artifact, release, organization) if ``user`` may hold conversations here."""
-    from fastapi import HTTPException
-
+    """(artifact, release or None, organization) if ``user`` may hold
+    conversations here. ``release`` is None only for an editor trying the
+    unpublished draft."""
     from app.models.organization import Organization
+    from app.services import dashboard_access
 
-    try:
-        artifact, release = await dashboard_chat.open_chat(db, artifact_id, user)
-    except HTTPException as e:
-        if e.status_code == 403 and "not enabled" in str(e.detail):
-            raise AppError.forbidden(ErrorCode.CONVERSATION_UNAVAILABLE, "Conversations are not turned on here")
-        raise
+    if user is None:
+        raise AppError.unauthorized(ErrorCode.EMBED_SESSION_INVALID, "Sign in to hold a conversation")
+    artifact = await dashboard_access.resolve(db, artifact_id)
+    release = await dashboard_access.published_release(db, artifact)
+    if release is None and await dashboard_access.can_edit(db, artifact, user):
+        artifact = await dashboard_access.open_draft(db, artifact_id, user)
+    else:
+        artifact, release = await dashboard_access.open_published(db, artifact_id, user)
+    if not await dashboard_access._is_member(db, user, artifact.organization_id):
+        raise AppError.forbidden(ErrorCode.CONVERSATION_UNAVAILABLE, "Conversations are for members of this workspace")
     organization = await db.get(Organization, str(artifact.organization_id))
     return artifact, release, organization
+
+
+async def _built_with(db, artifact, release) -> set[str]:
+    """The agents the artifact was made with: the release's, else (a draft)
+    those of the conversations editing it."""
+    if release is not None:
+        return set(await dashboard_chat._release_sources(db, release))
+    from app.services.dashboard_collab import editing_report_ids
+
+    reports = [str(r) for r in await editing_report_ids(db, artifact)] or [str(artifact.report_id)]
+    return {str(x) for x in (await db.execute(select(report_data_source_association.c.data_source_id).where(
+        report_data_source_association.c.report_id.in_(reports)))).scalars().all()}
+
+
+async def allowed_agent_ids(db, artifact, release, organization, user) -> list[str]:
+    """The agents this viewer may talk to through this artifact, live."""
+    from app.ai.tools.implementations.agent_focus_common import accessible_agents
+    from app.services.data_source_service import DataSourceService
+
+    allowed = await _built_with(db, artifact, release) | {str(x) for x in (artifact.chat_data_source_ids or [])}
+    if not allowed:
+        return []
+    return [str(ds.id) for ds in await accessible_agents(db, organization, user)
+            if str(ds.id) in allowed and DataSourceService.is_execution_live(ds)]
 
 
 async def policy(db, artifact, release, organization, user) -> dict:
     from app.models.data_source import DataSource
 
-    agent_ids = await dashboard_chat.effective_agent_ids(db, artifact, release, organization, user)
+    agent_ids = await allowed_agent_ids(db, artifact, release, organization, user)
     names = dict((await db.execute(select(DataSource.id, DataSource.name).where(
         DataSource.id.in_(agent_ids)))).all()) if agent_ids else {}
     return {"available": True, "scope": "agents" if agent_ids else "data_only",
@@ -107,7 +139,7 @@ def _title(value: Optional[str], artifact) -> str:
 
 async def create(db, artifact, release, organization, user, *, title: Optional[str],
                  agent_ids: Optional[list[str]]) -> dict:
-    allowed = await dashboard_chat.effective_agent_ids(db, artifact, release, organization, user)
+    allowed = await allowed_agent_ids(db, artifact, release, organization, user)
     if agent_ids is None:
         chosen = allowed
     else:
@@ -146,7 +178,7 @@ async def archive(db, thread: Report) -> None:
 async def prepare_message(db, artifact, release, organization, user, thread: Report) -> dict:
     """Re-apply the policy before a message: the thread's agents still allowed,
     the artifact's model, and the live context. Returns the platform context."""
-    allowed = set(await dashboard_chat.effective_agent_ids(db, artifact, release, organization, user))
+    allowed = set(await allowed_agent_ids(db, artifact, release, organization, user))
     current = await _roster(db, thread)
     keep = [a for a in current if a in allowed]
     if current and not keep:
@@ -156,6 +188,9 @@ async def prepare_message(db, artifact, release, organization, user, thread: Rep
     thread.model_id = dashboard_chat.chat_model_id(artifact)
     await artifact_chat_service.sync_roster(db, thread, keep)
     await db.commit()
+    if release is None:  # an editor trying the draft: no published rows to hand over
+        return {"source_report_title": artifact.title, "artifact_title": artifact.title,
+                "scope": "agents" if keep else "data_only"}
     return await dashboard_chat.build_context(db, artifact, release, keep, user)
 
 

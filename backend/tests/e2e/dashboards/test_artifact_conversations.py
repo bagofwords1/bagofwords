@@ -3,13 +3,14 @@
 
 The contract:
 
-* the dashboard chat policy decides: a signed-in member who may read the
-  published artifact, with the artifact's chat on; refused otherwise;
+* a signed-in member who may read the published artifact (or an editor, on
+  the draft) holds conversations; the chat bubble's settings (Allow chat,
+  "dashboard data only") neither switch them off nor narrow their agents;
 * each viewer holds any number of conversations and reaches only their own;
 * a message streams NDJSON (started … completed, exactly one terminal
   event) and is stored, readable back through messages();
 * an embed session holds conversations only on artifacts that allow its host;
-* the policy is re-applied on every message (chat switched off: refused).
+* access is re-checked on every message (unshared: refused).
 
 The agent loop is stubbed at AgentV2.main_execution (no LLM); routes,
 services and the database are real.
@@ -57,10 +58,12 @@ def stub_agent(monkeypatch, corpus, test_client):
 
 
 def _chatty(corpus, corpus_rows, test_client, key=DASH, **settings):
+    """A published app shared with the organization. The bubble stays off and
+    data-only: conversations must not depend on it."""
     aid = own(corpus_rows, corpus, key)
     publish(aid)
     assert share(test_client, corpus, aid, "internal").status_code == 200
-    corpus_rows.update("artifacts", aid, chat_enabled=True, chat_data_source_ids=[], **settings)
+    corpus_rows.update("artifacts", aid, chat_enabled=False, chat_data_source_ids=[], **settings)
     return aid
 
 
@@ -75,18 +78,20 @@ def events(response) -> list[dict]:
 def test_who_may_hold_conversations(corpus, corpus_rows, test_client):
     aid = _chatty(corpus, corpus_rows, test_client)
     assert test_client.get(f"{base(aid)}/policy", headers=as_(corpus, "member")).json()["available"] is True
+    assert test_client.post(base(aid), json={}, headers=as_(corpus, "member")).status_code == 201
     assert test_client.get(f"{base(aid)}/policy", headers=as_(corpus, "anonymous")).json()["reason"] == "auth_required"
     assert test_client.post(base(aid), json={}, headers=as_(corpus, "anonymous")).status_code == 401
     assert test_client.post(base(aid), json={}, headers=as_(corpus, "other_org")).status_code in (403, 404)
-    corpus_rows.update("artifacts", aid, chat_enabled=False)
-    assert test_client.get(f"{base(aid)}/policy", headers=as_(corpus, "member")).json()["reason"] == "disabled"
-    off = test_client.post(base(aid), json={}, headers=as_(corpus, "member"))
-    assert off.status_code == 403 and off.json()["error_code"] == "conversation.unavailable"
     # Not shared with the reader: as if it did not exist.
     hidden = own(corpus_rows, corpus, OTHER)
     publish(hidden)
-    corpus_rows.update("artifacts", hidden, chat_enabled=True)
     assert test_client.post(base(hidden), json={}, headers=as_(corpus, "member")).status_code == 404
+
+
+def test_editors_try_conversations_on_the_unpublished_draft(corpus, corpus_rows, test_client):
+    draft = own(corpus_rows, corpus, OTHER)  # never published
+    assert test_client.post(base(draft), json={}, headers=as_(corpus, "owner")).status_code == 201
+    assert test_client.post(base(draft), json={}, headers=as_(corpus, "member")).status_code == 404
 
 
 def test_each_viewer_reaches_only_their_own_conversations(corpus, corpus_rows, test_client):
@@ -129,24 +134,22 @@ def test_a_message_streams_once_and_is_stored(corpus, corpus_rows, test_client, 
     assert history[1]["id"] == stream[0]["message_id"]
 
 
-def test_the_policy_is_reapplied_on_every_message(corpus, corpus_rows, test_client, stub_agent):
+def test_access_is_rechecked_on_every_message(corpus, corpus_rows, test_client, stub_agent):
     aid = _chatty(corpus, corpus_rows, test_client)
     conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
-    corpus_rows.update("artifacts", aid, chat_enabled=False)
-    r = test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "hi"}, headers=as_(corpus, "member"))
-    assert r.status_code == 403
-    corpus_rows.update("artifacts", aid, chat_enabled=True)
     share(test_client, corpus, aid, "none")
     assert test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "hi"},
                             headers=as_(corpus, "member")).status_code == 404
 
 
-def test_a_conversation_may_name_only_allowed_agents(corpus, corpus_rows, test_client):
-    aid = _chatty(corpus, corpus_rows, test_client)
-    r = test_client.post(base(aid), json={"agents": [str(uuid.uuid4())]}, headers=as_(corpus, "member"))
+def test_conversations_use_the_agents_the_artifact_was_built_with(corpus, corpus_rows, test_client):
+    aid = _chatty(corpus, corpus_rows, test_client)  # bubble off, "dashboard data only"
+    agents = [a["id"] for a in test_client.get(f"{base(aid)}/policy", headers=as_(corpus, "owner")).json()["agents"]]
+    assert agents, "the dashboard's own agent is offered whatever the bubble's scope"
+    picked = test_client.post(base(aid), json={"agents": agents[:1]}, headers=as_(corpus, "owner"))
+    assert picked.status_code == 201 and picked.json()["agents"] == agents[:1]
+    r = test_client.post(base(aid), json={"agents": [str(uuid.uuid4())]}, headers=as_(corpus, "owner"))
     assert r.status_code == 403 and r.json()["error_code"] == "conversation.agent_forbidden"
-    data_only = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
-    assert data_only["agents"] == []
 
 
 def test_an_embed_session_holds_conversations_only_where_its_host_is_allowed(corpus, corpus_rows, test_client, stub_agent):
