@@ -57,6 +57,7 @@ RESULT_TOOLS = frozenset({"create_data"})
 CHART_TYPES = {"bar_chart": "bar", "line_chart": "line", "area_chart": "area", "pie_chart": "pie",
                "scatter_plot": "scatter"}
 
+_NO_OP_SERIES_AGGREGATIONS = frozenset({None, "sum", "avg", "min", "max"})  # over one value per category
 _MAX_SAFE_INT = 2 ** 53 - 1
 _NUMERIC_DTYPE = re.compile(r"^(u?int|float)\d*$")  # not "interval[...]", "category", "object"
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$")
@@ -142,9 +143,11 @@ def _trim(result: dict, max_bytes: int) -> dict:
 
 
 def _distinct(rows: list, keys: list[str]) -> bool:
+    """Whether each combination of ``keys`` appears once. null and "" are one
+    category (BOW's charts bucket with ``String(v ?? '')``)."""
     seen = set()
     for row in rows:
-        key = json.dumps([row.get(k) for k in keys], sort_keys=True, default=str)
+        key = json.dumps(["" if row.get(k) is None else row.get(k) for k in keys], sort_keys=True, default=str)
         if key in seen:
             return False
         seen.add(key)
@@ -153,7 +156,11 @@ def _distinct(rows: list, keys: list[str]) -> bool:
 
 def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[dict]:
     """The chart the agent configured, if the rows can draw it as they are
-    (no aggregation, no filter, the value axes numeric). Else None."""
+    (no filter or top-level aggregation, the value axes numeric, and x too
+    for scatter). Else None. A sum/avg/min/max series aggregation
+    (``seriesStyles[].aggregation``) is accepted because the categories must
+    be distinct anyway, which makes it a no-op over one value; ``count`` (1
+    per category, not the value) or any other means None, as do duplicates."""
     from app.schemas.view_schema import ViewSchema
 
     schema = ViewSchema.from_dict(view)
@@ -163,7 +170,8 @@ def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[
         return None
     if getattr(v, "aggregation", None) or getattr(v, "defaultFilters", None):
         return None
-    if any(getattr(s, "aggregation", None) for s in (getattr(v, "seriesStyles", None) or [])):
+    if any(getattr(s, "aggregation", None) not in _NO_OP_SERIES_AGGREGATIONS
+           for s in (getattr(v, "seriesStyles", None) or [])):
         return None
     series = None
     if kind == "pie":

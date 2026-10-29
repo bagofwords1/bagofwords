@@ -75,16 +75,22 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
     if(method==='ai'){if(options.onEvent){options.onEvent({type:'text_delta',text:'Preview output. '});options.onEvent({type:'text_delta',text:'No model was called.'});options.onEvent({type:'completed',output:'Preview output. No model was called.'});}return null;}
     throw sdkError({code:'UNAVAILABLE',message:'Unsupported fixture operation'});
   }
-  // Verifier mode: conversations live in the frame and answer with a fixed text.
+  // Verifier mode: conversations live in the frame and answer with a fixed text
+  // and two sample results, ids per message (a fresh copy each time): a bar chart,
+  // and a cut table without a chart (more rows and columns than shown).
   var fixtureThreads = new Map();
+  function fixtureResults(mid) { return [
+    {id:mid+'-result-1',block:'b1',title:'Preview result',columns:[{field:'category',headerName:'Category',type:'string'},{field:'value',headerName:'Value',type:'number'}],rows:[{category:'A',value:3},{category:'B',value:5},{category:'C',value:2}],row_count:3,column_count:2,truncated:false,chart:{type:'bar',x:'category',y:['value'],series:null}},
+    {id:mid+'-result-2',block:'b1',title:'Preview detail (partial)',columns:[{field:'name',headerName:'Name',type:'string'},{field:'amount',headerName:'Amount',type:'number'}],rows:[{name:'Alpha',amount:120.5},{name:'Beta',amount:98}],row_count:120,column_count:5,truncated:true,chart:null}
+  ]; }
   function fixtureConversation(method, args, options) {
     var now = new Date().toISOString(), thread = args.id != null ? fixtureThreads.get(args.id) : null;
     if (method === 'conversationSend') {
       if (!thread) throw sdkError({code:'NOT_FOUND',message:'Conversation not found'});
       thread.messages.push({id:'fixture-msg-'+String(++sequence),role:'user',text:String(args.text||''),status:'success',created_at:now});
-      var reply = 'Preview answer. No agent was called.';
-      if (options.onEvent) { options.onEvent({type:'started',message_id:'fixture-msg-'+String(++sequence)}); options.onEvent({type:'text_delta',block:'b1',text:reply}); options.onEvent({type:'completed',status:'success'}); }
-      thread.messages.push({id:'fixture-msg-'+String(++sequence),role:'assistant',text:reply,status:'success',tools:[],created_at:now});
+      var reply = 'Preview answer. No agent was called.', mid = 'fixture-msg-'+String(++sequence);
+      if (options.onEvent) { options.onEvent({type:'started',message_id:mid}); options.onEvent({type:'text_delta',block:'b1',text:reply}); fixtureResults(mid).forEach(function(r){options.onEvent(Object.assign({type:'result'},r));}); options.onEvent({type:'completed',status:'success'}); }
+      thread.messages.push({id:mid,role:'assistant',text:reply,status:'success',tools:[],results:fixtureResults(mid),created_at:now});
       return null;
     }
     switch (args.op) {
@@ -96,7 +102,7 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
     if (args.op === 'get') return {id:thread.id,title:thread.title,created_at:thread.created_at,updated_at:thread.created_at,agents:thread.agents};
     if (args.op === 'rename') { thread.title = String(args.title||thread.title); return {id:thread.id,title:thread.title,created_at:thread.created_at,updated_at:now,agents:thread.agents}; }
     if (args.op === 'archive') { fixtureThreads.delete(args.id); return null; }
-    if (args.op === 'messages') return {items:thread.messages.slice(),next_before:null};
+    if (args.op === 'messages') return {items:thread.messages.map(function(m){return m.results?Object.assign({},m,{results:fixtureResults(m.id)}):m;}),next_before:null};
     if (args.op === 'stop') return {id:args.messageId,status:'stopped'};
     throw sdkError({code:'UNAVAILABLE',message:'Unsupported fixture operation'});
   }
@@ -234,7 +240,9 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
     },
     // The viewer's own conversations with this artifact, answered by the agents
     // its chat settings allow. send() yields {type:'started'|'tool'|'text_delta'|
-    // 'text'|'completed'} events; messages() returns the stored thread.
+    // 'text'|'result'|'completed'} events (a result is one table, with a chart
+    // hint or null); messages() returns the stored thread, assistant items with
+    // results:[...].
     conversations: {
       policy: function () { return request('conversations',{op:'policy'}); },
       list: function (opts) { opts = opts || {}; return request('conversations',{op:'list',limit:opts.limit,before:opts.before},opts); },

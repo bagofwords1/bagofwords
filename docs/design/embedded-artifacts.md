@@ -149,11 +149,13 @@ As built (`backend/app/routes/artifact_conversations.py`, `services/artifact_con
 | `GET  ?limit&before` | the viewer's conversations on this artifact, newest first |
 | `POST` `{title?, agents?}` | create; `agents` must be ⊆ policy ∩ the viewer's access (`conversation.agent_forbidden`) |
 | `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise) |
-| `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}` |
-| `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, then exactly one `completed` or `error` |
+| `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}`; assistant items also carry `results[]` (and `results_incomplete: true` when some could not be produced) |
+| `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, `result`, then exactly one `completed` (optionally `results_incomplete: true`) or `error`; nothing after it |
 | `POST /{cid}/messages/{mid}/stop` | `update_completion_sigkill` |
 
 Viewer = `viewer_optional` (app session or embed session). Policy (`artifact_conversations.open_for` / `allowed_agent_ids`), re-applied on every message: anyone who may read the published artifact and is a member (editors also on the unpublished draft); agents = the ones the artifact was built with plus any named in the chat settings, as the viewer may use them. **Independent of the chat bubble**: *Allow chat* off or its *dashboard data only* scope do not switch conversations off or empty their agents. Rate limits: 6 messages/min per viewer per artifact, 60/min per organization, 240 reads/min. Not built yet: re-attach to a running answer (`watch`), MCP approvals and clarify responses (§10.2).
+
+**Results (as built, `services/artifact_conversation_results.py`).** Each successful `create_data` of the answer reaches the app as a `result` event before `completed`, and again in history on the assistant item, so a reload shows what the answer showed: `{id, block, title, columns:[{field, headerName, type}], rows:[{field: value}], row_count, column_count, truncated, chart}`. Only the thread's own steps are read (never the dashboard's or another viewer's), with the organization's display redaction applied to cells, headers and titles. Caps: 200 rows, 30 columns, 1000 characters per cell, 256 KiB per result line and 512 KiB of result lines per message (the broker reads 1 MiB per chunk); anything cut sets `truncated`. `chart` is the agent's own view as a hint (`bar|line|area|pie|scatter`, `x`, `y[]`, `series`), kept only when the shaped rows can draw it as they are: rows not truncated, the axes are kept columns, the value axes are numeric (and x for scatter), no filter or top-level aggregation, and each x (or x and series) appears once (null and `""` count as one category, as BOW's charts bucket them), so a sum/avg/min/max series aggregation is a no-op (`count`, or any other, means no chart); otherwise `chart: null` and the app shows the table only. When the agent stores a result after the answer finished, `completed` waits for it at most 4 s; a later one is history-only and `completed` says `results_incomplete: true`. Only `create_data` results are shown; `run_query` output is a follow-up.
 
 **Why not let the broker call `/api/reports` directly:** generated code would get the viewer's whole API (every report, settings, sharing), policy would live in the browser, and embed sessions would have to be accepted by the main API. Server-side runtime routes keep all three closed.
 
@@ -162,15 +164,15 @@ Viewer = `viewer_optional` (app session or embed session). Policy (`artifact_con
 ```js
 await bow.conversations.policy()                          // {available, scope, agents}
 const c = await bow.conversations.create({ title, agents })
-for await (const ev of bow.conversations.send(c.id, text, { signal })) { /* started|tool|text_delta|text|completed */ }
+for await (const ev of bow.conversations.send(c.id, text, { signal })) { /* started|tool|text_delta|text|result|completed */ }
 await bow.conversations.list({ limit: 20 })               // past conversations
-await bow.conversations.messages(c.id, { before })        // transcript
+await bow.conversations.messages(c.id, { before })        // transcript; assistant items carry results[]
 await bow.conversations.rename(c.id, title); await bow.conversations.archive(c.id)
 await bow.conversations.stop(c.id, messageId)
 bow.markdown(text)                                        // agent answers → safe React elements (no HTML)
 ```
 
-Fixture mode keeps conversations in the frame and answers with a fixed text, like `bow.ai`. The page's own chat bubble hides when the artifact uses `bow.conversations` (it is the chat).
+Fixture mode keeps conversations in the frame and answers with a fixed text and two sample `result`s, ids per message (a three-row bar chart, and a cut table with `chart: null` and more rows and columns than shown; both also stored on the message), like `bow.ai`, so verifier runs reach the table-only and truncation branches. The authoring reference (`artifact_sdk_reference.py`) teaches apps to render each result under its message with `DataTable` always, `EChart` only when `chart` is set (its `resultOption(r)` helper, computed once per result with `useMemo` so streaming does not reset the chart; null for an unknown chart type), a truncation note ("showing N of M rows", plus "N of M columns" when they differ, else "partial table"), a `messages()` re-read when `completed` says `results_incomplete`, and a short "some results of this answer could not be shown" note when a message still has `results_incomplete` after it. The broker passes `result` events through unchanged. The page's own chat bubble hides when the artifact uses `bow.conversations` (it is the chat).
 
 ### 5.5 Authoring
 

@@ -66,17 +66,48 @@ const {items, next_before} = await bow.conversations.list({limit: 20}); // newes
 const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
 const history = await bow.conversations.messages(conv.id, {limit: 30});
-// {items:[{id,role:'user'|'assistant',text,status,created_at,tools?:[{name,title,status}]}],next_before}
+// {items:[{id,role:'user'|'assistant',text,status,created_at,tools?:[{name,title,status}],
+//   results?:[...],results_incomplete?:true}],next_before}
 // tools (assistant only) are objects, the same shape as tool events: render tool.title || tool.name, never the object.
+// results (assistant only, possibly empty) are the same objects as the result events: render them the same way after reload.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
   // started {message_id}; tool {name,title,status}; text_delta {block,text}: append;
-  // text {block,text}: replace that block's text; completed {status}
+  // text {block,text}: replace that block's text;
+  // result {id,block,title,columns:[{field,headerName,type}],rows:[{field:value}],row_count,column_count,truncated,chart}:
+  //   one per data result of the answer, before completed; keep them on that message (by id). type is
+  //   'number'|'string'|'boolean'|'datetime'. chart is null or {type:'bar'|'line'|'area'|'pie'|'scatter',
+  //   x:field, y:[field], series:field|null}: when chart is null show the table only, never invent a chart;
+  // completed {status, results_incomplete?:true}: when results_incomplete, some results did not arrive in
+  //   the stream: re-read messages() and render its results for that message.
 }
 await bow.conversations.stop(conv.id, messageId); // the started event's message_id
 // Send only on a user action. Assistant text is Markdown (tables, lists):
 // render it with {bow.markdown(text)} (safe React elements, no HTML), user
 // text as plain text. Show tools as progress. Re-read messages() after
 // completed for the stored answer. Errors as above.
+// Render each result under its message, the table always and the chart only when r.chart is set,
+// in its own component so the chart option is computed once per result (keep the received result
+// objects; a new option object on every render resets the chart while text streams in):
+//   function ResultView({r}){const opt = React.useMemo(() => resultOption(r), [r]);
+//     return <div>{opt && <EChart option={opt} height={280}/>}
+//       <DataTable rows={r.rows} columns={r.columns} pageSize={10} density="compact"/>
+//       {r.truncated && <p className="text-xs">{/* the truncation note */}</p>}</div>;}
+// The truncation note: "Showing {r.rows.length} of {r.row_count} rows", plus
+//   ", {r.columns.length} of {r.column_count} columns" when they differ; when both are complete
+//   (long cells were cut) say "partial table" instead.
+// When a message still has results_incomplete after the re-read, show a short note under it:
+//   "some results of this answer could not be shown".
+// Results are already shown: never re-parse numbers from the answer text to draw them.
+function resultOption(r){const c=r.chart;if(!c||!['bar','line','area','pie','scatter'].includes(c.type))return null;
+  const rows=r.rows;
+  if(c.type==='pie')return {tooltip:{},series:[{type:'pie',data:rows.map(x=>({name:String(x[c.x]),value:x[c.y[0]]}))}]};
+  if(c.type==='scatter')return {tooltip:{},xAxis:{type:'value'},yAxis:{type:'value'},series:[{type:'scatter',data:rows.map(x=>[x[c.x],x[c.y[0]]])}]};
+  const xs=[...new Set(rows.map(x=>x[c.x]))], t=c.type==='area'?'line':c.type;
+  const lines=c.series?[...new Set(rows.map(x=>x[c.series]))].map(g=>({name:String(g),col:c.y[0],rows:rows.filter(x=>x[c.series]===g)}))
+    :c.y.map(col=>({name:(r.columns.find(k=>k.field===col)||{}).headerName||col,col,rows}));
+  return {tooltip:{trigger:'axis'},legend:{},xAxis:{type:'category',data:xs},yAxis:{type:'value'},
+    series:lines.map(l=>({name:l.name,type:t,areaStyle:c.type==='area'?{}:undefined,
+      data:xs.map(v=>{const row=l.rows.find(x=>x[c.x]===v);return row?row[l.col]:null;})}))};}
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
 application says the user is looking at (e.g. {customerId}); advisory, may be null.
 

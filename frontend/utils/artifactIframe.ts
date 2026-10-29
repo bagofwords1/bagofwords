@@ -162,7 +162,7 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
     libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=imports-1`),
-    libUrl('artifact-sdk.js', 'v=2'),
+    libUrl('artifact-sdk.js', 'v=3'),
   ];
 }
 

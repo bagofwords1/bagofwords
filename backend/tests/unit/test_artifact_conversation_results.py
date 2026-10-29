@@ -329,8 +329,6 @@ def test_views_that_are_not_charts_suggest_none(view):
     _v2({"type": "bar_chart", "x": "month", "y": "revenue", "groupBy": "month"}),
     _v2({"type": "bar_chart", "x": "month", "y": "revenue", "groupBy": "nope"}),
     _v2({"type": "pie_chart", "category": "month", "value": "revenue", "aggregation": "sum"}),
-    _v2({"type": "bar_chart", "x": "month", "y": "revenue",
-         "seriesStyles": [{"key": "revenue", "aggregation": "sum"}]}),
     _v2({"type": "line_chart", "x": "month", "y": "revenue",
          "defaultFilters": [{"column": "month", "operator": "=", "value": "2024-01"}]}),
 ])
@@ -380,6 +378,67 @@ def test_interval_and_categorical_dtypes_are_not_numbers():
 def test_a_series_style_with_only_a_color_keeps_the_chart():
     view = _v2({"type": "bar_chart", "x": "month", "y": "revenue", "seriesStyles": [{"key": "revenue", "color": "#f00"}]})
     assert _shape(BY_MONTH, view)["chart"]["type"] == "bar"
+
+
+def test_a_series_aggregation_over_distinct_categories_is_a_no_op_so_the_chart_is_kept():
+    # Live Haiku views carry seriesStyles[{aggregation:"sum"}] over already-grouped rows:
+    # each x appears once, so summing changes nothing and the rows draw the chart as they are.
+    view = _v2({"type": "bar_chart", "x": "month", "y": "revenue",
+                "seriesStyles": [{"key": "revenue", "aggregation": "sum"}]})
+    assert _shape(BY_MONTH, view)["chart"] == {"type": "bar", "x": "month", "y": ["revenue"], "series": None}
+    rows = [{"month": m, "genre": g, "sales": i} for i, (m, g) in enumerate(
+        [(m, g) for m in MONTHS[:2] for g in ("Rock", "Jazz")])]
+    grouped = _data(["month", "genre", "sales"], rows, dtypes={"sales": "int64"})
+    assert _shape(grouped, _v2({"type": "line_chart", "x": "month", "y": "sales", "groupBy": "genre",
+                                "seriesStyles": [{"key": "sales", "aggregation": "sum"}]}))["chart"] == \
+        {"type": "line", "x": "month", "y": ["sales"], "series": "genre"}
+
+
+# Every AggregationFn must be classified here: a no-op over distinct categories
+# (sum/avg/min/max of one value is that value) keeps the chart; count draws 1 per
+# category (EChartsVisual counts the values), not the value, so no chart.
+SERIES_AGGREGATION_KEEPS_CHART = {"sum": True, "avg": True, "min": True, "max": True, "count": False}
+
+
+def test_every_aggregation_fn_is_classified():
+    import typing
+
+    from app.schemas.view_schema import AggregationFn
+
+    assert set(SERIES_AGGREGATION_KEEPS_CHART) == set(typing.get_args(AggregationFn))
+
+
+@pytest.mark.parametrize("fn", sorted(SERIES_AGGREGATION_KEEPS_CHART))
+def test_a_series_aggregation_keeps_the_chart_only_when_it_is_a_no_op(fn):
+    view = _v2({"type": "bar_chart", "x": "month", "y": "revenue",
+                "seriesStyles": [{"key": "revenue", "aggregation": fn}]})
+    chart = _shape(BY_MONTH, view)["chart"]
+    if SERIES_AGGREGATION_KEEPS_CHART[fn]:
+        assert chart == {"type": "bar", "x": "month", "y": ["revenue"], "series": None}
+    else:
+        assert chart is None
+
+
+def test_null_and_empty_x_are_one_category_so_a_series_aggregation_has_no_chart():
+    # BOW buckets categories with String(v ?? ''): null and "" would be summed together.
+    data = _data(["month", "revenue"], [{"month": None, "revenue": 1}, {"month": "", "revenue": 2}],
+                 dtypes={"revenue": "int64"})
+    view = _v2({"type": "bar_chart", "x": "month", "y": "revenue",
+                "seriesStyles": [{"key": "revenue", "aggregation": "sum"}]})
+    assert _shape(data, view)["chart"] is None
+    assert _shape(data, BAR)["chart"] is None
+
+
+def test_a_series_aggregation_over_duplicate_categories_has_no_chart():
+    data = _data(["month", "revenue"], [{"month": "2024-01", "revenue": 1}, {"month": "2024-01", "revenue": 2}],
+                 dtypes={"revenue": "int64"})
+    view = _v2({"type": "bar_chart", "x": "month", "y": "revenue",
+                "seriesStyles": [{"key": "revenue", "aggregation": "sum"}]})
+    assert _shape(data, view)["chart"] is None
+    rows = [{"month": "2024-01", "genre": "Rock", "sales": 1}, {"month": "2024-01", "genre": "Rock", "sales": 2}]
+    grouped = _data(["month", "genre", "sales"], rows, dtypes={"sales": "int64"})
+    assert _shape(grouped, _v2({"type": "line_chart", "x": "month", "y": "sales", "groupBy": "genre",
+                                "seriesStyles": [{"key": "sales", "aggregation": "sum"}]}))["chart"] is None
 
 
 def test_duplicate_categories_would_need_aggregation_so_no_chart():
@@ -460,3 +519,75 @@ def test_budget_lost_names_a_dropped_result_or_one_cut_to_no_rows():
     assert budget_lost([small], [{**small, "rows": [], "truncated": True}]) is True  # cut to nothing
     assert budget_lost([small], [{**small, "rows": small["rows"][:1], "truncated": True}]) is False
     assert budget_lost([empty], [empty]) is False                            # it had no rows to lose
+
+
+# ── the authoring reference teaches apps to render results ─────────────
+
+def test_the_sdk_reference_documents_results_for_app_authors():
+    from app.ai.agents.planner.artifact_sdk_reference import ARTIFACT_SDK_REFERENCE as ref
+
+    conversations = ref[ref.index("CONVERSATIONS:"):]
+    # The stream event, its shape, and history carrying the same objects.
+    assert re.search(r"\bresult \{id,block,title,columns:\[\{field,headerName,type\}\],rows", conversations)
+    assert re.search(r"results\??:\[\.\.\.\]", conversations)
+    # The chart is a hint that may be null: then the table only, never an invented chart.
+    assert "chart is null" in conversations and "never invent a chart" in conversations
+    assert "resultOption(r)" in conversations and "<DataTable rows={r.rows} columns={r.columns}" in conversations
+    # Truncation covers rows, columns and cut cells.
+    assert "r.truncated" in conversations and "of {r.row_count} rows" in conversations
+    assert "of {r.column_count} columns" in conversations
+    assert re.search(r"partial table", conversations)
+    # An incomplete answer: re-read messages() for that message, then a note if still incomplete.
+    assert re.search(r"completed \{status, results_incomplete\?:true\}: when results_incomplete,[^;]*"
+                     r"re-read messages\(\) and render its results for that message", conversations)
+    assert re.search(r"(?:still|after the re-read)[^\n]*results_incomplete[^\n]*note[^\n]*\n?[^\n]*"
+                     r"some results of this answer could not be shown", conversations)
+    # The chart option is computed once per result, never inline per render.
+    assert "option={resultOption(r)}" not in conversations
+    assert re.search(r"React\.useMemo\(\(\) => resultOption\(r\), \[r\]\)", conversations)
+
+
+def _result_option():
+    """The reference's resultOption helper, run in node."""
+    import shutil
+    import subprocess
+
+    from app.ai.agents.planner.artifact_sdk_reference import ARTIFACT_SDK_REFERENCE as ref
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    start = ref.index("function resultOption(r)")
+    m = re.compile(r"\n(?=\S)(?!  )").search(ref, start)
+    src = ref[start:m.start() if m else len(ref)]
+
+    def run(r):
+        out = subprocess.run([node, "-e", src + "\nprocess.stdout.write(JSON.stringify(resultOption("
+                              + json.dumps(r) + ")))"], capture_output=True, text=True, check=True)
+        return json.loads(out.stdout)
+    return run
+
+
+def _r(chart, rows, columns):
+    return {"columns": [{"field": c, "headerName": c.title(), "type": "string"} for c in columns], "rows": rows,
+            "chart": chart}
+
+
+def test_the_reference_result_option_draws_each_chart_type_and_nothing_for_unknown_ones():
+    run = _result_option()
+    rows = [{"m": "a", "v": 1, "w": 4}, {"m": "b", "v": 2, "w": 5}]
+    bar = run(_r({"type": "bar", "x": "m", "y": ["v"], "series": None}, rows, ["m", "v"]))
+    assert bar["xAxis"] == {"type": "category", "data": ["a", "b"]}
+    assert [(s["type"], s["data"]) for s in bar["series"]] == [("bar", [1, 2])]
+    area = run(_r({"type": "area", "x": "m", "y": ["v", "w"], "series": None}, rows, ["m", "v", "w"]))
+    assert [(s["name"], s["type"], s["data"], "areaStyle" in s) for s in area["series"]] == \
+        [("V", "line", [1, 2], True), ("W", "line", [4, 5], True)]
+    grouped = [{"m": "a", "g": "x", "v": 1}, {"m": "a", "g": "y", "v": 2}, {"m": "b", "g": "x", "v": 3}]
+    line = run(_r({"type": "line", "x": "m", "y": ["v"], "series": "g"}, grouped, ["m", "g", "v"]))
+    assert [(s["name"], s["type"], s["data"]) for s in line["series"]] == [("x", "line", [1, 3]), ("y", "line", [2, None])]
+    pie = run(_r({"type": "pie", "x": "m", "y": ["v"], "series": None}, rows, ["m", "v"]))
+    assert pie["series"][0]["data"] == [{"name": "a", "value": 1}, {"name": "b", "value": 2}]
+    scatter = run(_r({"type": "scatter", "x": "v", "y": ["w"], "series": None}, rows, ["v", "w"]))
+    assert scatter["series"][0]["data"] == [[1, 4], [2, 5]]
+    assert run(_r({"type": "heatmap", "x": "m", "y": ["v"], "series": None}, rows, ["m", "v"])) is None
+    assert run(_r(None, rows, ["m", "v"])) is None
