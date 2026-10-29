@@ -121,6 +121,35 @@ def test_host_noise_and_blocked_requests_are_informational():
     assert result["errors"] == []
 
 
+_SW_NOISE = ("Failed to read the 'serviceWorker' property from 'Navigator': Service worker is disabled because "
+             "the context is sandboxed and lacks the 'allow-same-origin' flag.")
+
+
+@pytest.mark.parametrize("source,message", [
+    ("browser", _SW_NOISE),
+    ("browser", "SecurityError: " + _SW_NOISE),
+    ("console", "Uncaught SecurityError: " + _SW_NOISE),
+])
+def test_the_service_worker_block_in_the_sandboxed_frame_is_informational(source, message):
+    # Playwright's service_workers="block" init script reads navigator.serviceWorker
+    # in every frame, which throws inside the sandboxed artifact iframe. Seen on
+    # every live load; it is not app code.
+    service = _service()
+    service.record("error", source=source, message=message)
+    result = classify_preview_output(_output(service, readiness="errors_observed"))
+    assert result["status"] == "passed"
+    assert result["errors"] == []
+    assert result["informational_errors"] == 1
+
+
+def test_an_app_security_error_is_still_a_problem():
+    service = _service()
+    service.record("error", source="browser", message="SecurityError: Failed to read the 'localStorage' property "
+                                                     "from 'Window': The document is sandboxed.")
+    result = classify_preview_output(_output(service, readiness="errors_observed"))
+    assert result["status"] == "problems_found"
+
+
 def test_an_app_console_error_is_a_problem():
     service = _service()
     service.record("error", source="console", message="Uncaught (in promise) Error: boom")

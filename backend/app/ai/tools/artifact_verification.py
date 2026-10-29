@@ -177,6 +177,10 @@ _FROZEN_ERROR = {"source": "render",
                             "finish within the check budget."}
 _RESTRICTED_CODES = {"preview_restricted", "session_scope_mismatch"}
 _HOST_NOISE_PREFIXES = ("Failed to load resource", "[vite]", "[nuxt]", "[Vue warn]", "[HMR]")
+# Playwright's service_workers="block" (preview contexts, _browser_common.py)
+# installs an init script that reads navigator.serviceWorker in every frame; in
+# the sandboxed artifact iframe that read throws. Not app code.
+_SANDBOX_SW_NOISE = "Failed to read the 'serviceWorker' property from 'Navigator'"
 _BREAKER_REASONS = {"preview_unavailable", "preview_not_ready", "timeout"}
 _MAX_ITEMS = 5
 _MAX_MESSAGE = 300
@@ -242,6 +246,8 @@ def classify_preview_output(output: dict) -> dict:
             transport = True
             result["informational_errors"] += 1
         elif source == "console" and message.startswith(_HOST_NOISE_PREFIXES):
+            result["informational_errors"] += 1
+        elif _SANDBOX_SW_NOISE in message:
             result["informational_errors"] += 1
         else:
             key = _ECHO_PREFIX.sub("", message).strip()
