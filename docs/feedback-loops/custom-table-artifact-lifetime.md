@@ -62,11 +62,14 @@ FAILED (failures=1)
 ## The fix
 
 - `backend/app/data_sources/fast/artifacts.py:115`: a persistent per-connection
-  kernel lock via the pinned `filelock` dependency coordinates refresh, delete
-  and maintenance across workers sharing the volume. Waiting uses exponential
-  backoff with a 30s cap and the existing localized 409 conflict response;
-  maintenance skips busy connections. Lock files are never unlinked, process
-  exit releases locks, and soft-lock fallback is disabled.
+  kernel lock via the pinned `filelock` dependency serializes refreshes and
+  maintenance across workers sharing the volume. A queued refresh waits its
+  turn with exponential backoff (as the in-process lock it replaced did), so a
+  sibling table's scheduled tick is run after the current scan rather than
+  dropped; a bounded wait (the existing localized 409) is available but no
+  product path uses it. Maintenance skips busy connections. Lock files are
+  never unlinked, process exit releases locks, and soft-lock fallback is
+  disabled.
 - `backend/app/services/custom_query_service.py:652`: reload the table under the
   lock before choosing the old path; skip a table deleted while queued. Keep the
   previous file until a successful swap. On an ambiguous failed commit, delete
@@ -75,13 +78,24 @@ FAILED (failures=1)
   even when activation sync fails. Cancellation waits for extraction to finish
   before removing its unpublished output and releasing the lock, even after
   repeated cancellation; best-effort terminal status prevents stale `running`.
-  Update rechecks liveness under the same lock before scheduling a refresh.
-- The delete path now commits its cleared reference before removing the file,
-  so a failed delete commit preserves the original artifact.
-- `backend/app/services/fast_artifact_maintenance.py`: daily cleanup reads and
-  resolves all DB references once (including soft-deleted rows), then acquires
-  each directory's volume lock and removes only unreferenced `.db`, `.tmp`, and
-  `.wal` files older than 24h. The cutoff is captured before the snapshot: any
+  Cancellation also sets an abort flag the extractor polls between batches,
+  so the source stops within one batch instead of the full scan, and the row
+  records a cancellation reason rather than a blank error.
+- Delete and update take no volume lock, so neither waits behind another
+  table's refresh. The reference swap is a conditional `UPDATE ... WHERE
+  deleted_at IS NULL`: a refresh that loses to a concurrent delete discards
+  its new file instead of resurrecting the row. Create and update reload the
+  row before touching the shared job store, and `scheduled_refresh` claims
+  each tick through `claim_scheduled_run` so only one worker scans the source.
+- The delete path commits its cleared reference before removing the file, so
+  a failed delete commit preserves the original artifact.
+- `backend/app/services/fast_artifact_maintenance.py`: daily cleanup reads all
+  DB references once (including soft-deleted rows) and identifies each by
+  (connection directory, file name) rather than resolved absolute path, so a
+  volume reached from a different mount point or install directory cannot make
+  every served artifact look unreferenced. Each directory's lock-and-prune runs
+  in a worker thread, off the event loop. It removes only unreferenced `.db`,
+  `.tmp`, and `.wal` files older than 24h. The cutoff is captured before the snapshot: any
   newly committed reference points at a fresh UUID file, protected by its age.
   It preserves referenced WALs, recent files, symlinks and unknown file types;
   failed DB reads abort the sweep safely. Per-file OS errors are logged without
@@ -99,6 +113,14 @@ Targeted pytest --db=sqlite:       71 passed
 Lifecycle pytest --db=postgres:   13 passed
 ```
 
+After the second review round:
+
+```text
+Lifecycle + neighbours --db=sqlite:   139 passed
+Lifecycle --db=external (PG 16):       18 passed
+Custom-table e2e routes --db=sqlite:  225 passed
+```
+
 The normal-suite command is:
 
 ```sh
@@ -106,11 +128,11 @@ uv run pytest tests/unit/test_fast_artifact_lifecycle.py \
   tests/unit/test_custom_queries.py tests/unit/test_custom_query_permissions.py -q
 ```
 
-For PostgreSQL, point **only** at a disposable server with database-create
-permission (the runner creates and drops uniquely named databases):
+For PostgreSQL, point **only** at a disposable server: the harness drops and
+recreates that database's `public` schema before every test.
 
 ```sh
-ARTIFACT_LOOP_POSTGRES_URL=postgresql://postgres@127.0.0.1:55483/postgres \
+ARTIFACT_LOOP_POSTGRES_URL=postgresql://postgres@127.0.0.1:55483/bow_artifact_test \
   uv run python ../tools/agent/custom_table_artifact_loop.py
 ```
 
@@ -120,7 +142,7 @@ free disk. Its temporary container/volume were removed. Production was untouched
 
 ## What this proves / limits
 
-The thirteen regressions cover stale sessions, cross-process exclusion/crash release,
+The eighteen regressions cover stale sessions, cross-process exclusion/crash release,
 source failure, failed refresh/delete commits, activation-sync failure,
 cancellation, queued refresh after deletion, and safe/idempotent orphan cleanup
 (including missing DB schema, recent files, active refresh, referenced WALs,
@@ -146,14 +168,15 @@ rescheduling a deleted table. All three failed; all pass with the review fixes.
 Additional tests verify terminal cancelled status, bounded lock conflict/reuse,
 and real shared-job deduplication against the migration's unique constraint.
 
-The test engine now derives its backend from the harness's `TEST_DATABASE_URL`
-(including xdist worker URLs), so `--db=postgres` really exercises PostgreSQL.
-Separate disposable databases are retained for destructive trigger/DROP fault
-injection. The workflow explicitly runs this module in both database matrix jobs;
-the pre-existing unit job alone only ran `--db=sqlite`.
+The module is now plain pytest on the harness database (`pytestmark = db`): a
+fresh, migrated schema per test on whichever `--db` CI selects, no second engine
+and no `create_all`. Destructive fault injection (triggers, dropped tables) runs
+on that per-test database; triggers are removed in `finally` because they sit
+outside the harness's schema fingerprint. The claim regression uses the real
+`scheduled_job_runs` table from the migration chain with only the clock pinned.
+The e2e workflow runs the module in the same pytest invocation as the e2e suite
+on both backends, sharing that job's one Postgres server.
 
-The claim regression initially lacked `scheduled_job_runs` because that schema
-is migration-only, not part of ORM metadata. The test now applies the real claim
-migration to its private database; the production schema is unchanged. The
-cross-worker claim is exercised with real SQL, with only the clock and datastore
-handle controlled at their boundaries.
+Second review round: 18 tests pass on SQLite and PostgreSQL 16 (`--db=external`);
+reverting the GC identity, the scheduled-refresh claim, or the lock-free delete
+each makes its test fail.

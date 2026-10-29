@@ -140,30 +140,55 @@ def try_refresh_lock(connection_id: str):
 
 
 @asynccontextmanager
-async def refresh_lock(connection_id: str, timeout: float = 30.0):
-    """Bound queued refreshes; exponential backoff never blocks the event loop."""
-    deadline = time.monotonic() + timeout
+async def refresh_lock(connection_id: str, timeout: float | None = None):
+    """Serialize refreshes of one connection across workers sharing the volume.
+
+    A refresh is a full scan against the source, so queued callers wait their
+    turn (as the in-process lock this replaced did) rather than failing: a
+    scheduled tick for a sibling table must run after the current one, not be
+    dropped for a whole interval. Waiting backs off exponentially and never
+    blocks the event loop. Pass ``timeout`` to bound the wait; expiry raises the
+    localized 409 conflict response.
+    """
+    deadline = None if timeout is None else time.monotonic() + timeout
     delay = 0.05
     while True:
         with try_refresh_lock(connection_id) as acquired:
             if acquired:
                 yield
                 return
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            # Existing localized conflict response; no hard-coded UI message.
-            raise AppError.conflict()
-        await asyncio.sleep(min(delay, remaining))
+        if deadline is None:
+            await asyncio.sleep(delay)
+        else:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Existing localized conflict response; no hard-coded UI message.
+                raise AppError.conflict()
+            await asyncio.sleep(min(delay, remaining))
         delay = min(delay * 2, 1.0)
 
 
-def protected_paths(references: list[str]) -> set[str]:
-    """Resolve one reference snapshot, including each referenced WAL sidecar."""
-    protected = {str(Path(p).resolve()) for p in references if p}
-    return protected | {p + ".wal" for p in protected}
+def protected_paths(references: list[str]) -> set[tuple[str, str]]:
+    """Identify referenced artifacts by (connection directory, file name).
+
+    Artifact names are per-connection UUIDs, so this identity is exact without
+    depending on the absolute prefix a row was written under. Comparing fully
+    resolved paths would treat every served artifact as unreferenced the moment
+    the volume is reached from a different mount point or install directory
+    (a relocated release, a bind mount), and the sweep would delete them all.
+    Each referenced WAL sidecar is protected with its artifact.
+    """
+    protected: set[tuple[str, str]] = set()
+    for ref in references:
+        if not ref:
+            continue
+        path = Path(ref)
+        protected.add((path.parent.name, path.name))
+        protected.add((path.parent.name, path.name + ".wal"))
+    return protected
 
 
-def prune_unreferenced(connection_id: str, protected: set[str], before: float) -> dict:
+def prune_unreferenced(connection_id: str, protected: set[tuple[str, str]], before: float) -> dict:
     """Delete only old artifact files; caller must hold the refresh lock.
 
     Preserve references from *all* rows (including soft-deleted ones), their WAL
@@ -178,7 +203,7 @@ def prune_unreferenced(connection_id: str, protected: set[str], before: float) -
                 continue
             if path.suffix not in {".db", ".tmp", ".wal"}:
                 continue
-            if str(path.resolve()) in protected:
+            if (directory.name, path.name) in protected:
                 continue
             info = path.stat()
             if info.st_mtime >= before:

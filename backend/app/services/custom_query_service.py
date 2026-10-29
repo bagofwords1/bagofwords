@@ -15,12 +15,13 @@ phase 2 and is what will unlock `user_required`.
 import asyncio
 import logging
 import re
+import threading
 from datetime import datetime
 from typing import Optional
 
 from apscheduler.jobstores.base import JobLookupError
 from fastapi import HTTPException
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
@@ -107,6 +108,15 @@ _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 def job_id_for(cq_id: str) -> str:
     return f"custom_query_{cq_id}"
+
+
+# Recorded as last_refresh_error when a request is cancelled mid-extraction, so
+# the error badge carries a reason and a cancelled refresh is distinguishable
+# from a source failure in history. Phrased like the extractor's own abort
+# messages, which are stored the same way.
+CANCELLED_REFRESH_ERROR = (
+    "Refresh was cancelled before it completed; the previous data is still being served."
+)
 
 
 def next_run_at(cq_id: str):
@@ -491,6 +501,10 @@ class CustomQueryService:
         # Materialize immediately so the relation is usable without waiting for
         # the first scheduled tick.
         await self.refresh(db, connection, cq, current_user=current_user)
+        if cq.deleted_at is not None:
+            # Deleted while the first refresh ran: a job for a soft-deleted row
+            # would fire until it noticed; activations would linger in contexts.
+            return cq
         await self._activate_for_agents(
             db, connection, cq, activate_for_datasource_id=activate_for_datasource_id
         )
@@ -598,40 +612,47 @@ class CustomQueryService:
 
         if sql_changed:
             await self.refresh(db, connection, cq, current_user=current_user)
-        async with artifacts.refresh_lock(connection.id):
-            # Delete may have won while update/refresh was queued. Recheck
-            # liveness under the same lock before touching the shared job store.
-            cq = await self.get_custom_query(db, connection.id, cq.id)
-            self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
+        # Delete may have won while the refresh was queued: reload before
+        # touching the shared job store (404 if the row is gone). The volume
+        # lock is the wrong guard here, it does not reach replicas on another
+        # volume; scheduled_refresh is the backstop and unschedules a deleted
+        # table on its first tick.
+        cq = await self.get_custom_query(db, connection.id, cq.id)
+        self._schedule(connection.id, cq, timezone=organization_timezone or "UTC")
         return cq
 
     async def delete(
         self, db: AsyncSession, connection: Connection, cq: ConnectionTable
     ) -> dict:
-        """Soft-delete the relation, drop its agent activations, remove the file."""
-        async with artifacts.refresh_lock(connection.id):
-            await db.refresh(cq)
-            self._unschedule(cq.id)
+        """Soft-delete the relation, drop its agent activations, remove the file.
 
-            # Agent activations must go too, or the relation lingers in contexts.
-            rows = (
-                await db.execute(
-                    select(DataSourceTable).where(
-                        DataSourceTable.connection_table_id == cq.id
-                    )
+        Takes no volume lock, so a delete never waits behind another table's
+        refresh. A refresh racing this one cannot resurrect the row: its swap
+        is a conditional UPDATE on ``deleted_at IS NULL`` and discards the new
+        file when it loses.
+        """
+        await db.refresh(cq)
+        self._unschedule(cq.id)
+
+        # Agent activations must go too, or the relation lingers in contexts.
+        rows = (
+            await db.execute(
+                select(DataSourceTable).where(
+                    DataSourceTable.connection_table_id == cq.id
                 )
-            ).scalars().all()
-            for r in rows:
-                await db.delete(r)
+            )
+        ).scalars().all()
+        for r in rows:
+            await db.delete(r)
 
-            old_path = cq.artifact_path
-            name = cq.name
-            cq.deleted_at = datetime.utcnow()
-            cq.artifact_path = None
-            cq.artifact_key_enc = None
-            await db.commit()
-            artifacts.delete_artifact(old_path)
-            return {"success": True, "message": f"Custom table '{name}' deleted"}
+        old_path = cq.artifact_path
+        name = cq.name
+        cq.deleted_at = datetime.utcnow()
+        cq.artifact_path = None
+        cq.artifact_key_enc = None
+        await db.commit()
+        artifacts.delete_artifact(old_path)
+        return {"success": True, "message": f"Custom table '{name}' deleted"}
 
     # -- refresh -----------------------------------------------------------
 
@@ -650,8 +671,6 @@ class CustomQueryService:
             await db.refresh(cq)
             if cq.deleted_at is not None:
                 return cq
-            cq.last_refresh_status = "running"
-            await db.commit()
 
             client = await self.connection_service.construct_client(
                 db, connection, current_user
@@ -659,11 +678,20 @@ class CustomQueryService:
             await self._prepare_client(db, connection, client, self.target_of(cq))
             old_path = cq.artifact_path
 
+            # Mark the row only once extraction actually starts: a request
+            # cancelled while credentials were being fetched would otherwise
+            # leave "running" committed with nothing to write a terminal state.
+            cq.last_refresh_status = "running"
+            await db.commit()
+
+            abort = threading.Event()
+
             def _run():
                 est = extractor.estimate(client, cq.definition_sql)
                 extractor.check_budget(est)
                 return extractor.extract_to_artifact(
-                    client, cq.definition_sql, cq.name, connection.id
+                    client, cq.definition_sql, cq.name, connection.id,
+                    should_abort=abort.is_set,
                 )
 
             extraction = asyncio.create_task(asyncio.to_thread(_run))
@@ -672,27 +700,32 @@ class CustomQueryService:
                 # its extraction thread is still writing into that directory.
                 res = await asyncio.shield(extraction)
             except asyncio.CancelledError:
+                # Tell the extractor to stop at its next batch boundary rather
+                # than waiting out a full scan: the lock is released and the
+                # source is idle within one batch, and graceful shutdown is not
+                # pinned behind a 30-minute extraction.
+                abort.set()
+
                 async def finish_cancelled_refresh():
                     try:
                         res = await extraction
                         artifacts.delete_artifact(res.artifact_path)
                     except Exception:
-                        logger.exception("custom_query.cancelled_extraction.failed")
+                        logger.info("custom_query.refresh.cancelled")
                     finally:
                         try:
                             await db.rollback()
                             await db.refresh(cq)
                             if cq.deleted_at is None:
                                 cq.last_refresh_status = "error"
-                                cq.last_refresh_error = None
+                                cq.last_refresh_error = CANCELLED_REFRESH_ERROR
                                 await db.commit()
-                            logger.info("custom_query.refresh.cancelled")
                         except Exception:
                             logger.exception("custom_query.cancelled_status.failed")
 
-                # Shield the entire cleanup and drain it despite repeated
-                # cancellation of this request. The volume lock stays owned
-                # until the source thread and terminal-status write finish.
+                # Shield the cleanup and drain it despite repeated cancellation
+                # of this request. The volume lock stays owned until the source
+                # thread and terminal-status write finish.
                 cleanup = asyncio.create_task(finish_cancelled_refresh())
                 while not cleanup.done():
                     try:
@@ -712,15 +745,38 @@ class CustomQueryService:
                 raise HTTPException(status_code=400, detail=str(e))
 
             try:
-                cq.artifact_path = res.artifact_path
-                cq.artifact_key_enc = artifacts.encrypt_key(res.artifact_key)
-                cq.artifact_bytes = res.artifact_bytes
-                cq.columns = res.columns
-                cq.no_rows = res.row_count
-                cq.last_refreshed_at = datetime.utcnow()
-                cq.last_refresh_status = "ok"
-                cq.last_refresh_error = None
-                cq.last_refresh_ms = res.elapsed_ms
+                # Conditional on the row still being live: delete takes no
+                # lock, so it may have soft-deleted this table mid-extraction.
+                # Swapping a reference onto a deleted row would leak the new
+                # file forever (GC protects every referenced path).
+                swap = await db.execute(
+                    update(ConnectionTable)
+                    .where(
+                        ConnectionTable.id == cq.id,
+                        ConnectionTable.deleted_at.is_(None),
+                    )
+                    .values(
+                        artifact_path=res.artifact_path,
+                        artifact_key_enc=artifacts.encrypt_key(res.artifact_key),
+                        artifact_bytes=res.artifact_bytes,
+                        columns=res.columns,
+                        no_rows=res.row_count,
+                        last_refreshed_at=datetime.utcnow(),
+                        last_refresh_status="ok",
+                        last_refresh_error=None,
+                        last_refresh_ms=res.elapsed_ms,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if swap.rowcount != 1:
+                    await db.rollback()
+                    artifacts.delete_artifact(res.artifact_path)
+                    await db.refresh(cq)
+                    logger.info(
+                        "custom_query.refresh.superseded_by_delete",
+                        extra={"custom_query": cq.name},
+                    )
+                    return cq
                 await db.commit()
             except BaseException:
                 # A commit error can be ambiguous (e.g. a lost acknowledgement).
@@ -776,9 +832,17 @@ class CustomQueryService:
             await db.commit()
 
     async def scheduled_refresh(self, connection_id: str, cq_id: str) -> None:
-        """APScheduler entry point. Owns its own session."""
+        """APScheduler entry point. Owns its own session.
+
+        The job store is shared, so every worker fires this tick; the claim
+        keeps the losers from queueing behind the winner's full scan (or
+        repeating it when it is fast).
+        """
+        from app.core.scheduler import claim_scheduled_run
         from app.dependencies import async_session_maker
 
+        if not await asyncio.to_thread(claim_scheduled_run, self._job_id(cq_id)):
+            return
         async with async_session_maker() as db:
             conn = (
                 await db.execute(

@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 RETENTION_SECONDS = 24 * 60 * 60
 
 
+def _sweep_directory(connection_id: str, protected: set, before: float):
+    """One directory's sweep, run off the event loop; None when a refresh holds it."""
+    with artifacts.try_refresh_lock(connection_id) as acquired:
+        if not acquired:
+            return None
+        return artifacts.prune_unreferenced(connection_id, protected, before)
+
+
 async def purge_orphaned_fast_artifacts(session_factory=None) -> dict:
     """Daily local-volume sweep; skip any connection with an active refresh.
 
@@ -44,14 +52,15 @@ async def purge_orphaned_fast_artifacts(session_factory=None) -> dict:
         if directory.is_symlink() or not directory.is_dir():
             continue
         try:
-            with artifacts.try_refresh_lock(directory.name) as acquired:
-                if not acquired:
-                    continue
-                # Keep unlink synchronous under the lock: cancelling an
-                # offloaded unlink thread could release it before deletion.
-                result = artifacts.prune_unreferenced(directory.name, protected, before)
-                for key in totals:
-                    totals[key] += result[key]
+            # Lock and unlink in one worker thread: the loop keeps serving
+            # requests during a large sweep, and cancelling the awaiting task
+            # cannot release the lock early because the thread, not the
+            # coroutine, owns it until prune returns.
+            result = await asyncio.to_thread(_sweep_directory, directory.name, protected, before)
+            if result is None:
+                continue
+            for key in totals:
+                totals[key] += result[key]
         except Exception:
             logger.exception("fast.artifact.cleanup_failed", extra={"connection_id": directory.name})
     logger.info("fast.artifact.cleanup", extra=totals)
