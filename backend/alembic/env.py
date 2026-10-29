@@ -75,7 +75,7 @@ from app.models.sub_agent import SubAgentRun, SubAgentWave
 from app.models.sub_agent_message import SubAgentMessage
 from app.models.note import Note
 from app.models.memory_entry import MemoryEntry
-from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision
+from app.models.agent_list import AgentList, AgentListRow, AgentListRowRevision, agent_list_data_sources
 from app.models.connection_tool import ConnectionTool
 from app.models.user_connection_tool import UserConnectionTool
 from app.models.user_connection_tool_preference import UserConnectionToolPreference

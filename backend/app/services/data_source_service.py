@@ -2107,6 +2107,10 @@ class DataSourceService:
             db, data_source, organization=organization, current_user=current_user
         )
         await self._delete_agent_scoped_test_cases(db, data_source_id)
+        # Lists shared with other agents stay with them; lists on this agent
+        # alone go with it (CASCADE).
+        from app.services.agent_lists.service import detach_agent_lists
+        await detach_agent_lists(db, data_source_id)
 
         # 1) Delete per-user overlay columns and tables (they hard-FK the data source)
         #    Delete columns via subquery of overlay table ids, then overlay tables.

@@ -184,8 +184,11 @@ class CreateListTool(Tool):
             return
         dup = next((l for l in existing if l.name.strip().casefold() == payload.name.casefold()), None)
         if dup is not None:
+            # Name the duplicate's table the way every other surface does
+            # (its name_agent), not after whichever agent we created through.
+            dup_access = (await svc.access_for_lists(db, user, organization, [dup]))[str(dup.id)]
             yield end_event(
-                output_for(dup, ds, status="duplicate_name"),
+                output_for(dup, ds, status="duplicate_name", access=dup_access),
                 f"Agent '{ds.name}' already has a list named '{dup.name}' (id {dup.id}). Use edit_list to change it, "
                 "or pick a different name.",
             )

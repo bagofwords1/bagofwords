@@ -11,9 +11,19 @@ export interface ListField {
   method?: string | null
 }
 
+export interface ListAgent {
+  id: string
+  name: string
+}
+
 export interface AgentList {
   id: string
+  // The agent the list is being looked at from.
   data_source_id: string
+  // Linked agents the viewer can see, and how many more they cannot.
+  agents?: ListAgent[]
+  hidden_agent_count?: number
+  shared?: boolean
   name: string
   slug: string
   description?: string
@@ -28,7 +38,10 @@ export interface AgentList {
   tool_name: string
   table_name: string
   updated_at?: string
+  // Rows: manage on this agent. Fields, and deleting from every agent:
+  // manage on every agent the list is shared with.
   can_manage: boolean
+  can_manage_schema?: boolean
   change?: 'none' | 'additive' | 'breaking' | null
 }
 

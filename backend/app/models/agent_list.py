@@ -1,31 +1,48 @@
-"""Agent Lists — typed, per-agent collections of records.
+"""Agent Lists — typed collections of records, shared by one or more agents.
 
-A List is a named schema (``fields``) owned by an agent (DataSource). The
-agent fills it through a natively-registered ``submit_<slug>`` tool whose input
-schema is compiled from ``fields`` (see ``app.services.agent_lists``). Rows
-accumulate across reports, are upserted on the list's key field, and carry
-per-field evidence plus provenance (report / tool execution / schema version).
+A List is a named schema (``fields``) linked to one or more agents
+(DataSource) through ``agent_list_data_sources``. Each linked agent fills it
+through a natively-registered ``submit_<slug>`` tool whose input schema is
+compiled from ``fields`` (see ``app.services.agent_lists``). Rows accumulate
+across reports, are upserted on the list's key field, and carry per-field
+evidence plus provenance (report / tool execution / schema version).
 
-Access follows the owning agent: anyone who can VIEW the agent can read the
-list and its rows; MANAGE on the agent is required to change the schema or
-edit rows.
+Access follows the linked agents: anyone who can VIEW one of them can read
+the list and its rows; MANAGE on one of them is required to edit rows, and
+MANAGE on all of them to change the schema.
 """
-from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, ForeignKey, Index, Integer, JSON, String, Table, Text
 
 from app.ee.encryption import EncryptedJSON
 from app.models.base import BaseSchema
+
+
+# Which agents a list belongs to. Every live list has at least one row here,
+# and always one for its home agent (``AgentList.data_source_id``).
+agent_list_data_sources = Table(
+    "agent_list_data_sources",
+    BaseSchema.metadata,
+    Column("list_id", String(36), ForeignKey("agent_lists.id", ondelete="CASCADE"), primary_key=True),
+    Column("data_source_id", String(36), ForeignKey("data_sources.id", ondelete="CASCADE"),
+           primary_key=True, index=True),
+)
 
 
 class AgentList(BaseSchema):
     __tablename__ = "agent_lists"
 
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    # Home agent: the one the list was created on. Kept for ordering and as the
+    # default naming context; membership is ``agent_list_data_sources``. When
+    # the home agent is deleted while the list is still shared, another linked
+    # agent becomes home (see service.detach_agent_lists).
     data_source_id = Column(String(36), ForeignKey("data_sources.id", ondelete="CASCADE"), nullable=False, index=True)
     created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
     name = Column(String(255), nullable=False)
     # Stable machine name used for the tool name (submit_<slug>) and table
-    # name (bow.<agent>.lists.<slug>). Unique among live lists of one agent.
+    # name (bow.<agent>.lists.<slug>). Unique among the live lists of each
+    # agent the list is linked to.
     slug = Column(String(64), nullable=False)
     description = Column(Text, nullable=True)
     # [{id, name, type, description, required, enum, items, unit, method}]
