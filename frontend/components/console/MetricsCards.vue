@@ -2,8 +2,8 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
         <!-- Messages -->
         <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                {{ metricsComparison?.current.total_messages || 0 }}
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" :title="formatExact(metricsComparison?.current.total_messages)">
+                {{ formatCompact(metricsComparison?.current.total_messages) }}
             </div>
             <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.messages') }}</div>
             <div v-if="metricsComparison?.changes.total_messages" class="text-xs mt-2">
@@ -15,8 +15,8 @@
 
         <!-- Queries -->
         <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                {{ metricsComparison?.current.total_queries || 0 }}
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" :title="formatExact(metricsComparison?.current.total_queries)">
+                {{ formatCompact(metricsComparison?.current.total_queries) }}
             </div>
             <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.queries') }}</div>
             <div v-if="metricsComparison?.changes.total_queries" class="text-xs mt-2">
@@ -100,8 +100,8 @@
 
         <!-- Feedbacks -->
         <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                {{ metricsComparison?.current.total_feedbacks || 0 }}
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" :title="formatExact(metricsComparison?.current.total_feedbacks)">
+                {{ formatCompact(metricsComparison?.current.total_feedbacks) }}
             </div>
             <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.feedbacks') }}</div>
             <div v-if="metricsComparison?.changes.total_feedbacks" class="text-xs mt-2">
@@ -113,8 +113,8 @@
 
         <!-- Active Users -->
         <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-            <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                {{ metricsComparison?.current.active_users || 0 }}
+            <div class="text-2xl font-bold text-gray-900 dark:text-white" :title="formatExact(metricsComparison?.current.active_users)">
+                {{ formatCompact(metricsComparison?.current.active_users) }}
             </div>
             <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.cards.activeUsers') }}</div>
             <div v-if="metricsComparison?.changes.active_users" class="text-xs mt-2">
@@ -161,7 +161,7 @@ const { isJudgeEnabled } = useOrgSettings()
 
 const formatChange = (change: MetricChange) => {
     const sign = change.percentage > 0 ? '+' : ''
-    return `${sign}${change.percentage.toFixed(1)}% (${sign}${change.absolute})`
+    return `${sign}${change.percentage.toFixed(1)}% (${sign}${formatCompact(change.absolute)})`
 }
 
 const formatJudgeChange = (change: MetricChange) => {
@@ -169,7 +169,14 @@ const formatJudgeChange = (change: MetricChange) => {
     return `${sign}${change.percentage.toFixed(1)}% (${sign}${change.absolute.toFixed(1)})`
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+// Large counts read as 1.2K / 3.4M; the exact value stays in the hover title.
+const formatCompact = (value: number | null | undefined) =>
+    new Intl.NumberFormat(locale.value, { notation: 'compact', maximumFractionDigits: 1 }).format(value || 0)
+
+const formatExact = (value: number | null | undefined) =>
+    new Intl.NumberFormat(locale.value).format(value || 0)
 
 const formatScore = (score: number | undefined) => {
     if (score === undefined || score === null) return t('monitoring.cards.na')

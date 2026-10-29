@@ -536,7 +536,7 @@
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
                     <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600 dark:text-gray-400">
                       <span class="text-gray-700 dark:text-gray-300">{{ fk.column?.name }}</span>
-                      <span class="text-ink-muted mx-1">→</span>
+                      <span class="text-ink-muted mx-1 inline-block rtl-flip">→</span>
                       <span class="text-blue-600">{{ fk.references_name }}</span>
                       <span class="text-ink-muted">.</span>
                       <span class="text-gray-700 dark:text-gray-300">{{ fk.references_column?.name }}</span>

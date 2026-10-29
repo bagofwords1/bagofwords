@@ -2524,7 +2524,13 @@ class DataSourceService:
                 for conn in data_source.connections
             )
             if persist and shared_only:
-                if not all_success:
+                # Follow the connections' own flags rather than this one probe:
+                # test_connection deactivates a shared connection only after
+                # several failures in a row, and the agent must agree with it.
+                for conn in data_source.connections:
+                    await db.refresh(conn, attribute_names=["is_active"])
+                connections_up = all(bool(conn.is_active) for conn in data_source.connections)
+                if not connections_up:
                     data_source.is_active = False
                 elif data_source.is_active == False:
                     data_source.is_active = True

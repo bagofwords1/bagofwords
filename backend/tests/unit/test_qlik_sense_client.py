@@ -357,6 +357,18 @@ class TestGetSchemas:
         stubs = [t for t in tables if (t.metadata_json or {}).get("qlik_sense", {}).get("status") == "error"]
         assert len(stubs) == 1
         assert stubs[0].is_active is False
+        # ...and reported, so the reindex keeps app-2's earlier tables.
+        assert client.unindexed_table_prefixes() == [stubs[0].name]
+
+        # The report describes the latest crawl only.
+        _install_rest(client, {
+            "/api/v1/items": {"data": ITEMS_APPS_PAGE_1["data"], "links": {}},
+            "/api/v1/apps/app-1/data/metadata": APP_METADATA_POPULATED,
+            "/api/v1/apps/app-2/data/metadata": APP_METADATA_POPULATED,
+        })
+        client._rest_get = original_rest
+        client.get_schemas()
+        assert client.unindexed_table_prefixes() == []
 
     def test_get_schema_by_full_name(self):
         client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x", max_concurrency=1)

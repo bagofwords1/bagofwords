@@ -192,7 +192,7 @@
                 <div class="space-y-2">
                   <div v-for="(r, i) in headerRules" :key="'h'+i" class="flex items-center gap-1.5" :data-test="'header-row-'+i">
                     <input v-model="r.header" type="text" placeholder="Header-Name" data-test="header-name" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    <span class="text-ink-muted text-xs">←</span>
+                    <span class="text-ink-muted text-xs inline-block rtl-flip">←</span>
                     <select v-model="r.kind" data-test="header-source" class="border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                       <option v-for="s in SOURCE_KINDS" :key="s.value" :value="s.value">{{ s.label }}</option>
                     </select>
@@ -209,7 +209,7 @@
                 <div class="space-y-2">
                   <div v-for="(f, i) in metaFields" :key="'m'+i" class="flex items-center gap-1.5" :data-test="'meta-row-'+i">
                     <input v-model="f.name" type="text" placeholder="field name" data-test="meta-name" class="flex-1 min-w-0 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    <span class="text-ink-muted text-xs">←</span>
+                    <span class="text-ink-muted text-xs inline-block rtl-flip">←</span>
                     <select v-model="f.kind" data-test="meta-source" class="border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500">
                       <option v-for="s in SOURCE_KINDS" :key="s.value" :value="s.value">{{ s.label }}</option>
                     </select>

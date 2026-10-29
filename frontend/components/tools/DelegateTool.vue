@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-1 mb-1" :data-testid="`delegate-card-${subAgentId || 'refused'}`" dir="auto">
+  <div class="mt-1 mb-1" :data-testid="`delegate-card-${subAgentId || 'refused'}`">
     <!-- Header line -->
     <div
       class="flex items-center gap-1.5 text-chat-2 text-gray-500 dark:text-gray-400 min-w-0"
@@ -8,7 +8,7 @@
     >
       <Spinner v-if="isLive" class="w-3 h-3 flex-shrink-0 text-ink-muted" />
       <Icon v-else :name="stateIcon" class="w-3.5 h-3.5 flex-shrink-0" :class="stateIconClass" />
-      <span class="font-medium text-gray-700 dark:text-gray-300 truncate" :class="isLive ? 'tool-shimmer' : ''">{{ title }}</span>
+      <span class="font-medium text-gray-700 dark:text-gray-300 truncate" :class="isLive ? 'tool-shimmer' : ''" dir="auto">{{ title }}</span>
 
       <!-- Outcome badge -->
       <span v-if="outcome" class="px-1.5 py-0.5 rounded text-2xs font-medium flex-shrink-0" :class="outcomeClass">
@@ -24,7 +24,7 @@
         <template v-if="tokensLabel"> · {{ tokensLabel }}</template>
       </span>
 
-      <Icon v-if="canExpand" name="heroicons-chevron-down" class="w-3 h-3 ms-0.5 text-ink-muted transition-transform duration-200" :class="{ '-rotate-90': !expanded }" />
+      <Icon v-if="canExpand" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-0.5 text-ink-muted" />
 
       <!-- Stop (only while live, only when interactive) -->
       <button
@@ -41,19 +41,19 @@
     </div>
 
     <!-- Refused: say why -->
-    <p v-if="refused" class="ms-5 mt-0.5 text-2xs text-gray-500 dark:text-gray-400">{{ refused }}</p>
+    <p v-if="refused" dir="auto" class="ms-5 mt-0.5 text-2xs text-gray-500 dark:text-gray-400">{{ refused }}</p>
 
     <!-- Body -->
     <div v-if="expanded && canExpand" class="ms-5 mt-1.5 space-y-2 text-xs text-gray-600 dark:text-gray-400">
       <!-- Goal -->
-      <p class="text-2xs text-gray-500 dark:text-gray-500 line-clamp-3" :title="goal">{{ goal }}</p>
+      <p class="text-2xs text-gray-500 dark:text-gray-500 line-clamp-3" dir="auto" :title="goal">{{ goal }}</p>
 
       <!-- Live: latest tool calls -->
       <ul v-if="isLive && calls.length" class="space-y-0.5" data-testid="delegate-steps">
         <li v-for="(c, i) in calls.slice(-6)" :key="i" class="flex items-center gap-1 text-2xs">
           <Spinner v-if="c.status === 'in_progress' || c.status === 'running'" class="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />
           <Icon v-else :name="c.status === 'success' ? 'heroicons-check' : 'heroicons-x-mark'" class="w-3 h-3 flex-shrink-0" :class="c.status === 'success' ? 'text-green-500' : 'text-ink-muted'" />
-          <span class="truncate" :title="c.summary || c.title">{{ c.title }}</span>
+          <span class="truncate" dir="auto" :title="c.summary || c.title">{{ c.title }}</span>
           <span v-if="c.duration_ms" class="text-2xs text-ink-muted flex-shrink-0 tabular-nums">{{ Math.round(c.duration_ms / 1000) }}s</span>
         </li>
       </ul>
@@ -61,22 +61,22 @@
 
       <!-- Finished: the record -->
       <template v-if="record">
-        <p v-if="record.summary" class="text-gray-700 dark:text-gray-300">{{ record.summary }}</p>
+        <p v-if="record.summary" dir="auto" class="text-gray-700 dark:text-gray-300">{{ record.summary }}</p>
         <div v-if="record.findings?.length">
           <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.findings') }}</div>
           <ul class="list-disc ms-4 space-y-0.5">
-            <li v-for="(f, i) in record.findings" :key="i">{{ f.claim }}<span v-if="f.magnitude" class="text-ink-muted"> ({{ f.magnitude }})</span></li>
+            <li v-for="(f, i) in record.findings" :key="i"><bdi>{{ f.claim }}</bdi><span v-if="f.magnitude" class="text-ink-muted"> ({{ f.magnitude }})</span></li>
           </ul>
         </div>
         <div v-if="record.ruled_out?.length">
           <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.ruledOut') }}</div>
-          <ul class="list-disc ms-4 space-y-0.5"><li v-for="(r, i) in record.ruled_out" :key="i">{{ r }}</li></ul>
+          <ul class="list-disc ms-4 space-y-0.5"><li v-for="(r, i) in record.ruled_out" :key="i"><bdi>{{ r }}</bdi></li></ul>
         </div>
         <div v-if="record.caveats?.length">
           <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.caveats') }}</div>
-          <ul class="list-disc ms-4 space-y-0.5"><li v-for="(c, i) in record.caveats" :key="i">{{ c }}</li></ul>
+          <ul class="list-disc ms-4 space-y-0.5"><li v-for="(c, i) in record.caveats" :key="i"><bdi>{{ c }}</bdi></li></ul>
         </div>
-        <p v-if="record.unknown" class="text-amber-700 dark:text-amber-400"><span class="font-medium">{{ t('tools.delegate.unknown') }}:</span> {{ record.unknown }}</p>
+        <p v-if="record.unknown" class="text-amber-700 dark:text-amber-400"><span class="font-medium">{{ t('tools.delegate.unknown') }}:</span> <bdi>{{ record.unknown }}</bdi></p>
         <div v-if="record.evidence?.length" class="flex flex-wrap gap-1">
           <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-2xs text-gray-500" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
         </div>
