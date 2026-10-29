@@ -46,6 +46,29 @@ def test_my_dashboards_are_one_card_each_published_or_not(corpus, corpus_rows, t
 
 
 @pytest.mark.e2e
+def test_card_shows_the_dashboards_own_name_not_the_conversations(corpus, corpus_rows, test_client):
+    """A dashboard is named by its own title, even one born from a
+    conversation with a different name (an old link still leads to it): its
+    card reads the artifact's title, so renaming the dashboard no longer has
+    to rename the conversation. Only a dashboard that never got a title of its
+    own falls back to the conversation's name, as before."""
+    deck = own(corpus_rows, corpus, f"{CONV}/deck")  # its own title: "מצגת רבעונית"
+    convo = corpus.reports[CONV]  # the conversation's title: "שלושה דשבורדים"
+    # Born from the conversation, the way the data migration (phase 9) marks it.
+    corpus_rows.update("artifacts", deck, legacy_report_id=convo)
+
+    def _card():
+        return next(d for d in _list(test_client, corpus, "owner", filter="my")["dashboards"]
+                    if d["id"] == deck)
+
+    assert _card()["title"] == "מצגת רבעונית"  # its own name, not the conversation's
+
+    # Clear its own name: now, and only now, the card falls back to the conversation.
+    corpus_rows.update("artifacts", deck, title="")
+    assert _card()["title"] == "שלושה דשבורדים"
+
+
+@pytest.mark.e2e
 def test_shared_with_me_lists_what_i_can_open_and_nothing_else(corpus, corpus_rows, test_client):
     sales = own(corpus_rows, corpus, f"{CONV}/dash_sales")
     stock = own(corpus_rows, corpus, f"{CONV}/dash_stock")

@@ -47,6 +47,53 @@ columns stay `JSON` on both PostgreSQL and SQLite. Adopting the feature is a
 config flag, not a table rewrite. `alembic upgrade head` was re-run against the
 new column types unchanged, on a fresh database, to confirm.
 
+## Second wave — everything that restates the rows
+
+Encrypting `Step.data` while the agent persisted a five-row preview of it in
+plaintext next door protected little. The second wave closes that: every
+column that quotes, previews or parameterizes a protected payload now uses the
+same column types, under the same key and gate.
+
+| Model | Column(s) | Why |
+|---|---|---|
+| `ContextSnapshot` | `context_view_json`, `prompt_text` | The agent's warm context, saved up to four times per run: widget/query `data_preview`, `EntityItem.data` sample rows, tool observations. Nothing projects into it in SQL. |
+| `ReportContextState` | `summary_json` | Rolling LLM summary of the conversation; quotes results. |
+| `Completion` | `prompt`, `completion` | User and assistant text restate data. |
+| `AgentExecution` | `prompt_text` | First 2,000 chars of the user prompt. |
+| `ArtifactVersion`, `ArtifactRelease` | `content` | Generated page code can inline data. |
+| `Step`, `StepUserResult`, `Entity` | `applied_params` | Parameter values, including identity-bound filters. |
+| `Entity` | `code` | The SQL itself (literals, filters). |
+
+`Text`/`String` columns cannot hold a JSON envelope, so `EncryptedText` /
+`EncryptedString` store a prefixed string, `$bow_enc$1$<z>$<fernet token>`,
+with exactly the `EncryptedJSON` contract (gated writes, ungated reads,
+plaintext passthrough, undecryptable → `None` + error log). The DDL type of
+every column is unchanged, so again **no migration**.
+
+### SQL readers made envelope-aware
+
+Three queries look *inside* these columns in SQL and would silently miss
+encrypted rows. Each now also selects the per-row marker
+(`envelope_marker_expr` / `text_envelope_expr`) and tests the flagged rows in
+Python after the ORM has decrypted them, with the same case-insensitive
+substring rule as the SQL:
+
+- `ReportService.get_reports` — free-text search over `Completion.prompt` /
+  `completion` (`_search_encrypted_completions`).
+- `ConsoleService.get_agent_execution_summaries` — `prompt_search` over
+  `Completion.prompt` (`_search_encrypted_prompts`).
+- `file_access_service._embedded_in_viewable_artifact` — the substring
+  prefilter over `ArtifactVersion.content` lets enveloped versions through to
+  the existing structural check.
+
+On an instance that has never encrypted, the marker selects nothing and the
+extra query is a no-op. Tests: `tests/unit/test_encrypted_columns_extended.py`
+(type contract, both-dialect SQL compilation, on-disk ciphertext and mixed
+plaintext/ciphertext tables for every column),
+`tests/e2e/test_encrypted_columns_search.py` and
+`tests/e2e/rbac/test_file_access_encrypted.py` (the three SQL readers from the
+API, encrypted rows behaving exactly like plaintext ones).
+
 ## Design — the two rules that make it safe
 
 Encryption is gated **on write only**; decryption is *never* gated.

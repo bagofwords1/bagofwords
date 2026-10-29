@@ -43,7 +43,7 @@ from __future__ import annotations
 import json
 import logging
 import zlib
-from typing import Any, Optional
+from typing import Any
 
 try:  # optional at import time so the module never hard-fails on a slim install
     import orjson as _orjson
@@ -51,7 +51,8 @@ except ImportError:  # pragma: no cover - orjson is a declared dependency
     _orjson = None
 
 from cryptography.fernet import Fernet, InvalidToken
-from sqlalchemy import JSON
+from sqlalchemy import JSON, String, Text
+from sqlalchemy.sql import ColumnElement
 from sqlalchemy.types import TypeDecorator
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,19 @@ ENVELOPE_MARKER = "__bow_enc__"
 _ENVELOPE_VERSION = 1
 _ENVELOPE_PAYLOAD = "v"
 _ENVELOPE_COMPRESSED = "z"
+
+# Text-column envelope. A ``Text``/``String`` column cannot hold a JSON object,
+# so its ciphertext is a prefixed string instead::
+#
+#     $bow_enc$1$<z>$<fernet token>
+#
+# A Fernet token is url-safe base64, which never contains ``$``, so the split
+# below is unambiguous; and no real SQL, Python or prose starts with this
+# prefix, so a plaintext row is never mistaken for ciphertext. The ``_`` in the
+# prefix is a LIKE wildcard: always test for it through ``text_envelope_expr``
+# (which escapes it), never with a hand-written ``LIKE``.
+TEXT_ENVELOPE_PREFIX = "$bow_enc$"
+_TEXT_ENVELOPE_SEP = "$"
 
 # Compress before encrypting only above this size. Below it the zlib header
 # costs more than it saves, and tiny payloads are not where I/O time goes.
@@ -125,7 +139,7 @@ def _loads(raw: bytes) -> Any:
     return json.loads(raw.decode("utf-8"))
 
 
-def _get_fernet() -> Optional[Fernet]:
+def _get_fernet() -> Fernet | None:
     """The Fernet built from ``bow_config.encryption_key``, or None if unusable.
 
     Deliberately the *same* key that protects data-source credentials: one key
@@ -303,6 +317,129 @@ class EncryptedJSON(TypeDecorator):
                 exc,
             )
             return None
+
+
+def envelope_marker_expr(column) -> ColumnElement:
+    """ORM form of :func:`envelope_marker_sql`: a boolean expression that is true
+    exactly when a ``JSON``/``EncryptedJSON`` column holds a ciphertext envelope.
+
+    Compiles to ``col ->> '__bow_enc__' IS NOT NULL`` on PostgreSQL and
+    ``JSON_EXTRACT(col, '$."__bow_enc__"') IS NOT NULL`` on SQLite. Both return
+    NULL (never an error) for a NULL column, a JSON scalar or an array, so it is
+    safe on columns such as ``Completion.prompt`` whose default is the JSON
+    string ``""``.
+
+    Use it wherever a query filters or projects *inside* one of these columns in
+    SQL (``cast(col, String).ilike(...)`` and friends): ciphertext never matches,
+    so the rows this flags must be hydrated through the ORM and tested in Python.
+    """
+    return column[ENVELOPE_MARKER].as_string().isnot(None)
+
+
+# --- Text / String columns -------------------------------------------------
+
+
+def is_encrypted_text(value: Any) -> bool:
+    """True when ``value`` is a stored text ciphertext envelope."""
+    return isinstance(value, str) and value.startswith(TEXT_ENVELOPE_PREFIX)
+
+
+def encrypt_text(value: str) -> str:
+    """Wrap a string into a text ciphertext envelope.
+
+    Returns the value unchanged if encryption is unavailable, so a caller can
+    use this unconditionally.
+    """
+    fernet = _get_fernet()
+    if fernet is None:
+        return value
+    raw = value.encode("utf-8")
+    compressed = "0"
+    if len(raw) >= _COMPRESS_MIN_BYTES:
+        raw = zlib.compress(raw, _COMPRESS_LEVEL)
+        compressed = "1"
+    token = fernet.encrypt(raw).decode("ascii")
+    return _TEXT_ENVELOPE_SEP.join(
+        (TEXT_ENVELOPE_PREFIX.rstrip(_TEXT_ENVELOPE_SEP), str(_ENVELOPE_VERSION), compressed, token)
+    )
+
+
+def decrypt_text(envelope: str) -> str:
+    """Unwrap a text envelope produced by :func:`encrypt_text`."""
+    fernet = _get_fernet()
+    if fernet is None:
+        raise InvalidToken("no usable encryption key for stored payload")
+    # "$bow_enc$1$z$token" -> ["", "bow_enc", "1", "z", "token"]
+    parts = envelope.split(_TEXT_ENVELOPE_SEP, 4)
+    if len(parts) != 5:
+        raise ValueError("malformed text envelope")
+    _, _, _version, compressed, token = parts
+    raw = fernet.decrypt(token.encode("ascii"))
+    if compressed == "1":
+        raw = zlib.decompress(raw)
+    return raw.decode("utf-8")
+
+
+class _EncryptedTextBase(TypeDecorator):
+    # ``cache_ok`` is read from each concrete class's own namespace by
+    # SQLAlchemy, so the subclasses below declare it again.
+    """Shared behaviour for the ``Text`` and ``String`` encrypted column types.
+
+    Same contract as :class:`EncryptedJSON`: writes are gated, reads never are,
+    and a plaintext row written before the feature was enabled reads back
+    untouched. The DDL type is the ``impl`` of the concrete subclass, so an
+    existing ``Text`` or ``String`` column adopts the feature with no migration.
+    """
+
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None or not isinstance(value, str):
+            return value
+        if is_encrypted_text(value):
+            # Already an envelope (e.g. copied straight from another row).
+            return value
+        if not encryption_active():
+            return value
+        return encrypt_text(value)
+
+    def process_result_value(self, value, dialect):
+        # Ungated on purpose: stored ciphertext must stay readable even when the
+        # feature is switched off or the licence lapses.
+        if not is_encrypted_text(value):
+            return value
+        try:
+            return decrypt_text(value)
+        except (InvalidToken, zlib.error, ValueError, UnicodeDecodeError) as exc:
+            logger.error(
+                "Failed to decrypt stored text — is BOW_ENCRYPTION_KEY the "
+                "one it was written with? %s",
+                exc,
+            )
+            return None
+
+
+class EncryptedText(_EncryptedTextBase):
+    """A ``Text`` column whose value is encrypted at rest."""
+
+    impl = Text
+    cache_ok = True
+
+
+class EncryptedString(_EncryptedTextBase):
+    """A ``String`` column whose value is encrypted at rest.
+
+    Separate from :class:`EncryptedText` only so the DDL type of an existing
+    ``String`` column is unchanged (Alembic autogenerate stays quiet).
+    """
+
+    impl = String
+    cache_ok = True
+
+
+def text_envelope_expr(column) -> ColumnElement:
+    """Boolean expression that is true when a text column holds ciphertext."""
+    return column.startswith(TEXT_ENVELOPE_PREFIX, autoescape=True)
 
 
 def envelope_marker_sql(column: str, *, postgres: bool) -> str:

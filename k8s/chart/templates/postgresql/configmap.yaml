@@ -1,0 +1,50 @@
+{{- if include "bowapp.postgresql.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "bowapp.postgresql.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.postgresql.labels" . | nindent 4 }}
+data:
+  {{- /*
+    Passed as config_file/hba_file instead of relying on the copies inside the
+    data directory: a volume adopted from the Bitnami subchart kept its real
+    config under /opt/bitnami, so the in-PGDATA files cannot be trusted to
+    listen on the pod IP or to allow password logins from the app.
+  */}}
+  postgresql.conf: |
+    listen_addresses = '*'
+    port = 5432
+    {{- with .Values.postgresql.primary.extendedConfiguration }}
+    {{- . | trim | nindent 4 }}
+    {{- end }}
+  {{- /*
+    `md5` rather than `scram-sha-256`: it runs SCRAM for SCRAM-stored passwords
+    (PostgreSQL 14+'s default) but still accepts MD5-stored ones, which a
+    volume adopted from the Bitnami chart (whose pg_hba used `md5`) may hold.
+  */}}
+  pg_hba.conf: |
+    local all all trust
+    host  all all 127.0.0.1/32 md5
+    host  all all ::1/128      md5
+    host  all all 0.0.0.0/0    md5
+    host  all all ::/0         md5
+  {{- /*
+    The image's POSTGRES_USER is a superuser. Keep that as `postgres` and
+    create the app role as a plain database owner, like the Bitnami chart did,
+    so the app never holds superuser. Runs once, on an empty data directory.
+  */}}
+  10-create-app-user.sh: |
+    #!/bin/bash
+    set -euo pipefail
+    if [ -z "${BOW_APP_USER:-}" ] || [ "$BOW_APP_USER" = "$POSTGRES_USER" ]; then
+      exit 0
+    fi
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+      -v app_user="$BOW_APP_USER" -v app_password="$BOW_APP_PASSWORD" -v app_db="$POSTGRES_DB" <<'EOSQL'
+    CREATE ROLE :"app_user" LOGIN PASSWORD :'app_password';
+    ALTER DATABASE :"app_db" OWNER TO :"app_user";
+    GRANT ALL ON SCHEMA public TO :"app_user";
+    EOSQL
+{{- end }}

@@ -400,7 +400,7 @@
     "manage": "ניהול",
     "agent": "סוכן",
     "agents": "סוכנים",
-    "viewAllAgents": "הצג את כל הסוכנים →",
+    "viewAllAgents": "הצג את כל הסוכנים ←",
     "context": "סוכן",
     "noAgents": "אין סוכנים",
     "allAgents": "כל הסוכנים",
@@ -647,6 +647,8 @@
     "modelAuto": "אוטומטי",
     "modelAutoHint": "הנתב בוחר את המודל המתאים",
     "autoAgentsHint": "כל סוכן שיש לך גישה אליו",
+    "searchAgents": "חיפוש סוכנים…",
+    "noAgentsMatch": "אין סוכנים תואמים",
     "loadingDataSources": "טוען מקורות נתונים…",
     "noDataSources": "לא נמצאו מקורות נתונים",
     "effort": {
@@ -669,6 +671,17 @@
       "runsAs": "רץ כ-{level} במודל זה",
       "faster": "מהיר יותר",
       "smarter": "חכם יותר"
+    },
+    "voiceInput": {
+      "start": "הכתבת הנחיה",
+      "stop": "הפסקת ההכתבה",
+      "errors": {
+        "permissionDenied": "הגישה למיקרופון נחסמה. יש לאפשר אותה בהגדרות הדפדפן כדי להכתיב.",
+        "noSpeech": "לא זוהה דיבור.",
+        "noMicrophone": "לא נמצא מיקרופון.",
+        "network": "זיהוי הדיבור דורש חיבור לרשת.",
+        "failed": "הקלט הקולי נכשל. נסו שוב."
+      }
     }
   },
   "reports": {
@@ -1426,7 +1439,17 @@
       "reading": "קורא…",
       "read": "הנחיה נקראה",
       "readSkill": "קריאת מיומנות",
-      "failed": "לא ניתן לקרוא את ההנחיה"
+      "failed": "לא ניתן לקרוא את ההנחיה",
+      "lines": "שורות {start}–{end} / {total}",
+      "truncated": "קוצר",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} התאמה",
+      "matchPlural": "{count} התאמות",
+      "moreMatches": "+עוד",
+      "moreShown": "+{count} נוספות הוצגו לסוכן",
+      "noMatches": "אין שורות תואמות — הוחזר מתאר במקום",
+      "outline": "מתאר",
+      "longLine": "שורה ארוכה: תווים {start}–{end} מתוך {length}"
     },
     "createEval": {
       "drafting": "מנסח הערכה",
@@ -2260,7 +2283,7 @@
       "scimTitle": "הקצאה אוטומטית (SCIM)",
       "scimSubtitle": "הקצה ובטל הקצאת משתמשים וקבוצות מספק הזהות שלך באופן אוטומטי",
       "enterpriseScim": "הקצאת SCIM דורשת רישיון Enterprise. סנכרן אוטומטית משתמשים מ-Okta, Azure AD, OneLogin וספקי זהות נוספים.",
-      "learnMore": "למידע נוסף →",
+      "learnMore": "למידע נוסף ←",
       "scimBaseUrl": "כתובת בסיס של SCIM",
       "copied": "הועתק",
       "copy": "העתק",
@@ -2547,12 +2570,12 @@
           "setupGuideTitle": "הגדרת {label}",
           "msStep1": "צור את תיבת הדואר (תיבת דואר משותפת מתאימה — אין צורך ברישיון).",
           "msStep2": "Entra → App registrations → New registration (single tenant). העתק את ה-tenant ID + client ID.",
-          "msStep3": "API permissions → Office 365 Exchange Online → Application → {imapScope} + {smtpScope} → אשר הסכמת מנהל.",
+          "msStep3": "API permissions → Office 365 Exchange Online → Application → {imapScope} + {smtpScope} ← אשר הסכמת מנהל.",
           "msStep4": "Certificates & secrets → New client secret.",
           "msStep5": "Exchange PowerShell: {cmd1}, ולאחר מכן {cmd2} עבור תיבת דואר זו.",
           "googleStep1": "צור את תיבת הדואר (משתמש Workspace עם רישיון).",
-          "googleStep2": "Google Cloud → פרויקט חדש → הפעל את ה-Gmail API → צור חשבון שירות → צור מפתח JSON.",
-          "googleStep3": "Admin console → Security → API controls → Domain-wide delegation → הוסף את מזהה הלקוח של ה-SA עם ההרשאה {scope}.",
+          "googleStep2": "Google Cloud ← פרויקט חדש ← הפעל את ה-Gmail API ← צור חשבון שירות ← צור מפתח JSON.",
+          "googleStep3": "Admin console → Security → API controls → Domain-wide delegation ← הוסף את מזהה הלקוח של ה-SA עם ההרשאה {scope}.",
           "googleStep4": "הדבק את מפתח ה-JSON בטופס.",
           "imapIntro": "חבר כל תיבת דואר התומכת ב-SMTP + IMAP רגיל — Exchange מקומי, ספק אחסון, או סיסמת אפליקציה אישית.",
           "imapBullet1": "השתמש בסיסמת אפליקציה אם הספק אוכף MFA (אימות בסיסי חסום ב-Microsoft 365 / Gmail — השתמש באריחים אלה במקום).",
@@ -2997,6 +3020,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "וובהוק HTTPS",
           "syslog": "Syslog על גבי TLS"
         },
@@ -3006,6 +3030,7 @@
           "sentinel": "Logs Ingestion API ‏(DCR)",
           "s3": "אובייקט NDJSON לכל אצווה",
           "gcs": "אובייקטי NDJSON עם מפתחות HMAC",
+          "cloudwatch": "PutLogEvents לקבוצת לוגים",
           "https": "POST של JSON חתום",
           "syslog": "RFC 5424, ‏JSON או CEF"
         },
@@ -3033,6 +3058,8 @@
           "stream_name": "שם הזרם",
           "authority_url": "כתובת רשות (Authority)",
           "bucket": "דלי (Bucket)",
+          "log_group": "קבוצת לוגים",
+          "log_stream": "זרם לוגים",
           "region": "אזור",
           "prefix": "קידומת מפתח",
           "role_arn": "ARN של התפקיד",
@@ -3040,6 +3067,7 @@
           "access_key_id": "מזהה מפתח גישה",
           "secret_access_key": "מפתח גישה סודי",
           "gzip": "דחיסת אובייקטים ב-gzip",
+          "create_log_group": "צור קבוצת לוגים אם אינה קיימת",
           "endpoint_url": "כתובת נקודת קצה מותאמת",
           "sts_endpoint_url": "נקודת קצה STS מותאמת",
           "host": "שרת",
@@ -3155,6 +3183,10 @@
         "enable_follow_ups": {
           "name": "הצעות להמשך",
           "description": "אחרי כל תשובה באפליקציה, מציע כמה שאלות המשך שהמשתמש יכול לשאול. נוצר על המודל הקטן/ברירת המחדל."
+        },
+        "enable_voice_input": {
+          "name": "קלט קולי",
+          "description": "הצגת כפתור מיקרופון בתיבת הצ'אט כדי שמשתמשים יוכלו להכתיב הנחיה. התמלול מתבצע בדפדפן של המשתמש (Chrome, Edge ו-Safari); השמע לעולם לא מגיע לשרת הזה, אך שירות הדיבור של ספק הדפדפן עשוי לעבד אותו."
         },
         "auto_suggest_evals": {
           "name": "הצעת בדיקות אוטומטית",
@@ -3523,7 +3555,7 @@
       "expiresSoon": "הרישיון שלך יפוג בעוד {days} ימים. צור איתנו קשר לחידוש.",
       "enterpriseInfo": "פתח יומני ביקורת, בקרת גישה מתקדמת מבוססת תפקידים ומדיניות שמירת נתונים עם רישיון Enterprise.",
       "activateHint": "הגדר את {envvar} והפעל מחדש כדי להפעיל.",
-      "learnMore": "למידע נוסף →",
+      "learnMore": "למידע נוסף ←",
       "banner": {
         "expiring": "רישיון ה-enterprise שלך יפוג בעוד {days} ימים — חדש אותו כדי למנוע הפרעה.",
         "expired": "רישיון ה-enterprise שלך פג — חדש אותו כדי לשחזר את תכונות ה-enterprise.",
@@ -4674,7 +4706,7 @@
     "noConnections": "אין חיבורים",
     "connected": "מחובר",
     "notConnected": "לא מחובר",
-    "openAgent": "פתח סוכן →",
+    "openAgent": "פתח סוכן ←",
     "overview": "סקירה",
     "tables": "טבלאות",
     "instructions": "הנחיות",
@@ -5410,7 +5442,7 @@
     "saveSecretWarning": "שמור את סוד הלקוח עכשיו — הוא לא יוצג שוב.",
     "setupInstructions": "הנחיות התקנה",
     "setupStep1Prefix": "ב-Claude Web, עבור אל",
-    "setupStep1Bold": "הגדרות → מחברים → הוסף",
+    "setupStep1Bold": "הגדרות ← מחברים ← הוסף",
     "setupStep2Prefix": "הזן את כתובת ה-URL של שרת ה-MCP:",
     "setupStep3Prefix": "לחץ על",
     "setupStep3Bold": "הגדרות מתקדמות",

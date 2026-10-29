@@ -650,6 +650,17 @@
       "runsAs": "Executa como {level} neste modelo",
       "faster": "Mais rápido",
       "smarter": "Mais inteligente"
+    },
+    "voiceInput": {
+      "start": "Ditar um pedido",
+      "stop": "Parar de ditar",
+      "errors": {
+        "permissionDenied": "O acesso ao microfone foi bloqueado. Permita-o nas configurações do navegador para ditar.",
+        "noSpeech": "Nenhuma fala foi detectada.",
+        "noMicrophone": "Nenhum microfone foi encontrado.",
+        "network": "O reconhecimento de voz precisa de conexão com a rede.",
+        "failed": "A entrada por voz falhou. Tente novamente."
+      }
     }
   },
   "reports": {
@@ -1407,7 +1418,17 @@
       "reading": "A ler…",
       "read": "Instrução lida",
       "readSkill": "Habilidade lida",
-      "failed": "Não foi possível ler a instrução"
+      "failed": "Não foi possível ler a instrução",
+      "lines": "linhas {start}–{end} / {total}",
+      "truncated": "truncado",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} correspondência",
+      "matchPlural": "{count} correspondências",
+      "moreMatches": "+mais",
+      "moreShown": "+{count} mais mostradas ao agente",
+      "noMatches": "Nenhuma linha correspondente — o esboço foi retornado em vez disso",
+      "outline": "Esboço",
+      "longLine": "linha longa: caracteres {start}–{end} de {length}"
     },
     "createEval": {
       "drafting": "Esboçando avaliação",
@@ -2768,6 +2789,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook HTTPS",
           "syslog": "Syslog sobre TLS"
         },
@@ -2777,6 +2799,7 @@
           "sentinel": "API de ingestão de logs (DCR)",
           "s3": "Objetos NDJSON por lote",
           "gcs": "Objetos NDJSON via chaves HMAC",
+          "cloudwatch": "PutLogEvents para um grupo de logs",
           "https": "POST JSON assinado",
           "syslog": "RFC 5424, JSON ou CEF"
         },
@@ -2804,6 +2827,8 @@
           "stream_name": "Nome do fluxo",
           "authority_url": "URL da autoridade",
           "bucket": "Bucket",
+          "log_group": "Grupo de logs",
+          "log_stream": "Fluxo de logs",
           "region": "Região",
           "prefix": "Prefixo da chave",
           "role_arn": "ARN da função",
@@ -2811,6 +2836,7 @@
           "access_key_id": "ID da chave de acesso",
           "secret_access_key": "Chave de acesso secreta",
           "gzip": "Compactar objetos com gzip",
+          "create_log_group": "Criar o grupo de logs se não existir",
           "endpoint_url": "URL de endpoint personalizada",
           "sts_endpoint_url": "Endpoint STS personalizado",
           "host": "Host",
@@ -2922,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "Sugestões de acompanhamento",
           "description": "Após cada resposta no aplicativo web, sugere algumas perguntas de acompanhamento que o usuário pode fazer em seguida. Geradas no modelo pequeno ou padrão."
+        },
+        "enable_voice_input": {
+          "name": "Entrada por voz",
+          "description": "Mostra um botão de microfone no compositor do chat para que os usuários possam ditar um pedido. A transcrição é feita no navegador do usuário (Chrome, Edge e Safari); o áudio nunca chega a este servidor, mas o serviço de voz do fornecedor do navegador pode processá-lo."
         },
         "auto_suggest_evals": {
           "name": "Sugerir avaliações automaticamente",

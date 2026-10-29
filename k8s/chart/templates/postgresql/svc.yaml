@@ -1,0 +1,35 @@
+{{- if include "bowapp.postgresql.enabled" . }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bowapp.postgresql.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.postgresql.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    {{- include "bowapp.postgresql.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bowapp.postgresql.fullname" . }}-hl
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.postgresql.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: tcp-postgresql
+      port: 5432
+      targetPort: tcp-postgresql
+  selector:
+    {{- include "bowapp.postgresql.selectorLabels" . | nindent 4 }}
+{{- end }}

@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{ destination: string; size?: 'sm' | 'md'
 const ASSETS: Record<string, string> = {
   splunk: '/data_sources_icons/splunk.png',
   s3: '/data_sources_icons/s3.svg',
+  cloudwatch: '/data_sources_icons/aws_cloudwatch.png',
   gcs: '/icons/google.svg',
   sentinel: '/icons/microsoft.svg',
 }

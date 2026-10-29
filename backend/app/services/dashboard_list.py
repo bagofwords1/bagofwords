@@ -93,11 +93,14 @@ async def _card(db, artifact: Artifact, user) -> dict:
 
 
 async def _card_title(db, artifact: Artifact) -> str | None:
-    """Main's Dashboards page listed conversations by their names: the
-    dashboard an old link leads to (phase 9) keeps its conversation's name
-    on its card. Every other dashboard shows its own."""
+    """A dashboard is named by its own `title`; renaming it no longer touches
+    the conversation it was born from. An old dashboard that never got its own
+    name still falls back to the conversation's (phase 9), so an untouched card
+    reads as it did before."""
     from app.models.report import Report
 
+    if artifact.title and artifact.title.strip():
+        return artifact.title
     if artifact.legacy_report_id:
         name = (await db.execute(
             select(Report.title).where(Report.id == str(artifact.legacy_report_id))

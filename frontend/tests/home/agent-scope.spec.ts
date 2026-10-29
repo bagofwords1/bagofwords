@@ -73,3 +73,34 @@ test('picking one agent from Auto pins exactly that agent', async ({ page }) => 
   await expect(page.getByTestId('agent-scope-auto')).toHaveAttribute('data-selected', 'true');
   await expect(page.locator('[data-testid="agent-scope-option"][data-selected="true"]')).toHaveCount(0);
 });
+
+test('the agent picker filters by name, like the model picker', async ({ page }) => {
+  await page.goto('/', { waitUntil: 'commit' });
+  await page.waitForLoadState('domcontentloaded');
+  await expect(trigger(page)).toBeVisible({ timeout: 20000 });
+
+  await openScopePanel(page);
+  const options = page.getByTestId('agent-scope-option');
+  if ((await options.count()) === 0) test.skip(true, 'workspace has no agents to scope');
+
+  const search = page.getByTestId('agent-scope-search');
+  await expect(search).toBeVisible();
+  // Opening the panel lands the caret in the search box, so typing filters at once.
+  await expect(search).toBeFocused();
+
+  const name = await options.first().getAttribute('data-agent-name');
+  await search.fill(name);
+  await expect(page.locator(`[data-testid="agent-scope-option"][data-agent-name="${name}"]`)).toBeVisible();
+  for (const option of await options.all()) {
+    expect(((await option.getAttribute('data-agent-name')) || '').toLowerCase()).toContain(name.toLowerCase());
+  }
+  // Auto isn't an agent: it leaves the list while a query is active.
+  await expect(page.getByTestId('agent-scope-auto')).toHaveCount(0);
+
+  await search.fill('zzz-no-such-agent-zzz');
+  await expect(page.getByTestId('agent-scope-no-match')).toBeVisible();
+  await expect(options).toHaveCount(0);
+
+  await search.fill('');
+  await expect(page.getByTestId('agent-scope-auto')).toBeVisible();
+});

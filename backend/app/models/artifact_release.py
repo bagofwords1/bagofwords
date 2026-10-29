@@ -12,6 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from app.ee.encryption import EncryptedJSON
 
 from app.models.base import BaseSchema, metadata
 
@@ -41,7 +42,7 @@ class ArtifactRelease(BaseSchema):
     source_version_id = Column(String(36), ForeignKey("artifact_versions.id",
                                                       name="fk_artifact_releases_source_version_id",
                                                       ondelete="SET NULL"), nullable=True)
-    content = Column(JSON, nullable=False, default=dict)
+    content = Column(EncryptedJSON, nullable=False, default=dict)
     # publishing | ready | failed
     status = Column(String(20), nullable=False, default="publishing", server_default="publishing")
     error = Column(Text, nullable=True)
