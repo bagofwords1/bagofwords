@@ -3067,6 +3067,7 @@ class DataSourceService:
                 client = ClientClass(**allowed)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
+                await self._attach_table_scope(db, client, data_source, conn)
                 built[key] = client
 
                 # Accelerated (FAST) relations for this connection, exposed as a
@@ -3286,6 +3287,44 @@ class DataSourceService:
         except Exception:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
+
+    async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
+        """Attach the agent's table selection to a SQL client so it holds at
+        query time (enforced by the code-execution wrapper, see
+        app/ai/code_execution/table_scope.py).
+
+        Covers the rows of THIS connection plus unlinked legacy rows, the same
+        set `_attach_stored_table_metadata` reads. Nothing is attached when the
+        data source has no table rows (never indexed: there is no selection to
+        enforce) or the client is not a SQL dialect the check can parse.
+
+        Errors propagate: a client that should be scoped must not be handed
+        out unscoped.
+        """
+        from app.ai.code_execution.sql_guard import dialect_for_client
+        from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
+        from app.models.datasource_table import DataSourceTable
+        from app.models.connection_table import ConnectionTable
+
+        if not dialect_for_client(client):
+            return
+        rows = (await db.execute(
+            select(DataSourceTable.name, DataSourceTable.is_active)
+            .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            .where(
+                DataSourceTable.datasource_id == str(data_source.id),
+                or_(
+                    ConnectionTable.connection_id == str(connection.id),
+                    DataSourceTable.connection_table_id.is_(None),
+                ),
+            )
+        )).all()
+        if not rows:
+            return
+        setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
+            active=[name for name, is_active in rows if is_active],
+            inactive=[name for name, is_active in rows if not is_active],
+        ))
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
         try:
