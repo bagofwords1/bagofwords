@@ -2,6 +2,7 @@
 Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
+import os
 import asyncio
 import importlib
 import logging
@@ -1323,10 +1324,7 @@ class ConnectionService:
 
             # Update is_active for system_only connections
             if connection.auth_policy == "system_only":
-                if not success and connection.is_active:
-                    connection.is_active = False
-                elif success and not connection.is_active:
-                    connection.is_active = True
+                self._record_probe_outcome(connection, success)
 
             await db.commit()
             return self._finish_status(connection_status, t0)
@@ -1338,7 +1336,7 @@ class ConnectionService:
                     connection.last_connection_checked_at = datetime.utcnow()
 
                 if connection.auth_policy == "system_only":
-                    connection.is_active = False
+                    self._record_probe_outcome(connection, False)
 
                 await db.commit()
             return {
@@ -1347,6 +1345,30 @@ class ConnectionService:
                 "timings": {"total_ms": round((_time.perf_counter() - t0) * 1000, 1)},
                 "details": {},
             }
+
+    @staticmethod
+    def _record_probe_outcome(connection: Connection, success: bool) -> None:
+        """Apply one probe result to a shared connection's ``is_active``.
+
+        A success reactivates at once. A failure deactivates only after
+        ``BOW_CONN_DEACTIVATE_AFTER_FAILURES`` (default 3) failures in a row:
+        an inactive connection drops out of every agent's context, so a single
+        slow or busy moment on the source (a BI server mid-reload, a network
+        blip) must not make the agent report it as disconnected.
+        """
+        if success:
+            connection.consecutive_test_failures = 0
+            if not connection.is_active:
+                connection.is_active = True
+            return
+        failures = (connection.consecutive_test_failures or 0) + 1
+        connection.consecutive_test_failures = failures
+        try:
+            threshold = max(1, int(os.environ.get("BOW_CONN_DEACTIVATE_AFTER_FAILURES", 3)))
+        except (TypeError, ValueError):
+            threshold = 3
+        if failures >= threshold and connection.is_active:
+            connection.is_active = False
 
     @staticmethod
     def _finish_status(connection_status, t0):
@@ -1801,6 +1823,24 @@ class ConnectionService:
                 prior_catalog=prior_catalog,
                 **_extra,
             )
+            # Parts of the catalog the client could not read on this run (a
+            # BI app that was busy or mid-reload). Their existing tables are
+            # kept below rather than pruned — see unindexed_table_prefixes.
+            try:
+                unread_prefixes = tuple(
+                    f"{str(p).rstrip('/')}/"
+                    for p in (client.unindexed_table_prefixes() or [])
+                    if p and str(p).strip("/")
+                )
+            except Exception:
+                unread_prefixes = ()
+            if unread_prefixes:
+                logger.warning(
+                    "refresh_schema: connection %s could not read %d part(s) of its catalog "
+                    "on this run; their existing tables are kept: %s",
+                    connection.id, len(unread_prefixes),
+                    ", ".join(p.rstrip("/") for p in unread_prefixes[:10]),
+                )
 
             # Only needed to pass to the client; release them before saving.
             # `_extra` holds the same `prior_tables` dict (Power BI /
@@ -1977,6 +2017,17 @@ class ConnectionService:
                         row.name = name
                     existing_tables[name] = row
 
+            # An unread part that already has tables keeps them, so its
+            # error/empty placeholder row (named after the part itself) is not
+            # added next to them.
+            if unread_prefixes:
+                for prefix in unread_prefixes:
+                    placeholder = prefix.rstrip("/")
+                    if placeholder in incoming and placeholder not in existing_tables and any(
+                        n.startswith(prefix) for n in existing_tables
+                    ):
+                        incoming.pop(placeholder, None)
+
             # Upsert tables
             created_count = 0
             updated_count = 0
@@ -2043,7 +2094,7 @@ class ConnectionService:
             if authoritative:
                 missing = [
                     (name, tbl) for name, tbl in existing_tables.items()
-                    if name not in incoming
+                    if name not in incoming and not name.startswith(unread_prefixes)
                 ]
                 if missing:
                     user_visible_names = await self._user_visible_table_names(
