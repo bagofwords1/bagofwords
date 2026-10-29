@@ -159,6 +159,15 @@ class MysqlClient(DataSourceClient):
             print(f"Error retrieving tables: {e}")
             return []
 
+    def get_routines(self) -> List["Routine"]:
+        """Stored procedures / functions from information_schema (signatures)."""
+        from app.data_sources.clients._routines_sql import mysql_family_routines
+        return mysql_family_routines(self.execute_query, self.database)
+
+    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
+        from app.data_sources.clients._routines_sql import mysql_family_definition
+        return mysql_family_definition(self.execute_query, self.database, qualified_name)
+
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(

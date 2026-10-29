@@ -11,9 +11,10 @@ from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import List, Generator
-from app.ai.prompt_formatters import Table, TableColumn
+from app.ai.prompt_formatters import Table, TableColumn, Routine
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from typing import Optional
 
 
 class PostgresqlClient(DataSourceClient):
@@ -317,6 +318,71 @@ class PostgresqlClient(DataSourceClient):
             self._schemas or None,
             lambda schema, table: f"{schema}.{table}",
         )
+
+    def get_routines(self) -> List[Routine]:
+        """Discover stored procedures and functions from pg_catalog.
+
+        `pg_get_function_arguments` / `pg_get_function_result` hand back the
+        signature the way Postgres itself prints it, so no parameter
+        reconstruction is needed. Bodies are fetched on demand via
+        get_routine_definition. prokind 'f' = function, 'p' = procedure;
+        aggregates ('a') and window ('w') functions are excluded.
+        """
+        where = ["n.nspname NOT IN ('pg_catalog', 'information_schema')",
+                 "p.prokind IN ('f', 'p')"]
+        if self._schemas:
+            quoted = ", ".join("'" + s.replace("'", "''") + "'" for s in self._schemas)
+            where.append(f"n.nspname IN ({quoted})")
+        sql = f"""
+            SELECT n.nspname AS schema_name, p.proname AS name,
+                   pg_get_function_arguments(p.oid) AS arguments,
+                   pg_get_function_result(p.oid) AS returns,
+                   p.prokind AS prokind, l.lanname AS language
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            JOIN pg_language l ON l.oid = p.prolang
+            WHERE {' AND '.join(where)}
+            ORDER BY n.nspname, p.proname
+        """
+        df = self.execute_query(sql)
+        routines = []
+        for _, r in df.iterrows():
+            is_func = str(r.get("prokind")) == "f"
+            schema_name = r.get("schema_name")
+            routines.append(Routine(
+                name=f"{schema_name}.{r.get('name')}",
+                schema_name=schema_name,
+                routine_type="function" if is_func else "procedure",
+                language=r.get("language") or None,
+                arguments=(r.get("arguments") or ""),
+                returns=(r.get("returns") or None) if is_func else None,
+            ))
+        return routines
+
+    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
+        """Return a routine's `CREATE ... ` source via pg_get_functiondef.
+
+        Overloaded names resolve to the first match (LIMIT 1). Returns None if
+        the routine is not found. `qualified_name` is single-quote-escaped —
+        it originates from the indexed catalog, surfaced through the tool.
+
+        Restricted to prokind IN ('f','p') — the same kinds the catalog lists —
+        so a name shared with an aggregate/window function can't land on one
+        (pg_get_functiondef errors on those).
+        """
+        safe = str(qualified_name).replace("'", "''")
+        sql = f"""
+            SELECT pg_get_functiondef(p.oid) AS def
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname || '.' || p.proname = '{safe}'
+              AND p.prokind IN ('f', 'p')
+            LIMIT 1
+        """
+        df = self.execute_query(sql)
+        if df is None or df.empty:
+            return None
+        return df.iloc[0]["def"]
 
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""

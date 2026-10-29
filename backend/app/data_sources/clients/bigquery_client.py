@@ -9,6 +9,7 @@ from google.oauth2 import service_account
 from app.core.egress import check_google_token_uri
 from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients._routines_sql import sql_str
 from app.ai.prompt_formatters import TableFormatter
 from contextlib import contextmanager
 
@@ -225,7 +226,6 @@ class BigqueryClient(DataSourceClient):
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
-
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(

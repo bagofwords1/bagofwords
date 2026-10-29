@@ -42,7 +42,14 @@ class InstructionReferenceService:
                 elif item.object_type == "instruction":
                     from app.schemas.instruction_schema import InstructionSchema
                     item_data["object"] = InstructionSchema.from_orm(referenced_obj).model_dump()
-            
+                elif item.object_type == "connection_routine":
+                    item_data["object"] = {
+                        "id": str(referenced_obj.id),
+                        "name": referenced_obj.name,
+                        "routine_type": referenced_obj.routine_type,
+                        "connection_id": str(referenced_obj.connection_id),
+                    }
+
             populated_items.append(InstructionReferenceSchema(**item_data))
         
         return populated_items
@@ -198,6 +205,36 @@ class InstructionReferenceService:
             if not obj:
                 raise ValueError("connection_tool not found")
             return obj
+        elif ref.object_type == "connection_routine":
+            from app.models.connection_routine import ConnectionRoutine
+            from app.models.connection import Connection
+            from app.models.data_source import DataSource
+            q = (
+                select(ConnectionRoutine)
+                .join(Connection, ConnectionRoutine.connection_id == Connection.id)
+                .where(
+                    and_(
+                        ConnectionRoutine.id == ref.object_id,
+                        Connection.organization_id == organization.id,
+                        ConnectionRoutine.deleted_at.is_(None),
+                    )
+                )
+            )
+            obj = (await db.execute(q)).scalar_one_or_none()
+            if not obj:
+                raise ValueError("connection_routine not found")
+            # The routine's connection must belong to one of the instruction's
+            # data sources (same rule as datasource_table).
+            if data_source_ids:
+                link = (await db.execute(
+                    select(DataSource.id)
+                    .join(Connection.data_sources)
+                    .where(and_(Connection.id == obj.connection_id,
+                                DataSource.id.in_(data_source_ids)))
+                )).first()
+                if not link:
+                    raise ValueError(f"connection_routine {ref.object_id} does not belong to the selected data sources")
+            return obj
         else:
             raise ValueError("unsupported object_type")
     
@@ -220,6 +257,10 @@ class InstructionReferenceService:
                 q = select(ConnectionTool).where(ConnectionTool.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
+            elif object_type == "connection_routine":
+                from app.models.connection_routine import ConnectionRoutine
+                q = select(ConnectionRoutine).where(ConnectionRoutine.id == object_id)
+                return (await db.execute(q)).scalar_one_or_none()
         except Exception:
             return None
         return None

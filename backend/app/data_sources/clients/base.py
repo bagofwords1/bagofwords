@@ -252,6 +252,39 @@ class DataSourceClient(ABC):
         UI can show how big the indexed data was. Default empty."""
         return {}
 
+    # Routines (stored procedures / functions). Reference material the agent
+    # reads to understand business logic that lives in the database — never a
+    # queryable relation. Default: the source has no routines (non-SQL sources,
+    # or SQL engines we don't introspect yet). A SQL client opts in by
+    # overriding `get_routines` with a dialect catalog query and
+    # `get_routine_definition` with the dialect's source-text fetch.
+
+    def get_routines(self) -> list:
+        """Discover routine signatures (name, type, params) WITHOUT bodies.
+
+        Bodies are large and fetched live on demand via
+        `get_routine_definition`, so discovery stays cheap and the schema
+        context carries only signatures. Returns a list of
+        `app.ai.prompt_formatters.Routine`. Default: none."""
+        return []
+
+    async def aget_routines(self, progress_callback: Optional[ProgressCallback] = None):
+        if progress_callback is not None and _accepts_kwarg(self.get_routines, "progress_callback"):
+            return await asyncio.to_thread(self.get_routines, progress_callback=progress_callback)
+        return await asyncio.to_thread(self.get_routines)
+
+    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
+        """Return one routine's source text, fetched live.
+
+        Raises NotImplementedError on sources without routines. Returns None (or
+        "") when the routine exists but its definition is not visible to the
+        indexing account (e.g. missing VIEW DEFINITION on SQL Server) — callers
+        distinguish that from a missing routine."""
+        raise NotImplementedError("get_routine_definition not supported by this client")
+
+    async def aget_routine_definition(self, qualified_name: str) -> Optional[str]:
+        return await asyncio.to_thread(self.get_routine_definition, qualified_name)
+
     # File-shaped capabilities. Default implementations raise NotImplementedError;
     # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.
 

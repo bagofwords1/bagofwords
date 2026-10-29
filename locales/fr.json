@@ -1,4 +1,12 @@
 {
+  "routines": {
+    "noneActive": "Aucune procédure active",
+    "title": "Procédures et fonctions",
+    "note": "Référence en lecture seule — la logique métier de la base de données. Ce ne sont pas des tables interrogeables.",
+    "procedure": "procédure",
+    "function": "fonction",
+    "notReadable": "source non accessible"
+  },
   "agentLanding": {
     "actions": "Actions de l’agent",
     "countTasks": "{n} tâche | {n} tâches",

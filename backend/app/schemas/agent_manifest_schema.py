@@ -48,6 +48,17 @@ class TableRules(BaseModel):
     exclude: List[str] = Field(default_factory=list)
 
 
+class RoutineRules(BaseModel):
+    """Include/exclude rules for stored procedures / functions, applied against
+    ``{connection}.{schema}.{routine}``. Same semantics as ``TableRules`` but
+    ``include`` defaults to empty (nothing active) — routines, like tables, are
+    off until selected. A routine is active iff it matches any include and no
+    exclude."""
+
+    include: Optional[List[str]] = None
+    exclude: List[str] = Field(default_factory=list)
+
+
 class ToolsOverlay(BaseModel):
     """Per-agent tool policy overlay for a single MCP/custom_api connection.
 
@@ -88,6 +99,7 @@ class AgentManifest(BaseModel):
 
     connections: List[str] = Field(default_factory=list)
     tables: Optional[TableRules] = None
+    routines: Optional[RoutineRules] = None
     tools: Dict[str, ToolsOverlay] = Field(default_factory=dict)
     conversation_starters: List[str] = Field(default_factory=list)
     members: List[MemberRef] = Field(default_factory=list)

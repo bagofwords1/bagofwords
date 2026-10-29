@@ -12,7 +12,7 @@ from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Generator, List, Optional
-from app.ai.prompt_formatters import Table, TableColumn
+from app.ai.prompt_formatters import Table, TableColumn, Routine, RoutineParam
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
@@ -348,6 +348,96 @@ class MSSQLClient(DataSourceClient):
             self._schemas or None,
             lambda schema, table: f"{schema}.{table}",
         )
+
+    def get_routines(self) -> List[Routine]:
+        """Discover stored procedures and functions (signatures only).
+
+        Catalog from INFORMATION_SCHEMA.ROUTINES/PARAMETERS; the body is NOT
+        read here — it is large and fetched on demand via
+        get_routine_definition. `definition_available` reflects whether
+        OBJECT_DEFINITION is visible to this account (VIEW DEFINITION).
+        """
+        with self.connect() as conn:
+            params = {"database": self.database}
+            where = ["r.routine_catalog = :database",
+                     "r.routine_type IN ('PROCEDURE', 'FUNCTION')"]
+            pwhere = ["p.specific_catalog = :database"]
+            if self._schemas:
+                keys = []
+                for idx, sch in enumerate(self._schemas):
+                    k = f"s{idx}"
+                    params[k] = sch
+                    keys.append(f":{k}")
+                where.append(f"r.routine_schema IN ({', '.join(keys)})")
+                pwhere.append(f"p.specific_schema IN ({', '.join(keys)})")
+
+            routines_sql = text(f"""
+                SELECT
+                    r.routine_schema,
+                    r.routine_name,
+                    r.routine_type,
+                    r.data_type AS return_type,
+                    CAST(ep.value AS NVARCHAR(MAX)) AS routine_comment,
+                    CASE WHEN OBJECT_DEFINITION(
+                        OBJECT_ID(r.routine_schema + '.' + r.routine_name)
+                    ) IS NULL THEN 0 ELSE 1 END AS def_available
+                FROM INFORMATION_SCHEMA.ROUTINES r
+                LEFT JOIN sys.extended_properties ep
+                    ON ep.major_id = OBJECT_ID(r.routine_schema + '.' + r.routine_name)
+                    AND ep.minor_id = 0
+                    AND ep.name = 'MS_Description'
+                WHERE {' AND '.join(where)}
+                ORDER BY r.routine_schema, r.routine_name
+            """)
+            params_sql = text(f"""
+                SELECT p.specific_schema, p.specific_name, p.parameter_name,
+                       p.data_type, p.parameter_mode, p.ordinal_position
+                FROM INFORMATION_SCHEMA.PARAMETERS p
+                WHERE {' AND '.join(pwhere)}
+                ORDER BY p.specific_schema, p.specific_name, p.ordinal_position
+            """)
+
+            # Params keyed by (schema, name). ordinal_position 0 is a function's
+            # return value in T-SQL — it has no parameter_name, so skip it here
+            # (the return type comes from ROUTINES.data_type).
+            by_routine: dict = {}
+            for row in conn.execute(params_sql, params).fetchall():
+                p_schema, p_name, p_param, p_type, p_mode, p_ord = row
+                if not p_param or (p_ord == 0):
+                    continue
+                by_routine.setdefault((p_schema, p_name), []).append(
+                    RoutineParam(name=p_param, dtype=p_type, mode=p_mode)
+                )
+
+            routines = []
+            for row in conn.execute(routines_sql, params).fetchall():
+                r_schema, r_name, r_type, r_return, r_comment, def_av = row
+                fqn = f"{r_schema}.{r_name}"
+                routines.append(Routine(
+                    name=fqn,
+                    schema_name=r_schema,
+                    routine_type="function" if str(r_type).upper() == "FUNCTION" else "procedure",
+                    params=by_routine.get((r_schema, r_name)) or None,
+                    returns=r_return if str(r_type).upper() == "FUNCTION" else None,
+                    description=r_comment or None,
+                    definition_available=bool(def_av),
+                    metadata_json={"schema": r_schema},
+                ))
+            return routines
+
+    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
+        """Return a routine's T-SQL source, or None if not visible/absent.
+
+        OBJECT_DEFINITION returns NULL both when the object does not exist and
+        when the caller lacks VIEW DEFINITION — the catalog's
+        `definition_available` flag is what distinguishes the two for callers.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                text("SELECT OBJECT_DEFINITION(OBJECT_ID(:name))"),
+                {"name": qualified_name},
+            ).first()
+            return row[0] if row else None
 
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""

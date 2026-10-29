@@ -226,6 +226,39 @@ async def get_data_source_schema(
 ):
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
 
+@router.get("/data_sources/{data_source_id}/routines", response_model=list)
+@requires_resource_permission('data_source', 'view_schema')
+async def get_data_source_routines(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Stored procedures / functions for this data source's connections,
+    grouped by connection (signatures only; bodies read on demand)."""
+    return await data_source_service.get_data_source_routines(
+        db, data_source_id, organization=organization, current_user=current_user
+    )
+
+
+@router.put("/data_sources/{data_source_id}/routines_status", response_model=dict)
+@requires_resource_permission('data_source', 'manage')
+async def update_data_source_routines_status(
+    data_source_id: str,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Set which routines this agent exposes to the model. Body:
+    {"active_ids": [ConnectionRoutine id, ...]} — the full active set."""
+    active_ids = payload.get("active_ids") or []
+    saved = await data_source_service.set_data_source_routines_status(
+        db, data_source_id, active_ids, organization=organization
+    )
+    return {"active_ids": saved}
+
+
 @router.get("/data_sources/{data_source_id}/full_schema", response_model=Union[PaginatedTablesResponse, list])
 @requires_resource_permission('data_source', 'view_schema')
 async def get_data_source_full_schema(

@@ -1499,6 +1499,7 @@ class InstructionContextBuilder:
         "metadata_resource": "resource",
         "memory": "memory",
         "connection_tool": "tool",
+        "connection_routine": "routine",
     }
 
     @classmethod

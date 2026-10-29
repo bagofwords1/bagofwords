@@ -71,6 +71,7 @@ from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
 from app.models.connection_table import ConnectionTable
+from app.models.connection_routine import ConnectionRoutine
 from app.models.sub_agent import SubAgentRun, SubAgentWave
 from app.models.sub_agent_message import SubAgentMessage
 from app.models.note import Note

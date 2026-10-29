@@ -14,8 +14,9 @@ import os
 import shutil
 import fcntl
 from contextlib import contextmanager
-from typing import Generator, List
+from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients._routines_sql import sql_str
 from app.ai.prompt_formatters import TableFormatter
 
 FREETDS_SYSTEM_CONF = "/etc/freetds/freetds.conf"
@@ -127,7 +128,6 @@ class SybaseClient(DataSourceClient):
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
-
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(

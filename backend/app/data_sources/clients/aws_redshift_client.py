@@ -4,8 +4,9 @@ from app.data_sources.clients.base import DataSourceClient
 import pandas as pd
 import psycopg2
 from contextlib import contextmanager
-from typing import List, Generator
+from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients._routines_sql import sql_str
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 import logging
@@ -482,7 +483,6 @@ class AwsRedshiftClient(DataSourceClient):
         except Exception as e:
             logger.error(f"Error retrieving tables: {e}")
             return []
-
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(

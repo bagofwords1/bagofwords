@@ -1,4 +1,12 @@
 {
+  "routines": {
+    "noneActive": "Nessuna procedura attiva",
+    "title": "Procedure e funzioni",
+    "note": "Riferimento in sola lettura — la logica di business del database. Non sono tabelle interrogabili.",
+    "procedure": "procedura",
+    "function": "funzione",
+    "notReadable": "sorgente non accessibile"
+  },
   "agentLanding": {
     "actions": "Azioni agente",
     "countTasks": "{n} attività | {n} attività",

@@ -9,6 +9,7 @@ from sqlalchemy import text
 from contextlib import contextmanager
 from typing import Dict, Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
+from app.data_sources.clients._routines_sql import sql_str
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from snowflake.sqlalchemy import URL
@@ -505,7 +506,6 @@ class SnowflakeClient(DataSourceClient):
             self._schemas or None,
             lambda schema, table: f"{schema}.{table}",
         )
-
     def get_schema(self, table: str, schema: str) -> Table:
         """Return Table."""
         with self.connect() as conn:

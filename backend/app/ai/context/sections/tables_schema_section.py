@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable
+from app.ai.prompt_formatters import Routine as PromptRoutine, RoutineFormatter
 
 
 # Schema usage tracking models for context snapshots
@@ -346,6 +347,11 @@ class TablesSchemaContext(ContextSection):
         tag_name: ClassVar[str] = "agent"
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
+        # Stored procedures / functions for this agent's connections. Reference
+        # material the model reads (via the read_routine tool) to understand DB
+        # business logic — NEVER queryable relations. Signatures only; bodies
+        # are fetched on demand. Rendered only in the full tier.
+        routines: List[PromptRoutine] = []
         mcp_tools: List[MCPToolItem] = []
         file_scopes: List[FileScopeItem] = []
         # Connections dropped from `tables`/`file_scopes` because their backing
@@ -565,6 +571,23 @@ class TablesSchemaContext(ContextSection):
                 if getattr(t, 'cached_next_refresh', None):
                     table_attrs["next_refresh"] = t.cached_next_refresh
             return xml_tag("table", inner, table_attrs)
+
+        def _render_routines_xml(self) -> str:
+            """Compact <routines> block: one signature per line, with a note that
+            these are read-only reference material fetched via read_routine.
+
+            Rendered only in the full tier — the thin roster/gist tiers omit it
+            so routines never bloat a run that hasn't focused this agent.
+            """
+            if not self.routines:
+                return ""
+            body = RoutineFormatter(list(self.routines)).routine_str
+            if not body.strip():
+                return ""
+            note = ("Stored procedures / functions (read-only reference — the DB's "
+                    "business logic). Read one's source with read_routine(name); "
+                    "they are NOT queryable tables.")
+            return xml_tag("routines", xml_tag("note", note) + "\n" + xml_escape(body))
 
         def _render_browser_xml(self) -> str:
             """Render a browser agent's scope: the allowed URL patterns and the
@@ -806,6 +829,11 @@ class TablesSchemaContext(ContextSection):
                 if mcp_parts:
                     content_parts.append(mcp_parts)
 
+            # Stored procedures / functions (reference material).
+            routines_xml = self._render_routines_xml()
+            if routines_xml:
+                content_parts.append(routines_xml)
+
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
             # Only include type if single connection (for backward compatibility)
@@ -1010,11 +1038,16 @@ class TablesSchemaContext(ContextSection):
                     if conn_id != 'default':
                         conn_attrs["id"] = conn_id
                     conn_xml_parts.append(xml_tag("connection", "\n".join(tables_xml), conn_attrs))
+                routines_xml = self._render_routines_xml()
+                if routines_xml:
+                    conn_xml_parts.append(routines_xml)
                 return "\n".join(conn_xml_parts)
             else:
                 # Single connection - render tables directly
                 tables_xml = [render_table(t) for t in top_tables]
-                return xml_tag("tables", "\n".join(tables_xml))
+                routines_xml = self._render_routines_xml()
+                body = xml_tag("tables", "\n".join(tables_xml))
+                return body + ("\n" + routines_xml if routines_xml else "")
 
         @staticmethod
         def _connection_key(t):

@@ -1147,6 +1147,11 @@ class ConnectionIndexingService:
                 if unreadable:
                     stats_json["unreadable_datasets"] = unreadable
                     stats_json["unreadable_dataset_count"] = len(unreadable)
+                # Stored-procedure / function catalog synced alongside tables
+                # (reference material; see ConnectionService.refresh_routines).
+                routine_count = getattr(svc, "last_routine_count", None)
+                if routine_count:
+                    stats_json["routine_count"] = routine_count
                 fresh.stats_json = stats_json
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:

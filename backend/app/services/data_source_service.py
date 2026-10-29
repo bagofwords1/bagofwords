@@ -3590,6 +3590,109 @@ class DataSourceService:
             print(f"Error getting data source schema: {e}")
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {redact_error(e)}")
     
+    async def get_data_source_routines(
+        self, db: AsyncSession, data_source_id: str,
+        organization: Organization = None, current_user: User = None,
+    ):
+        """Stored procedures / functions for a data source's connections,
+        grouped by connection. Reference material (signatures only); the body
+        is read on demand via the read_routine tool. Connections with no
+        indexed routines are omitted."""
+        from app.models.connection_routine import ConnectionRoutine
+
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+
+        conn_by_id = {str(c.id): c for c in (data_source.connections or [])}
+        if not conn_by_id:
+            return []
+
+        rows = (await db.execute(
+            select(ConnectionRoutine)
+            .where(
+                ConnectionRoutine.connection_id.in_(list(conn_by_id)),
+                ConnectionRoutine.deleted_at.is_(None),
+            )
+            .order_by(ConnectionRoutine.name)
+        )).scalars().all()
+
+        grouped: dict = {}
+        for r in rows:
+            grouped.setdefault(str(r.connection_id), []).append(r)
+
+        # Active selection, mirroring tables: nothing is active until the admin
+        # picks it. NULL (never curated) therefore means NONE active, same as a
+        # freshly imported table is inactive until selected.
+        active = data_source.active_routine_ids
+        active_set = set() if active is None else {str(x) for x in active}
+
+        def _is_active(rid: str) -> bool:
+            return rid in active_set
+
+        out = []
+        for cid, conn in conn_by_id.items():
+            rs = grouped.get(cid, [])
+            if not rs:
+                continue
+            out.append({
+                "connection_id": cid,
+                "connection_name": conn.name,
+                "connection_type": conn.type,
+                "routines": [{
+                    "id": str(r.id),
+                    "name": r.name,
+                    "schema_name": r.schema_name,
+                    "routine_type": r.routine_type,
+                    "arguments": r.arguments,
+                    "params": r.params,
+                    "returns": r.returns,
+                    "definition_available": bool(r.definition_available),
+                    "is_active": _is_active(str(r.id)),
+                } for r in rs],
+            })
+        return out
+
+    async def set_data_source_routines_status(
+        self, db: AsyncSession, data_source_id: str, active_ids: list,
+        organization: Organization = None,
+    ):
+        """Persist which routines this agent exposes to the model.
+
+        `active_ids` is the full set of active ConnectionRoutine ids (a whole-set
+        replace, like the tables bulk save). Ids that don't belong to this
+        agent's connections are ignored. Returns the saved list."""
+        from app.models.connection_routine import ConnectionRoutine
+
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+
+        conn_ids = [str(c.id) for c in (data_source.connections or [])]
+        valid = set()
+        if conn_ids:
+            rows = (await db.execute(
+                select(ConnectionRoutine.id).where(
+                    ConnectionRoutine.connection_id.in_(conn_ids),
+                    ConnectionRoutine.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            valid = {str(x) for x in rows}
+
+        data_source.active_routine_ids = [str(x) for x in (active_ids or []) if str(x) in valid]
+        await db.commit()
+        return data_source.active_routine_ids
+
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
         result = await db.execute(
             select(DataSource)

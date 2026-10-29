@@ -1,4 +1,12 @@
 {
+  "routines": {
+    "noneActive": "Inga aktiva procedurer",
+    "title": "Procedurer och funktioner",
+    "note": "Skrivskyddad referens – databasens affärslogik. Dessa är inte frågebara tabeller.",
+    "procedure": "procedur",
+    "function": "funktion",
+    "notReadable": "källkod ej tillgänglig"
+  },
   "agentLanding": {
     "actions": "Agentåtgärder",
     "countTasks": "{n} uppgift | {n} uppgifter",

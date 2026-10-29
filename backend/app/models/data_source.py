@@ -93,6 +93,15 @@ class DataSource(BaseSchema):
     conversation_starters = Column(JSON, nullable=True)
     use_llm_sync = Column(Boolean, nullable=False, default=False)
 
+    # Which stored procedures / functions this agent exposes to the model, as a
+    # list of ConnectionRoutine ids. NULL means NONE are active (the default
+    # before an admin curates the selection) — same as a freshly imported table
+    # is inactive until selected; an explicit list is the curated active set.
+    # Mirrors how tables are activated, but kept as a set on the agent rather
+    # than a per-row join — routine counts are small and selection is always
+    # saved as a whole set.
+    active_routine_ids = Column(JSON, nullable=True)
+
     # Primary instruction: the canonical overview instruction for this agent
     primary_instruction_id = Column(String(36), ForeignKey('instructions.id', ondelete='SET NULL'), nullable=True)
     primary_instruction = relationship(

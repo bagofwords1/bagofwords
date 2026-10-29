@@ -8,7 +8,7 @@ from app.data_sources.engine_pool import get_engine
 from app.data_sources.query_cancellation import track
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import List, Generator
+from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.fk_reflection import attach_foreign_keys
@@ -112,6 +112,15 @@ class MariadbClient(DataSourceClient):
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
+
+    def get_routines(self) -> List["Routine"]:
+        """Stored procedures / functions from information_schema (signatures)."""
+        from app.data_sources.clients._routines_sql import mysql_family_routines
+        return mysql_family_routines(self.execute_query, self.database)
+
+    def get_routine_definition(self, qualified_name: str) -> Optional[str]:
+        from app.data_sources.clients._routines_sql import mysql_family_definition
+        return mysql_family_definition(self.execute_query, self.database, qualified_name)
 
     def get_schema(self, table_id: str) -> Table:
         """Placeholder implementation for the abstract method."""

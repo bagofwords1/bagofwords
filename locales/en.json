@@ -1,4 +1,12 @@
 {
+  "routines": {
+    "noneActive": "No active procedures",
+    "title": "Procedures & functions",
+    "note": "Read-only reference — the database's business logic. These are not queryable tables.",
+    "procedure": "procedure",
+    "function": "function",
+    "notReadable": "source not readable"
+  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",

@@ -1,4 +1,12 @@
 {
+  "routines": {
+    "noneActive": "Keine aktiven Prozeduren",
+    "title": "Prozeduren & Funktionen",
+    "note": "Schreibgeschützte Referenz – die Geschäftslogik der Datenbank. Dies sind keine abfragbaren Tabellen.",
+    "procedure": "Prozedur",
+    "function": "Funktion",
+    "notReadable": "Quelle nicht lesbar"
+  },
   "agentLanding": {
     "actions": "Agentenaktionen",
     "countTasks": "{n} Aufgabe | {n} Aufgaben",

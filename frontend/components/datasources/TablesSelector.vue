@@ -632,6 +632,11 @@
 
     </div>
 
+    <!-- Stored procedures / functions (read-only reference). Shown below the
+         tables in both List and Visual modes; hidden in the fullscreen ERD.
+         Renders itself only when this agent's connections have indexed routines. -->
+    <RoutinesPanel v-if="!fullscreen" ref="routinesPanelRef" :ds-id="dsId" :can-update="canUpdate" @dirty-change="routinesDirty = $event" />
+
     <!-- Save button -->
     <div v-if="(showSave || (fullscreen && !fullscreenInPlace)) && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-start rtl:justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
       <button 
@@ -651,6 +656,11 @@
 import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
 import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
+import RoutinesPanel from './RoutinesPanel.vue'
+const routinesPanelRef = ref<any>(null)
+// Unsaved routine selection — folded into hasPendingChanges so the shared Save
+// and its "unsaved" hint react to routine changes exactly like table changes.
+const routinesDirty = ref(false)
 import { useCan } from '~/composables/usePermissions'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
@@ -1284,6 +1294,7 @@ const hasActiveFilters = computed(() => {
 })
 
 const hasPendingChanges = computed(() => {
+  if (routinesDirty.value) return true
   for (const [name, currentVal] of currentActiveState.value) {
     const originalVal = originalActiveState.value.get(name)
     if (originalVal !== currentVal) return true
@@ -1608,7 +1619,19 @@ function deselectAllMatching() { return setAllMatching(false) }
 // Both views save the same effective draft through the existing delta endpoint.
 async function onSave() {
   if (saving.value || bulkUpdating.value || catalogLoading.value) return false
-  if (!hasPendingChanges.value) { emit('saved', tables.value); return true }
+  // Single Save for the agent's knowledge: persist the routine selection too,
+  // on every path (including when only routines changed). Best-effort — a
+  // routine-save failure must not block the table save.
+  const routinesWereDirty = routinesDirty.value
+  try { await routinesPanelRef.value?.save?.() } catch { /* panel shows its own state */ }
+  if (!hasPendingChanges.value) {
+    // Only the routine selection changed — the table-save path (and its toast)
+    // is skipped, so confirm the routine save here.
+    if (routinesWereDirty) {
+      toast.add({ title: 'Procedures updated', description: 'Procedure selection saved successfully', color: 'green' })
+    }
+    emit('saved', tables.value); return true
+  }
   saving.value = true
   
   try {
@@ -1667,8 +1690,10 @@ async function onSave() {
     }
 
     toast.add({
-      title: 'Tables updated',
-      description: 'Table selection saved successfully',
+      title: routinesWereDirty ? 'Tables & procedures updated' : 'Tables updated',
+      description: routinesWereDirty
+        ? 'Table and procedure selection saved successfully'
+        : 'Table selection saved successfully',
       color: 'green'
     })
     emit('saved', tables.value)
