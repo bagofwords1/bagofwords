@@ -46,6 +46,27 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
         } else if(method === 'fileGet' || method === 'fileDownload' || method === 'fileDelete') {
           path=`/files/${segment(a.id)}${method === 'fileDownload' ? '/content' : ''}`;verb=method === 'fileDelete' ? 'DELETE' : 'GET'
         } else if(method === 'ai') { path=`/ai/${segment(a.operation)}/stream`; body=JSON.stringify(a.input) }
+        else if(method === 'conversations') {
+          // bow.conversations: the viewer's own conversations with this artifact.
+          const query = (values: Record<string, unknown>) => {
+            const q = new URLSearchParams()
+            for (const [k, v] of Object.entries(values)) if (v != null) q.set(k, String(v).slice(0, 128))
+            const text = q.toString(); return text ? `?${text}` : ''
+          }
+          const conv = a.id == null ? '' : `/${segment(a.id)}`
+          switch (a.op) {
+            case 'policy': path='/conversations/policy'; verb='GET'; break
+            case 'list': path=`/conversations${query({limit:a.limit,before:a.before})}`; verb='GET'; break
+            case 'create': path='/conversations'; body=JSON.stringify({title:a.title ?? null,agents:a.agents ?? null}); break
+            case 'get': path=`/conversations${conv}`; verb='GET'; break
+            case 'rename': path=`/conversations${conv}`; verb='PATCH'; body=JSON.stringify({title:a.title}); break
+            case 'archive': path=`/conversations${conv}`; verb='DELETE'; break
+            case 'messages': path=`/conversations${conv}/messages${query({limit:a.limit,before:a.before})}`; verb='GET'; break
+            case 'stop': path=`/conversations${conv}/messages/${segment(a.messageId)}/stop`; break
+            default: throw new Error('Unsupported operation')
+          }
+          if (!conv && !['policy','list','create'].includes(a.op)) throw new Error('Invalid conversation')
+        } else if(method === 'conversationSend') { path=`/conversations/${segment(a.id)}/messages`; body=JSON.stringify({text:String(a.text || '')}) }
         else throw new Error('Unsupported operation')
         const response = method === 'upload' ? await new Promise<Response>((resolve,reject)=>{
           const xhr = new XMLHttpRequest()
@@ -62,13 +83,13 @@ export function useArtifactRuntime(getContext: () => { frames: (HTMLIFrameElemen
           xhr.send(body)
         }) : await fetch(base+path,{method:verb,headers:{...headers(),...(typeof body==='string'?{'Content-Type':'application/json'}:{})},body,signal:controller.signal,credentials:'omit'})
         if(!response.ok) { const detail=await response.json().catch(()=>({})); throw Object.assign(new Error(getErrorMessage({data:detail})),{code:(detail.error_code || (response.status === 422 ? 'VALIDATION' : 'UNAVAILABLE')).replace('ARTIFACT_RESOURCE_','')}) }
-        if(method === 'ai') {
+        if(method === 'ai' || method === 'conversationSend') {
           const reader=response.body!.getReader(), decoder=new TextDecoder();let buffer='',completed=false
           try { while(true) { const {value,done}=await reader.read(); if(done)break;buffer+=decoder.decode(value,{stream:true});if(buffer.length>1048576)throw new Error('Stream limit exceeded');let cut;
             while((cut=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,cut);buffer=buffer.slice(cut+1);if(!line)continue;const e=JSON.parse(line);if(e.type==='error')throw Object.assign(new Error(e.message),{code:e.code});if(completed)throw new Error('Invalid stream');if(e.type==='completed')completed=true;send({event:e});}
           } if(!completed)throw Object.assign(new Error('Stream interrupted'),{code:'INTERRUPTED'});send({result:null}) }
           finally { await reader.cancel().catch(()=>{});reader.releaseLock() }
-        } else { const result=method==='fileDownload'?await response.blob():await response.json();if(method==='upload')send({event:{loaded:a.file.size,total:a.file.size}});send({result}) }
+        } else { const result=method==='fileDownload'?await response.blob():response.status===204?null:await response.json();if(method==='upload')send({event:{loaded:a.file.size,total:a.file.size}});send({result}) }
       } catch(error:any) { send({error:{code:error.name==='AbortError'?'ABORTED':error.code || 'UNAVAILABLE',message:error.message || 'Request failed'}}) }
       finally { active.delete(message.id);controllers.delete(controller) }
     }

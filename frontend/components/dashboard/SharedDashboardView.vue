@@ -199,8 +199,9 @@
             @review="openChanges"
         />
 
-        <!-- "Made with BOW" badge -->
-        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft')"
+        <!-- "Made with BOW" badge. Not inside a host application: there it
+             would float over the customer's own product and its controls. -->
+        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft') && !inHostApplication"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
@@ -347,10 +348,10 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded"
+            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded && !ownConversations"
             :report-id="id"
             :base="api.chatBase"
-            :raised="report.general?.bow_credit !== false"
+            :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
         />
 
@@ -557,6 +558,9 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 // never moves elsewhere: the tab's bar names the version it shows, so a
 // version that is gone says so in place (`unavailable`). The published page
 // keeps its badge, as its readers see it.
+// An app that holds its own conversations (bow.conversations) is the chat:
+// the bubble would be a second one, over its controls.
+const ownConversations = computed(() => /\bbow\.conversations\b/.test(artifact.value?.content?.code || ''));
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state

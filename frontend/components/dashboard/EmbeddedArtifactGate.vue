@@ -11,7 +11,7 @@
                          data-testid="embedded-artifact-sign-in" @click="signInWithPopup">
                     {{ $t('embed.gate.signIn', { name: hostName || 'BOW' }) }}
                 </UButton>
-                <UButton v-else-if="status === 'failed' || status === 'signed_out'" size="sm" variant="soft"
+                <UButton v-else-if="(status === 'failed' && retryable) || status === 'signed_out'" size="sm" variant="soft"
                          data-testid="embedded-artifact-retry" @click="signIn">
                     {{ $t('embed.gate.retry') }}
                 </UButton>
@@ -37,6 +37,9 @@ const status = ref<Status>('starting');
 const message = ref(t('embed.gate.starting'));
 const mode = ref<'assertion' | 'idp_token' | 'sso' | null>(null);
 const hostName = ref('');
+// Who BOW does not know (or knows twice, or deactivated) gains nothing from a retry.
+const PERMANENT = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive'];
+const retryable = ref(true);
 let allowedOrigins: string[] = [];
 let renewTimer: ReturnType<typeof setTimeout> | null = null;
 // Renew this long before expiry, so a running request never straddles it.
@@ -108,6 +111,7 @@ function signIn(): Promise<void> {
             accept(await exchange({ [kind]: value }));
         } catch (e: any) {
             credential.value = null;
+            retryable.value = !PERMANENT.includes(e?.data?.error_code);
             fail('failed', e?.data ? getErrorMessage(e) : (e?.message || t('embed.gate.failed')));
         }
     })().finally(() => { inflight = null; });

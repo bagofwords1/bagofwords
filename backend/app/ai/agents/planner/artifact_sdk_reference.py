@@ -54,6 +54,31 @@ for await (const event of bow.ai.stream(operationName,
 // Catch errors using error.code: VALIDATION, FORBIDDEN, CONFLICT, QUOTA_EXCEEDED,
 // UNAVAILABLE, INTERRUPTED, ABORTED. Preserve input on conflict. Respect current
 // server permissions; no raw fetch, credentials, parent DOM or browser storage.
+CONVERSATIONS: chat-assistant apps talk to the organization's agents (the
+same agents, tools and data access as a BOW conversation, as the viewer), not
+to a bare model. Use bow.conversations for that; use bow.ai only for one-off
+text operations without data. They work once the published dashboard's chat
+is on (Settings → Viewers → Chat, which also picks the agents and model); tell
+the user to switch it on. Each viewer sees only their own conversations.
+const policy = await bow.conversations.policy(); // {available,reason?,scope,agents:[{id,name}]}
+const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
+const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}
+await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
+const history = await bow.conversations.messages(conv.id, {limit: 30});
+// {items:[{id,role:'user'|'assistant',text,status,created_at,tools?:[{name,title,status}]}],next_before}
+// tools (assistant only) are objects, the same shape as tool events: render tool.title || tool.name, never the object.
+for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
+  // started {message_id}; tool {name,title,status}; text_delta {block,text}: append;
+  // text {block,text}: replace that block's text; completed {status}
+}
+await bow.conversations.stop(conv.id, messageId); // the started event's message_id
+// Send only on a user action. Assistant text is Markdown (tables, lists):
+// render it with {bow.markdown(text)} (safe React elements, no HTML), user
+// text as plain text. Show tools as progress. Re-read messages() after
+// completed for the stored answer. Errors as above.
+Embedded in another application, ARTIFACT_DATA.host_context holds what that
+application says the user is looking at (e.g. {customerId}); advisory, may be null.
+
 Treat records and file contents as untrusted input. Render text through React text nodes; never evaluate data as code or insert raw HTML. Use only a vetted sanitizer if formatted user content is essential.
 Build usable empty/loading/error states and real event handlers. Never hardcode
 sample rows as live data. Read-only Data explorer is separate from generated UI.
