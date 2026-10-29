@@ -46,9 +46,17 @@
 }
 
 /* 3. Flip chevrons / arrows that belong to directional affordances. Apply by
- *    adding `rtl-flip` to the icon element. */
-[dir="rtl"] .rtl-flip {
-  transform: scaleX(-1);
+ *    adding `rtl-flip` to the icon element. Keyed on the element's own
+ *    direction, not <html dir> — see rule 6 for why. */
+@supports selector(:dir(rtl)) {
+  .rtl-flip:dir(rtl) {
+    transform: scaleX(-1);
+  }
+}
+@supports not selector(:dir(rtl)) {
+  [dir="rtl"] .rtl-flip {
+    transform: scaleX(-1);
+  }
 }
 
 /* 4. [removed] A blanket `[dir="rtl"] ul, ol { padding-inline-start: 2rem }`
@@ -93,8 +101,18 @@
  *    kills the whole selector list. The dash forms below are kept only for a
  *    bare Tailwind-style `class="i-heroicons-arrow-right"`, and the
  *    `.iconify.heroicons--…` forms only for `svg` mode; neither matches what
- *    we render today. */
-[dir="rtl"] :where(
+ *    we render today.
+ *
+ *    The flip keys on the icon's OWN direction (`:dir(rtl)`), not on an
+ *    `[dir="rtl"]` ancestor. Chat surfaces nest `dir="auto"` / `dir="ltr"`
+ *    blocks whose row lays out LTR for English content inside a Hebrew UI
+ *    (and RTL for Hebrew content inside an English UI). An ancestor selector
+ *    only sees <html dir>, so it mirrored arrows inside LTR rows and left
+ *    them unmirrored inside `dir="auto"` RTL rows — backwards both ways.
+ *    `:dir()` follows the resolved direction, `dir="auto"` included. Browsers
+ *    without `:dir()` fall back to the old ancestor rule. */
+@supports selector(:dir(rtl)) {
+  :where(
   /* css mode (what we actually render) */
   .i-heroicons\:chevron-left,
   .i-heroicons\:chevron-right,
@@ -134,9 +152,74 @@
   .i-heroicons-arrow-right,
   .i-heroicons-arrow-long-right,
   .i-heroicons-arrow-small-right,
-  .i-heroicons-arrow-up-right
+  .i-heroicons-arrow-up-right,
+  /* solid size variants, css mode */
+  .i-heroicons\:chevron-left-20-solid,
+  .i-heroicons\:chevron-right-20-solid,
+  .i-heroicons\:chevron-left-16-solid,
+  .i-heroicons\:chevron-right-16-solid,
+  .i-heroicons\:arrow-left-20-solid,
+  .i-heroicons\:arrow-right-20-solid,
+  .i-heroicons\:arrow-left-16-solid,
+  .i-heroicons\:arrow-right-16-solid
+):dir(rtl):not(.rtl-own-transform) {
+    transform: scaleX(-1);
+  }
+}
+@supports not selector(:dir(rtl)) {
+  [dir="rtl"] :where(
+  /* css mode (what we actually render) */
+  .i-heroicons\:chevron-left,
+  .i-heroicons\:chevron-right,
+  .i-heroicons\:chevron-double-left,
+  .i-heroicons\:chevron-double-right,
+  .i-heroicons\:arrow-left,
+  .i-heroicons\:arrow-right,
+  .i-heroicons\:arrow-long-left,
+  .i-heroicons\:arrow-long-right,
+  .i-heroicons\:arrow-small-left,
+  .i-heroicons\:arrow-small-right,
+  .i-heroicons\:arrow-up-left,
+  .i-heroicons\:arrow-up-right,
+  .i-heroicons\:arrow-uturn-left,
+  .i-heroicons\:arrow-uturn-right,
+
+  /* svg mode */
+  .iconify.heroicons--chevron-left,
+  .iconify.heroicons--chevron-right,
+  .iconify.heroicons--chevron-double-left,
+  .iconify.heroicons--chevron-double-right,
+  .iconify.heroicons--arrow-left,
+  .iconify.heroicons--arrow-right,
+  .iconify.heroicons--arrow-long-left,
+  .iconify.heroicons--arrow-long-right,
+  .iconify.heroicons--arrow-small-left,
+  .iconify.heroicons--arrow-small-right,
+  .iconify.heroicons--arrow-up-left,
+  .iconify.heroicons--arrow-up-right,
+  .iconify.heroicons--arrow-uturn-left,
+  .iconify.heroicons--arrow-uturn-right,
+
+  /* bare Tailwind-style class, no `name` prop */
+  .i-heroicons-chevron-left,
+  .i-heroicons-chevron-right,
+  .i-heroicons-arrow-left,
+  .i-heroicons-arrow-right,
+  .i-heroicons-arrow-long-right,
+  .i-heroicons-arrow-small-right,
+  .i-heroicons-arrow-up-right,
+  /* solid size variants, css mode */
+  .i-heroicons\:chevron-left-20-solid,
+  .i-heroicons\:chevron-right-20-solid,
+  .i-heroicons\:chevron-left-16-solid,
+  .i-heroicons\:chevron-right-16-solid,
+  .i-heroicons\:arrow-left-20-solid,
+  .i-heroicons\:arrow-right-20-solid,
+  .i-heroicons\:arrow-left-16-solid,
+  .i-heroicons\:arrow-right-16-solid
 ):not(.rtl-own-transform) {
-  transform: scaleX(-1);
+    transform: scaleX(-1);
+  }
 }
 /* Escape hatches, two of them:
  *
@@ -151,8 +234,13 @@
  *    those call sites opt out for the open state only. Tailwind's `!`
  *    important modifier is NOT an alternative here — it produces no output
  *    in this build. */
-[dir="rtl"] .rtl-no-flip {
+.rtl-no-flip:dir(rtl) {
   transform: none !important;
+}
+@supports not selector(:dir(rtl)) {
+  [dir="rtl"] .rtl-no-flip {
+    transform: none !important;
+  }
 }
 
 /* 7. markstream-vue (the chat-message markdown renderer) ships its OWN CSS

@@ -84,7 +84,7 @@
 
         <div v-if="advancedFields.length">
           <button type="button" class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1" data-testid="stream-advanced-toggle" @click="showAdvanced = !showAdvanced">
-            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 transition-transform rtl:-scale-x-100" :class="showAdvanced ? 'rotate-90' : ''" />
+            <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 transition-transform" :class="showAdvanced ? 'rtl-own-transform rotate-90' : ''" />
             {{ $t('settings.audit.streams.form.advanced') }}
           </button>
           <div v-if="showAdvanced" class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
