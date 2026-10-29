@@ -89,6 +89,9 @@ class QlikSenseClient(DataSourceClient):
             self._space_filter = tokens or None
 
         self._http: Optional[requests.Session] = None
+        # `Space/App` keys of the apps the last get_schemas could not read.
+        self._unread_app_keys: List[str] = []
+
         # OAuth M2M token cache
         self._access_token: Optional[str] = None
         self._token_expires_at: float = 0.0
@@ -343,6 +346,8 @@ class QlikSenseClient(DataSourceClient):
         if rest_error is not None or qix_error is not None:
             err = rest_error or qix_error
             logger.warning("Qlik app crawl failed for %s (%s): %s", app_name, app_id, err)
+            if app_key:
+                self._unread_app_keys.append(app_key)
             stub_name = app_key if app_key else (app_id or "unknown-app")
             return [Table(
                 name=stub_name,
@@ -370,6 +375,7 @@ class QlikSenseClient(DataSourceClient):
         Full-tenant crawl: list_apps() then parallel per-app REST metadata,
         with QIX fallback for apps that don't expose REST metadata.
         """
+        self._unread_app_keys = []
         apps = self.list_apps()
         if not apps:
             return []
@@ -386,11 +392,17 @@ class QlikSenseClient(DataSourceClient):
                     except Exception as e:
                         app = futures[fut]
                         logger.warning("Unhandled crawl exception for %s: %s", app.get("id"), e)
+                        name = app.get("name") or app.get("id") or ""
+                        space = app.get("space_name") or ""
+                        self._unread_app_keys.append(f"{space}/{name}" if space else name)
             except IndexingCancelled:
                 for pending in futures:
                     pending.cancel()
                 raise
         return tables
+
+    def unindexed_table_prefixes(self) -> List[str]:
+        return [k for k in self._unread_app_keys if k]
 
     def get_schema(self, table_name: str) -> Table:
         """Find a single Table by its 'Space/App/Table' name or metadata keys."""
