@@ -2509,7 +2509,7 @@
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
       errSeq: 0, errShown: false, before: null, olderLoad: null, messages: [], conversations: [],
-      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0
+      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0, olderErr: null
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2829,7 +2829,7 @@
       var conv = _chatConv(), id = c.convId, target = null;
       for (var i = c.messages.length - 1; i >= 0; i--) {
         var m = c.messages[i];
-        if (m && m.role === 'assistant' && m.status === 'in_progress' && m.id != null && !_chatIsLocal(m)) { target = m; break; }
+        if (m && m.role === 'assistant' && m.status === 'in_progress' && m.id != null && !_chatIsLocal(m) && c.held[m.id] !== 'stopped') { target = m; break; }
       }
       if (!conv || !id || !target || !c.mounted) return Promise.resolve();
       var gen = c.gen, items = {};
@@ -2837,7 +2837,14 @@
       cancelTimer();
       items[target.id] = { status: 'stopped' };
       put({ type: 'apply', items: items });
-      return Promise.resolve().then(function() { return conv.stop(id, target.id); }).then(noop, noop).then(function() {
+      // A stop that did not reach the server shows: the answer is no longer
+      // held stopped (the re-read brings it back in progress and the refresh
+      // resumes) and `error` says why.
+      return Promise.resolve().then(function() { return conv.stop(id, target.id); }).then(noop, function(e) {
+        if (gen !== c.gen) return;
+        if (c.held[target.id] === 'stopped') delete c.held[target.id];
+        put({ type: 'apply', patch: { error: _chatError(e) } }, gen);
+      }).then(function() {
         if (gen === c.gen && c.run === null) return reread(id, null);
       }).then(noop, noop);
     }
@@ -2875,6 +2882,7 @@
       c.convId = convId;
       c.before = null;
       c.olderLoad = null;
+      c.olderErr = null;
       return wasStreaming;
     }
 
@@ -2969,9 +2977,14 @@
       var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit, before: before }); }).then(function(res) {
         if (gen !== c.gen || !c.mounted) return;
         c.before = _chatCursor(res);
-        put({ type: 'prepend', fetched: _chatItems(res), patch: { hasOlder: c.before !== null, loadingOlder: false } }, gen);
+        var patch = { hasOlder: c.before !== null, loadingOlder: false };
+        // Clears the error of a failed earlier attempt, when nothing changed
+        // `error` since (errSeq, as reload does).
+        if (c.olderErr !== null && c.olderErr === c.errSeq) patch.error = null;
+        c.olderErr = null;
+        put({ type: 'prepend', fetched: _chatItems(res), patch: patch }, gen);
       }, function(e) {
-        put({ type: 'apply', patch: { error: _chatError(e), loadingOlder: false } }, gen);
+        if (put({ type: 'apply', patch: { error: _chatError(e), loadingOlder: false } }, gen)) c.olderErr = c.errSeq;
       }).then(function() {
         if (c.olderLoad === load) c.olderLoad = null;
       });

@@ -195,4 +195,53 @@ scenario('RS8 select(B) while A\'s stop re-read is in flight drops its answer', 
   await s.done();
 });
 
+scenario('RS9 a rejected stop request: the answer shows in progress again, answering, the error, and the refresh resumes', async (env) => {
+  const s = await start(env, {auto: {stop: {__error: {code: 'UNAVAILABLE', message: 'The stop did not reach the server'}}}});
+  await openRunning(s);
+  await s.call('stop');
+  const stop = await s.take('stop');
+  assert.equal(stop.args.messageId, 'm7');
+  const read = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(read.id, pageOf([u('u1', 'q1'), running('m7', 'Working more')]));
+  const c = await s.until((c) => (c.messages[1] || {}).text === 'Working more', 'the re-read');
+  assert.deepEqual([statusOf(c, 'm7'), c.answering], ['in_progress', true], 'not shown stopped while it runs');
+  assert.equal(c.error && c.error.code, 'UNAVAILABLE', 'the failed stop is visible');
+  await sleep(60);
+  await s.page.clock.runFor(5000);
+  await s.take('messages', (e) => e.args.id === 'A', 'the refresh resumed');
+  await s.done();
+}, {clock: true});
+
+scenario('RS10 two stop() calls in one tick send one stop request and one re-read', async (env) => {
+  const s = await start(env);
+  await openRunning(s);
+  const before = await s.count('messages');
+  await s.dom(() => { window.__chat.stop(); window.__chat.stop(); });
+  await s.take('stop');
+  await s.take('messages', (e) => e.args.id === 'A');
+  await sleep(200);
+  assert.equal(await s.count('stop'), 1, 'one stop request');
+  assert.equal(await s.count('messages'), before + 1, 'one re-read');
+  await s.done();
+});
+
+scenario('RS11 two answers in progress: stop() stops the newest; the older one stays until a refresh shows it', async (env) => {
+  const s = await start(env);
+  await s.call('select', 'A');
+  const load = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(load.id, pageOf([u('u1', 'q1'), running('m5', 'Old'), u('u2', 'q2'), running('m7')]));
+  await s.until((c) => !c.loading && c.messages.length === 4, 'A loaded');
+  await s.call('stop');
+  const stop = await s.take('stop');
+  assert.equal(stop.args.messageId, 'm7', 'the newest');
+  const c = await s.until((c) => statusOf(c, 'm7') === 'stopped', 'm7 stopped');
+  assert.deepEqual([statusOf(c, 'm5'), c.answering], ['in_progress', true], 'the older one is left as the server says');
+  await sleep(100);
+  assert.equal(await s.count('stop'), 1);
+  const read = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(read.id, pageOf([u('u1', 'q1'), a('m5', 'Old', {status: 'error'}), u('u2', 'q2'), a('m7', '', {status: 'stopped'})]));
+  await s.until((c) => statusOf(c, 'm5') === 'error' && !c.answering, 'the re-read');
+  await s.done();
+});
+
 await run('artifactConversationAnswering', scenarios);

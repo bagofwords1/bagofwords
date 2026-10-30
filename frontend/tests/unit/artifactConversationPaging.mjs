@@ -186,4 +186,33 @@ scenario('O9 fixture mode: no older pages, loadOlder makes no request', async (e
   await s.done();
 });
 
+scenario('O10 a successful older load clears the error its failed attempt set, and only that one', async (env) => {
+  const s = await start(env);
+  await openA(s);
+  await s.call('loadOlder');
+  let req = await s.take('messages', older);
+  await s.fail(req.id, {code: 'RATE_LIMITED', message: 'Too many reads'});
+  await s.until((c) => c.error && !c.loadingOlder, 'the older error');
+  await s.call('loadOlder');
+  req = await s.take('messages', older);
+  await s.reply(req.id, pageOf(history('o', 2), 'k2'));
+  let c = await s.until((c) => c.messages.length === 32, 'the retry');
+  assert.equal(c.error, null, 'the retry clears its own failure');
+
+  await s.call('loadOlder');
+  req = await s.take('messages', older);
+  await s.fail(req.id, {code: 'RATE_LIMITED', message: 'Too many reads'});
+  await s.until((c) => c.error && c.error.code === 'RATE_LIMITED', 'the older error again');
+  await s.call('rename', 'A', 'Other');
+  const ren = await s.take('rename');
+  await s.fail(ren.id, {code: 'FORBIDDEN', message: 'no'});
+  await s.until((c) => c.error && c.error.code === 'FORBIDDEN', 'a later, unrelated error');
+  await s.call('loadOlder');
+  req = await s.take('messages', older);
+  await s.reply(req.id, pageOf(history('p', 2), null));
+  c = await s.until((c) => c.messages.length === 34, 'the second retry');
+  assert.equal(c.error && c.error.code, 'FORBIDDEN', 'an error set by something else stays');
+  await s.done();
+});
+
 await run('artifactConversationPaging', scenarios);
