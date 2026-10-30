@@ -2124,6 +2124,15 @@
     if (!text || !bw || typeof bw.markdown !== 'function') return null;
     try { return _chatWithDir(bw.markdown(text)); } catch (e) { return null; }
   }
+  // The direction of a text: its first strong character (Hebrew, Arabic, Syriac
+  // as in _RTL_CHARS -> 'rtl'; Latin, Greek, Cyrillic -> 'ltr'), or null when it
+  // has none (digits, punctuation, Markdown marks).
+  var _CHAT_STRONG = new RegExp(_RTL_CHARS.source + '|[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF\\u0370-\\u03FF\\u0400-\\u04FF]');
+  var _CHAT_RTL_ONE = new RegExp(_RTL_CHARS.source);
+  function _chatDirOf(text) {
+    var m = _CHAT_STRONG.exec(text == null ? '' : String(text));
+    return m ? (_CHAT_RTL_ONE.test(m[0]) ? 'rtl' : 'ltr') : null;
+  }
   function _chatLabelOf(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
   var _CHAT_RUNNING = { running: 1, in_progress: 1, started: 1 };
   var _CHAT_SUCCESS = { success: 1, completed: 1, done: 1 };
@@ -2167,11 +2176,15 @@
     if (role === 'user') {
       return h('div', rootProps, h('p', { dir: 'auto', 'data-testid': 'bow-chat-text', className: CHAT_MSG.user }, text));
     }
+    // The reply's own direction places the steps toggle, the tools, the markers
+    // and the indicator on its start side; each text block keeps dir="auto".
+    var dir = _chatDirOf(text) || _chatDirOf(steps.join('\n'));
+    if (dir) rootProps.dir = dir;
     var kids = [];
     if (steps.length) {
       // Collapsed: the answer stays the message; the steps are there on request.
       kids.push(h('details', { key: 'steps', 'data-testid': 'bow-chat-steps', className: CHAT_MSG.steps }, [
-        h('summary', { key: 's', dir: 'auto', className: 'cursor-pointer select-none' }, L.steps),
+        h('summary', { key: 's', className: 'cursor-pointer select-none' }, h('span', { dir: 'auto', 'data-testid': 'bow-chat-steps-label' }, L.steps)),
         h('div', { key: 'l', className: 'mt-1 space-y-1 border-s ps-2' }, steps.map(function(x, i) {
           return h('div', { key: i, dir: 'auto', 'data-testid': 'bow-chat-step' },
             _chatMarkdown(x) || h('p', { className: 'whitespace-pre-wrap' }, x));

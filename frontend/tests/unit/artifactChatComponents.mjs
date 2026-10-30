@@ -423,6 +423,73 @@ const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + 
   console.log('PASS: ChatMessage falls back to plain text without bow.markdown');
 }
 
+// D1-D5: an assistant reply takes its own direction (the first strong character of its text, else of its
+// steps), so the steps toggle, the markers and the indicator sit on the reply's start side whatever the
+// container's direction and the labels' language. The label is measured, not the <summary> (block-level, it
+// always spans the root): the bow-chat-steps-label span, or a Range over the summary text before it existed.
+{
+  const {page, consoleErrors} = await openPage();
+  const D = {
+    he: M('he', {text: 'הכנסות לפי חודש: ינואר הוביל.', steps: ['בודק את הנתונים.']}),
+    en: M('en', {text: 'Revenue by month: January led.', steps: ['בודק את הנתונים.']}),
+    digits: M('digits', {text: '123', steps: ['456']}),
+    stepsOnly: M('stepsOnly', {text: '', status: 'in_progress', steps: ['בודק את הנתונים.']}),
+  };
+  const frame = await mount(page, artifact(`
+    var D = ${JSON.stringify(D)};
+    var CM = window.ChatMessage;
+    function App() {
+      return h('div', null, [
+        h('div', {key: 1, 'data-vector': 'd1', style: {width: '600px'}}, h(CM, {message: D.he})),
+        h('div', {key: 2, 'data-vector': 'd2', dir: 'rtl', style: {width: '600px'}}, h(CM, {message: D.he, labels: {steps: 'שלבים'}})),
+        h('div', {key: 3, 'data-vector': 'd3', dir: 'rtl', style: {width: '600px'}}, h(CM, {message: D.en, labels: {steps: 'שלבים'}})),
+        h('div', {key: 4, 'data-vector': 'd4', style: {width: '600px'}}, h(CM, {message: D.digits})),
+        h('div', {key: 5, 'data-vector': 'd5', style: {width: '600px'}}, h(CM, {message: D.stepsOnly}))
+      ]);
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  `));
+  await until(frame, () => document.querySelectorAll('[data-testid="bow-chat-message"]').length === 5, null, 'five messages');
+  const side = (v) => frame.evaluate((v) => {
+    const root = document.querySelector(`[data-vector="${v}"] [data-testid="bow-chat-message"]`);
+    const details = root.querySelector('[data-testid="bow-chat-steps"]');
+    const span = details.querySelector('[data-testid="bow-chat-steps-label"]');
+    let rect;
+    if (span) rect = span.getBoundingClientRect();
+    else {
+      const text = Array.from(details.querySelector('summary').childNodes).find((n) => n.nodeType === 3);
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      rect = range.getBoundingClientRect();
+    }
+    const r = root.getBoundingClientRect();
+    const centre = rect.left + rect.width / 2;
+    return {dir: getComputedStyle(details).direction, rootDir: getComputedStyle(root).direction, attr: root.getAttribute('dir'),
+      side: centre > r.left + r.width / 2 ? 'right' : 'left', label: details.querySelector('summary').textContent};
+  }, v);
+  const d1 = await side('d1');
+  assert.deepEqual([d1.dir, d1.side, d1.label], ['rtl', 'right', 'Steps'], 'D1: a Hebrew reply with English labels in an LTR frame: the toggle at the right');
+  const d2 = await side('d2');
+  assert.deepEqual([d2.dir, d2.side, d2.label], ['rtl', 'right', 'שלבים'], 'D2: Hebrew labels, Hebrew reply, rtl container');
+  const d3 = await side('d3');
+  assert.deepEqual([d3.rootDir, d3.dir, d3.side], ['ltr', 'ltr', 'left'], 'D3: an English reply with Hebrew labels in an rtl container: the toggle at the left');
+  assert.equal((await side('d4')).attr, null, 'D4: no strong character: no dir attribute (inherits)');
+  const d5 = await side('d5');
+  assert.deepEqual([d5.attr, d5.side], ['rtl', 'right'], 'no text yet: the direction of the steps');
+  const typing = await frame.evaluate(() => {
+    const root = document.querySelector('[data-vector="d5"] [data-testid="bow-chat-message"]');
+    const t = root.querySelector('[data-testid="bow-chat-typing"] svg').getBoundingClientRect();
+    const r = root.getBoundingClientRect();
+    return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left';
+  });
+  assert.equal(typing, 'right', 'the in-progress spinner follows the reply direction');
+  assert.deepEqual(await frame.evaluate(() => Array.from(document.querySelectorAll('[data-vector="d1"] [data-testid="bow-chat-text"] p')).map((p) => p.getAttribute('dir'))), ['auto'], 'text blocks keep dir="auto"');
+  assert.deepEqual(await msgsAfter(page), ['ARTIFACT_READY']);
+  assert.deepEqual(consoleErrors.filter((e) => /Warning|key/.test(e)), [], 'no React warnings');
+  await page.close();
+  console.log('PASS: an assistant reply takes its own direction: the steps toggle sits on its start side');
+}
+
 // F1: useConversation + ChatMessage in the SDK's fixture mode.
 {
   const {page, consoleErrors} = await openPage();
