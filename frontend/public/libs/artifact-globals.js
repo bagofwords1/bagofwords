@@ -1988,7 +1988,9 @@
     inProgress: 'Answer in progress...',
     steps: 'Steps',
     failed: 'The answer failed',
-    stopped: 'The answer was stopped'
+    stopped: 'The answer was stopped',
+    olderMessages: 'Load earlier messages',
+    jumpToLatest: 'Jump to latest'
   };
   function _chatFill(template, vars) {
     return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
@@ -2000,7 +2002,8 @@
       rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
-      steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped)
+      steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
+      olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest)
     };
   }
   function _chatUnique(values) { return Array.from(new Set(values)); }
@@ -3227,6 +3230,169 @@
     });
     return h('div', { className: _join('min-w-0', props.containerClassName) }, [bar, h('div', { key: 'panels', className: 'pt-4' }, panels)]);
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chat components — ChatMessages (composes with useConversation)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Each takes the hook's object as `chat`. They reach ChatMessage, Icon,
+  // LoadingSpinner, Modal and Drawer through this closure (captured here, after
+  // the owner's definitions), so an app's own function of one of those names
+  // does not change them.
+  var _Modal = window.Modal, _Drawer = window.Drawer;
+  var _CHAT_BOTTOM_PX = 40;
+  var CHAT_LIST = LEGACY ? {
+    root: 'min-h-0 flex-1 overflow-y-auto',
+    inner: 'space-y-4 p-4',
+    older: 'mx-auto flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
+    jump: 'pointer-events-auto mb-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+    error: 'text-sm text-red-600 dark:text-red-400'
+  } : {
+    root: 'min-h-0 flex-1 overflow-y-auto',
+    inner: 'space-y-4 p-4',
+    older: 'mx-auto flex items-center gap-2 rounded-chip border border-line px-3 py-1 text-xs text-ink-2 hover:bg-surface-2 disabled:opacity-60',
+    jump: 'pointer-events-auto mb-2 inline-flex items-center gap-1.5 rounded-chip border border-line bg-surface px-3 py-1 text-xs text-ink-2 shadow-lift',
+    error: 'text-sm text-red-600 dark:text-red-400'
+  };
+
+  // The element that scrolls the list (D-18): the list itself when it
+  // overflows, else the document when that overflows (an app that gave the
+  // list no height), else the list. Re-resolved at every check.
+  function _chatScroller(el) {
+    if (!el) return null;
+    if (el.scrollHeight > el.clientHeight + 1 || !el.getClientRects().length) return el;
+    var d = document.scrollingElement;
+    return d && d.scrollHeight > d.clientHeight + 1 ? d : el;
+  }
+  function _chatEdge(sc) { return sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top; }
+  function _chatRows(inner) { return inner ? inner.querySelectorAll(':scope > [data-testid="bow-chat-row"]') : []; }
+
+  // <ChatMessages chat={chat} empty={node} labels={...} showTools className />
+  // Opens at the newest message, follows the answer only while the user is at
+  // the bottom (within 40 px), otherwise keeps the row at the top of the view
+  // where it is (growth above or below it, older pages). It records that row
+  // on every scroll and restores it after every content change (D-17), with
+  // the browser's own scroll anchoring off.
+  function ChatMessages(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var labelsKey = JSON.stringify(props.labels || null);
+    var labels = React.useMemo(function() { return props.labels; }, [labelsKey]);
+    var rootRef = React.useRef(null), innerRef = React.useRef(null);
+    var atBottom = React.useRef(true), anchor = React.useRef(null), jumping = React.useRef(false);
+    // The position the component itself last scrolled to: the scroll event that
+    // follows is its own, not the user's (content that grew meanwhile, e.g. late
+    // styles, must not read as the user leaving the bottom).
+    var own = React.useRef(null);
+    var prev = React.useRef(null);
+    var _jump = React.useState(false), showJump = _jump[0], setJump = _jump[1];
+    var _unseen = React.useState(false), unseen = _unseen[0], setUnseen = _unseen[1];
+
+    function record(sc) {
+      var edge = _chatEdge(sc), rows = _chatRows(innerRef.current);
+      anchor.current = null;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i].getBoundingClientRect();
+        if (r.bottom > edge + 1) { anchor.current = { id: rows[i].getAttribute('data-message-id'), offset: r.top - edge }; return; }
+      }
+    }
+    function measure(sc) {
+      if (own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) return;
+      own.current = null;
+      var at = sc.scrollHeight - sc.scrollTop - sc.clientHeight <= _CHAT_BOTTOM_PX;
+      if (jumping.current) { if (!at) return; jumping.current = false; }
+      atBottom.current = at;
+      record(sc);
+      setJump(!at);
+      if (at) setUnseen(false);
+    }
+    // At the bottom: stay there. Otherwise: put the anchored row back where it was.
+    function stick() {
+      var sc = _chatScroller(rootRef.current);
+      if (!sc) return;
+      if (atBottom.current) { sc.scrollTop = sc.scrollHeight; own.current = sc.scrollTop; return; }
+      var a = anchor.current;
+      if (!a) return;
+      var rows = _chatRows(innerRef.current);
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-message-id') !== a.id) continue;
+        var delta = rows[i].getBoundingClientRect().top - _chatEdge(sc) - a.offset;
+        if (Math.abs(delta) >= 0.5) { sc.scrollTop += delta; own.current = sc.scrollTop; }
+        return;
+      }
+    }
+
+    React.useEffect(function() {
+      var el = rootRef.current;
+      if (!el) return;
+      function onScroll() { var sc = _chatScroller(el); if (sc) measure(sc); }
+      el.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('scroll', onScroll, { passive: true });
+      var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(function() { stick(); }) : null;
+      if (ro) { ro.observe(el); if (innerRef.current) ro.observe(innerRef.current); }
+      return function() {
+        el.removeEventListener('scroll', onScroll);
+        window.removeEventListener('scroll', onScroll);
+        if (ro) ro.disconnect();
+      };
+    }, [!!chat]);
+
+    var messages = chat && Array.isArray(chat.messages) ? chat.messages : [];
+    var cur = chat ? { id: chat.conversationId, loading: !!chat.loading, sending: !!chat.sending, messages: messages } : null;
+    React.useLayoutEffect(function() {
+      if (!cur) return;
+      var p = prev.current;
+      prev.current = cur;
+      // Opening a conversation, a finished load and the user's own send go to the bottom.
+      if (!p || p.id !== cur.id || (p.loading && !cur.loading) || (!p.sending && cur.sending)) {
+        atBottom.current = true;
+        jumping.current = false;
+        setJump(false);
+        setUnseen(false);
+      } else if (!atBottom.current && (p.messages !== cur.messages || cur.sending)) {
+        setUnseen(true);
+      }
+      stick();
+    });
+
+    if (!chat) return null;
+    var L = _chatLabels(labels);
+    var kids = [];
+    if (chat.hasOlder) {
+      kids.push(h('button', { key: 'older', type: 'button', dir: 'auto', 'data-testid': 'bow-chat-older', className: CHAT_LIST.older,
+        disabled: !!chat.loadingOlder, onClick: function() { if (typeof chat.loadOlder === 'function') chat.loadOlder(); } },
+        [chat.loadingOlder ? h(_LoadingSpinner, { key: 's', size: 12 }) : null, h('span', { key: 'l' }, L.olderMessages)]));
+    }
+    messages.forEach(function(m, i) {
+      if (!m || typeof m !== 'object') return;
+      kids.push(h('div', { key: m.id != null ? 'm-' + m.id : 'i-' + i, 'data-testid': 'bow-chat-row', 'data-message-id': m.id },
+        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools })));
+    });
+    if (chat.loading && !messages.length) {
+      kids.push(h('div', { key: 'loading', 'data-testid': 'bow-chat-loading', className: 'flex justify-center py-6' }, h(_LoadingSpinner, { size: 20 })));
+    }
+    if (!chat.loading && !messages.length) {
+      kids.push(h('div', { key: 'empty', 'data-testid': 'bow-chat-empty' }, props.empty == null ? null : props.empty));
+    }
+    if (chat.error) {
+      kids.push(h('p', { key: 'error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-error', className: CHAT_LIST.error },
+        _chatLabelOf(chat.error.message) || _chatLabelOf(chat.error.code)));
+    }
+    var jump = showJump ? h('div', { key: 'jump', className: 'pointer-events-none sticky bottom-0 flex h-0 items-end justify-center' },
+      h('button', { type: 'button', dir: 'auto', 'data-testid': 'bow-chat-jump', 'data-unseen': unseen ? 'true' : undefined, className: CHAT_LIST.jump,
+        onClick: function() {
+          var sc = _chatScroller(rootRef.current);
+          atBottom.current = true;
+          jumping.current = true;
+          setJump(false);
+          setUnseen(false);
+          if (sc) { try { sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' }); } catch (e) { sc.scrollTop = sc.scrollHeight; } }
+          setTimeout(function() { jumping.current = false; }, 1000);
+        } }, [h(_Icon, { key: 'i', name: 'arrow-down', size: 14 }), h('span', { key: 'l' }, L.jumpToLatest)])) : null;
+    return h('div', { ref: rootRef, role: 'log', 'aria-busy': !!chat.sending, 'data-testid': 'bow-chat-messages',
+      className: _chatCls(CHAT_LIST.root, props.className), style: { overflowAnchor: 'none' } },
+      [h('div', { key: 'inner', ref: innerRef, className: CHAT_LIST.inner }, kids), jump]);
+  }
+  window.ChatMessages = ChatMessages;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc

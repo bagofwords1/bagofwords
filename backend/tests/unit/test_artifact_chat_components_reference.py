@@ -46,13 +46,18 @@ def test_the_documented_hook_return_keys_are_the_hooks_return_keys():
 
 
 def test_the_documented_labels_are_the_globals_labels():
+    """The reference lists the label key names only; the English defaults stay
+    in the globals. Listing every default would not fit the reference's size
+    budget once the chat components add their labels (OD-7)."""
     part = _blocks_part()
     documented = re.search(r"labels=\{\{(.*?)\}\}", part, re.S)
-    assert documented, "the note labels are documented"
+    assert documented, "the labels are documented"
     defaults = re.search(r"var _CHAT_LABELS = \{(.*?)\};", GLOBALS, re.S)
     assert defaults
-    keys = lambda s: set(re.findall(r"([A-Za-z_]\w*)\s*:\s*'", s))  # noqa: E731
-    assert keys(documented.group(1)) == keys(defaults.group(1)) != set()
+    # Wrapped in braces: _keys needs a name to be followed by , : or }.
+    documented_keys = _keys("{" + documented.group(1) + "}")
+    default_keys = set(re.findall(r"([A-Za-z_]\w*)\s*:\s*'", defaults.group(1)))
+    assert documented_keys == default_keys != set()
 
 
 def test_the_blocks_come_first_and_the_low_level_api_stays():
@@ -106,5 +111,5 @@ def test_hook_messages_carry_steps_as_history_does():
     part = _blocks_part()
     messages = re.search(r"// messages: \[\{([^}]*)\}\]", part)
     assert messages and "steps" in _keys("{" + messages.group(1) + "}")
-    chat_message = part[part.index("<ChatMessage"):part.index("<ChatResult result={r}/>")]
+    chat_message = part[part.index("<ChatMessage message="):part.index("<ChatResult result={r}/>")]
     assert re.search(r"steps[^.;]*collapsed", chat_message)

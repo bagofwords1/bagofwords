@@ -70,17 +70,17 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
 // conversations: [{id,title,created_at,updated_at}]. error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
-// chat.stop() while chat.sending (leaving keeps an answer running); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over; chat.loadOlder() while chat.hasOlder.
-<ChatMessage message={m}/> // one message: markdown with dir="auto" per block, its steps collapsed, tools
+// chat.stop() while chat.sending (leaving keeps an answer running); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
+<ChatMessages chat={chat} empty={node}/> // the scrolling list: opens at the newest message, follows the answer only while
+//   the user is at the bottom, "Jump to latest", "Load earlier messages", chat.error. Needs a bounded height (flex-1 in a fixed-height column).
+<ChatMessage message={m}/> // one message (ChatMessages renders them): markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
-// Both take labels={{rowsShown:'Showing {shown} of {total} rows',columnsShown:'{shown} of {total} columns',
-//   partial:'Partial table',incomplete:'Some results of this answer could not be shown',inProgress:'Answer in progress...',
-//   steps:'Steps',failed:'The answer failed',stopped:'The answer was stopped'}}: pass them in the app's language.
+// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest}}:
+//   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
 function Chat(){const chat=useConversation();const [draft,setDraft]=useState('');
   return <div>{chat.policy&&chat.policy.available===false&&<p>{chat.policy.reason}</p>}
-    {chat.messages.map(m=><ChatMessage key={m.id} message={m}/>)}
-    {chat.error&&<p role="alert">{chat.error.message}</p>}
+    <ChatMessages chat={chat}/>
     <form onSubmit={e=>{e.preventDefault();chat.send(draft);setDraft('');}}>
       <textarea dir="auto" value={draft} onChange={e=>setDraft(e.target.value)}/>
       {chat.sending?<button type="button" onClick={()=>chat.stop()}>Stop</button>:<button disabled={!draft.trim()}>Send</button>}
