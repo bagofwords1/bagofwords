@@ -1,0 +1,21 @@
+# Mock CrowdStrike Falcon API — see mock_falcon.py.
+# CrowdStrike ships no emulator or container for the Falcon platform API, so
+# this serves the exact surface CrowdStrikeClient touches (routes, params and
+# limits from the official FalconPy SDK) with a seeded "Northwind Health" tenant.
+#
+#   docker compose up -d
+#   curl -s -X POST localhost:8095/oauth2/token -d client_id=bow_api -d 'client_secret=FalconSecret123!'
+services:
+  falcon-mock:
+    image: python:3.13-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_falcon.py:/srv/mock_falcon.py:ro
+    command: sh -c "pip install --quiet fastapi uvicorn python-multipart && uvicorn mock_falcon:app --host 0.0.0.0 --port 8095"
+    environment: {}
+      # Make edge paths observable:
+      # FALCON_MOCK_TOKEN_TTL: "10"                 # refresh-on-401
+      # FALCON_MOCK_NO_COMBINED_DEVICES: "1"        # legacy hosts fallback
+      # FALCON_MOCK_RATE_LIMIT_EVERY: "5"           # 429 back-off
+    ports:
+      - "8095:8095"
