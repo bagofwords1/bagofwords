@@ -213,6 +213,35 @@ def test_a_message_streams_once_and_is_stored(corpus, corpus_rows, test_client, 
     assert history[1]["id"] == stream[0]["message_id"]
 
 
+def test_the_older_page_cursor_is_present_only_when_older_messages_exist(corpus, corpus_rows, test_client,
+                                                                          stub_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
+    url = f"{base(aid)}/{conv['id']}/messages"
+
+    def send(text):
+        assert test_client.post(url, json={"text": text}, headers=as_(corpus, "member")).status_code == 200
+
+    def read(**params):
+        r = test_client.get(url, params=params, headers=as_(corpus, "member"))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    send("first")
+    # A short conversation fits in one page: no cursor, so no "Load earlier messages".
+    assert read()["next_before"] is None
+    assert read(limit=2)["next_before"] is None  # exactly the page size
+
+    send("second")
+    newest = read(limit=2)
+    assert [m["text"] for m in newest["items"] if m["role"] == "user"] == ["second"]
+    assert newest["next_before"]
+    older = read(limit=2, before=newest["next_before"])
+    assert [m["role"] for m in older["items"]] == ["user", "assistant"]
+    assert older["items"][0]["text"] == "first"
+    assert older["next_before"] is None
+
+
 def test_access_is_rechecked_on_every_message(corpus, corpus_rows, test_client, stub_agent):
     aid = _chatty(corpus, corpus_rows, test_client)
     conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()

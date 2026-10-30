@@ -381,7 +381,9 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
         if m["id"] in lost or missing or budget_lost(candidates, m["results"]):
             m["results_incomplete"] = True
     items.sort(key=lambda m: m["created_at"] or "")
-    return {"items": items, "next_before": data.get("next_before")}
+    # get_completions_v2 always names its oldest row as the cursor; it is a
+    # cursor only when older messages exist.
+    return {"items": items, "next_before": data.get("next_before") if data.get("has_more") else None}
 
 
 class _Failed:
