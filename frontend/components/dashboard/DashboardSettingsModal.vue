@@ -243,6 +243,46 @@
                                     <UToggle v-model="includeDataTab" :disabled="!canSettings" class="flex-shrink-0 mt-0.5" data-testid="include-data-tab-toggle" />
                                 </div>
 
+                                <!-- Agents and model: used by conversations the app holds
+                                     (bow.conversations) and by the chat bubble. Not tied to
+                                     "Allow chat": an app's own chat works with the bubble off. -->
+                                <div class="py-3 space-y-3" data-testid="agents-and-model">
+                                    <div>
+                                        <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('dashboardSettings.agentsModelTitle') }}</div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ tm('dashboardSettings.agentsModelDesc', artifactMode) }}</div>
+                                    </div>
+                                    <div class="space-y-1.5">
+                                        <div class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ $t('dashboardSettings.agentsLabel') }}</div>
+                                        <label class="flex items-start gap-2 cursor-pointer" data-testid="agents-auto">
+                                            <input type="radio" value="auto" v-model="agentsMode" class="mt-0.5" :disabled="!canSettings" />
+                                            <span class="flex flex-col">
+                                                <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('dashboardSettings.agentsAuto') }}</span>
+                                                <span class="text-2xs text-ink-muted">{{ $t('dashboardSettings.agentsAutoDesc') }}</span>
+                                            </span>
+                                        </label>
+                                        <label class="flex items-start gap-2 cursor-pointer" data-testid="agents-limited">
+                                            <input type="radio" value="limited" v-model="agentsMode" class="mt-0.5"
+                                                :disabled="!canSettings || agentChoices.length === 0 || bubbleDataOnly" />
+                                            <span class="flex flex-col">
+                                                <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('dashboardSettings.agentsLimited') }}</span>
+                                                <span class="text-2xs text-ink-muted">{{ bubbleDataOnly ? $t('dashboardSettings.agentsLimitedDataOnly') : $t('dashboardSettings.agentsLimitedDesc') }}</span>
+                                            </span>
+                                        </label>
+                                        <div v-if="agentsMode === 'limited'" class="ms-6 space-y-1" data-testid="agents-choices">
+                                            <label v-for="agent in agentChoices" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="!canSettings" />
+                                                <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div data-testid="chat-model">
+                                        <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('share.chatModel') }}</div>
+                                        <USelectMenu v-model="chatModelValue" :options="chatModelOptions" value-attribute="value"
+                                            option-attribute="label" size="sm" :disabled="!canSettings" :ui="{ rounded: 'rounded-lg' }" />
+                                        <p class="text-2xs text-ink-muted mt-1">{{ $t('dashboardSettings.modelDesc') }}</p>
+                                    </div>
+                                </div>
+
                                 <div class="py-3" data-testid="chat-settings">
                                     <div class="flex items-start justify-between gap-4">
                                         <div class="min-w-0">
@@ -251,38 +291,22 @@
                                         </div>
                                         <UToggle v-model="chatEnabled" :disabled="!canSettings" class="flex-shrink-0 mt-0.5" data-testid="chat-enabled-toggle" />
                                     </div>
-                                    <div v-if="chatEnabled" class="mt-3 ms-0.5 space-y-3 border-s-2 border-gray-100 dark:border-gray-800 ps-3">
-                                        <div class="space-y-1.5">
-                                            <div class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ $t('share.chatScope') }}</div>
-                                            <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
-                                                <input type="radio" value="agents" v-model="chatScope" class="mt-0.5"
-                                                    :disabled="!canSettings || reportAgents.length === 0" />
-                                                <span class="flex flex-col">
-                                                    <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
-                                                    <span class="text-2xs text-ink-muted">{{ $t('share.chatScopeAgentsDesc') }}</span>
-                                                </span>
-                                            </label>
-                                            <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
-                                                <label v-for="agent in reportAgents" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
-                                                    <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="!canSettings" />
-                                                    <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
-                                                </label>
-                                            </div>
-                                            <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
-                                                <input type="radio" value="data_only" v-model="chatScope" class="mt-0.5" :disabled="!canSettings" />
-                                                <span class="flex flex-col">
-                                                    <span class="text-xs text-gray-700 dark:text-gray-300">{{ tm('share.chatScopeDataOnly', artifactMode) }}</span>
-                                                    <span class="text-2xs text-ink-muted">{{ tm('share.chatScopeDataOnlyDesc', artifactMode) }}</span>
-                                                </span>
-                                            </label>
-                                            <p v-if="reportAgents.length === 0" class="text-2xs text-ink-muted">{{ tm('share.chatNoAgents', artifactMode) }}</p>
-                                        </div>
-                                        <div data-testid="chat-model">
-                                            <div class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{{ $t('share.chatModel') }}</div>
-                                            <USelectMenu v-model="chatModelValue" :options="chatModelOptions" value-attribute="value"
-                                                option-attribute="label" size="sm" :disabled="!canSettings" :ui="{ rounded: 'rounded-lg' }" />
-                                            <p class="text-2xs text-ink-muted mt-1">{{ $t('share.chatModelDesc') }}</p>
-                                        </div>
+                                    <div v-if="chatEnabled" class="mt-3 ms-0.5 space-y-1.5 border-s-2 border-gray-100 dark:border-gray-800 ps-3">
+                                        <div class="text-xs font-medium text-gray-600 dark:text-gray-400">{{ $t('share.chatScope') }}</div>
+                                        <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
+                                            <input type="radio" value="agents" v-model="chatScope" class="mt-0.5" :disabled="!canSettings" />
+                                            <span class="flex flex-col">
+                                                <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('dashboardSettings.bubbleUsesAgents') }}</span>
+                                                <span class="text-2xs text-ink-muted">{{ $t('share.chatScopeAgentsDesc') }}</span>
+                                            </span>
+                                        </label>
+                                        <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
+                                            <input type="radio" value="data_only" v-model="chatScope" class="mt-0.5" :disabled="!canSettings" />
+                                            <span class="flex flex-col">
+                                                <span class="text-xs text-gray-700 dark:text-gray-300">{{ tm('share.chatScopeDataOnly', artifactMode) }}</span>
+                                                <span class="text-2xs text-ink-muted">{{ tm('share.chatScopeDataOnlyDesc', artifactMode) }}</span>
+                                            </span>
+                                        </label>
                                     </div>
                                 </div>
 
@@ -316,6 +340,10 @@
                     </div>
                     <div v-if="visited.access" v-show="tab === 'access'">
                         <DashboardAccessPanel :dashboard-id="dashboardId" :active="isOpen && tab === 'access'" />
+                    </div>
+                    <div v-if="visited.embed" v-show="tab === 'embed'">
+                        <DashboardEmbedPanel :dashboard-id="dashboardId" :slug="savedSlug" :mode="artifactMode"
+                            :active="isOpen && tab === 'embed'" />
                     </div>
                     <div v-if="visited.notes" v-show="tab === 'notes'" data-testid="settings-notes">
                         <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" :mode="artifactMode" />
@@ -356,6 +384,7 @@ import DashboardHistoryModal from './DashboardHistoryModal.vue'
 import HistoryNotes from './history/HistoryNotes.vue'
 import HistoryRefreshes from './history/HistoryRefreshes.vue'
 import DashboardAccessPanel from './DashboardAccessPanel.vue'
+import DashboardEmbedPanel from './DashboardEmbedPanel.vue'
 import HistoryOwner from './history/HistoryOwner.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
@@ -391,7 +420,7 @@ const loading = ref(false)
 
 // ---- Tabs ----
 type HistoryTab = 'versions' | 'conversations'
-type Tab = 'general' | 'viewers' | 'access' | 'notes' | 'data' | 'resources' | 'analytics' | 'refreshes' | HistoryTab
+type Tab = 'general' | 'viewers' | 'access' | 'embed' | 'notes' | 'data' | 'resources' | 'analytics' | 'refreshes' | HistoryTab
 const HISTORY_TABS: HistoryTab[] = ['versions', 'conversations']
 const tab = ref<Tab>('general')
 type TabItem = { key: Tab; group: number; icon: string; label: string; desc: string; groupLabel?: string }
@@ -401,6 +430,8 @@ const tabs = computed<TabItem[]>(() => {
         { key: 'viewers', group: 1, icon: 'heroicons:eye', label: t('dashboardSettings.tabViewers'), desc: t('dashboardSettings.viewersDesc') },
         // Who can edit and who can view, by name (read only; Share changes it).
         ...(capabilities.value?.includes('share') ? [{ key: 'access' as const, group: 1, icon: 'heroicons:user-group', label: t('dashboardSettings.tabAccess'), desc: tm('dashboardSettings.accessDesc', props.artifactMode) }] : []),
+        // Which host applications may show it, and their snippets.
+        ...(capabilities.value?.includes('settings') ? [{ key: 'embed' as const, group: 1, icon: 'heroicons:code-bracket-square', label: t('embed.tab.title'), desc: tm('embed.tab.desc', props.artifactMode) }] : []),
         // The README every editor's agent reads (collab01).
         ...(capabilities.value?.includes('edit') ? [{ key: 'notes' as const, group: 1, icon: 'heroicons:document-text', label: t('dashboardCollab.history.tabNotes'), desc: tm('dashboardSettings.notesDesc', props.artifactMode) }] : []),
         { key: 'data', group: 2, icon: 'heroicons:circle-stack', label: t('dashboardSettings.tabData'), desc: '' },
@@ -516,6 +547,18 @@ const chatEnabled = ref(false)
 const chatScope = ref<'agents' | 'data_only'>('agents')
 const chatAgentIds = ref<string[]>([])
 const reportAgents = ref<{ id: string; name: string }[]>([])
+// Agents: Auto (null: every agent each viewer may use, or the report's own
+// when it attached some) or limited to a list. One setting for apps and the
+// bubble; "dashboard data only" is the bubble's alone (stored as []).
+const agentsMode = ref<'auto' | 'limited'>('auto')
+const orgAgents = ref<{ id: string; name: string }[]>([])
+const agentChoices = computed(() => {
+    const seen = new Map<string, { id: string; name: string }>()
+    for (const a of [...reportAgents.value, ...orgAgents.value]) if (!seen.has(a.id)) seen.set(a.id, a)
+    return [...seen.values()]
+})
+const bubbleDataOnly = computed(() => chatEnabled.value && chatScope.value === 'data_only')
+watch(bubbleDataOnly, (on) => { if (on) agentsMode.value = 'auto' })
 // Stored chat model: null = the conversation's own, ORG_DEFAULT = the
 // organization's, else a model id. USelectMenu reads '' as nothing picked,
 // so "the conversation's" carries its own sentinel.
@@ -523,20 +566,16 @@ const INHERIT_MODEL = '__inherit__'
 const ORG_DEFAULT_MODEL = 'org_default'
 const chatModelId = ref(INHERIT_MODEL)
 const chatModels = ref<{ id: string; name: string; provider?: string; isDefault?: boolean }[]>([])
-const reportModelId = ref('')
 const chatModelValue = computed({
-    // Without a conversation model, inheriting is the organization default: one option.
-    get: () => (!reportModelId.value && chatModelId.value === INHERIT_MODEL ? ORG_DEFAULT_MODEL : chatModelId.value),
+    // Unpinned is each viewer's own default (dashboard_chat.chat_model_id
+    // treats "inherit" and ORG_DEFAULT alike): one option, not two.
+    get: () => (chatModelId.value === INHERIT_MODEL ? ORG_DEFAULT_MODEL : chatModelId.value),
     set: (v: string) => { chatModelId.value = v },
 })
 const chatModelOptions = computed(() => {
     // ORG_DEFAULT_MODEL pins nothing: each viewer runs on their own default
-    // (personal → group → organization), so no single model name applies.
+    // (personal → group → organization, with Auto routing when it is on).
     const options = [{ value: ORG_DEFAULT_MODEL, label: t('share.chatModelViewerDefault') }]
-    if (reportModelId.value) {
-        const inherited = chatModels.value.find(m => m.id === reportModelId.value)
-        options.unshift({ value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelReportPlain') })
-    }
     options.push(...chatModels.value.map(m => ({ value: m.id, label: m.provider ? `${m.name} · ${m.provider}` : m.name })))
     if (![INHERIT_MODEL, ORG_DEFAULT_MODEL].includes(chatModelId.value) && !chatModels.value.some(m => m.id === chatModelId.value)) {
         options.push({ value: chatModelId.value, label: t('share.chatModelUnavailable') })
@@ -564,6 +603,8 @@ const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() &&
 
 // ---- Link name ----
 const slugDraft = ref('')
+// The saved link name: what an embed snippet names the artifact by.
+const savedSlug = ref<string | null>(null)
 const SLUG_RULE = /^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$/
 const slugValid = computed(() => !slugDraft.value || SLUG_RULE.test(slugDraft.value))
 watch(slugDraft, (v) => { if (v !== v.toLowerCase()) slugDraft.value = v.toLowerCase() })
@@ -593,11 +634,12 @@ async function copyEffectiveLink() {
 const saved = ref<Record<string, any>>({})
 
 function chatIdsPayload(): string[] | null {
-    if (chatScope.value === 'data_only') return []
-    const all = reportAgents.value.map(a => a.id)
+    if (bubbleDataOnly.value) return []
+    if (agentsMode.value === 'auto') return ['*']
+    const all = agentChoices.value.map(a => a.id)
     const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Everything checked = inherit the roster (["*"] resets it server-side).
-    return picked.length === all.length && all.length > 0 ? ['*'] : picked
+    // Nothing picked is not a limit: back to Auto (["*"] resets it server-side).
+    return picked.length ? picked : ['*']
 }
 
 function current(): Record<string, any> {
@@ -654,8 +696,13 @@ async function load() {
         chatScope.value = Array.isArray(stored) && stored.length === 0 ? 'data_only'
             : (stored == null && reportAgents.value.length === 0 ? 'data_only' : 'agents')
         chatAgentIds.value = Array.isArray(stored) && stored.length > 0 ? [...stored] : reportAgents.value.map(a => a.id)
+        agentsMode.value = Array.isArray(stored) && stored.length > 0 ? 'limited' : 'auto'
+        // The agents an owner may limit the app to: the ones this report used,
+        // plus every other agent they can use.
+        useMyFetch('/data_sources').then(({ data }) => {
+            orgAgents.value = (((data.value as any[]) || [])).map((a: any) => ({ id: String(a.id), name: a.name }))
+        }).catch(() => {})
         chatModelId.value = st.chat_model_id || INHERIT_MODEL
-        reportModelId.value = report.model_id || ''
         chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
             id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
         }))
@@ -663,6 +710,7 @@ async function load() {
         hasRls.value = !!report.has_rls
         hasUserScoped.value = !!report.has_user_scoped
         slugDraft.value = st.slug || ''
+        savedSlug.value = st.slug || null
         nameDraft.value = props.title || ''
         saved.value = current()
     } catch (e) {

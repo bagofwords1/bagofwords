@@ -21,14 +21,16 @@ from app.services.artifact_resource_service import ArtifactResources, fail, seal
 from app.services.artifact_file_service import ArtifactFiles
 from app.services.artifact_admission import admit
 
+from app.core.embed_auth import viewer_optional  # noqa: E402
+
 router = APIRouter(prefix="/artifacts/{artifact_id}/runtime", tags=["artifact resources"])
 
 
-async def access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
+async def access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(viewer_optional)):
     return await _admitted(artifact_id, request, db, user, resources=True)
 
 
-async def visibility_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(current_user_optional)):
+async def visibility_access(artifact_id: str, request: Request, db=Depends(get_async_db), user=Depends(viewer_optional)):
     """Viewers only; no org switch. Used by view counting and analytics, which are always on."""
     return await _admitted(artifact_id, request, db, user, resources=False)
 

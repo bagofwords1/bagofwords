@@ -82,7 +82,8 @@
 
 <script setup lang="ts">
 const config = useRuntimeConfig();
-const { token } = useAuth();
+const token = useApiAuthorization();
+const embedCredential = useEmbedCredential();
 const { organization, ensureOrganization } = useOrganization();
 const { t } = useI18n();
 
@@ -142,7 +143,7 @@ async function fetchPreviews() {
 
     if (data.value && data.value.previews && data.value.previews.length > 0) {
       // Ensure organization is loaded before fetching images
-      const org = await ensureOrganization();
+      const org = embedCredential.value ? { id: embedCredential.value.organizationId } : await ensureOrganization();
 
       // Fetch each image with auth headers and convert to blob URLs
       const blobUrls: string[] = [];

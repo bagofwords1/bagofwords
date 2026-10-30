@@ -23,14 +23,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def _has_column() -> bool:
-    columns = sa.inspect(op.get_bind()).get_columns('connections')
-    return any(c['name'] == 'consecutive_test_failures' for c in columns)
+    return 'consecutive_test_failures' in {c['name'] for c in sa.inspect(op.get_bind()).get_columns('connections')}
 
 
 def upgrade() -> None:
-    # Idempotent, as collab01 and refhist01: the dashboard corpus stops before
-    # dashfc08's data migration and applies this schema-only revision on its
-    # own; a later `upgrade head` then finds it done.
+    # Idempotent: the dashboard test corpus applies it unstamped
+    # (tests/fixtures/dashboard_corpus/alembic_at.py).
     if _has_column():
         return
     op.add_column(
@@ -40,6 +38,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    if not _has_column():
-        return
     op.drop_column('connections', 'consecutive_test_failures')

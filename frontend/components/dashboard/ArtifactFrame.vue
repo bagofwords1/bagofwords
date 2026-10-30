@@ -639,6 +639,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
@@ -743,10 +744,21 @@ const useMyFetch: typeof useApplicationFetch = (async (request: any, options: an
 }) as typeof useApplicationFetch;
 
 let verificationRevision = 0;
+// BOW's preview: the editor's real conversation policy, for the simulated
+// bow.conversations (artifact-sdk.js fixtureRefusal).
+let previewConversationPolicy: any = null;
 // A full payload carries only the latest accepted result for each query.
 const verificationRequests = new Map<string, string>();
+// Set once the runtime broker exists (below): the editor's activity log.
+let logActivity: ((event: ActivityEvent) => void) | null = null;
 function verificationEvent(kind: string, fields: Record<string, any> = {}) {
-  if (!props.verificationPreview) return;
+  if (!props.verificationPreview) {
+    // Outside the preview the same moments go to the editor's activity log.
+    if (kind === 'params_commit') logActivity?.({ kind: 'filter', status: 'ok', detail: { params: fields.changes || {}, queries: (fields.targets || []).length || undefined } });
+    else if (kind === 'error' && fields.source === 'runtime') logActivity?.({ kind: 'error', detail: { message: String(fields.message || 'Render error').slice(0, 300), where: 'render' } });
+    else if (kind === 'error') logActivity?.({ kind: 'filter', status: 'error', detail: { message: String(fields.message || '').slice(0, 300) } });
+    return;
+  }
   window.dispatchEvent(new CustomEvent('bow:artifact-evidence', {
     detail: { kind, artifact_id: props.requestedArtifactId, ...fields },
   }));
@@ -1182,7 +1194,13 @@ function postToRuntimeFrames(message: any) {
 const resourcesAvailable = ref(false);
 
 
-useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
+// The editor's own session logs what happens in the app for the agent
+// (services/artifact_activity.py); BOW's preview turns the same events into
+// its evidence. View-as and readers are never logged.
+const runtime = useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you",
+  activity: !props.verificationPreview && viewAsMode.value === "you" ? { reportId: props.reportId, version: selectedArtifact.value?.version ?? null } : null,
+  onActivity: props.verificationPreview ? (e) => verificationEvent('sdk_call', { event_kind: e.kind, op: e.op, status: e.status, error_code: e.error_code, duration_ms: e.duration_ms, detail: e.detail }) : undefined }));
+logActivity = runtime.log;
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -2731,7 +2749,9 @@ function sendDataToIframe() {
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
-    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {})
+    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
+    // Each push replaces the app's data: keep the preview's real policy in it.
+    ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
   }));
 
   verificationEvent('data_sent', {
@@ -2981,7 +3001,15 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
     // which would reload the iframe and lose control state.
+    // BOW's preview simulates conversations, but against the real policy, so
+    // an app the live page would refuse fails in the preview too.
+    if (!inPlace && props.verificationPreview && selectedArtifact.value?.artifact_id
+        && String(selectedArtifact.value?.content?.code || '').includes('conversations')) {
+      const { data } = await useMyFetch(`/api/artifacts/${selectedArtifact.value.artifact_id}/runtime/conversations/policy`);
+      previewConversationPolicy = data.value || null;
+    }
     if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
+      ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
       report: toRaw(reportData.value),
       visualizations: toRaw(visualizationsData.value),
       files: toRaw(filesData.value),

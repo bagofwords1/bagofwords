@@ -100,6 +100,8 @@ from app.models.service_account import ServiceAccount
 from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.instruction_build import InstructionBuild
 from app.models.oauth_server import OAuthClient, OAuthAuthorizationCode, OAuthAccessToken
+from app.models.host_application import HostApplication, ArtifactHostApplication, HostAssertionReplay
+from app.models.artifact_activity import ArtifactActivityEvent
 from app.ee.scim.models import ScimToken
 from app.ee.audit.streams.models import AuditLogStream
 from app.models.role import Role
