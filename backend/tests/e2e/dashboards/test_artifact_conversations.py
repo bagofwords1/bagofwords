@@ -172,10 +172,12 @@ def test_archiving_a_conversation_stops_its_running_answer(corpus, corpus_rows, 
     from sqlalchemy import text
 
     aid = _chatty(corpus, corpus_rows, test_client)
-    conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
-    assert test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "Which genres sell best?"},
-                            headers=as_(corpus, "member")).status_code == 200
+    conv, other = (test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json() for _ in range(2))
+    for c in (conv, other):
+        assert test_client.post(f"{base(aid)}/{c['id']}/messages", json={"text": "Which genres sell best?"},
+                                headers=as_(corpus, "member")).status_code == 200
     cid = _still_running(corpus_rows, conv["id"])
+    other_cid = _still_running(corpus_rows, other["id"])
 
     # Another viewer can neither archive nor stop it.
     assert test_client.delete(f"{base(aid)}/{conv['id']}", headers=as_(corpus, "direct_share")).status_code == 404
@@ -186,7 +188,13 @@ def test_archiving_a_conversation_stops_its_running_answer(corpus, corpus_rows, 
     with corpus_rows.engine.connect() as conn:
         sigkill, status = conn.execute(text("SELECT sigkill, status FROM completions WHERE id = :c"), {"c": cid}).one()
     assert sigkill is not None and status == "stopped"
-    assert conv["id"] not in _flags(test_client, corpus, aid)
+    # Only the archived conversation's answer is stopped.
+    with corpus_rows.engine.connect() as conn:
+        other_sigkill, other_status = conn.execute(text("SELECT sigkill, status FROM completions WHERE id = :c"),
+                                                   {"c": other_cid}).one()
+    assert other_sigkill is None and other_status == "in_progress"
+    flags = _flags(test_client, corpus, aid)
+    assert conv["id"] not in flags and flags[other["id"]] is True
 
 
 def test_a_message_streams_once_and_is_stored(corpus, corpus_rows, test_client, stub_agent):

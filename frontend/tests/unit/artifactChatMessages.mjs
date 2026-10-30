@@ -51,7 +51,7 @@ const GEO = `
 // mode: 'bounded' (a 400 px flex column), 'unbounded' (no height: the document
 // scrolls), 'hidden' (display:none until window.__show()), 'tabs' (the second
 // tab of the owner's Tabs; window.__setTab).
-const msgApp = ({opts = null, mode = 'bounded', labels = 'undefined', empty = 'undefined', pre = ''} = {}) => `${pre}<script>
+const msgApp = ({opts = null, mode = 'bounded', labels = 'undefined', empty = 'undefined', pre = '', cls = null} = {}) => `${pre}<script>
 (function () {
   var h = React.createElement;
   ${SPY}
@@ -61,7 +61,7 @@ const msgApp = ({opts = null, mode = 'bounded', labels = 'undefined', empty = 'u
   var MODE = ${JSON.stringify(mode)};
   function List(props) {
     if (typeof window.ChatMessages !== 'function') return h('p', {id: 'missing'}, 'ChatMessages is not defined');
-    return h(window.ChatMessages, {chat: props.chat, labels: ${labels}, empty: ${empty}});
+    return h(window.ChatMessages, {chat: props.chat, labels: ${labels}, empty: ${empty}, className: ${JSON.stringify(cls)} || undefined});
   }
   function Box(props) { return h('div', {id: 'box', style: {height: '400px', display: 'flex', flexDirection: 'column'}}, h(List, {chat: props.chat})); }
   function App() {
@@ -445,6 +445,18 @@ scenario('CM6d without a height, the document follows the transcript\'s end, not
   await settle(s);
   assert.ok(Math.abs(await end()) <= 2, 'it follows the answer');
   await finish(s, send, pageOf([...history('n', 40), u('uq', 'q'), a('m1', 'line one')]));
+  await s.done();
+});
+
+scenario('CM6e without a height, padding on the list does not stop the document from following', async (env) => {
+  const s = await start(env, {code: msgApp({opts: {conversationId: 'A'}, mode: 'unbounded', cls: 'p-6'}), viewport: {width: 1000, height: 600}, waitLoad: false});
+  await expectComponent(s);
+  const req = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(req.id, pageOf(history('n', 40)));
+  await s.until((c) => !c.loading && c.messages.length === 40, 'A loaded');
+  assert.equal(await s.dom(() => getComputedStyle(window.__list()).paddingTop), '24px', 'the app\'s padding applies');
+  const g = await atBottom(s, 'the document with a padded list');
+  assert.equal(g.doc, true);
   await s.done();
 });
 

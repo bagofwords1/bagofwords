@@ -48,6 +48,12 @@ const flagsSince = (s, from, id) => s.dom(([from, id]) => window.__flags.slice(f
   const hit = f.split(',').find((x) => x.startsWith(id + ':'));
   return hit ? hit.split(':')[1] : 'absent';
 }), [from, id]);
+// Every render since `from` showed `id` with the flag `value`; at least one render was logged.
+async function allSince(s, from, id, value) {
+  const flags = await flagsSince(s, from, id);
+  assert.ok(flags.length > 0, 'renders were logged since the mark');
+  return flags.every((f) => f === value);
+}
 async function threads(env, opts = {}) {
   const s = await start(env, {code: threadsApp(opts.hook || null), auto: {list: opts.list || LIST, ...(opts.auto || {})}});
   assert.equal(await s.dom(() => typeof window.__chat.rename), 'function', 'useConversation returns rename()');
@@ -251,7 +257,7 @@ scenario('T8a leaving while streaming keeps the left conversation in progress', 
   const from = await mark(s);
   await open(s, 'c2');
   assert.equal(flagOf(await s.chat(), 'c1'), true);
-  assert.ok((await flagsSince(s, from, 'c1')).every((f) => f === 'true'), 'no render showed it off');
+  assert.ok((await allSince(s, from, 'c1', 'true')), 'no render showed it off');
   await s.done();
 });
 
@@ -264,7 +270,7 @@ scenario('T8b leaving during queued (a send waiting for the load) leaves it off'
   const from = await mark(s);
   await open(s, 'c2');
   assert.equal(flagOf(await s.chat(), 'c1'), false);
-  assert.ok((await flagsSince(s, from, 'c1')).every((f) => f === 'false'), 'no render showed it on');
+  assert.ok((await allSince(s, from, 'c1', 'false')), 'no render showed it on');
   await s.done();
 });
 
@@ -278,7 +284,7 @@ scenario('T8c leaving after completed (during the re-read) leaves it off', async
   const from = await mark(s);
   await open(s, 'c2');
   assert.equal(flagOf(await s.chat(), 'c1'), false);
-  assert.ok((await flagsSince(s, from, 'c1')).every((f) => f === 'false'));
+  assert.ok((await allSince(s, from, 'c1', 'false')));
   await s.done();
 });
 
@@ -291,7 +297,7 @@ for (const away of ['select', 'newConversation']) {
     if (away === 'select') await open(s, 'c2'); else await s.call('newConversation');
     await sleep(60);
     assert.equal(flagOf(await s.chat(), 'c1'), true);
-    assert.ok((await flagsSince(s, from, 'c1')).every((f) => f === 'true'));
+    assert.ok((await allSince(s, from, 'c1', 'true')));
     await s.done();
   });
 }
@@ -305,7 +311,7 @@ scenario('T8e re-opened, stopped (rule 26), then left: off', async (env) => {
   const from = await mark(s);
   await open(s, 'c2');
   assert.equal(flagOf(await s.chat(), 'c1'), false);
-  assert.ok((await flagsSince(s, from, 'c1')).every((f) => f === 'false'));
+  assert.ok((await allSince(s, from, 'c1', 'false')));
   await s.done();
 });
 

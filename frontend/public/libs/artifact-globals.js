@@ -3513,17 +3513,21 @@
   function _chatScroller(el, inner) {
     if (!el) return null;
     if (el.scrollHeight > el.clientHeight + 1 || !el.getClientRects().length) return el;
-    if (!inner || el.clientHeight > inner.offsetHeight + 1) return el;
-    var oy = getComputedStyle(el).overflowY;
+    // Padding the app put on the list is part of its box, not of its content.
+    var cs = getComputedStyle(el);
+    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    if (!inner || el.clientHeight - pad > inner.offsetHeight + 1) return el;
+    var oy = cs.overflowY;
     if (oy !== 'auto' && oy !== 'scroll') return el;
     var d = document.scrollingElement;
     return d && d.scrollHeight > d.clientHeight + 1 ? d : el;
   }
   // How far the transcript's end is below the view's end. With the document as
-  // the scroller that is the list's own bottom, not the page's: content after
-  // the list never counts, so following an answer never scrolls past it.
-  function _chatGap(sc, inner) {
-    if (sc === document.scrollingElement) return inner ? inner.getBoundingClientRect().bottom - sc.clientHeight : 0;
+  // the scroller that is the list's own bottom (its padding included), not the
+  // page's: content after the list never counts, so following an answer never
+  // scrolls past it.
+  function _chatGap(sc, list) {
+    if (sc === document.scrollingElement) return list ? list.getBoundingClientRect().bottom - sc.clientHeight : 0;
     return sc.scrollHeight - sc.scrollTop - sc.clientHeight;
   }
   function _chatEdge(sc) { return sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top; }
@@ -3566,7 +3570,7 @@
       lastTop.current = sc.scrollTop;
       if (own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) return;
       own.current = null;
-      var at = _chatGap(sc, innerRef.current) <= _CHAT_BOTTOM_PX;
+      var at = _chatGap(sc, rootRef.current) <= _CHAT_BOTTOM_PX;
       // During the smooth scroll of Jump to latest the view moves down; a
       // scroll up meanwhile is the user's and ends the jump.
       if (jumping.current) {
@@ -3584,7 +3588,7 @@
       if (!sc) return;
       if (atBottom.current) {
         if (sc !== document.scrollingElement) sc.scrollTop = sc.scrollHeight;
-        else { var gap = _chatGap(sc, innerRef.current); if (gap > 0.5) sc.scrollTop += gap; }
+        else { var gap = _chatGap(sc, rootRef.current); if (gap > 0.5) sc.scrollTop += gap; }
         own.current = sc.scrollTop;
         return;
       }
@@ -3676,7 +3680,7 @@
           setJump(false);
           setUnseen(false);
           if (sc) {
-            var top = sc === document.scrollingElement ? sc.scrollTop + Math.max(0, _chatGap(sc, innerRef.current)) : sc.scrollHeight;
+            var top = sc === document.scrollingElement ? sc.scrollTop + Math.max(0, _chatGap(sc, rootRef.current)) : sc.scrollHeight;
             try { sc.scrollTo({ top: top, behavior: 'smooth' }); } catch (e) { sc.scrollTop = top; }
           }
           if (jumpTimer.current !== null) clearTimeout(jumpTimer.current);
