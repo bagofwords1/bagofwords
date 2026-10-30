@@ -1503,7 +1503,11 @@ class MessageContextBuilder:
             if not preview.get("columns") and isinstance(data_columns, list):
                 preview["columns"] = data_columns
             data_first_row = _json_value(row.data_first_row)
-            if not preview.get("rows") and data_first_row is not None:
+            if (
+                not preview.get("rows")
+                and not preview.get("data_hidden")
+                and data_first_row is not None
+            ):
                 # Preserve the historical digest contract: before previews
                 # were stored, create_data history showed the first result
                 # row. Project exactly that row rather than hydrating the full
@@ -2346,6 +2350,7 @@ class MessageContextBuilder:
                     completions=completions_to_process,
                     blocks_by_completion=blocks_by_completion,
                     tool_exec_by_id=tool_exec_by_id,
+                    allow_llm_see_data=allow_llm_see_data,
                 )
             except Exception:
                 from app.ai.context.transcript import Transcript
@@ -2824,8 +2829,9 @@ def _project_create_data_result(result_json: Any) -> Dict[str, Any]:
     preview = dict(preview) if isinstance(preview, dict) else {}
     if not preview.get("columns") and isinstance(columns, list):
         preview["columns"] = columns
-    if not preview.get("rows") and rows:
-        # Historical digest contract: show only the first result row.
+    if not preview.get("rows") and not preview.get("data_hidden") and rows:
+        # Historical digest contract: show only the first result row (never
+        # when the run hid data from the model).
         preview["rows"] = [rows[0]]
     if preview.get("row_count") is None and rows is not None:
         preview["row_count"] = len(rows)

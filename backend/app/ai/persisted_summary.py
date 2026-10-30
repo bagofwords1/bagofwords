@@ -378,7 +378,11 @@ def _preview_shape(
         "columns": _column_projection(columns),
         "row_count": row_count,
     }
-    if include_first_row:
+    if preview.get("data_hidden"):
+        # The run hid row values from the model; the full ``data`` is kept
+        # for the UI only and must not leak into the history projection.
+        shape["data_hidden"] = True
+    elif include_first_row:
         first_row = preview_rows[0] if preview_rows else (data_rows[0] if data_rows else None)
         if first_row is not None:
             shape["rows"] = [_clamp_row(first_row)]

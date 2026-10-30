@@ -316,9 +316,12 @@ async def test_no_rows_when_the_org_hides_data_from_the_model(db):
     _rendered, native = await _history(db, scenario, durable=True, allow_llm_see_data=False)
     rendered, _native = await _history(db, scenario, durable=False, allow_llm_see_data=False)
 
-    # Native replay is not enriched (its single summary row predates this
-    # change and is out of scope); the text digest shows no row at all.
-    assert native == [_PRE_CHANGE_NATIVE]
+    # Neither the native replay nor the text digest shows a row value.
+    assert len(native) == 1
+    assert "2026-0" not in native[0]
+    preview = json.loads(native[0])["data_preview"]
+    assert "rows" not in preview and preview["data_hidden"] is True
+    assert preview["row_count"] == 5
     line = _tool_line(rendered)
     assert "rows (first" not in line
     assert "top row" not in line
