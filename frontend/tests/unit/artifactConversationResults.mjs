@@ -47,7 +47,17 @@ async function sendAll(bow, id, text) {
   const { bow } = load({ __BOW_FIXTURE_MODE__: true });
   const conv = await bow.conversations.create({ title: 'Preview' });
   const events = (await sendAll(bow, conv.id, 'Revenue by month?')).map(plain);
-  assert.deepEqual(events.map((e) => e.type), ['started', 'text_delta', 'result', 'result', 'completed']);
+  // Like the server (artifact_conversations.ndjson): the streamed tokens, then
+  // the block's full text, which replaces them.
+  assert.deepEqual(events.map((e) => e.type), ['started', 'text_delta', 'text', 'result', 'result', 'completed']);
+  const delta = events.find((e) => e.type === 'text_delta'), full = events.find((e) => e.type === 'text');
+  assert.deepEqual(full, { type: 'text', block: 'b1', text: 'Preview answer. No agent was called.' });
+  assert.equal(full.text, delta.text);
+  assert.equal(full.block, delta.block);
+  // The automatic check (artifact_verification.py) looks for this reply in the page.
+  const verification = fs.readFileSync(new URL('../../../backend/app/ai/tools/artifact_verification.py', import.meta.url), 'utf8');
+  const reply = /^FIXTURE_CONVERSATION_REPLY: str = "([^"]+)"$/m.exec(verification);
+  assert.ok(reply && full.text.includes(reply[1]), 'FIXTURE_CONVERSATION_REPLY is in the fixture text');
   const mid = events[0].message_id;
   const results = events.filter((e) => e.type === 'result').map(({ type, ...r }) => r);
   assert.deepEqual(results, expected(mid));
@@ -75,7 +85,7 @@ async function sendAll(bow, id, text) {
   assert.notEqual(again[1].results[0], again[2].results[0]);
   const ids = again.flatMap((m) => m.results.map((r) => r.id));
   assert.equal(new Set(ids).size, ids.length);  // unique across messages
-  console.log('PASS: fixture send yields started, text_delta, two results (chart; cut table without one), completed and messages() carries them');
+  console.log('PASS: fixture send yields started, text_delta, text, two results (chart; cut table without one), completed and messages() carries them');
 }
 
 // S13: live mode with a fake port.

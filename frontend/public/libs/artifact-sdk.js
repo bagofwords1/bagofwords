@@ -89,7 +89,7 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
       if (!thread) throw sdkError({code:'NOT_FOUND',message:'Conversation not found'});
       thread.messages.push({id:'fixture-msg-'+String(++sequence),role:'user',text:String(args.text||''),status:'success',created_at:now});
       var reply = 'Preview answer. No agent was called.', mid = 'fixture-msg-'+String(++sequence);
-      if (options.onEvent) { options.onEvent({type:'started',message_id:mid}); options.onEvent({type:'text_delta',block:'b1',text:reply}); fixtureResults(mid).forEach(function(r){options.onEvent(Object.assign({type:'result'},r));}); options.onEvent({type:'completed',status:'success'}); }
+      if (options.onEvent) { options.onEvent({type:'started',message_id:mid}); options.onEvent({type:'text_delta',block:'b1',text:reply}); options.onEvent({type:'text',block:'b1',text:reply}); fixtureResults(mid).forEach(function(r){options.onEvent(Object.assign({type:'result'},r));}); options.onEvent({type:'completed',status:'success'}); }
       thread.messages.push({id:mid,role:'assistant',text:reply,status:'success',tools:[],results:fixtureResults(mid),created_at:now});
       return null;
     }
