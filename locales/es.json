@@ -5901,6 +5901,8 @@
     "vizUnavailable": "Visualización no disponible",
     "vizRenderFailed": "El gráfico no se pudo renderizar",
     "diagramFailed": "El diagrama no se pudo renderizar",
+    "diagramDownloadPng": "Descargar como PNG",
+    "diagramExportFailed": "No se pudo exportar el diagrama",
     "exportMarkdown": "Descargar como Markdown",
     "printPdf": "Imprimir / Guardar como PDF",
     "exportPdf": "Exportar como PDF",
