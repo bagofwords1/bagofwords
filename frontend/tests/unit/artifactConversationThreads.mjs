@@ -321,7 +321,10 @@ scenario('T9 another conversation in progress: one list read per 5 s until it is
 }, {clock: true});
 
 scenario('T10 an initial list with another conversation in progress starts the poll without any leave', async (env) => {
-  const s = await threads(env, {list: {items: [conv('c3'), conv('c2', {in_progress: true})], next_before: null}});
+  // Opened on c3: without a conversationId the hook would reopen c2 (rule 27).
+  const s = await threads(env, {hook: {conversationId: 'c3'}, auto: {messages: {items: [], next_before: null}},
+    list: {items: [conv('c3'), conv('c2', {in_progress: true})], next_before: null}});
+  assert.equal((await s.chat()).conversationId, 'c3');
   await setAuto(s, 'list', 'hold');
   const n = await s.count('list');
   const seq = await lastSeq(s);

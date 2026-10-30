@@ -64,7 +64,7 @@ only their own conversations. When policy().available is false, show its reason
 (auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
-const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component
+const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component; it reopens a conversation still answering
 // {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder, rename, archive}
 // messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().

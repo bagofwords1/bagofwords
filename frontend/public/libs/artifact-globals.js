@@ -2250,7 +2250,8 @@
   //     answering, error, hasOlder, loadingOlder, send, stop, select,
   //     newConversation, reload, loadOlder, rename, archive}
   // conversations: [{id, title, created_at, updated_at, in_progress}]; rename
-  // and archive are optimistic and revert on failure.
+  // and archive are optimistic and revert on failure. Opened without a
+  // conversationId, it reopens the newest conversation still answering.
   // messages have the bow.conversations.messages() item shape. One answer runs
   // at a time; history is re-read after each answer that reached the server and
   // merged with the server page as the truth; leaving a running answer keeps it
@@ -2517,7 +2518,7 @@
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
       errSeq: 0, errShown: false, before: null, olderLoad: null, messages: [], conversations: [],
-      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0, olderErr: null
+      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0, olderErr: null, touched: false
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2600,6 +2601,12 @@
         var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
           // Keep conversations created meanwhile that this page does not hold yet.
           listed(res);
+          // Rule 27 (OD-10): opened without a conversation and nothing done yet:
+          // reopen the newest conversation whose answer still runs. select()
+          // takes over `loading` (this load's own loading:false is dropped).
+          if (id || gen !== c.gen || c.convId !== null || c.run !== null || c.touched) return;
+          var running = _chatItems(res).find(function(x) { return x && x.in_progress === true && x.id != null; });
+          if (running) c.select(running.id);
         }, function(e) { report(e); })];
         if (id) {
           tasks.push(Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
@@ -2805,6 +2812,7 @@
     }
 
     c.send = function(text) {
+      c.touched = true;
       var t = text == null ? '' : String(text).trim();
       if (!t || c.run || !c.mounted) return Promise.resolve();
       if (!_chatConv()) {
@@ -2896,6 +2904,7 @@
 
     c.select = function(id) {
       if (!c.mounted) return Promise.resolve();
+      c.touched = true;
       var conv = _chatConv();
       if (!conv) { put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } }); return Promise.resolve(); }
       var wasStreaming = resetFor(id);
@@ -2915,6 +2924,7 @@
 
     c.newConversation = function() {
       if (!c.mounted) return;
+      c.touched = true;
       var wasStreaming = resetFor(null);
       c.load = null;
       put({ type: 'switch', wasStreaming: wasStreaming, patch: { sending: false, conversationId: null, messages: [], error: null, loading: false, hasOlder: false, loadingOlder: false } });
@@ -2948,6 +2958,7 @@
     c.archive = function(id) {
       var conv = _chatConv();
       if (!id || !c.mounted || !conv || c.archived[id]) return Promise.resolve();
+      c.touched = true;
       if (id === c.convId) c.newConversation();
       c.archived[id] = true;
       var index = c.conversations.findIndex(function(x) { return x && x.id === id; });
