@@ -636,9 +636,11 @@ class LLM:
         """
         return _azure_resource_root(endpoint_url) + "/openai/v1/"
 
-    def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
+    def _validate_vision_support(
+        self, images: Optional[list[ImageInput]], *, native_image_count: int = 0
+    ) -> None:
         """Validate that the model supports vision if images are provided."""
-        if not images:
+        if not images and not native_image_count:
             return
         supports_vision = getattr(self.model, "supports_vision", False)
         if not supports_vision:
@@ -1077,10 +1079,15 @@ class LLM:
         """
         target_model_id = model_id or self.model_id
         thinking = self._effective_thinking(thinking)
+        native_image_count = sum(
+            1 for message in messages if isinstance(message.content, list)
+            for block in message.content
+            if isinstance(block, dict) and block.get("type") == "image"
+        )
         with tracer.start_as_current_span("llm.inference_stream_v2") as span:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)
-            self._validate_vision_support(images)
+            self._validate_vision_support(images, native_image_count=native_image_count)
             system, messages = self._apply_pii_v2(
                 system, messages, await self._aget_pii_redactor(), span
             )
@@ -1133,7 +1140,7 @@ class LLM:
                     tools=tools,
                     usage_scope=usage_scope,
                     thinking=bool(thinking),
-                    image_count=len(images or []),
+                    image_count=len(images or []) + native_image_count,
                 )
                 if llm_trace.enabled()
                 else None
