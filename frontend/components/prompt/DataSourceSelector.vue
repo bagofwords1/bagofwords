@@ -117,7 +117,7 @@
                                 <div
                                     v-for="ds in group.items"
                                     :key="ds.id"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
+                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
                                     @click="() => { toggleDataSource(ds); }"
                                     @mouseenter="onDataSourceHover(ds.id, $event)"
                                     @mouseleave="onDataSourceHoverLeave()"
@@ -128,21 +128,25 @@
                                     <div class="flex items-center min-w-0">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
                                         <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
+                                    </div>
+                                    <!-- Badges sit at the far end of the row (before the check) so
+                                         they line up in a column instead of trailing each name. -->
+                                    <div class="flex items-center gap-1.5 flex-shrink-0">
                                         <!-- Non-production agents only reach here for managers; flag
                                              the lifecycle stage so it's clear they aren't live for
                                              consumers yet. Mirrors the agent page (Development /
                                              Training / Disabled), not the raw publish_status. -->
                                         <span
                                             v-if="stageOf(ds) !== 'production'"
-                                            :class="['ms-2 flex-shrink-0 text-2xs rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
+                                            :class="['text-2xs rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
                                         >{{ $t('agentsPage.stage.' + stageOf(ds)) }}</span>
                                         <!-- Running via the connection's system (service principal) creds -->
                                         <span
                                             v-if="isServiceAccount(ds)"
-                                            class="ms-2 flex-shrink-0 text-2xs text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
+                                            class="text-2xs text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
                                         >{{ $t('data.serviceAccount') }}</span>
+                                        <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                     </div>
-                                    <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0" />
                                 </div>
                                 </template>
                             </template>
