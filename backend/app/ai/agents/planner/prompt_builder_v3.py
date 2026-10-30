@@ -66,10 +66,17 @@ class PromptBuilderV3:
         # Every message, not just the first: on the transcript path the
         # volatile head (conversation history, current artifact) rides on the
         # last turn, so reading messages[0] alone under-counted it.
-        bodies = [
-            m["content"] if isinstance(m["content"], str) else json.dumps(m["content"], default=str)
-            for m in v3.messages
-        ]
+        bodies = []
+        for m in v3.messages:
+            content = m["content"]
+            if isinstance(content, list):
+                # Images are vision input, never base64 prompt text. The
+                # transcript budget accounts for their pixel cost separately.
+                content = json.dumps([
+                    {"type": "image"} if block.get("type") == "image" else block
+                    for block in content
+                ], default=str)
+            bodies.append(content)
         return "\n".join([v3.system, *bodies])
 
     @staticmethod
@@ -90,7 +97,8 @@ class PromptBuilderV3:
         # tools — only the message shape changes, so the two paths are directly
         # A/B-able. See transcript_bridge.
         messages: list
-        if transcript_bridge.enabled(planner_input):
+        uses_transcript = transcript_bridge.enabled(planner_input)
+        if uses_transcript:
             messages = PromptBuilderV3._build_transcript_messages(planner_input)
         else:
             # Built ONLY for the legacy path. It json.dumps every observation
@@ -108,7 +116,9 @@ class PromptBuilderV3:
             system=system,
             messages=messages,
             tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
-            images=planner_input.images,
+            # Uploads are now native content on the original ask. Passing them
+            # here as well would append another copy to the newest user turn.
+            images=None if uses_transcript else planner_input.images,
             tool_catalog=planner_input.tool_catalog,
             mode=planner_input.mode or "chat",
         )
@@ -992,8 +1002,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         images_context = ""
         if planner_input.images:
             images_context = (
-                f"<images>{len(planner_input.images)} image(s) attached. Analyze them as part "
-                f"of your response when relevant.</images>"
+                f"<images>{len(planner_input.images)} retained image(s) from the original "
+                "user request or tool observations. Repeated visibility does not mean "
+                "a new upload or a refreshed capture. Use the associated request/tool "
+                "result and artifact version to establish recency.</images>"
             )
 
         platform = planner_input.external_platform or "default"

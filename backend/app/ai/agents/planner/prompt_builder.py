@@ -100,7 +100,7 @@ Do not rely on any external parameter; decide the final reasoning level in real 
         # Build images context - images can be user-uploaded or from tool observations (screenshots)
         images_context = ""
         if planner_input.images:
-            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
+            images_context = f"<images>{len(planner_input.images)} retained image(s) from the original user request or tool observations. Repeated visibility does not mean a new upload or a refreshed capture. Use the associated request/tool result and artifact version to establish recency.</images>"
 
         prompt= f"""
 SYSTEM
@@ -722,7 +722,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         # Build images context - images can be user-uploaded or from tool observations (screenshots)
         images_context = ""
         if planner_input.images:
-            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
+            images_context = f"<images>{len(planner_input.images)} retained image(s) from the original user request or tool observations. Repeated visibility does not mean a new upload or a refreshed capture. Use the associated request/tool result and artifact version to establish recency.</images>"
 
         prompt = f"""
 SYSTEM
