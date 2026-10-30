@@ -24,8 +24,11 @@ class MysqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (MySQL): CURDATE(), CURDATE() - INTERVAL 7 DAY, DATE_FORMAT(CURDATE(), '%Y-%m-01') for month start; the clock is the DB server's."
 
-    def __init__(self, host, port, database, user: Optional[str] = None, password: Optional[str] = None):
+    def __init__(self, host, port, database, user: Optional[str] = None, password: Optional[str] = None,
+                 index_routines: bool = False):
         self.host = host
+        # Opt-in routine indexing (see app.data_sources.routines).
+        self.index_routines = bool(index_routines)
         self.port = port
         self.database = database
         if password not in (None, "") and user in (None, ""):
@@ -185,7 +188,8 @@ class MysqlClient(DataSourceClient):
         """Tables and views, then stored procedures and functions (see
         app.data_sources.routines)."""
         tables = self.get_tables()
-        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mysql")
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mysql",
+                             client=self, enabled=self.index_routines)
 
     def get_routines(self, table_names=()) -> List[Table]:
         """Stored procedures and functions as schema entries. Tables are named

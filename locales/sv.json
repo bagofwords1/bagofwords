@@ -3453,6 +3453,7 @@
       "discovering_schema": "Identifiering: schema",
       "catalog_ready": "Klar: katalog",
       "reading_semantic_views": "Läsning: semantiska vyer",
+      "reading_routines": "Läser procedurer och funktioner",
       "admin_scan": "Administrativ skanning: arbetsytor",
       "listing_workspaces": "Listning: arbetsytor",
       "workspace_models": "Listning: modeller",

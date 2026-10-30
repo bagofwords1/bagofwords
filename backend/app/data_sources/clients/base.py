@@ -265,6 +265,14 @@ class DataSourceClient(ABC):
         """
         return []
 
+    def unindexed_entry_types(self) -> List[str]:
+        """``metadata_json["type"]`` values the last `get_schemas` call could
+        not read, e.g. ``"routine"`` when routine discovery failed while the
+        tables were read fine. The schema refresh keeps existing entries of
+        these types instead of pruning them. Default: nothing unread.
+        """
+        return sorted(getattr(self, "_unindexed_entry_types", None) or ())
+
     # File-shaped capabilities. Default implementations raise NotImplementedError;
     # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.
 

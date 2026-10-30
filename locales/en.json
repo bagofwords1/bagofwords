@@ -3794,6 +3794,7 @@
       "discovering_schema": "Discovering schema",
       "catalog_ready": "Catalog ready",
       "reading_semantic_views": "Reading semantic views",
+      "reading_routines": "Reading procedures and functions",
       "admin_scan": "Scanning workspace metadata",
       "listing_workspaces": "Listing workspaces",
       "workspace_models": "Listing models",

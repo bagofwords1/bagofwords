@@ -12,7 +12,10 @@ engines in tests/integrations/test_routine_discovery.py).
 Contracts:
 * routines are indexed next to the tables, unchanged tables included
 * the schema API returns a routine's kind, signature and source
-* a failing routine read never costs the source its tables
+* routines are opt-in per connection (`index_routines`): off, the routine
+  catalog is never read
+* a failing routine read never costs the source its tables, and keeps the
+  routines indexed on an earlier run instead of pruning them
 * a routine dropped upstream is pruned on the next authoritative reindex
 * the agent's standing schema context lists routines by signature only and
   says they are not tables; describe_tables mode adds the source
@@ -58,12 +61,13 @@ def _routines(include_fiscal=True):
 @pytest.fixture
 def catalog(monkeypatch):
     """The source's catalog, mutable per test: what the 'database' holds now."""
-    state = {"routines": _routines(), "fail": False}
+    state = {"routines": _routines(), "fail": False, "reads": 0}
 
     def get_tables(self, progress_callback=None):
         return [t.model_copy(deep=True) for t in TABLES]
 
     def get_routines(self, table_names=()):
+        state["reads"] += 1
         if state["fail"]:
             raise RuntimeError("permission denied for pg_proc")
         return [r.model_copy(deep=True) for r in state["routines"]]
@@ -75,19 +79,26 @@ def catalog(monkeypatch):
     return state
 
 
-@pytest.fixture
-def agent(create_user, login_user, whoami, create_data_source, catalog):
+def _make_agent(create_user, login_user, whoami, create_data_source, *, index_routines):
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
+    config = {"host": "db.invalid", "port": 5432, "database": "sales", "schema": "sales"}
+    if index_routines is not None:
+        config["index_routines"] = index_routines
     ds = create_data_source(
         name=f"Sales {uuid.uuid4().hex[:6]}", type="postgresql",
-        config={"host": "db.invalid", "port": 5432, "database": "sales", "schema": "sales"},
+        config=config,
         credentials={"user": "u", "password": "p"},
         user_token=token, org_id=org_id,
     )
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
     return {"id": ds["id"], "headers": headers, "org_id": org_id}
+
+
+@pytest.fixture
+def agent(create_user, login_user, whoami, create_data_source, catalog):
+    return _make_agent(create_user, login_user, whoami, create_data_source, index_routines=True)
 
 
 def _schema(test_client, agent):
@@ -123,12 +134,38 @@ def test_routines_are_indexed_with_signature_and_source(test_client, refresh_sch
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("index_routines", [None, False])
+def test_routines_are_not_read_unless_the_connection_opts_in(
+    test_client, refresh_schema, create_user, login_user, whoami, create_data_source, catalog, index_routines,
+):
+    agent = _make_agent(create_user, login_user, whoami, create_data_source, index_routines=index_routines)
+    _reindex(test_client, refresh_schema, agent)
+    rows = _schema(test_client, agent)
+    assert {"sales.orders", "sales.customers"} <= set(rows)
+    assert not any(_is_routine(r) for r in rows.values())
+    assert catalog["reads"] == 0
+
+
+@pytest.mark.e2e
 def test_failing_routine_read_keeps_the_tables(test_client, refresh_schema, agent, catalog):
     catalog["fail"] = True
     _reindex(test_client, refresh_schema, agent)
     rows = _schema(test_client, agent)
     assert {"sales.orders", "sales.customers"} <= set(rows)
     assert not any(_is_routine(r) for r in rows.values())
+
+
+@pytest.mark.e2e
+def test_failing_routine_read_keeps_routines_indexed_earlier(test_client, refresh_schema, agent, catalog):
+    _reindex(test_client, refresh_schema, agent)
+    assert "sales.load_net_revenue" in _schema(test_client, agent)
+
+    # A timeout or revoked catalog grant on a later run is not "every routine
+    # was dropped": the routines stay, so their selection is not lost.
+    catalog["fail"] = True
+    _reindex(test_client, refresh_schema, agent)
+    rows = _schema(test_client, agent)
+    assert {"sales.load_net_revenue", "sales.fiscal_quarter", "sales.orders"} <= set(rows)
 
 
 @pytest.mark.e2e

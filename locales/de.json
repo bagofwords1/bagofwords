@@ -3453,6 +3453,7 @@
       "discovering_schema": "Erkennung: Schema",
       "catalog_ready": "Bereit: Katalog",
       "reading_semantic_views": "Lesen: semantische Sichten",
+      "reading_routines": "Prozeduren und Funktionen werden gelesen",
       "admin_scan": "Administrativer Scan: Arbeitsbereiche",
       "listing_workspaces": "Auflistung: Arbeitsbereiche",
       "workspace_models": "Auflistung: Modelle",

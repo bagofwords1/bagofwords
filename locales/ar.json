@@ -3453,6 +3453,7 @@
       "discovering_schema": "اكتشاف: المخطط",
       "catalog_ready": "جاهز: الكتالوج",
       "reading_semantic_views": "قراءة: طرق العرض الدلالية",
+      "reading_routines": "قراءة الإجراءات والدوال",
       "admin_scan": "فحص إداري: مساحات العمل",
       "listing_workspaces": "سرد: مساحات العمل",
       "workspace_models": "سرد: النماذج",

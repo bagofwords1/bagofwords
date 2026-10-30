@@ -120,6 +120,33 @@ def test_a_failing_routine_read_returns_the_tables_unchanged():
     assert with_routines(tables, boom, source="test") == tables
 
 
+def test_routines_are_not_read_when_the_connection_has_not_opted_in():
+    called = []
+    tables = [_table("s.a")]
+    out = with_routines(tables, lambda: called.append(1) or [], source="test", enabled=False)
+    assert out == tables and called == []
+
+
+def test_a_failing_routine_read_marks_routines_unread_on_the_client():
+    from app.data_sources.clients.base import DataSourceClient
+
+    class _Client:
+        unindexed_entry_types = DataSourceClient.unindexed_entry_types
+
+    client = _Client()
+    assert client.unindexed_entry_types() == []
+
+    def boom():
+        raise RuntimeError("canceling statement due to statement timeout")
+
+    with_routines([_table("s.a")], boom, source="test", client=client)
+    assert client.unindexed_entry_types() == ["routine"]
+
+    # The next successful run clears it, so dropped routines prune again.
+    with_routines([_table("s.a")], lambda: [], source="test", client=client)
+    assert client.unindexed_entry_types() == []
+
+
 def test_no_tables_means_no_routines():
     # [] is how table discovery reports failure; routines alone would read as
     # "every table was dropped" and an authoritative reindex would prune them.

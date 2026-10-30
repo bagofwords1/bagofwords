@@ -109,6 +109,7 @@ def postgres_client():
             user=container.username,
             password=container.password,
             schema="sales",
+            index_routines=True,
         )
 
 
@@ -188,6 +189,7 @@ def _mssql_client(container, user=None, password=None):
         user=user or container.username,
         password=password or container.password,
         encrypt=False,
+        index_routines=True,
     )
 
 
@@ -250,6 +252,7 @@ def mysql_client():
             database=container.dbname,
             user=container.username,
             password=container.password,
+            index_routines=True,
         )
 
 

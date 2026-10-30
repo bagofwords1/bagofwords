@@ -24,8 +24,11 @@ class PostgresqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
 
-    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer"):
+    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer",
+                 index_routines: bool = False):
         self.host = host
+        # Opt-in routine indexing (see app.data_sources.routines).
+        self.index_routines = bool(index_routines)
         self.port = port
         self.database = database
         self.user = user
@@ -329,7 +332,8 @@ class PostgresqlClient(DataSourceClient):
         """Tables, views and materialized views, then stored procedures and
         functions (see app.data_sources.routines)."""
         tables = self.get_tables(progress_callback) if progress_callback else self.get_tables()
-        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="postgresql")
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="postgresql",
+                             client=self, enabled=self.index_routines)
 
     def get_routines(self, table_names=()) -> List[Table]:
         """Stored procedures and functions as schema entries, named like tables."""

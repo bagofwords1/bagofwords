@@ -54,8 +54,11 @@ class MSSQLClient(DataSourceClient):
                  odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None,
                  use_kerberos: bool = False, kerberos_principal: Optional[str] = None,
                  kerberos_impersonate: Optional[str] = None,
-                 kerberos_expected_sid: Optional[str] = None):
+                 kerberos_expected_sid: Optional[str] = None,
+                 index_routines: bool = False):
         self.host = host
+        # Opt-in routine indexing (see app.data_sources.routines).
+        self.index_routines = bool(index_routines)
         self.port = port
         self.database = database
         self.user = user
@@ -360,7 +363,8 @@ class MSSQLClient(DataSourceClient):
         """Tables and views, then stored procedures and functions (see
         app.data_sources.routines)."""
         tables = self.get_tables()
-        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mssql")
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mssql",
+                             client=self, enabled=self.index_routines)
 
     def get_routines(self, table_names=()) -> List[Table]:
         """Stored procedures and functions as schema entries, named like tables."""

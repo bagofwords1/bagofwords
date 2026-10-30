@@ -175,12 +175,22 @@ def build_routine_tables(variants: Iterable[RoutineVariant], table_names: Iterab
     return out
 
 
-def with_routines(tables: List[Table], discover: Callable[[], List[Table]], *, source: str) -> List[Table]:
+def with_routines(tables: List[Table], discover: Callable[[], List[Table]], *, source: str,
+                  client: Any = None, enabled: bool = True) -> List[Table]:
     """Append discovered routines to `tables`.
 
+    Opt-in: `enabled` is the connection's "Index stored procedures &
+    functions" setting (``index_routines``). Off means no routine query runs
+    at all, and routines indexed earlier are pruned on the next reindex like
+    any other entry that is gone.
+
     Routine discovery is additive: a failure (missing catalog permission, an
-    engine version without the catalog view) is logged and the tables are
-    returned unchanged, so it can never cost a source its table index.
+    engine version without the catalog view, a timeout) is logged and the
+    tables are returned unchanged, so it can never cost a source its table
+    index. The failure is also recorded on `client` (see
+    `DataSourceClient.unindexed_entry_types`), so the reindex keeps the
+    routines indexed on an earlier run, with their agent selection, instead
+    of pruning them as dropped.
 
     No tables means no routines either. Table discovery reports failure by
     returning [] (several clients swallow the error), and refresh_schema
@@ -190,7 +200,9 @@ def with_routines(tables: List[Table], discover: Callable[[], List[Table]], *, s
     """
     from app.data_sources.clients.progress import IndexingCancelled, discovery_phase
 
-    if not tables:
+    if client is not None:
+        client._unindexed_entry_types = set()
+    if not enabled or not tables:
         return tables
     discovery_phase("reading_routines")
     try:
@@ -199,6 +211,8 @@ def with_routines(tables: List[Table], discover: Callable[[], List[Table]], *, s
         raise
     except Exception as exc:
         logger.warning("%s: routine discovery failed, indexing tables only: %s", source, exc)
+        if client is not None:
+            client._unindexed_entry_types = {ROUTINE_TYPE}
         return tables
     return list(tables or []) + routines
 
