@@ -64,6 +64,13 @@ DATA_SOURCES = [
     #                        "auth_source": "LOCAL", "username": "admin",
     #                        "password": "Aria!2024"}}
     "aria_operations",
+    # Remote mode: no DX NetOps Spectrum OneClick can run in CI (Broadcom
+    # entitlement, licensed Docker tarballs), so integrations.json points at
+    # either a customer OneClick or the doc-shaped simulator:
+    # `tools/spectrum/docker-compose.yaml` (mock_oneclick.py) —
+    #   {"spectrum": {"enabled": true, "url": "http://localhost:8880",
+    #                 "username": "bow_api", "password": "Spectrum!2024"}}
+    "spectrum",
     # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
     # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
     # avoid pulling in elasticsearch-py's strict server-version handshake.
@@ -324,6 +331,14 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "username": os.environ["ARIA_TEST_USERNAME"],
             "password": os.environ["ARIA_TEST_PASSWORD"],
             "auth_source": os.environ.get("ARIA_TEST_AUTH_SOURCE", "LOCAL"),
+        }
+    if name == "spectrum" and os.environ.get("SPECTRUM_TEST_URL"):
+        return {
+            "url": os.environ["SPECTRUM_TEST_URL"],
+            "username": os.environ.get("SPECTRUM_TEST_USERNAME"),
+            "password": os.environ.get("SPECTRUM_TEST_PASSWORD"),
+            "token": os.environ.get("SPECTRUM_TEST_TOKEN"),
+            "verify_ssl": os.environ.get("SPECTRUM_TEST_VERIFY_SSL", "true") != "false",
         }
     if name == "netapp_ontap" and os.environ.get("NETAPP_URL"):
         return {

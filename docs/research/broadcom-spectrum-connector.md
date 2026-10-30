@@ -1,6 +1,6 @@
 # Broadcom DX NetOps Spectrum — integration research
 
-Status: **research only, nothing implemented** (2026-10-29).
+Status: research (2026-10-29) → **implemented 2026-10-30** as the `spectrum` connector (see `docs/feedback-loops/spectrum-connector.md`).
 Goal: decide how Bag of Words should connect to DX NetOps Spectrum (formerly
 CA Spectrum), Broadcom's network fault-management product, and what the
 connector would look like next to `aria_operations`, `appdynamics`, `brocade`.
