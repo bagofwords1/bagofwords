@@ -250,7 +250,8 @@ const MESSAGES = {
   results: M('results', {text: 'Two results.', results: [VECTORS.bar, NOTES.bothCut], results_incomplete: true}),
   typingEmpty: M('typingEmpty', {status: 'in_progress'}),
   typingText: M('typingText', {status: 'in_progress', text: 'Partial answer so far'}),
-  bad: M('bad', {text: 'Robust.', tools: 'x', results: null, results_incomplete: 'yes'}),
+  bad: M('bad', {text: 'Robust.', tools: 'x', results: null, results_incomplete: 'yes', steps: 'x'}),
+  steps: M('steps', {text: 'Final answer.', steps: ['בודק את הנתונים.', 'Running **the** query.', '', 7]}),
 };
 
 const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + artifact(`
@@ -272,7 +273,9 @@ const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + 
       h('div', {key: 9, 'data-vector': 'typingLabel'}, h(CM, {message: MESSAGES.typingEmpty, labels: {inProgress: 'עונה...'}})),
       h('div', {key: 10, 'data-vector': 'done'}, h(CM, {message: MESSAGES.mixed})),
       h('div', {key: 11, 'data-vector': 'null'}, h(CM, {message: null})),
-      h('div', {key: 12, 'data-vector': 'bad'}, h(CM, {message: MESSAGES.bad}))
+      h('div', {key: 12, 'data-vector': 'bad'}, h(CM, {message: MESSAGES.bad})),
+      h('div', {key: 13, 'data-vector': 'steps'}, h(CM, {message: MESSAGES.steps})),
+      h('div', {key: 14, 'data-vector': 'stepsLabel'}, h(CM, {message: MESSAGES.steps, labels: {steps: 'שלבים'}}))
     ]);
   }
   ReactDOM.createRoot(document.getElementById('root')).render(h(App));
@@ -323,6 +326,18 @@ const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + 
   assert.deepEqual(await q('typingText', '[data-testid="bow-chat-message"]', 'el.getAttribute("aria-busy")'), ['true']);
   assert.deepEqual((await typing('typingLabel')).map((t) => t[0]), ['עונה...']);
   assert.deepEqual(await typing('done'), [], 'a finished answer has no indicator');
+
+  // M7: the narration before the answer (steps), collapsed; the answer alone in the text.
+  const steps = await q('steps', '[data-testid="bow-chat-steps"]', '[el.tagName, el.open, el.querySelector("summary").textContent]');
+  assert.deepEqual(steps, [['DETAILS', false, 'Steps']], 'one collapsed steps section');
+  assert.deepEqual(await q('steps', '[data-testid="bow-chat-step"]', '[el.textContent, el.getAttribute("dir")]'),
+    [['בודק את הנתונים.', 'auto'], ['Running the query.', 'auto']], 'each step is markdown, with its own direction; empty and non-text steps are skipped');
+  assert.deepEqual(await q('steps', '[data-testid="bow-chat-step"] strong', 'el.textContent'), ['the']);
+  assert.deepEqual(await q('steps', '[data-testid="bow-chat-text"]', 'el.textContent'), ['Final answer.']);
+  assert.deepEqual(await q('steps', '[data-testid="bow-chat-step"]', 'el.checkVisibility()'), [false, false], 'hidden until opened');
+  assert.deepEqual(await q('stepsLabel', '[data-testid="bow-chat-steps"] summary', 'el.textContent'), ['שלבים']);
+  assert.deepEqual(await q('mixed', '[data-testid="bow-chat-steps"]', '1'), [], 'no steps, no section');
+  assert.deepEqual(await q('bad', '[data-testid="bow-chat-steps"]', '1'), [], 'steps that are not a list are ignored');
 
   // M4: malformed messages.
   assert.deepEqual(await q('null', '*', '1'), [], 'message={null} renders nothing');

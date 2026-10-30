@@ -231,6 +231,7 @@ scenario('L1 stream order, blocks, tools by id, results deduped by id, then the 
   let c = await s.chat();
   assert.equal(c.sending, true);
   assert.deepEqual(c.messages.map((m) => [m.role, m.status, m.text]), [['user', 'pending', 'Revenue per month?'], ['assistant', 'in_progress', '']]);
+  assert.deepEqual(c.messages[1].steps, [], 'a new answer has no steps yet');
   assert.ok(c.messages.every(isLocal));
   const create = await s.take('create');
   assert.deepEqual(create.args, {op: 'create', title: 'Revenue per month?', agents: undefined});
@@ -258,7 +259,9 @@ scenario('L1 stream order, blocks, tools by id, results deduped by id, then the 
   const [user, asst] = c.messages;
   assert.equal(user.status, 'success', 'the user item is stored once started');
   assert.equal(asst.id, 'm1', 'the assistant takes the started message id');
-  assert.equal(asst.text, 'Hello\n\nWorld');
+  // As messages() reads it back: the last text block is the answer, earlier ones its steps.
+  assert.equal(asst.text, 'World');
+  assert.deepEqual(asst.steps, ['Hello']);
   assert.deepEqual(asst.tools, [{id: 't1', name: 'run_query', title: 'Running the query', status: 'success'}, {name: 'make_chart', title: 'Chart', status: 'success'}]);
   assert.deepEqual(asst.results.map((r) => [r.id, r.title, 'type' in r]), [['r0', 'Revenue r0', false], ['r1', 'Revenue r1', false], ['r2', 'Revenue r2', false]]);
   assert.equal(asst.results_incomplete, false);
@@ -267,10 +270,11 @@ scenario('L1 stream order, blocks, tools by id, results deduped by id, then the 
   await s.reply(req.id, null);
   const read = await s.take('messages');
   assert.deepEqual(read.args, {op: 'messages', id: 'c1', limit: 30, before: undefined});
-  await s.reply(read.id, page(u('u1', 'Revenue per month?'), a('m1', 'Hello\n\nWorld', {results: [result('r0'), result('r1'), result('r2')], tools: [{name: 'run_query', title: 'Running the query', status: 'success'}]})));
+  await s.reply(read.id, page(u('u1', 'Revenue per month?'), a('m1', 'World', {steps: ['Hello'], results: [result('r0'), result('r1'), result('r2')], tools: [{name: 'run_query', title: 'Running the query', status: 'success'}]})));
   c = await s.until((c) => !c.sending, 'the run end');
   assert.deepEqual(ids(c), ['u1', 'm1'], 'stored ids replace the optimistic ones');
   assert.deepEqual(c.messages[1].tools, [{name: 'run_query', title: 'Running the query', status: 'success'}], 'the stored message wins');
+  assert.deepEqual([c.messages[1].text, c.messages[1].steps], ['World', ['Hello']], 'the re-read keeps the same answer and steps');
   assert.equal(await s.dom(() => window.__chat.messages[1].results.every((r) => window.__seen.has(r))), true, 'same-shape results keep their objects');
   assert.equal(c.error, null);
   await s.done();
@@ -285,10 +289,11 @@ scenario('L2 a text event replaces its block; a null block and a missing status 
     {type: 'text', block: 'b1', text: 'Final'},
     {type: 'text_delta', block: null, text: 'Tail'},
   ]);
-  let c = await s.until((c) => c.messages[1].text === 'Final\n\nSecond\n\nTail', 'the replaced text');
+  let c = await s.until((c) => c.messages[1].text === 'Tail', 'the last block as the answer');
+  assert.deepEqual(c.messages[1].steps, ['Final', 'Second'], 'earlier blocks are steps, in order, the replaced one included');
   await s.event(req.id, {type: 'completed'});
   c = await s.until((c) => c.messages[1].status === 'success', 'completed without status is success');
-  await finish(s, req, page(u('u1', 'q1'), a('m1', 'Final\n\nSecond\n\nTail')), null);
+  await finish(s, req, page(u('u1', 'q1'), a('m1', 'Tail', {steps: ['Final', 'Second']})), null);
   await s.done();
 });
 

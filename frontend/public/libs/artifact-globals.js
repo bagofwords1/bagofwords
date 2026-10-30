@@ -1985,7 +1985,8 @@
     columnsShown: '{shown} of {total} columns',
     partial: 'Partial table',
     incomplete: 'Some results of this answer could not be shown',
-    inProgress: 'Answer in progress...'
+    inProgress: 'Answer in progress...',
+    steps: 'Steps'
   };
   function _chatFill(template, vars) {
     return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
@@ -1996,7 +1997,8 @@
     return {
       rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
-      partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress)
+      partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
+      steps: _chatFill(src.steps)
     };
   }
   function _chatUnique(values) { return Array.from(new Set(values)); }
@@ -2090,6 +2092,12 @@
     var args = [node, extra].concat(Array.isArray(kids) ? kids.map(_chatWithDir) : [_chatWithDir(kids)]);
     return React.cloneElement.apply(React, args);
   }
+  // Markdown through bow.markdown, with a direction per block; null without it.
+  function _chatMarkdown(text) {
+    var bw = window.bow;
+    if (!text || !bw || typeof bw.markdown !== 'function') return null;
+    try { return _chatWithDir(bw.markdown(text)); } catch (e) { return null; }
+  }
   function _chatLabelOf(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
   var _CHAT_RUNNING = { running: 1, in_progress: 1, started: 1 };
   var _CHAT_SUCCESS = { success: 1, completed: 1, done: 1 };
@@ -2099,12 +2107,14 @@
     user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100',
     text: 'text-slate-800 dark:text-slate-100',
     tools: 'space-y-1 text-xs text-slate-500 dark:text-slate-400',
+    steps: 'text-xs text-slate-500 dark:text-slate-400',
     muted: 'flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400'
   } : {
     root: 'space-y-2',
     user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-card px-3 py-2 bg-surface-2 text-ink',
     text: 'text-ink',
     tools: 'space-y-1 text-xs text-ink-3',
+    steps: 'text-xs text-ink-3',
     muted: 'flex items-center gap-2 text-xs text-ink-3'
   };
 
@@ -2116,11 +2126,13 @@
     var role = ok && m.role === 'user' ? 'user' : 'assistant';
     var text = ok && m.text != null ? String(m.text) : '';
     var body = React.useMemo(function() {
-      if (!ok || role === 'user' || !text) return null;
-      var bw = window.bow;
-      if (!bw || typeof bw.markdown !== 'function') return null;
-      try { return _chatWithDir(bw.markdown(text)); } catch (e) { return null; }
+      return !ok || role === 'user' ? null : _chatMarkdown(text);
     }, [ok, role, text]);
+    // The agent's narration before the answer (messages() `steps`).
+    var stepsIn = ok && role !== 'user' && Array.isArray(m.steps) ? m.steps : null;
+    var steps = React.useMemo(function() {
+      return (stepsIn || []).filter(function(x) { return typeof x === 'string' && x.trim(); });
+    }, [stepsIn]);
     if (!ok) return null;
     var L = _chatLabels(props.labels);
     var status = m.status == null ? '' : String(m.status);
@@ -2130,6 +2142,16 @@
       return h('div', rootProps, h('p', { dir: 'auto', 'data-testid': 'bow-chat-text', className: CHAT_MSG.user }, text));
     }
     var kids = [];
+    if (steps.length) {
+      // Collapsed: the answer stays the message; the steps are there on request.
+      kids.push(h('details', { key: 'steps', 'data-testid': 'bow-chat-steps', className: CHAT_MSG.steps }, [
+        h('summary', { key: 's', dir: 'auto', className: 'cursor-pointer select-none' }, L.steps),
+        h('div', { key: 'l', className: 'mt-1 space-y-1 border-s ps-2' }, steps.map(function(x, i) {
+          return h('div', { key: i, dir: 'auto', 'data-testid': 'bow-chat-step' },
+            _chatMarkdown(x) || h('p', { className: 'whitespace-pre-wrap' }, x));
+        }))
+      ]));
+    }
     if (text) {
       kids.push(h('div', { key: 'text', 'data-testid': 'bow-chat-text', className: CHAT_MSG.text },
         body || h('p', { dir: 'auto', className: 'whitespace-pre-wrap' }, text)));
@@ -2183,6 +2205,7 @@
     if (!m || typeof m !== 'object') return null;
     return { id: m.id, role: m.role, text: m.text == null ? '' : String(m.text), status: m.status,
       created_at: m.created_at != null ? m.created_at : null,
+      steps: Array.isArray(m.steps) ? m.steps : [],
       tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
       results_incomplete: !!m.results_incomplete };
   }
@@ -2468,7 +2491,10 @@
           if (!_chatHas(run.blocks, block)) { run.order.push(block); run.blocks[block] = ''; }
           var piece = ev.text == null ? '' : String(ev.text);
           run.blocks[block] = ev.type === 'text' ? piece : run.blocks[block] + piece;
-          items[run.assistantId] = { text: run.order.map(function(b) { return run.blocks[b]; }).filter(Boolean).join('\n\n') };
+          // As messages() reads it back: the last block with text is the
+          // answer, the earlier ones its steps (so nothing moves on the re-read).
+          var said = run.order.map(function(b) { return run.blocks[b]; }).filter(Boolean);
+          items[run.assistantId] = { text: said.length ? said[said.length - 1] : '', steps: said.slice(0, -1) };
           break;
         }
         case 'tool': {
@@ -2535,8 +2561,8 @@
         return;
       }
       var conv = _chatConv();
-      var user = { id: run.userLocalId, role: 'user', text: text, status: 'pending', created_at: null, tools: [], results: [], results_incomplete: false };
-      var assistant = { id: run.assistantLocalId, role: 'assistant', text: '', status: 'in_progress', created_at: null, tools: [], results: [], results_incomplete: false };
+      var user = { id: run.userLocalId, role: 'user', text: text, status: 'pending', created_at: null, steps: [], tools: [], results: [], results_incomplete: false };
+      var assistant = { id: run.assistantLocalId, role: 'assistant', text: '', status: 'in_progress', created_at: null, steps: [], tools: [], results: [], results_incomplete: false };
       put({ type: 'apply', append: [user, assistant] }, run.gen);
       var convId = c.convId;
       if (!convId) {

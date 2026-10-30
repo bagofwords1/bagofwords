@@ -54,9 +54,8 @@ for await (const event of bow.ai.stream(operationName,
 // Catch errors using error.code: VALIDATION, FORBIDDEN, CONFLICT, QUOTA_EXCEEDED,
 // UNAVAILABLE, INTERRUPTED, ABORTED. Preserve input on conflict. Respect current
 // server permissions; no raw fetch, credentials, parent DOM or browser storage.
-CONVERSATIONS: chat-assistant apps talk to the organization's agents (the
-same agents, tools and data access as a BOW chat, as the viewer), not
-to a bare model. Use bow.conversations for that; use bow.ai only for one-off
+CONVERSATIONS: chat-assistant apps talk to the organization's agents (their
+tools and data access, as the viewer), not to a bare model. Use bow.conversations for that; use bow.ai only for one-off
 text operations without data. On Auto, conversations may use every agent the
 viewer can use (or those the owner limited the app to); the model is the
 owner's choice or the viewer's default. No setting needs switching on. Pass
@@ -65,18 +64,20 @@ only their own conversations. When policy().available is false, show its reason
 (auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
-const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, at the top of the chat component
+const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component
 // {messages, conversations, conversationId, policy, loading, sending, error, send, stop, select, newConversation, reload}
-// messages: [{id,role:'user'|'assistant',text,status,created_at,tools:[...],results:[...],results_incomplete}], kept
-//   up to date while an answer streams (status 'in_progress'), then re-read from history. error: null or {code,message}.
-// chat.send(text) on a user action only (it creates the conversation on the first send; ignored while sending);
+// messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
+//   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
+//   error: null or {code,message}.
+// chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
 // chat.stop() while chat.sending; chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
 // Leaving a running answer (select, newConversation, unmount) stops it.
-<ChatMessage message={m}/> // one message: markdown with dir="auto" per block, tool steps (showTools={false} hides
-//   them), each result as a ChatResult, the note when results_incomplete, and "Answer in progress..." while running
+<ChatMessage message={m}/> // one message: markdown with dir="auto" per block, its steps collapsed, tools
+//   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
 // Both take labels={{rowsShown:'Showing {shown} of {total} rows',columnsShown:'{shown} of {total} columns',
-//   partial:'Partial table',incomplete:'Some results of this answer could not be shown',inProgress:'Answer in progress...'}}: pass them in the app's language.
+//   partial:'Partial table',incomplete:'Some results of this answer could not be shown',inProgress:'Answer in progress...',
+//   steps:'Steps'}}: pass them in the app's language.
 function Chat(){const chat=useConversation();const [draft,setDraft]=useState('');
   return <div>{chat.policy&&chat.policy.available===false&&<p>{chat.policy.reason}</p>}
     {chat.messages.map(m=><ChatMessage key={m.id} message={m}/>)}

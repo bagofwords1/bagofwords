@@ -98,3 +98,13 @@ def test_the_use_conversation_signature_says_to_omit_the_title():
     assert "omit title" in signature
     assert "named after its first question" in signature
     assert not re.search(r"useConversation\(\{[^}]*title\s*:", REF), "no example passes a fixed title"
+
+
+def test_hook_messages_carry_steps_as_history_does():
+    # useConversation splits a streaming answer as messages() does: the last
+    # text block is `text`, earlier ones `steps`; ChatMessage shows them collapsed.
+    part = _blocks_part()
+    messages = re.search(r"// messages: \[\{([^}]*)\}\]", part)
+    assert messages and "steps" in _keys("{" + messages.group(1) + "}")
+    chat_message = part[part.index("<ChatMessage"):part.index("<ChatResult result={r}/>")]
+    assert re.search(r"steps[^.;]*collapsed", chat_message)
