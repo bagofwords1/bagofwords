@@ -183,6 +183,14 @@ _SANDBOX_SW_NOISE = SANDBOX_SW_NOISE
 _BREAKER_REASONS = {"preview_unavailable", "preview_not_ready", "timeout"}
 _MAX_ITEMS = 5
 _MAX_MESSAGE = 300
+# A refused bow.* call in the preview (evidence kind "sdk_call") is the app's
+# problem unless its code is a policy or environment state the app is expected
+# to show (policy().reason) or that code cannot change.
+_SDK_NOT_APP_CODES = {"conversation.no_agents", "conversation.unavailable", "UNAVAILABLE", "QUOTA_EXCEEDED",
+                      "ABORTED", "INTERRUPTED"}
+# Readiness the preview reports for a load: an app without viewer queries is
+# loaded once its bow.* calls ran.
+_READY = {"ready", "sdk_calls_observed"}
 
 _REF_TOKEN = re.compile(r"\s*\[ref=[^\]]*\]")
 _ACTIVE_TOKEN = re.compile(r"\s*\[active\]")
@@ -223,7 +231,9 @@ def _evidence_counts():
 def classify_preview_output(output: dict) -> dict:
     """Classify one guarded browser tool output (load or act) per the D8 rules."""
     output = output or {}
-    result = {"status": "passed", "reason": None, "readiness": output.get("readiness"), **_evidence_counts()}
+    readiness = output.get("readiness")
+    result = {"status": "passed", "reason": None, "readiness": "ready" if readiness in _READY else readiness,
+              **_evidence_counts()}
     if output.get("error_code") in _RESTRICTED_CODES:
         return {**result, "status": "unavailable", "reason": "restricted", "readiness": None}
     evidence = output.get("evidence") or {}
@@ -231,6 +241,19 @@ def classify_preview_output(output: dict) -> dict:
     for event in evidence.get("errors") or []:
         if event.get("kind") == "blocked":
             result["blocked_requests"] += 1
+            continue
+        if event.get("kind") == "sdk_call":
+            code = str(event.get("error_code") or "")
+            if event.get("status") != "error" or code in _SDK_NOT_APP_CODES:
+                result["informational_errors"] += 1
+                continue
+            message = f"bow.{event.get('op') or 'call'} failed with {code or 'an error'}"
+            detail = (event.get("detail") or {}).get("message") if isinstance(event.get("detail"), dict) else None
+            if detail:
+                message += f": {detail}"
+            if message not in seen:
+                seen.add(message)
+                errors.append({"source": "sdk", "message": _clip(message)})
             continue
         if event.get("kind") != "error":
             continue

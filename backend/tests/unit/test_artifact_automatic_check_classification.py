@@ -700,3 +700,50 @@ async def test_a_crash_nested_inside_an_alert_fails_the_load_after_filtering():
     assert result["status"] == "problems_found"
     assert [error["source"] for error in result["errors"]] == ["ui"]
     assert "Cannot read properties of undefined" in result["errors"][0]["message"]
+
+
+# ── the preview's bow.* calls (evidence.sdk_calls; failures also in errors) ──
+
+def _sdk_service(*, queries=False):
+    service = _service()
+    if not queries:
+        service.query_ids = set()
+    return service
+
+
+def test_a_refused_sdk_call_the_app_caused_is_an_app_problem():
+    service = _sdk_service()
+    service.record("sdk_call", call="request", op="conversations.list", status="ok")
+    service.record("sdk_call", call="request", op="conversations.create", status="error",
+                   error_code="conversation.agent_forbidden", detail={"message": "You can't use that agent here"})
+    result = classify_preview_output(_output(service, readiness="sdk_calls_observed"))
+    assert result["status"] == "problems_found"
+    assert result["errors"] == [{"source": "sdk", "message": "bow.conversations.create failed with "
+                                 "conversation.agent_forbidden: You can't use that agent here"}]
+    assert "edit_artifact" in summary_sentence(result)
+
+
+@pytest.mark.parametrize("code", ["conversation.no_agents", "conversation.unavailable", "UNAVAILABLE",
+                                  "QUOTA_EXCEEDED", "ABORTED"])
+def test_a_refusal_from_policy_or_the_environment_is_not_the_app_s_fault(code):
+    # The app is expected to show policy().reason; code cannot fix the policy.
+    service = _sdk_service()
+    service.record("sdk_call", call="request", op="conversations.create", status="error", error_code=code)
+    result = classify_preview_output(_output(service, readiness="sdk_calls_observed"))
+    assert result["status"] == "passed" and result["errors"] == []
+    assert result["informational_errors"] == 1
+
+
+def test_an_interrupted_stream_is_informational():
+    service = _sdk_service()
+    service.record("sdk_call", call="stream", op="conversations.send", status="interrupted", error_code="INTERRUPTED")
+    result = classify_preview_output(_output(service, readiness="sdk_calls_observed"))
+    assert result["status"] == "passed" and result["informational_errors"] == 1
+
+
+def test_sdk_calls_observed_is_ready_for_an_app_without_queries():
+    service = _sdk_service()
+    service.record("sdk_call", call="request", op="conversations.policy", status="ok")
+    result = classify_preview_output(_output(service, readiness="sdk_calls_observed"))
+    assert result["status"] == "passed" and result["readiness"] == "ready"
+    assert "data loading was not confirmed" not in summary_sentence(result)
