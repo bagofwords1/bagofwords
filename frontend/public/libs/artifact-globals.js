@@ -2169,7 +2169,7 @@
     muted: 'flex items-center gap-2 text-xs text-ink-3'
   };
 
-  // <ChatMessage message={m} showTools labels={...} className />
+  // <ChatMessage message={m} showTools showResults labels={...} className />
   var ChatMessage = React.memo(function ChatMessage(props) {
     props = props || {};
     var m = props.message;
@@ -2224,11 +2224,11 @@
           [mark ? h('span', { key: 'm', className: 'inline-flex shrink-0' }, mark) : null, h('span', { key: 'l' }, _chatLabelOf(t.title) || _chatLabelOf(t.name))]);
       })));
     }
-    var results = Array.isArray(m.results) ? m.results : [];
+    var results = props.showResults === false || !Array.isArray(m.results) ? [] : m.results;
     results.forEach(function(r, i) {
       kids.push(h(ChatResult, { key: 'r-' + (r && r.id != null ? r.id : i), result: r, labels: props.labels }));
     });
-    if (m.results_incomplete) {
+    if (props.showResults !== false && m.results_incomplete) {
       kids.push(h('p', { key: 'inc', dir: 'auto', 'data-testid': 'bow-chat-incomplete', className: CHAT.note }, L.incomplete));
     }
     // A failed or stopped answer says so (also with no text, as history loads it).
@@ -2291,10 +2291,15 @@
       tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
       results_incomplete: !!m.results_incomplete };
   }
-  function _chatLen(v) { return Array.isArray(v) ? v.length : -1; }
   function _chatSameResult(a, b) {
-    return !!a && !!b && a.id === b.id && _chatLen(a.rows) === _chatLen(b.rows) && _chatLen(a.columns) === _chatLen(b.columns) &&
-      !!a.truncated === !!b.truncated && !!a.chart === !!b.chart;
+    // Result payloads are bounded JSON. Preserve chart identity only when all
+    // content matches, including changed redaction, labels and chart options.
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    var keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every(function(k) {
+      return _chatHas(b, k) && _chatSameResult(a[k], b[k]);
+    });
   }
   function _chatHas(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
 
@@ -2305,7 +2310,7 @@
   // dropped by (a). Kept server items before the first covered item go before
   // the page; every other kept item after it. A fetched in_progress never
   // replaces a status in `held` (the run's own completed or stop). Result
-  // objects of the same id and shape are kept, so charts do not reset.
+  // objects with identical content are kept, so unchanged charts do not reset.
   function _chatMerge(local, fetched, held) {
     local = Array.isArray(local) ? local : [];
     held = held || {};
@@ -2532,6 +2537,10 @@
     // `errShown` mirrors whether one is shown now.
     function put(action, gen) {
       if (!c.mounted || (gen !== undefined && gen !== c.gen)) return false;
+      // A queued send resumes when the history promise resolves, before
+      // React necessarily commits its render. Check the history just loaded.
+      if (action.type === 'load') c.messages = action.messages.map(_chatNormalize).filter(Boolean);
+      else if (action.patch && Array.isArray(action.patch.messages)) c.messages = action.patch.messages;
       dispatch(action);
       if (action.patch && _chatHas(action.patch, 'error')) { c.errSeq++; c.errShown = !!action.patch.error; }
       return true;
@@ -2668,7 +2677,23 @@
       if (run.stopSent || !run.messageId || !run.convId) return;
       run.stopSent = true;
       var conv = _chatConv();
-      try { if (conv) conv.stop(run.convId, run.messageId).then(noop, noop); } catch (e) { /* the abort below still ends the stream */ }
+      Promise.resolve().then(function() {
+        if (!conv) throw { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' };
+        return conv.stop(run.convId, run.messageId);
+      }).catch(function(e) {
+        if (!c.mounted || run.gen !== c.gen) return;
+        if (c.held[run.messageId] === 'stopped') delete c.held[run.messageId];
+        var items = {};
+        c.messages.forEach(function(m) {
+          if ((m.id === run.assistantId || m.id === run.messageId) && (m.status === 'stopped' || m.status === 'in_progress')) {
+            items[m.id] = { id: run.messageId, status: 'in_progress' };
+          }
+        });
+        // Restore the Stop control even if the following history request also
+        // fails. A new conversation/generation must never see this failure.
+        put({ type: 'apply', items: items, patch: { error: _chatError(e) } }, run.gen);
+        if (c.run === null) return reread(run.convId, null);
+      }).catch(noop);
       // After the stop request is posted, so the host sees the stop first.
       Promise.resolve().then(noop).then(function() { run.controller.abort(); });
     }
@@ -2768,6 +2793,7 @@
       var waits = [c.load, c.policyWait].filter(Boolean);
       if (waits.length) await Promise.all(waits).then(noop, noop);
       if (run.gen !== c.gen || run.terminal) return;
+      if (_chatAnswering({ messages: c.messages })) { endRun(run); return; }
       if (c.policy && c.policy.available === false) {
         endRun(run, { error: { code: 'FORBIDDEN', message: c.policy.reason || 'not available' } });
         return;
@@ -2836,7 +2862,7 @@
     c.send = function(text) {
       c.touched = true;
       var t = text == null ? '' : String(text).trim();
-      if (!t || c.run || !c.mounted) return Promise.resolve();
+      if (!t || c.run || !c.mounted || _chatAnswering({ messages: c.messages })) return Promise.resolve();
       if (!_chatConv()) {
         put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } });
         return Promise.resolve();
@@ -2875,13 +2901,13 @@
       cancelTimer();
       items[target.id] = { status: 'stopped' };
       put({ type: 'apply', items: items });
-      // A stop that did not reach the server shows: the answer is no longer
-      // held stopped (the re-read brings it back in progress and the refresh
-      // resumes) and `error` says why.
+      // Restore locally too: the history request may also fail while offline.
       return Promise.resolve().then(function() { return conv.stop(id, target.id); }).then(noop, function(e) {
         if (gen !== c.gen) return;
         if (c.held[target.id] === 'stopped') delete c.held[target.id];
-        put({ type: 'apply', patch: { error: _chatError(e) } }, gen);
+        var retryItems = {};
+        retryItems[target.id] = { status: 'in_progress' };
+        put({ type: 'apply', items: retryItems, patch: { error: _chatError(e) } }, gen);
       }).then(function() {
         if (gen === c.gen && c.run === null) return reread(id, null);
       }).then(noop, noop);
@@ -3013,7 +3039,9 @@
         var conv = _chatConv();
         if (!conv || !c.mounted) return;
         var issued = c.renameSeq;
-        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, noop);
+        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, function() {
+          c.checkList(c.conversations, c.convId);
+        });
       }, _CHAT_REFRESH_MS);
     };
 
@@ -3065,7 +3093,10 @@
       c.timer = setTimeout(function() {
         c.timer = null;
         c.count += 1;
-        if (!c.run && c.convId) reread(c.convId, null);
+        var gen = c.gen, id = c.convId;
+        if (!c.run && id) reread(id, null).then(function(applied) {
+          if (!applied && gen === c.gen && id === c.convId) c.check(c.messages);
+        });
       }, _CHAT_REFRESH_MS);
     };
 
@@ -3533,7 +3564,7 @@
   function _chatEdge(sc) { return sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top; }
   function _chatRows(inner) { return inner ? inner.querySelectorAll(':scope > [data-testid="bow-chat-row"]') : []; }
 
-  // <ChatMessages chat={chat} empty={node} labels={...} showTools className />
+  // <ChatMessages chat={chat} empty={node} labels={...} showTools showResults className />
   // Opens at the newest message, follows the answer only while the user is at
   // the bottom (within 40 px), otherwise keeps the row at the top of the view
   // where it is (growth above or below it, older pages). It records that row
@@ -3658,7 +3689,7 @@
     messages.forEach(function(m, i) {
       if (!m || typeof m !== 'object') return;
       kids.push(h('div', { key: m.id != null ? 'm-' + m.id : 'i-' + i, 'data-testid': 'bow-chat-row', 'data-message-id': m.id },
-        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools })));
+        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults })));
     });
     if (chat.loading && !messages.length) {
       kids.push(h('div', { key: 'loading', 'data-testid': 'bow-chat-loading', className: 'flex justify-center py-6' }, h(_LoadingSpinner, { size: 20 })));

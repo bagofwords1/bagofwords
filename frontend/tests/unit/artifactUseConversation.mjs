@@ -1082,10 +1082,10 @@ scenario('L26a a refresh in flight when a send starts, answered after that run e
   const s = await start(env);
   await s.call('select', 'A');
   const load = await s.take('messages', (e) => e.args.id === 'A');
-  await s.reply(load.id, page(u('u0', 'q0'), inProgress('a0')));
+  await s.reply(load.id, page(u('u0', 'q0'), a('a0', 'Done')));
   await s.until((c) => !c.loading, 'A loaded');
   await settle();
-  await step(s);
+  await s.call('reload');
   const stale = await s.take('messages', (e) => e.args.id === 'A');
   const req = await sendStarted(s, 'q1', 'm1');
   assert.equal(req.args.id, 'A');
@@ -1104,10 +1104,10 @@ scenario('L26a variant: the run\'s re-read fails; the refresh issued before the 
   const s = await start(env);
   await s.call('select', 'A');
   const load = await s.take('messages', (e) => e.args.id === 'A');
-  await s.reply(load.id, page(u('u0', 'q0'), inProgress('a0')));
+  await s.reply(load.id, page(u('u0', 'q0'), a('a0', 'Done')));
   await s.until((c) => !c.loading, 'A loaded');
   await settle();
-  await step(s);
+  await s.call('reload');
   const stale = await s.take('messages', (e) => e.args.id === 'A');
   const req = await sendStarted(s, 'q1', 'm1');
   await s.event(req.id, {type: 'completed', status: 'success'});
@@ -1119,7 +1119,7 @@ scenario('L26a variant: the run\'s re-read fails; the refresh issued before the 
   await sleep(250);
   const c = await s.chat();
   assert.equal(c.version, before.version, 'the refresh issued before the send never applies');
-  assert.equal(c.messages[1].status, 'in_progress');
+  assert.equal(c.messages[1].status, 'success');
   await s.done();
 }, {clock: true});
 

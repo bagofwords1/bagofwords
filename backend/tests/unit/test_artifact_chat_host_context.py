@@ -137,10 +137,10 @@ def test_an_apps_conversation_never_shows_the_host_line(name, label, builder, tr
 
 # ── it grants no access ──────────────────────────────────────────────────
 
-def test_host_context_is_never_read_outside_the_prompt_and_the_two_chat_routes():
+def test_host_context_is_never_read_outside_the_prompt_and_the_dashboard_chat_route():
     """host_context is prompt text only. The only code that reads it: the
-    schema field, the dashboard route (sanitize, move into platform_context,
-    clear), the /r route (clear), and the bubble's prompt line (plus the SDK reference, authoring text for artifact code). No
+    dashboard route (sanitize within platform_context) and the bubble's prompt
+    line (plus the SDK reference, authoring text for artifact code). No
     query, parameter or authorization code reads it."""
     from pathlib import Path
 
@@ -152,7 +152,5 @@ def test_host_context_is_never_read_outside_the_prompt_and_the_two_chat_routes()
     assert readers == [
         "ai/agents/planner/artifact_sdk_reference.py",
         "ai/agents/planner/prompt_builder.py",
-        "routes/artifact_chat.py",
         "routes/dashboard.py",
-        "schemas/completion_v2_schema.py",
     ]

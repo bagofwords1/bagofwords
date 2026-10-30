@@ -74,7 +74,7 @@ BAR = {"version": "v2", "view": {"type": "bar_chart", "x": "genre", "y": "sales"
 
 # ── seeding (the agent's rows) ─────────────────────────────────────────
 
-async def _thread():
+async def _thread(*, status="in_progress"):
     async with async_session_maker() as db:
         user = User(name="Viewer", email=f"viewer-{uuid.uuid4().hex}@example.test", hashed_password="not-used")
         org = Organization(name=f"Stream org {uuid.uuid4().hex}")
@@ -86,7 +86,7 @@ async def _thread():
                        user_id=str(user.id), organization_id=str(org.id))
         db.add_all([thread, other])
         await db.flush()
-        messages = [Completion(report_id=str(thread.id), user_id=str(user.id), role="system", status="in_progress",
+        messages = [Completion(report_id=str(thread.id), user_id=str(user.id), role="system", status=status,
                                prompt={}, completion={}) for _ in range(2)]
         db.add_all(messages)
         await db.commit()
@@ -681,7 +681,7 @@ async def _history(t, db):
 
 @pytest.mark.asyncio
 async def test_history_survives_a_failed_results_lookup():
-    t = await _thread()
+    t = await _thread(status="success")
     await _seed(t)
     async with async_session_maker() as s:
         history = await _history(t, DbFault(s, lambda sql: RESULTS_SQL in sql))
@@ -692,7 +692,7 @@ async def test_history_survives_a_failed_results_lookup():
 
 @pytest.mark.asyncio
 async def test_a_failed_visualization_lookup_keeps_every_table_without_charts():
-    t = await _thread()
+    t = await _thread(status="success")
     one = await _seed(t, block_index=0, title="One")
     two = await _seed(t, block_index=1, title="Two")
     async with async_session_maker() as s:
@@ -706,7 +706,7 @@ async def test_a_failed_visualization_lookup_keeps_every_table_without_charts():
 
 @pytest.mark.asyncio
 async def test_history_marks_results_lost_to_the_budget_or_unshapeable():
-    t = await _thread()
+    t = await _thread(status="success")
     await _seed(t, grid=BIG, view=None, block_index=0, title="One")
     await _seed(t, grid=BIG, view=None, block_index=1, title="Two")
     await _seed(t, grid=LARGE_KEYS, view=None, block_index=2, title="Three")
@@ -722,7 +722,7 @@ async def test_history_marks_results_lost_to_the_budget_or_unshapeable():
 
 @pytest.mark.asyncio
 async def test_history_withholds_results_and_tool_titles_when_the_pii_settings_cannot_be_read(pii_unreadable):
-    t = await _thread()
+    t = await _thread(status="success")
     await _pii_on(t)
     a = _email()
     await _seed(t, grid={**GRID, "rows": [{"genre": f"Rock by {a}", "sales": 1.5}],
@@ -840,7 +840,7 @@ async def test_a_pii_load_that_recovers_before_the_sweep_delivers_the_result_com
 async def test_a_successful_create_data_whose_step_was_not_stored_is_incomplete_in_stream_and_history(step_status):
     # The agent reports the tool as success, but its step was not stored as a
     # success (a swallowed save error, a failed validation): no table can come.
-    t = await _thread()
+    t = await _thread(status="success")
     seeded = await _seed(t, step_status=step_status)
     fake = FakeSSE([started(t), tool_started(seeded.te), tool_finished(seeded.te, step=seeded.step),
                     upsert(seeded.te, step=seeded.step), text("Rock leads."), finished()])
@@ -856,7 +856,7 @@ async def test_a_successful_create_data_whose_step_was_not_stored_is_incomplete_
 
 @pytest.mark.asyncio
 async def test_history_leaves_its_session_usable_after_a_failed_visualization_lookup():
-    t = await _thread()
+    t = await _thread(status="success")
     one = await _seed(t)
     async with async_session_maker() as s:
         history = await _history(t, DbFault(s, views_sql, real=True))
@@ -869,7 +869,7 @@ async def test_history_leaves_its_session_usable_after_a_failed_visualization_lo
 @pytest.mark.asyncio
 async def test_a_failed_rollback_after_a_failed_history_lookup_is_logged(caplog):
     caplog.set_level(logging.WARNING, logger=LOGGER)
-    t = await _thread()
+    t = await _thread(status="success")
     await _seed(t)
     async with async_session_maker() as s:
         history = await _history(t, DbFault(s, lambda sql: RESULTS_SQL in sql, rollback_fails=True))

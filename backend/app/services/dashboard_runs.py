@@ -244,7 +244,7 @@ def loaded_input_wait(code: str | None, lookup, data_of) -> list[str]:
     return names
 
 
-async def _reader_input_wait(db, step: Step, artifact, release, user) -> list[str]:
+async def _reader_input_wait(db, step: Step, artifact, release, user, *, lookup, resolved_waits) -> list[str]:
     """loaded_input_wait for a reader's run: what each loaded step resolves
     to for them, as load_step reads it (resolve_release_step) -- their own
     waiting row, or a waiting copy."""
@@ -252,15 +252,16 @@ async def _reader_input_wait(db, step: Step, artifact, release, user) -> list[st
 
     from app.ai.code_execution.loadables import extract_loadable_refs
     from app.services.dashboard_data import resolve_release_step
-    from app.services.identity_taint import release_step_lookup
 
     refs = extract_loadable_refs(step.code or "")[0]
     if not refs:
         return []
-    lookup = await release_step_lookup(db, str(release.id))
     names: list[str] = []
     for dep_id in dict.fromkeys(str(d.id) for d in map(lookup, refs) if d is not None):
         if dep_id == str(step.id):
+            continue
+        if dep_id in resolved_waits:
+            names += [n for n in resolved_waits[dep_id] if n not in names]
             continue
         dep = (await db.execute(
             select(Step).options(lazyload("*"), undefer(Step.data)).where(Step.id == dep_id)
@@ -271,12 +272,13 @@ async def _reader_input_wait(db, step: Step, artifact, release, user) -> list[st
         resolution = await resolve_release_step(db, dep, artifact, release, user)
         waiting = list((resolution.viewer_result or {}).get("needs_input") or []) \
             or needs_input_names(resolution.data)
+        resolved_waits[dep_id] = waiting
         names += [n for n in waiting if n not in names]
     return names
 
 
 async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential_user, executed_as,
-                    ctx, db_clients, sources: list, source_errors: list[dict]) -> str:
+                    ctx, db_clients, sources: list, source_errors: list[dict], lookup, resolved_waits) -> str:
     """StepService.run_step_to_user_result for one copy: the reader's own row.
 
     A copy that needs a required input the reader never gave does not run,
@@ -293,6 +295,9 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     from app.services.viewer_result_store import store_viewer_result
 
     service = StepService()
+    # A dependency checked earlier may now be rerun. Never reuse its prior
+    # wait after a failed or interrupted write; resolve the stored row again.
+    resolved_waits.pop(str(step_id), None)
     step = (await db.execute(
         select(Step).options(lazyload("*"), selectinload(Step.query).options(lazyload("*")))
         .join(Query, Query.id == Step.query_id)
@@ -315,7 +320,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
                   if prior.status == "error" or needs_input_names(prior.data) else prior.applied_params)
     specs = service._step_param_specs(step)
     missing = missing_required_inputs(specs, stored)
-    waiting = missing or await _reader_input_wait(db, step, artifact, release, run_user)
+    waiting = missing or await _reader_input_wait(
+        db, step, artifact, release, run_user, lookup=lookup, resolved_waits=resolved_waits)
     if waiting:
         from app.services.dashboard_publish import needed_sources
 
@@ -341,6 +347,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
             data=None if reason else needs_input_frame(None, waiting),
             executed_as=executed_as, applied_params=None, last_run_at=datetime.utcnow(),
         )
+        if reason is None:
+            resolved_waits[str(step.id)] = waiting
         return "error" if reason else "needs_input"
     params: dict = {}
     status, reason, data = "success", None, None
@@ -362,6 +370,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         data=data, executed_as=executed_as, applied_params=dict(params) if params else None,
         last_run_at=datetime.utcnow(),
     )
+    if status == "success":
+        resolved_waits[str(step.id)] = needs_input_names(data)
     return status
 
 
@@ -372,6 +382,7 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     from app.services.dashboard_access import holds_snapshot
     from app.services.data_source_service import DataSourceService
     from app.services.exec_context import ExecContext
+    from app.services.identity_taint import release_step_lookup
     from app.services.report_service import ReportService
 
     if caller is None:
@@ -411,6 +422,10 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
     # What a chart loads runs first, so it loads the reader's fresh rows.
     targets = await in_dependency_order(db, release, targets)
+    # Both caches belong to this reader's run only. Each stored result above
+    # replaces its wait, so downstream copies observe the freshly run value.
+    lookup = await release_step_lookup(db, str(release.id))
+    resolved_waits: dict[str, list[str]] = {}
     total, succeeded, failed, needing_input = 0, 0, 0, 0
     for step_id, code in targets:
         total += 1
@@ -420,7 +435,8 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
         try:
             status = await _run_copy(db, step_id, artifact, release, run_user=caller,
                                      credential_user=credential_user, executed_as=identity, ctx=ctx,
-                                     db_clients=db_clients, sources=sources, source_errors=errors)
+                                     db_clients=db_clients, sources=sources, source_errors=errors,
+                                     lookup=lookup, resolved_waits=resolved_waits)
         except Exception as e:
             logger.warning("Dashboard viewer run failed for step %s: %s", step_id, e)
             status = "error"

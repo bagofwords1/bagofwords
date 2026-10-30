@@ -268,7 +268,7 @@ async function send() {
         const res: any = await useMyFetch(`${chatBase.value}/chat/completions`, {
             method: 'POST',
             stream: true,
-            body: JSON.stringify({ prompt: { content, ...(props.hostContext ? { host_context: props.hostContext } : {}) }, stream: true }),
+            body: JSON.stringify({ prompt: { content, ...(props.hostContext ? { platform_context: { host_context: props.hostContext } } : {}) }, stream: true }),
             headers: { 'Content-Type': 'application/json' },
         } as any)
         const response: Response = res.data

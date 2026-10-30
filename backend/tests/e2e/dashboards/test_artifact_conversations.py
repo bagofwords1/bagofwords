@@ -616,6 +616,24 @@ def test_a_step_outside_the_viewers_thread_is_never_a_result(corpus, corpus_rows
     assert history[-1]["results_incomplete"] is True
 
 
+@pytest.mark.parametrize("person", ["member", "admin"])
+def test_running_answers_do_not_report_missing_results_before_they_finish(
+        corpus, corpus_rows, test_client, data_agent, person):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    data_agent["results"] = [dict(step_id=_release_step(aid), title="Pending result")]
+    conv, _, _, history = _send(test_client, corpus, aid, person=person)
+    answer = history[-1]
+    assert answer["results_incomplete"] is True
+    # Model execution is an external boundary; hold its stored completion in
+    # the intermediate state that the synchronous stub otherwise skips past.
+    corpus_rows.update("completions", answer["id"], status="in_progress")
+    response = test_client.get(f"{base(aid)}/{conv['id']}/messages", headers=as_(corpus, person))
+    assert response.status_code == 200, response.text
+    running = next(m for m in response.json()["items"] if m["id"] == answer["id"])
+    assert running["status"] == "in_progress"
+    assert not running.get("results_incomplete", False)
+
+
 def test_the_surface_is_per_message_on_a_shared_thread(corpus, corpus_rows, test_client, stub_agent):
     from sqlalchemy import select
 

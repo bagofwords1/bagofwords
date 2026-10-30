@@ -126,10 +126,18 @@ async def waiting_step_labels(db, release_id: str) -> list[str]:
     from app.services.dashboard_runs import needs_input_names
 
     rows = (await db.execute(
-        select(Step.id, Step.title, Step.data).join(Query, Query.default_step_id == Step.id)
+        select(Step.id, Step.title, Step.context_summary_json).join(Query, Query.default_step_id == Step.id)
         .where(Query.artifact_release_id == release_id).order_by(Query.created_at, Query.id)
     )).all()
-    return [title or str(sid) for sid, title, data in rows if needs_input_names(data)]
+    waiting = []
+    for sid, title, summary in rows:
+        # Step writes preserve info.needs_input in the bounded summary. Only
+        # legacy rows without a summary need their full encrypted grid read.
+        if summary is None:
+            summary = (await db.execute(select(Step.data).where(Step.id == sid))).scalar()
+        if needs_input_names(summary):
+            waiting.append(title or str(sid))
+    return waiting
 
 
 # ── starting ─────────────────────────────────────────────────────────────
@@ -593,6 +601,12 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
             waiting = missing or loaded_input_wait(
                 step.code, lookup, lambda dep: ctx.fresh_rows.get(str(dep.id)))
             if waiting:
+                # Missing host inputs defer execution, not validation of the
+                # other parameters (including the publisher's identity).
+                await service._resolve_step_params(
+                    db, step, stored=step.applied_params, run_user=run_user,
+                    organization_id=str(release.organization_id),
+                    specs=[s for s in specs if s.name not in missing])
                 # The stored values stay (a missing one is still None, so
                 # still missing): the author's other values -- and a
                 # loader's own -- are what the viewer's run resolves with.

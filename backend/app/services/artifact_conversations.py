@@ -333,7 +333,7 @@ def _tools(blocks, redaction) -> list[dict]:
 
 async def messages(db, thread: Report, organization, user, *, limit: int, before: Optional[str]) -> dict:
     """The thread's messages, oldest first. An assistant message carries its
-    tools and ``results``; ``results_incomplete: true`` (present only then)
+    tools and ``results``; after the answer ends, ``results_incomplete: true``
     when they could not all be produced: the lookup failed, one was lost to
     the message budget or could not be shaped, they were withheld because
     the PII settings could not be read, or a successful result tool has no
@@ -383,7 +383,7 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
         m["results"] = fit_message(candidates, MAX_MESSAGE_RESULT_BYTES)[0]
         shown = {r["id"] for r in candidates}
         missing = any(step is None or str(step) not in shown for step in expected.get(m["id"], []))
-        if m["id"] in lost or missing or budget_lost(candidates, m["results"]):
+        if m["status"] != "in_progress" and (m["id"] in lost or missing or budget_lost(candidates, m["results"])):
             m["results_incomplete"] = True
     items.sort(key=lambda m: m["created_at"] or "")
     # get_completions_v2 always names its oldest row as the cursor; it is a

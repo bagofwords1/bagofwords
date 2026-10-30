@@ -201,25 +201,23 @@ def test_the_bubble_hands_the_hosts_context_to_the_message_as_advisory_context(
     seen = _capture_completion(monkeypatch)
     hc = {"customerId": "C-14", "region": "EMEA"}
 
-    sent = test_client.post(path, json={"prompt": {"content": "what did this customer buy?", "host_context": hc}},
+    sent = test_client.post(path, json={"prompt": {"content": "what did this customer buy?", "platform_context": {"host_context": hc}}},
                             headers=as_(corpus, "member"))
     assert sent.status_code == 200 and sent.json() == {"captured": True}
     prompt = seen[-1]["prompt"]
     assert prompt.platform == "artifact_chat"
     assert prompt.platform_context["host_context"] == hc
     assert prompt.platform_context["artifact_title"] == "לוח מכירות"  # the server's own context is still there
-    assert prompt.host_context is None
 
     for dropped in ({"k": "x" * 3000}, {f"k{i}": i for i in range(21)}):
-        assert test_client.post(path, json={"prompt": {"content": "and now?", "host_context": dropped}},
+        assert test_client.post(path, json={"prompt": {"content": "and now?", "platform_context": {"host_context": dropped}}},
                                 headers=as_(corpus, "member")).status_code == 200
         prompt = seen[-1]["prompt"]
-        assert "host_context" not in prompt.platform_context and prompt.host_context is None
-    sent_count = len(seen)
-    for not_an_object in ("C-14", ["C-14"]):  # refused by the schema before anything runs
-        assert test_client.post(path, json={"prompt": {"content": "and now?", "host_context": not_an_object}},
-                                headers=as_(corpus, "member")).status_code == 422
-    assert len(seen) == sent_count
+        assert "host_context" not in prompt.platform_context
+    for not_an_object in ("C-14", ["C-14"]):  # ignored by the context sanitizer
+        assert test_client.post(path, json={"prompt": {"content": "and now?", "platform_context": {"host_context": not_an_object}}},
+                                headers=as_(corpus, "member")).status_code == 200
+        assert "host_context" not in seen[-1]["prompt"].platform_context
 
     assert test_client.post(path, json={"prompt": {"content": "no host"}},
                             headers=as_(corpus, "member")).status_code == 200
@@ -235,7 +233,7 @@ def test_host_context_cannot_widen_what_a_reader_may_see(corpus, corpus_rows, te
     owner_id = corpus.cast.id("owner")
     hc = {"user_id": owner_id, "role": "admin", "as": "owner", "customer_id": "C-14"}
     assert test_client.post(f"/api/d/{aid}/chat/completions",
-                            json={"prompt": {"content": "show me everything", "host_context": hc}},
+                            json={"prompt": {"content": "show me everything", "platform_context": {"host_context": hc}}},
                             headers=as_(corpus, "member")).status_code == 200
     ctx = seen[-1]["prompt"].platform_context
     assert ctx["host_context"] == hc
@@ -254,8 +252,7 @@ def test_the_conversations_own_chat_drops_host_context(corpus, corpus_rows, test
                            headers=as_(corpus, "owner")).status_code == 200
     seen = _capture_completion(monkeypatch)
     assert test_client.post(f"/api/r/{rid}/chat/completions",
-                            json={"prompt": {"content": "hi", "host_context": {"customerId": "C-14"}}},
+                            json={"prompt": {"content": "hi", "platform_context": {"host_context": {"customerId": "C-14"}}}},
                             headers=as_(corpus, "member")).status_code == 200
     prompt = seen[-1]["prompt"]
-    assert prompt.host_context is None
     assert "host_context" not in (prompt.platform_context or {})

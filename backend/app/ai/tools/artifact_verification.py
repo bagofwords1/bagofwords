@@ -10,7 +10,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from app.services.artifact_preview_noise import HOST_NOISE_PREFIXES, SANDBOX_SW_NOISE, is_preview_noise_error
+from app.services.artifact_preview_noise import is_preview_noise_error
 
 logger = logging.getLogger(__name__)
 
@@ -181,8 +181,6 @@ _FROZEN_ERROR = {"source": "render",
                  "message": "The saved app stopped responding after it started rendering: the load did not "
                             "finish within the check budget."}
 _RESTRICTED_CODES = {"preview_restricted", "session_scope_mismatch"}
-_HOST_NOISE_PREFIXES = HOST_NOISE_PREFIXES
-_SANDBOX_SW_NOISE = SANDBOX_SW_NOISE
 _BREAKER_REASONS = {"preview_unavailable", "preview_not_ready", "timeout"}
 _MAX_ITEMS = 5
 _MAX_MESSAGE = 300
@@ -410,7 +408,7 @@ def summary_sentence(result: dict) -> str:
 def _new_result(artifact_id, version):
     return {"status": "unavailable", "reason": None, "artifact_id": artifact_id, "version": version,
             "checked": [], "readiness": None, **_evidence_counts(), "conversation_smoke": None,
-            "duration_ms": 0}
+            "duration_ms": 0, "preview_session_closed": False}
 
 
 def _emptied(result, reason):
@@ -658,6 +656,10 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
             async with asyncio.timeout(AUTOMATIC_CHECK_CLEANUP_TIMEOUT_S):
                 try:
                     await session_manager.close_preview(runtime_ctx)
+                    # Navigation and cleanup invalidate earlier preview handles
+                    # in this execution too. Tell the caller to navigate again.
+                    result["preview_session_closed"] = True
+                    result["next_browser_action"] = "browser_navigate"
                 except Exception:
                     logger.warning("Automatic artifact check could not close its preview: %s", _log_ids(runtime_ctx, result),
                                    exc_info=True)

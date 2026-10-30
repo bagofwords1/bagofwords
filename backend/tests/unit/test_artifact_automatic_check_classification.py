@@ -530,12 +530,6 @@ def test_preview_noise_predicate(event, expected):
     assert is_preview_noise_error(event) is expected
 
 
-def test_noise_constants_stay_reachable_from_the_classifier():
-    from app.services import artifact_preview_noise as noise
-    assert av._HOST_NOISE_PREFIXES == noise.HOST_NOISE_PREFIXES
-    assert av._SANDBOX_SW_NOISE == noise.SANDBOX_SW_NOISE
-
-
 async def _ready_after(service, *errors):
     """Record errors, start wait_ready, then deliver the data push."""
     for source, message in errors:

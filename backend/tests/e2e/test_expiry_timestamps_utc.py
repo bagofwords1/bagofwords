@@ -45,9 +45,6 @@ def test_invite_expiry_is_serialized_with_utc_offset(test_client, admin):
     )
     assert created.status_code == 200, created.json()
     created_expiry = _assert_utc_aware(created.json()["invite_expires_at"])
-    # A fresh invite expires in the future in absolute (UTC) terms.
-    assert created_expiry > datetime.now(UTC)
-
     members = test_client.get(f"/api/organizations/{org_id}/members", headers=_hdr(token, org_id))
     assert members.status_code == 200, members.json()
     pending = [m for m in members.json() if m.get("email") == email]

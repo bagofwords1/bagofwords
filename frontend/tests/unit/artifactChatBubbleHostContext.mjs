@@ -22,7 +22,7 @@ assert.ok(expr, 'the body line is a JSON.stringify call');
 // Evaluate the exact body expression with and without host context.
 const build = new Function('content', 'props', `return ${expr[1]};`);
 assert.deepEqual(JSON.parse(build('what did this customer buy?', { hostContext: { customerId: 'C-14' } })),
-  { prompt: { content: 'what did this customer buy?', host_context: { customerId: 'C-14' } }, stream: true });
+  { prompt: { content: 'what did this customer buy?', platform_context: { host_context: { customerId: 'C-14' } } }, stream: true });
 assert.equal(build('hi', { hostContext: null }), JSON.stringify({ prompt: { content: 'hi' }, stream: true }),
   'no host context: the body is byte-identical to before');
 assert.equal(build('hi', {}), JSON.stringify({ prompt: { content: 'hi' }, stream: true }));

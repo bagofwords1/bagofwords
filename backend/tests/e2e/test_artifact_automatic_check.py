@@ -808,6 +808,8 @@ def test_functional_edit_is_checked_cosmetic_edit_is_not(chromium, stub_render, 
     assert after_create == 0
     assert functional["output"].get("success") is True, functional
     assert _check(functional)["status"] == "passed"
+    assert _check(functional)["preview_session_closed"] is True
+    assert _check(functional)["next_browser_action"] == "browser_navigate"
     assert after_functional == 1
     assert cosmetic["output"].get("success") is True, cosmetic
     assert "automatic_check" not in cosmetic["output"]["verification_hint"]

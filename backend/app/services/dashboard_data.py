@@ -116,7 +116,7 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
             select(StepUserResult).options(lazyload("*")).where(
                 StepUserResult.step_id == str(step.id),
                 StepUserResult.user_id == str(user.id),
-            ).order_by(StepUserResult.last_run_at.desc())
+            ).order_by(StepUserResult.last_run_at.desc()).limit(1)
         )).scalars().first()
         if row is not None:
             viewer_result = {

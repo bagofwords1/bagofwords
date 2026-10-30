@@ -357,6 +357,21 @@ UNBOUND = {"name": "region", "type": "string", "required": True, "default": None
            "identity_binding": "viewer.profile_attributes.no_such_attribute"}
 
 
+@pytest.mark.parametrize("invalid,stored", [
+    (UNBOUND, {"customer_id": None}),
+    ({"name": "limit", "type": "number", "source": "input"}, {"customer_id": None, "limit": "invalid"}),
+])
+def test_publish_validates_other_parameters_while_waiting_for_host_input(
+        corpus, corpus_rows, test_client, spawned, invalid, stored):
+    aid = _draft(corpus, corpus_rows, applied=stored)
+    corpus_rows.update("queries", corpus.ids["options_sources/q_by_id"], parameters=[invalid, CUSTOMER])
+    assert _post(test_client, corpus, aid).status_code == 202
+    _finish(spawned)
+    status = _status(test_client, corpus, aid)
+    assert status["latest"]["status"] == "failed", status
+    assert invalid["name"] in status["latest"]["error"]
+
+
 @pytest.mark.e2e
 def test_a_required_identity_param_that_resolves_to_none_fails_on_every_run(  # D3
         corpus, corpus_rows, test_client, context_dash):

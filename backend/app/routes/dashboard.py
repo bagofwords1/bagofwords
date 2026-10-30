@@ -427,15 +427,23 @@ async def _has_own_run(db, release, user) -> bool:
 
     if user is None:
         return False
-    rows = (await db.execute(
+    rows = await db.stream(
         select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
                StepUserResult.status == "success")
-    )).scalars().all()
+        .order_by(StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
+        .execution_options(yield_per=1)
+    )
     # A wait for input is not a run of theirs (resolve_release_step): it holds no rows. The marker
     # is inside the encrypted data, so it is read here, not in SQL.
-    return any(not needs_input_names(data) for data in rows)
+    try:
+        async for data in rows.scalars():
+            if not needs_input_names(data):
+                return True
+        return False
+    finally:
+        await rows.close()
 
 
 async def _release_pdf(db, artifact, release, user) -> str | None:
@@ -840,14 +848,13 @@ async def create_dashboard_chat_completion(
     completion.prompt.step_id = None
     completion.prompt.mode = "chat"
     completion.prompt.platform = "artifact_chat"
+    host_context = dashboard_chat.sanitize_host_context((completion.prompt.platform_context or {}).get("host_context"))
     completion.prompt.platform_context = await dashboard_chat.build_context(db, artifact, release, agent_ids, user)
     # The host's current context (the bubble inside a host application):
-    # advisory prompt text in platform_context only, never kept on the prompt
-    # and never used for access or queries.
-    host_context = dashboard_chat.sanitize_host_context(completion.prompt.host_context)
+    # advisory prompt text only. All other client-supplied platform context
+    # is replaced above; host context never controls access or queries.
     if host_context:
         completion.prompt.platform_context["host_context"] = host_context
-    completion.prompt.host_context = None
     try:
         completion.queue = False
     except Exception:
