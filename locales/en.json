@@ -664,6 +664,8 @@
     "modelAuto": "Auto",
     "modelAutoHint": "Router picks the best model",
     "autoAgentsHint": "Any agent you can access",
+    "searchAgents": "Search agents…",
+    "noAgentsMatch": "No agents match",
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found",
     "effort": {
@@ -686,6 +688,17 @@
       "runsAs": "Runs as {level} on this model",
       "faster": "Faster",
       "smarter": "Smarter"
+    },
+    "voiceInput": {
+      "start": "Dictate a prompt",
+      "stop": "Stop dictating",
+      "errors": {
+        "permissionDenied": "Microphone access was blocked. Allow it in your browser settings to dictate.",
+        "noSpeech": "No speech was detected.",
+        "noMicrophone": "No microphone was found.",
+        "network": "Speech recognition needs a network connection.",
+        "failed": "Voice input failed. Please try again."
+      }
     }
   },
   "exports": {
@@ -772,7 +785,9 @@
       "createdViaExcel": "Created via Excel",
       "runningOnSchedule": "Running on a schedule",
       "createdByTrigger": "Created by a trigger",
-      "createdBySchedule": "Created by a scheduled task"
+      "createdBySchedule": "Created by a scheduled task",
+      "viaHostApp": "Started in {name} (embedded)",
+      "viaOauthApp": "Started through {name}"
     },
     "pagination": {
       "showing": "Showing {from} to {to} of {total} reports",
@@ -854,7 +869,8 @@
     "inProject": "In {name}",
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
-    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}"
+    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
+    "removedApp": "Removed app"
   },
   "projects": {
     "title": "Projects",
@@ -1524,7 +1540,17 @@
       "reading": "Reading…",
       "read": "Read instruction",
       "readSkill": "Read skill",
-      "failed": "Could not read instruction"
+      "failed": "Could not read instruction",
+      "lines": "lines {start}–{end} / {total}",
+      "truncated": "truncated",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} match",
+      "matchPlural": "{count} matches",
+      "moreMatches": "+more",
+      "moreShown": "+{count} more shown to the agent",
+      "noMatches": "No matching lines — the outline was returned instead",
+      "outline": "Outline",
+      "longLine": "long line: chars {start}–{end} of {length}"
     },
     "createEval": {
       "drafting": "Drafting eval",
@@ -3077,6 +3103,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "HTTPS webhook",
           "syslog": "Syslog over TLS"
         },
@@ -3086,6 +3113,7 @@
           "sentinel": "Logs Ingestion API (DCR)",
           "s3": "NDJSON objects per batch",
           "gcs": "NDJSON objects via HMAC keys",
+          "cloudwatch": "PutLogEvents to a log group",
           "https": "Signed JSON POST",
           "syslog": "RFC 5424, JSON or CEF"
         },
@@ -3113,6 +3141,8 @@
           "stream_name": "Stream name",
           "authority_url": "Authority URL",
           "bucket": "Bucket",
+          "log_group": "Log group",
+          "log_stream": "Log stream",
           "region": "Region",
           "prefix": "Key prefix",
           "role_arn": "Role ARN",
@@ -3120,6 +3150,7 @@
           "access_key_id": "Access key ID",
           "secret_access_key": "Secret access key",
           "gzip": "Gzip objects",
+          "create_log_group": "Create log group if missing",
           "endpoint_url": "Custom endpoint URL",
           "sts_endpoint_url": "Custom STS endpoint",
           "host": "Host",
@@ -3235,6 +3266,10 @@
         "enable_follow_ups": {
           "name": "Follow-up suggestions",
           "description": "After each answer in the web app, suggest a few follow-up questions the user can ask next. Generated on the small/default model."
+        },
+        "enable_voice_input": {
+          "name": "Voice input",
+          "description": "Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it."
         },
         "auto_suggest_evals": {
           "name": "Auto-suggest evals",
@@ -4239,6 +4274,8 @@
     "copyFailed": "Failed to copy",
     "includeDataTab": "Include Data Tab",
     "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report",
+    "bowCredit": "“Made with BOW” badge",
+    "bowCreditDesc": "Shown in the corner of this dashboard's pages. The organization's setting can turn it off everywhere.",
     "allowChat": "Allow chat",
     "allowChatDesc": "Signed-in workspace members can ask questions about this dashboard",
     "allowChatDescDoc": "Signed-in workspace members can ask questions about this document",
@@ -4410,7 +4447,8 @@
     "conversation.not_found": "That conversation doesn't exist.",
     "conversation.unavailable": "Conversations aren't turned on here.",
     "conversation.agent_forbidden": "You can't use that agent here.",
-    "conversation.limit": "Too many messages. Wait a moment and try again."
+    "conversation.limit": "Too many messages. Wait a moment and try again.",
+    "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use."
   },
   "email": {
     "dashboardShare": {
@@ -5153,7 +5191,10 @@
       "unindexedNote": "{n} runs not yet indexed",
       "unindexedHelp": "The rollup sweep is still indexing older runs. Cost, tokens, tools and scores appear as they are indexed.",
       "openCall": "Open this call in the trace",
-      "tableTitle": "Filter to runs that queried {table}"
+      "tableTitle": "Filter to runs that queried {table}",
+      "viaHostApp": "Through a host application (embedded)",
+      "viaOauthApp": "Through an OAuth app",
+      "removedApp": "Removed app"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",
@@ -6793,7 +6834,17 @@
       "viaProject": "Through project {name}",
       "projectMembers": "Members of project {name}",
       "projectMembersUnnamed": "Members of its project"
-    }
+    },
+    "agentsModelTitle": "Agents and model",
+    "agentsModelDesc": "Used when people chat with this dashboard: in the chat bubble, and in apps on it that hold conversations.",
+    "agentsLabel": "Agents",
+    "agentsAuto": "Auto",
+    "agentsAutoDesc": "Every agent each viewer can use, like a BOW chat (or the agents this conversation attached, if it attached some).",
+    "agentsLimited": "Only these agents",
+    "agentsLimitedDesc": "Still limited to what each viewer can use.",
+    "agentsLimitedDataOnly": "Not available while the chat bubble answers from dashboard data only.",
+    "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
+    "bubbleUsesAgents": "The agents above"
   },
   "dashboardStart": {
     "title": "No dashboard here yet",
@@ -6840,11 +6891,8 @@
     "tab": {
       "title": "Embed",
       "desc": "Show it inside your other applications",
-      "desc_app": "Show this app inside your other applications",
       "intro": "Pick the applications that may show this dashboard. People see it there as themselves, signed in by that application, and only if they can already view it here.",
-      "intro_app": "Pick the applications that may show this app. People see it there as themselves, signed in by that application, and only if they can already view it here.",
       "privateWarning": "Only you can view this dashboard. Share it (Access) so the people in the other application can see it.",
-      "privateWarning_app": "Only you can view this app. Share it (Access) so the people in the other application can see it.",
       "embeddableIn": "Embeddable in",
       "noHosts": "No applications are set up yet. Ask an admin to add one in Settings → Integrations → Host applications.",
       "noHostsAdmin": "No applications are set up yet. Add the first one here.",
@@ -6870,7 +6918,7 @@
     "emptyHelp": "Add the system your people work in, then embed dashboards and apps in it from their Settings → Embed.",
     "name": "Name",
     "nameHint": "Shown to editors",
-    "namePlaceholder": "Priority ERP",
+    "namePlaceholder": "AI ERP Chatbot",
     "origins": "Allowed origins",
     "originsHelp": "The exact addresses that may show it, one per line, e.g. https://erp.example.com",
     "signIn": "How people are signed in",

@@ -1,5 +1,16 @@
 # Release Notes
 
+## Version 0.0.600 (October 28, 2026)
+- Added Amazon CloudWatch Logs as an audit log stream destination (#1499)
+- Added encryption at rest for conversation text, agent context, dashboard content, run parameters and entity SQL under the `data_encryption` setting (#1501)
+- Added voice input to the chat prompt box, transcribed in the browser (#1503) — off by default; turn on with the Voice input setting under AI settings
+- Added search to the agent picker in the prompt box (#1496)
+- Added the line range, grep matches and outline of a `read_instruction` read to its row in chat (#1497)
+- Changed the Helm chart to ship PostgreSQL on the official postgres image instead of the Bitnami subchart (#1500)
+- Fixed renaming a dashboard also renaming its conversation, and dashboards listing under their conversation's name (#1502)
+- Fixed Priority connections reporting every HTTP 501 as missing `$apply` instead of the server's own reason (#1498)
+- Fixed the agent picker's hover card jumping to the window edge instead of staying beside the hovered row (#1495)
+
 ## Version 0.0.599 (October 28, 2026)
 - Added Publish for dashboards: viewers see the published version until the next Publish succeeds (#1455)
 - Added a link, people, schedule, refresh-on-open, chat and Data tab for each dashboard, instead of one per conversation (#1455)

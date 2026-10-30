@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
-import { embedRuntimeIdentity, embedUnavailableMessage, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
+import { runtimeIdentity, embedUnavailableMessage, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -93,6 +93,14 @@ async function exchange(body: Record<string, string>) {
     return payload;
 }
 
+// Revokes a session nobody will use (its sign-in was overtaken by a logout or
+// an unmount), so it does not stay valid server-side until it expires.
+function revoke(token: string | undefined) {
+    if (!token) return;
+    fetch(api('/session'), { method: 'DELETE', credentials: 'omit', headers: { Authorization: `Bearer ${token}` } })
+        .catch(() => { /* it expires server-side */ });
+}
+
 function schedule(next: () => void, delay: number) {
     if (renewTimer) clearTimeout(renewTimer);
     renewTimer = setTimeout(next, delay);
@@ -104,9 +112,10 @@ async function accept(session: any) {
         token: session.token,
         organizationId: session.organization_id,
         hostApplication: session.host_application,
+        userId: session.user?.id ?? null,
         viewer: session.viewer || null,
     };
-    const sameViewer = !!credential.value && embedRuntimeIdentity(credential.value, '') === embedRuntimeIdentity(next, '');
+    const sameViewer = !!credential.value && runtimeIdentity(credential.value, '') === runtimeIdentity(next, '');
     // A silent renewal over an artifact that could not be opened: the view
     // re-checks it (remount below); the host hears again only if that changes.
     const renewingUnavailable = sameViewer && status.value === 'unavailable';
@@ -116,7 +125,7 @@ async function accept(session: any) {
         status.value = 'signing_in';
         message.value = t('embed.gate.signingIn');
         await nextTick();
-        if (gen !== generation) return;
+        if (gen !== generation) { revoke(next.token); return; }
     }
     credential.value = next;
     status.value = 'ready';
@@ -186,7 +195,7 @@ function signIn(): Promise<void> {
             const value = await host.requestCredential(kind);
             if (gen !== generation) return;
             const session = await exchange({ [kind]: value });
-            if (gen !== generation) return;
+            if (gen !== generation) { revoke(session?.token); return; }  // signed out meanwhile
             await accept(session);
         } catch (e: any) {
             if (gen !== generation) return;
@@ -232,7 +241,7 @@ async function signInWithPopup() {
         try { popup.close(); } catch { /* already closed */ }
         try {
             const session = await exchange({ sso_code: String(data.code || ''), code_verifier: verifier });
-            if (gen !== generation) return;
+            if (gen !== generation) { revoke(session?.token); return; }  // signed out meanwhile
             await accept(session);
         } catch (e: any) {
             if (gen !== generation) return;
@@ -249,11 +258,7 @@ async function signOut() {
     const had = credential.value?.token;
     credential.value = null;
     fail('signed_out', t('embed.gate.signedOut'));
-    if (had) {
-        try {
-            await fetch(api('/session'), { method: 'DELETE', credentials: 'omit', headers: { Authorization: `Bearer ${had}` } });
-        } catch { /* the token is gone from memory and expires server-side */ }
-    }
+    revoke(had);
 }
 
 onMounted(async () => {

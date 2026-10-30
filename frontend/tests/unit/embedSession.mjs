@@ -1,3 +1,6 @@
+// Embedded-artifact session lifecycle (utils/embedSession.ts): expiry does not
+// depend on the browser's timezone, a failed renewal keeps a live session, and
+// a renewed token for the same person keeps the runtime connected.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
@@ -6,7 +9,7 @@ import { computed, ref } from 'vue'
 
 import * as embedSession from '../../utils/embedSession.ts'
 
-const { embedRuntimeIdentity, renewalDelayMs, renewalFailure, renewalRetry, sessionLifetimeMs } = embedSession
+const { runtimeIdentity, renewalDelayMs, renewalFailure, renewalRetry, sessionLifetimeMs } = embedSession
 
 // East of UTC, where a bare (offset-less) expiry read as local time lies in the past.
 process.env.TZ = 'Asia/Jerusalem'
@@ -67,17 +70,24 @@ console.log('PASS: a failed renewal keeps a live session unless the error is per
 const alice = { token: 'bow_embed_a1', organizationId: 'org', hostApplication: 'host_1', viewer: { id: 'u-alice' } }
 const renewed = { ...alice, token: 'bow_embed_a2' }
 const bob = { ...alice, token: 'bow_embed_b1', viewer: { id: 'u-bob' } }
-assert.equal(embedRuntimeIdentity(renewed, 'app-token'), embedRuntimeIdentity(alice, 'app-token'))
-assert.notEqual(embedRuntimeIdentity(bob, ''), embedRuntimeIdentity(alice, ''))
-assert.notEqual(embedRuntimeIdentity({ ...alice, hostApplication: 'host_2' }, ''), embedRuntimeIdentity(alice, ''))
-assert.notEqual(embedRuntimeIdentity(null, ''), embedRuntimeIdentity(alice, ''))
+assert.equal(runtimeIdentity(renewed, 'app-token'), runtimeIdentity(alice, 'app-token'))
+assert.notEqual(runtimeIdentity(bob, ''), runtimeIdentity(alice, ''))
+assert.notEqual(runtimeIdentity({ ...alice, hostApplication: 'host_2' }, ''), runtimeIdentity(alice, ''))
+assert.notEqual(runtimeIdentity(null, ''), runtimeIdentity(alice, ''))
+// The credential's userId names the person too (renewals keep it).
+const byId = { ...alice, viewer: null, userId: 'u-alice' }
+assert.equal(runtimeIdentity({ ...byId, token: 'bow_embed_a2' }, null), runtimeIdentity(byId, null))
+assert.notEqual(runtimeIdentity({ ...byId, userId: 'u-bob' }, null), runtimeIdentity(byId, null))
 // Not knowing who it is never shares: each token is someone new.
 const unknown = { ...alice, viewer: null }
-assert.notEqual(embedRuntimeIdentity({ ...unknown, token: 'bow_embed_x2' }, ''), embedRuntimeIdentity(unknown, ''))
-// The app session (no embed credential) keeps its token as the identity.
-assert.notEqual(embedRuntimeIdentity(null, 'Bearer one'), embedRuntimeIdentity(null, 'Bearer two'))
-assert.equal(embedRuntimeIdentity(null, 'Bearer one'), 'app:Bearer one')
-assert.equal(embedRuntimeIdentity(unknown, ''), 'embed-token:bow_embed_a1')
+assert.notEqual(runtimeIdentity({ ...unknown, token: 'bow_embed_x2' }, ''), runtimeIdentity(unknown, ''))
+assert.equal(runtimeIdentity(unknown, ''), 'embed-token:bow_embed_a1')
+// The app session (no embed credential) is keyed by being signed in at all:
+// its token renewals keep the ports; signing out changes it.
+assert.equal(runtimeIdentity(null, 'Bearer one'), runtimeIdentity(null, 'Bearer two'))
+assert.equal(runtimeIdentity(null, 'Bearer one'), 'app:signed-in')
+assert.notEqual(runtimeIdentity(null, 'Bearer one'), runtimeIdentity(null, ''))
+assert.notEqual(runtimeIdentity(null, 'Bearer one'), runtimeIdentity(null, null))
 console.log('PASS: a renewed token keeps the viewer; a different viewer is a different identity')
 
 // The composable's own watch: it disposes the ports when its source changes.
@@ -91,6 +101,7 @@ function mountRuntime(embed, appToken) {
     require: (id) => { assert.equal(id, '~/utils/embedSession'); return embedSession },
     useEmbedCredential: () => embed,
     useAuth: () => ({ token: appToken }),
+    computed,
     useApiAuthorization: () => computed(() => (embed.value ? `Bearer ${embed.value.token}` : (appToken.value || ''))),
     useErrorMessage: () => ({ getErrorMessage: () => '' }),
     onMounted: () => {},
@@ -117,7 +128,9 @@ function mountRuntime(embed, appToken) {
   assert.notEqual(key(), before, 'signing out disposes them')
   const app = key()
   appToken.value = 'Bearer app-2'
-  assert.notEqual(key(), app, 'the app session still disposes them on a new token')
+  assert.equal(key(), app, 'a renewed app session token keeps them')
+  appToken.value = ''
+  assert.notEqual(key(), app, 'signing out of the app disposes them')
 }
 {
   const embed = ref(unknown), appToken = ref('')

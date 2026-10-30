@@ -1276,6 +1276,9 @@ async def current_user(
         )
         if context:
             request.state.oauth_token_context = context
+            from app.core.request_origin import OAUTH_APP, set_origin
+
+            set_origin(OAUTH_APP, str(context.client.id))
             return context.user
         raise HTTPException(
             status_code=401,

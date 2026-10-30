@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Integer, Float, JSON, Boolean, ForeignKey, Text
 from sqlalchemy.orm import relationship
+from app.ee.encryption import EncryptedText
 from .base import BaseSchema
 
 
@@ -55,9 +56,12 @@ class AgentExecution(BaseSchema):
     # late-usage events) by app.services.diagnosis.rollup.refresh_rollup so the
     # diagnosis explorer filters and sorts on this table alone. Never written
     # on the hot path during a run.
-    prompt_text = Column(Text, nullable=True)          # first 2,000 chars of the user prompt
+    prompt_text = Column(EncryptedText, nullable=True) # first 2,000 chars of the user prompt
     error_text = Column(Text, nullable=True)           # error_json.message, first 2,000 chars
     platform = Column(String, nullable=True)           # web | slack | teams | email | mcp | api
+    # The outside application this run came through (app/core/request_origin.py).
+    origin_app_type = Column(String(16), nullable=True)
+    origin_app_id = Column(String(36), nullable=True)
     feedback_direction = Column(Integer, nullable=True)  # 1 | -1 | 0 (none)
     feedback_message = Column(Text, nullable=True)
     judge_response_score = Column(Integer, nullable=True)      # completions.response_score

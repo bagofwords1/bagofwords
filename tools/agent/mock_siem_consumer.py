@@ -15,6 +15,7 @@ HTTP (default port 8790):
     POST /entra/{tenant}/oauth2/v2.0/token                  Entra token endpoint  (client credentials)
     POST /sentinel/dataCollectionRules/{dcr}/streams/{s}    Logs Ingestion API    (Bearer from the token endpoint)
     PUT  /s3/{bucket}/{key}                                 S3 / GCS PutObject    (SigV4 header present, Content-MD5 checked)
+    POST /cloudwatch  (X-Amz-Target: Logs_20140328.*)      CloudWatch Logs       (SigV4 header present; stream must exist or be created)
     POST /sts                                               STS AssumeRole        (ExternalId checked)
     POST /https/{anything}                                  Generic HTTPS         (X-BOW-Signature HMAC checked)
 
@@ -99,6 +100,7 @@ class State:
         self.requests: dict[str, int] = {}
         self.tokens: set[str] = set()
         self.sts_keys: set[str] = set()
+        self.cw_streams: set[tuple] = set()
 
     def bump(self, table: dict, dest: str, n: int = 1):
         table[dest] = table.get(dest, 0) + n
@@ -264,6 +266,11 @@ class Handler(BaseHTTPRequestHandler):
             code = {400: "InvalidRequest", 401: "AccessDenied", 403: "AccessDenied", 404: "NoSuchBucket",
                     429: "SlowDown", 500: "InternalError", 503: "SlowDown"}.get(status, "InternalError")
             self._send(status, f"<Error><Code>{code}</Code><Message>injected</Message></Error>", "application/xml")
+        elif dest == "cloudwatch":
+            code = {400: "InvalidParameterException", 401: "UnrecognizedClientException", 403: "AccessDeniedException",
+                    404: "ResourceNotFoundException", 429: "ThrottlingException", 500: "InternalFailure",
+                    503: "ServiceUnavailableException"}.get(status, "InternalFailure")
+            self._send(status, {"__type": code, "message": "injected"}, "application/x-amz-json-1.1")
         elif dest == "splunk" and status in (401, 403):
             self._send(status, {"text": "Invalid token", "code": 4})
         elif dest == "splunk" and status == 503:
@@ -350,6 +357,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._sentinel(u)
         if p.rstrip("/") == "/sts":
             return self._sts()
+        if p.rstrip("/") == "/cloudwatch":
+            return self._cloudwatch()
         if p.startswith("/https/"):
             return self._https()
         self._send(404, {"error": "not found"})
@@ -486,6 +495,69 @@ class Handler(BaseHTTPRequestHandler):
         self.state.record(dest, envs, dict(self.headers))
         etag = '"' + hashlib.md5(body).hexdigest() + '"'
         self._send(200, b"", "application/xml", extra={"ETag": etag})
+
+    def _cloudwatch(self):
+        """CloudWatch Logs JSON-RPC: CreateLogGroup / CreateLogStream /
+        PutLogEvents. Streams must exist before a put (ResourceNotFound
+        otherwise), as on the real service."""
+        dest = "cloudwatch"
+        target = self.headers.get("X-Amz-Target", "")
+        op = target.split(".", 1)[-1]
+        body = self._body()
+        ct = "application/x-amz-json-1.1"
+        auth = self.headers.get("Authorization", "")
+        m = re.search(r"Credential=([^/]+)/", auth)
+        ak = m.group(1) if m else None
+        if not auth.startswith("AWS4-HMAC-SHA256") or (ak != self.state.config["s3_access_key"] and ak not in self.state.sts_keys):
+            with self.state.lock:
+                self.state.bump(self.state.auth_failures, dest)
+            return self._send(400, {"__type": "UnrecognizedClientException", "message": "The security token included in the request is invalid."}, ct)
+        try:
+            req = json.loads(body or b"{}")
+        except Exception as e:
+            return self._format_fail(dest, f"not JSON: {e}")
+        group = req.get("logGroupName")
+        if op == "CreateLogGroup":
+            with self.state.lock:
+                self.state.cw_streams.add((group, None))
+            return self._send(200, b"", ct)
+        if op == "CreateLogStream":
+            with self.state.lock:
+                if (group, None) not in self.state.cw_streams and not self.state.config.get("cw_group_preexists"):
+                    return self._send(400, {"__type": "ResourceNotFoundException", "message": "The specified log group does not exist."}, ct)
+                key = (group, req.get("logStreamName"))
+                if key in self.state.cw_streams:
+                    return self._send(400, {"__type": "ResourceAlreadyExistsException", "message": "exists"}, ct)
+                self.state.cw_streams.add(key)
+            return self._send(200, b"", ct)
+        if op != "PutLogEvents":
+            return self._send(400, {"__type": "InvalidAction", "message": op}, ct)
+        self._count(dest)
+        if self._fault(dest):
+            return
+        key = (group, req.get("logStreamName"))
+        with self.state.lock:
+            if key not in self.state.cw_streams:
+                return self._send(400, {"__type": "ResourceNotFoundException", "message": "The specified log stream does not exist."}, ct)
+        entries = req.get("logEvents") or []
+        if not entries or len(entries) > 10_000:
+            return self._format_fail(dest, f"logEvents count out of range: {len(entries)}")
+        if sum(len(x.get("message", "").encode()) + 26 for x in entries) > 1_048_576:
+            return self._format_fail(dest, "batch over 1,048,576 bytes")
+        tss = [x.get("timestamp") for x in entries]
+        if any(not isinstance(t, int) for t in tss) or tss != sorted(tss):
+            return self._format_fail(dest, "timestamps missing or not in chronological order")
+        now_ms = int(time.time() * 1000)
+        if any(t < now_ms - 14 * 86400_000 or t > now_ms + 7_200_000 for t in tss):
+            return self._format_fail(dest, "timestamp outside the 14d past / 2h future window (would be dropped)")
+        try:
+            envs = [json.loads(x["message"]) for x in entries]
+        except Exception as e:
+            return self._format_fail(dest, f"message is not JSON: {e}")
+        if not all(valid_envelope(e) for e in envs):
+            return self._format_fail(dest, "message missing envelope v1 fields")
+        self.state.record(dest, envs, dict(self.headers))
+        self._send(200, {"nextSequenceToken": secrets.token_hex(8)}, ct)
 
     def _https(self):
         dest = "https"

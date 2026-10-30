@@ -55,15 +55,17 @@ for await (const event of bow.ai.stream(operationName,
 // UNAVAILABLE, INTERRUPTED, ABORTED. Preserve input on conflict. Respect current
 // server permissions; no raw fetch, credentials, parent DOM or browser storage.
 CONVERSATIONS: chat-assistant apps talk to the organization's agents (the
-same agents, tools and data access as a BOW conversation, as the viewer), not
+same agents, tools and data access as a BOW chat, as the viewer), not
 to a bare model. Use bow.conversations for that; use bow.ai only for one-off
-text operations without data. Conversations use the agents this artifact was
-built with (the conversation's agents), as each viewer may use them; no
-setting needs switching on. Each viewer sees only their own conversations.
-Show policy().reason when available is false (auth_required, not_member).
+text operations without data. On Auto, conversations may use every agent the
+viewer can use (or those the owner limited the app to); the model is the
+owner's choice or the viewer's default. No setting needs switching on. Pass
+`agents` only when the user asks to narrow a conversation. Each viewer sees
+only their own conversations. When policy().available is false, show its reason
+(auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
-const chat = useConversation({conversationId, title, agents}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, at the top of the chat component
+const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, at the top of the chat component
 // {messages, conversations, conversationId, policy, loading, sending, error, send, stop, select, newConversation, reload}
 // messages: [{id,role:'user'|'assistant',text,status,created_at,tools:[...],results:[...],results_incomplete}], kept
 //   up to date while an answer streams (status 'in_progress'), then re-read from history. error: null or {code,message}.
@@ -83,17 +85,17 @@ function Chat(){const chat=useConversation();const [draft,setDraft]=useState('')
       <textarea dir="auto" value={draft} onChange={e=>setDraft(e.target.value)}/>
       {chat.sending?<button type="button" onClick={()=>chat.stop()}>Stop</button>:<button disabled={!draft.trim()}>Send</button>}
     </form></div>;}
-You design the layout, the composer, the empty state and the conversation list (chat.conversations).
-LOW LEVEL (only when the building blocks cannot do what is asked):
-const policy = await bow.conversations.policy(); // {available,reason?,scope,agents:[{id,name}]}
+You design the layout, composer, empty state and conversation list (chat.conversations).
+LOW LEVEL (only for what the building blocks cannot do):
+const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
-const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}
+const conv = await bow.conversations.create({title}); // {id,title,agents}; agents:[ids] only to narrow on request
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
 const history = await bow.conversations.messages(conv.id, {limit: 30});
-// {items:[{id,role:'user'|'assistant',text,status,created_at,tools?:[{name,title,status}],
-//   results?:[...],results_incomplete?:true}],next_before}
-// tools (assistant only) are objects, the same shape as tool events: render tool.title || tool.name, never the object.
-// results (assistant only, possibly empty) are the same objects as the result events: render them the same way after reload.
+// {items:[{id,role:'user'|'assistant',text,status,created_at,steps?:[string],tools?:[{name,title,status}],
+//   results?:[...],results_incomplete?:true}],next_before}; text is the reply, steps the narration before it.
+// tools (assistant only) are tool event objects: render tool.title || tool.name, never the object.
+// results (assistant only, possibly empty) are result event objects: render them the same way after reload.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
   // started {message_id}; tool {name,title,status}; text_delta {block,text}: append;
   // text {block,text}: replace that block's text;
@@ -109,7 +111,7 @@ await bow.conversations.stop(conv.id, messageId); // the started event's message
 // render it with {bow.markdown(text)} (safe React elements, no HTML), user
 // text as plain text. Show tools as progress. Re-read messages() after
 // completed for the stored answer. Errors as above.
-// Render a result with <ChatResult result={r}/>; never re-implement it or re-parse numbers from the answer text.
+// Render results with <ChatResult result={r}/>; never re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
 application says the user is looking at (e.g. {customerId}); advisory, may be null.
 It changes while the app is open: read useArtifactData().host_context during render, never once on mount.

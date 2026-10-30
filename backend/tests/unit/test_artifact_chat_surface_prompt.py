@@ -4,7 +4,7 @@ The dashboard's chat bubble shows only the agent's text, so its prompt stays
 TEXT-ONLY. An app's conversation (``bow.conversations``) shows each
 create_data result as a table (and a chart when it fits), so the agent is told
 what the viewer does and does not see. The two share threads, so the surface
-is per message: ``platform_context["surface"] == "conversation"``.
+is per message: ``platform_context["surface"] == "app"``.
 
 The bubble blocks below are a snapshot captured at b6363c4f1 and hand-reviewed
 against prompt_builder.py (``_format_artifact_chat_context``, the two viewer
@@ -12,10 +12,11 @@ lines, the title line, the data-only scope with a visualization, a withheld
 visualization, and the agents scope), line by line: they are the intended
 bubble text, not merely the current output.
 
-Conversation messages also carry a RESULTS SURFACE sentence forbidding claims
-about where or in what form results are displayed, and no conversation-only
-LANGUAGE rule (it made answers narrate their language choice; the global
-language rule applies instead). The bubble snapshot is unchanged since
+Conversation messages also carry the app identity (answer in the person's
+language, directly, without narrating), a RESULTS SURFACE sentence forbidding
+claims about where or in what form results are displayed, and no labelled
+LANGUAGE rule (it made answers narrate their language choice). Their title
+line says "App:" and their agents scope does not mention a dashboard. The bubble snapshot is unchanged since
 b6363c4f1, on V2 and on both V3 paths (transcript and legacy).
 """
 from __future__ import annotations
@@ -85,16 +86,32 @@ def test_the_bubble_prompt_is_unchanged(name):
 
 @pytest.mark.parametrize("name", sorted(CONTEXTS))
 def test_a_conversation_message_is_told_which_results_the_viewer_sees(name):
-    block = _block({**CONTEXTS[name], "surface": "conversation"})
+    block = _block({**CONTEXTS[name], "surface": "app"})
     assert "TEXT-ONLY SURFACE" not in block and "VIEWER of a shared dashboard" not in block
     assert "RESULTS SURFACE" in block
     assert "create_data result" in block
     for hidden in ("run_query", "read_query", "inspect_data"):
         assert hidden in block  # named as not shown
     assert "report" in block and "the chart" in block  # told never to point at either
-    # The rest of the block is the same as the bubble's.
-    rest = [x for x in BUBBLE[name].split("\n") if x not in (VIEWER, TEXT_ONLY)]
+    # The rest of the block is the bubble's, with the app's title and agents scope.
+    rest = [APP_LINES.get(x, x) for x in BUBBLE[name].split("\n") if x not in (VIEWER, TEXT_ONLY)]
     assert [x for x in block.split("\n") if x in rest] == rest
+
+
+APP_LINES = {
+    TITLE: '  App: "Sales overview"',
+    "  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.":
+        "  Scope: you may query the attached agents (read-only).",
+}
+
+
+@pytest.mark.parametrize("name", sorted(CONTEXTS))
+def test_a_conversation_message_answers_directly_in_the_persons_language(name):
+    block = _block({**CONTEXTS[name], "surface": "app"})
+    line = _line(block, "Reply in the language the person writes in.")
+    assert "do not narrate your plan" in line
+    # The app shows results: nothing may say only the reply is shown.
+    assert "shows only your final reply" not in block and "NOT visible" not in block
 
 
 def test_an_unknown_surface_is_the_bubble():
@@ -110,7 +127,7 @@ def _line(block: str, marker: str) -> str:
 @pytest.mark.parametrize("name", sorted(CONTEXTS))
 def test_a_conversation_message_has_no_language_line(name):
     # A conversation-only language rule made answers narrate their language choice ("I'll reply in English").
-    block = _block({**CONTEXTS[name], "surface": "conversation"})
+    block = _block({**CONTEXTS[name], "surface": "app"})
     # A *labelled* line, case-insensitive: the RESULTS SURFACE line legitimately says "in any language".
     assert not [x for x in block.split("\n") if re.match(r"^\s*language\s*:", x, re.I)]
     for part in ("language of the viewer's most recent message", "narration, tool titles"):
@@ -119,7 +136,7 @@ def test_a_conversation_message_has_no_language_line(name):
 
 @pytest.mark.parametrize("name", sorted(CONTEXTS))
 def test_a_conversation_message_is_told_not_to_say_where_or_how_results_are_displayed(name):
-    line = _line(_block({**CONTEXTS[name], "surface": "conversation"}), "RESULTS SURFACE")
+    line = _line(_block({**CONTEXTS[name], "surface": "app"}), "RESULTS SURFACE")
     for part in ("Never say where or in what form the results are displayed", '"shown above"', '"as a bar chart"',
                  "in any language", '"below average"'):
         assert part in line
@@ -130,5 +147,5 @@ def test_a_conversation_message_is_told_not_to_say_where_or_how_results_are_disp
 def test_the_default_planner_sends_the_same_blocks(name, transcript, monkeypatch):
     monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", transcript)
     assert _block(CONTEXTS[name], PromptBuilderV3) == BUBBLE[name]
-    conversation = {**CONTEXTS[name], "surface": "conversation"}
+    conversation = {**CONTEXTS[name], "surface": "app"}
     assert _block(conversation, PromptBuilderV3) == _block(conversation)

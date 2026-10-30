@@ -70,7 +70,7 @@ def _outline_patterns(mode: str) -> List[re.Pattern]:
         re.compile(r"^\s*const\s+\w+\s*=\s*(?:async\s+)?(?:function\b|\()"),
         re.compile(r"^\s*const\s+\{[^}]*\}\s*=\s*use\w+"),
         re.compile(r"^\s*//\s*.*[-=─═*]{3,}"),
-        re.compile(r"<(?:SectionCard|KPICard|EChart|FilterSelect|FilterSearch|FilterDateRange|BowFile)\b"),
+        re.compile(r"<(?:SectionCard|KPICard|EChart|FilterSelect|FilterSearch|FilterDateRange|BowFile|Modal|Drawer|Tabs)\b"),
         re.compile(r"^\s*ReactDOM\.createRoot"),
     ]
 

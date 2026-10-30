@@ -3,9 +3,10 @@
        assertion mode, or a key rotation) the private key is shown once. -->
   <div class="space-y-4" data-testid="host-app-form">
     <template v-if="revealedKey">
-      <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-        {{ $t('hostApps.keyOnce') }}
-      </div>
+      <p class="flex gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300">
+        <UIcon name="i-heroicons-key" class="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{{ $t('hostApps.keyOnce') }}</span>
+      </p>
       <div>
         <div class="mb-1 flex items-center justify-between">
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('hostApps.privateKey') }}</span>
@@ -13,11 +14,15 @@
             {{ $t('hostApps.copy') }}
           </UButton>
         </div>
-        <textarea readonly :value="revealedKey" rows="6" data-testid="host-app-private-key"
-                  class="w-full rounded-lg border border-gray-200 bg-gray-50 p-2 font-mono text-2xs dark:border-gray-800 dark:bg-gray-950" />
+        <textarea readonly :value="revealedKey" rows="5" data-testid="host-app-private-key" dir="ltr"
+                  class="w-full rounded-lg border border-gray-200 bg-gray-50/60 p-2 font-mono text-2xs text-gray-700 dark:border-gray-800 dark:bg-gray-900/60 dark:text-gray-300" />
+      </div>
+      <div v-if="saved?.identity_mode === 'assertion'">
+        <div class="mb-1 text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('hostApps.backendExample') }}</div>
+        <EmbedCode :code="backendExample(saved, lang)" :langs="EXAMPLE_LANGS" v-model="lang" testid="host-app-new-backend-example" />
       </div>
       <div class="flex justify-end">
-        <UButton size="sm" color="blue" data-testid="host-app-key-done" @click="finish">{{ $t('hostApps.keySaved') }}</UButton>
+        <UButton size="sm" color="gray" variant="solid" data-testid="host-app-key-done" @click="finish">{{ $t('hostApps.keySaved') }}</UButton>
       </div>
     </template>
 
@@ -79,6 +84,9 @@
 </template>
 
 <script setup lang="ts">
+import EmbedCode from '~/components/embed/EmbedCode.vue'
+import { EXAMPLE_LANGS, backendExample, type ExampleLang } from '~/utils/embedExamples'
+
 type Host = Record<string, any>
 const props = defineProps<{ host?: Host | null }>()
 const emit = defineEmits<{ (e: 'saved', host: Host): void; (e: 'cancel'): void }>()
@@ -102,7 +110,8 @@ const sources = ref<any[]>([])
 const saving = ref(false)
 const error = ref('')
 const revealedKey = ref('')
-let saved: Host | null = null
+const saved = ref<Host | null>(null)
+const lang = ref<ExampleLang>('python')
 
 const modes = computed(() => [
   { value: 'assertion', label: t('hostApps.modeAssertion'), help: t('hostApps.modeAssertionHelp') },
@@ -146,8 +155,8 @@ async function save() {
       ? await useMyFetch(`/api/host_applications/${props.host.id}`, { method: 'PATCH', body: { ...body(), revision: props.host.revision } })
       : await useMyFetch('/api/host_applications', { method: 'POST', body: body() })
     if (fetchError.value) { error.value = getErrorMessage(fetchError.value); return }
-    saved = data.value as Host
-    if (saved?.private_key) revealedKey.value = saved.private_key
+    saved.value = data.value as Host
+    if (saved.value?.private_key) revealedKey.value = saved.value.private_key
     else finish()
   } finally {
     saving.value = false
@@ -156,7 +165,7 @@ async function save() {
 
 function finish() {
   revealedKey.value = ''
-  if (saved) emit('saved', saved)
+  if (saved.value) emit('saved', saved.value)
 }
 
 async function copy(value: string) {

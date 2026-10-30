@@ -130,6 +130,7 @@ declared once as `FieldSpec`s. That list drives API validation and the UI form
 | `sentinel` | Logs Ingestion API `…/dataCollectionRules/{dcr}/streams/{stream}?api-version=2023-01-01` | Entra client credentials (`https://monitor.azure.com/.default`) | 500 |
 | `s3` | `PutObject` NDJSON (optional gzip) at `{prefix}/{YYYY-MM-DD}/{ts}_{first_id}.json`, with `Content-MD5` | access keys, or AssumeRole with a generated External ID | 1000 |
 | `gcs` | same writer through GCS's S3-compatible API | HMAC keys | 1000 |
+| `cloudwatch` | `PutLogEvents` to a log group/stream, one `{timestamp, message}` per envelope, sorted and split under the 1 MB / 10k-event call limit; `occurred_at` clamped into the 14d-past/2h-future window; log group and stream created on first use | access keys, or AssumeRole with a generated External ID | 1000 |
 | `https` | JSON array POST | optional auth header; `X-BOW-Signature: v1=hmac_sha256(secret, ts + "." + body)` with `X-BOW-Timestamp` | 500 |
 | `syslog` | RFC 5424 over TCP/TLS, octet-counted framing; JSON or CEF message | optional mTLS, custom CA | 500 |
 

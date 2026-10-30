@@ -238,6 +238,7 @@ ERROR HANDLING (robust; no blind retries)
   - **Success with no screenshot issues:** set `analysis_complete=true`, put a brief summary in `final_answer`, do not loop.
   - **Screenshot review:** inspect the working surface, hierarchy, spacing, density and legibility when an image is attached. If a material visual issue is visible, use one `edit_artifact` with `purpose="visual_refinement"` and focused ops. Static screenshots cannot certify control behavior.
   - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with ops that add the missing piece.
+  - **User says the app doesn't work, errors, or "does nothing"** (a button, a filter, saving, an answer): check `<app_activity>` and call `read_artifact_activity` (only_errors=true) BEFORE reading or editing code — it holds the failed request, its error code and the clicks before it, so don't ask the user to paste errors. After the fix, verify with the browser preview: its evidence lists every `bow.*` call (`sdk_calls`) and failed calls appear in `errors`.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), call the clarify tool (put questions in its `question` arg).
 - **Clarify discipline.** Clarify when the *user's intent* is ambiguous — not when you're unsure about implementation details you can resolve yourself.
   - **Clarify**: scalar-vs-dashboard ambiguity, "top X" without a specified metric, entity/time-window ambiguity, Step B consolidation judgment calls you can't resolve from context, undefined semantic metrics.
@@ -362,8 +363,8 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
     @staticmethod
     def _format_artifact_chat_context(ctx) -> str:
         """Context for shared-artifact viewer chat: the bubble (/r/{id}, /d/{ref}),
-        or an app's conversation when ``ctx["surface"] == "conversation"``
-        (which adds the results-display rules).
+        or an app's conversation when ``ctx["surface"] == "app"`` (its own
+        identity and the results-display rules; never the host context).
 
         In data-only scope the dashboard's visualization data is inlined here —
         it is the ONLY data surface the conversation has. In agents scope the
@@ -373,20 +374,25 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         if not ctx:
             return ''
         lines: List[str] = ['<artifact_chat_context>']
-        if ctx.get('surface') == 'conversation':
-            # An app's conversation (bow.conversations): the app shows each
-            # create_data result as a table, and a chart when it fits. The
-            # agent must not claim where or how results are displayed.
-            lines.append('  You are answering a VIEWER through an app built on this artifact, not its owner. Keep answers concise and grounded in the data.')
+        if ctx.get('surface') == 'app':
+            # bow.conversations: an app built on BOW holds this conversation
+            # (often inside another company system, in the person's own
+            # language). The app shows the text reply and each create_data
+            # result as a table, and a chart when it fits; the agent must not
+            # claim where or how results are displayed.
+            lines.append("  You are the assistant inside an app built on BOW, answering a person who uses that app. "
+                         "Answer their questions from the organization's data through the available agents.")
+            lines.append("  Reply in the language the person writes in. Give the answer directly: do not narrate your plan or "
+                         "reasoning, and do not mention the tools or queries you used.")
             lines.append('  RESULTS SURFACE: the viewer sees your text replies, and the app shows each successful create_data result to them as a table, with a chart when the chart type you chose fits the data. Nothing else is shown: the output of other tools (such as run_query, read_query or inspect_data) and any dashboard data in this context are not visible to the viewer, so state the numbers you use from them in your text, or use create_data when the viewer should see the rows. Never say that a chart, table, widget, dashboard or report was created, saved, added or is available anywhere: the viewer cannot open the report behind this conversation, and whether a chart is drawn depends on the data, so refer to "the results", not "the chart". Never say where or in what form the results are displayed — the app decides its own layout and may draw no chart at all — so do not write phrases such as "shown above", "below the chart", "as a bar chart", "in the chart" or "in the table", in any language. Comparing values is fine ("above $40", "below average"). Lead with the finding instead, for example "Two warehouses hold most of the stock." When the viewer asks for a chart, create the data with a fitting chart type. Do not restate a create_data result as a long markdown table: give the key findings with the few numbers that matter (a short table of at most ~10 rows is fine for a comparison).')
         else:
             lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
             lines.append('  TEXT-ONLY SURFACE: the viewer chats in a small text bubble and sees ONLY your text replies — tool outputs, tables, and widgets you produce are NOT visible to them. Every answer must be self-contained: present the relevant data inline as short markdown lists or tables. NEVER refer to a table or result as "above", "available", or "shown" — nothing but your text is shown. For large results, include the most relevant rows (up to ~20) inline and say how many rows the full result has.')
         title = ctx.get('artifact_title') or ctx.get('source_report_title')
         if title:
-            lines.append(f'  Dashboard: {json.dumps(title)}')
+            lines.append(f'  {"App" if ctx.get("surface") == "app" else "Dashboard"}: {json.dumps(title)}')
         host_context = ctx.get('host_context')
-        if host_context and ctx.get('surface') != 'conversation':
+        if host_context and ctx.get('surface') != 'app':
             # The bubble inside a host application (dashboard route,
             # sanitize_host_context): set by the host page, so advisory and
             # unverified. It resolves references; the agent still runs as the
@@ -428,6 +434,8 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     lines.append('    rows:')
                 lines.append(f'    {json.dumps(rows)}')
                 lines.append('  </visualization>')
+        elif ctx.get('surface') == 'app':
+            lines.append('  Scope: you may query the attached agents (read-only).')
         else:
             lines.append('  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.')
         lines.append('</artifact_chat_context>')

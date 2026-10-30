@@ -32,7 +32,11 @@ class Connection(BaseSchema):
     # Connection test cache - stores last test result to avoid repeated slow tests
     last_connection_status = Column(String, nullable=True)  # "success", "not_connected", "offline"
     last_connection_checked_at = Column(DateTime, nullable=True)
-    
+    # Health-probe failures in a row. A shared connection is deactivated only
+    # when this reaches the threshold (see ConnectionService.test_connection),
+    # so one slow probe does not hide its tables from every agent.
+    consecutive_test_failures = Column(Integer, nullable=False, default=0, server_default="0")
+
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)

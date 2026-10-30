@@ -370,7 +370,13 @@ class DataEncryptionConfig(BaseModel):
 
     Covers query results and the bounded context summaries derived from them:
     ``Step.data``, ``StepUserResult.data``, ``Entity.data``,
-    ``EntityUserResult.data`` and ``ToolExecution.result_json``. Credentials
+    ``EntityUserResult.data`` and ``ToolExecution.result_json`` — plus
+    everything that restates those rows: conversation text
+    (``Completion.prompt``/``completion``, the ``prompt_text`` columns),
+    agent context (``ContextSnapshot.context_view_json``,
+    ``ReportContextState.summary_json``), generated artifact content
+    (``ArtifactVersion``/``ArtifactRelease.content``), the parameter values a
+    snapshot was run with (``applied_params``) and ``Entity.code``. Credentials
     have always been encrypted separately; this extends the same protection to
     the data those credentials fetched, reusing the same ``encryption_key``.
 

@@ -164,8 +164,8 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('echarts-5.min.js'),
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
-    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-1`),
-    libUrl('artifact-sdk.js', 'v=4'),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-motion-1`),
+    libUrl('artifact-sdk.js', 'v=5'),
   ];
 }
 

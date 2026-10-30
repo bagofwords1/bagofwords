@@ -675,19 +675,46 @@ class TestDataConnections:
         assert {c["name"] for c in conns} == {"monitor_apps_REST_operations_monitor", "Sales QVDs"}
 
 
+# /qrs/app (condensed): id, name, published and the stream — nothing else.
+APPS_CONDENSED = [
+    {k: a[k] for k in ("id", "name", "published", "stream", "publishTime")}
+    for a in APPS
+]
+
+PROBE_ROUTES = {"about": ABOUT, "stream/count": {"value": len(STREAMS)}, "app": APPS_CONDENSED}
+
+
 class TestTestConnection:
     def test_reports_version_and_counts(self):
         client = make_client()
-        install_qrs(client, {"about": ABOUT, "stream/full": STREAMS, "app/full": APPS})
+        install_qrs(client, PROBE_ROUTES)
         result = client.test_connection()
         assert result["success"] is True
         assert result["version"] == "31.62.0.0"
-        assert result["stream_count"] == 4
-        assert result["app_count"] == 3
+        assert result["stream_count"] == len(STREAMS)
+        assert result["app_count"] == sum(1 for a in APPS if a["published"])
+
+    def test_probe_never_fetches_full_objects(self):
+        """The status sweep runs the probe every few minutes; the full app and
+        stream objects of the whole site are indexing-only reads."""
+        client = make_client()
+        calls = install_qrs(client, PROBE_ROUTES)
+        client.test_connection()
+        assert not [c for c in calls if c["path"].endswith("/full")]
+
+    @pytest.mark.parametrize("kwargs,expected", [
+        ({"stream_filter": "Finance"}, 1),
+        ({"published_only": False}, len(APPS)),
+        ({"max_apps": 2}, 2),
+    ])
+    def test_probe_counts_apps_with_the_indexing_filters(self, kwargs, expected):
+        client = make_client(**kwargs)
+        install_qrs(client, PROBE_ROUTES)
+        assert client.test_connection()["app_count"] == expected
 
     def test_reachable_but_empty_says_so_without_failing(self):
         client = make_client(stream_filter="Nonexistent")
-        install_qrs(client, {"about": ABOUT, "stream/full": STREAMS, "app/full": APPS})
+        install_qrs(client, PROBE_ROUTES)
         result = client.test_connection()
         assert result["success"] is True
         assert "no apps are visible" in result["message"]
@@ -1080,6 +1107,38 @@ class TestCrawl:
         assert errored[0].is_active is False
         assert "App access denied" in errored[0].description
         assert any(t.name == "Sales/Consumer Sales/Sales" for t in tables)
+
+    def test_unreadable_and_empty_apps_are_reported_as_unindexed(self, monkeypatch):
+        """An app the Engine could not open (or that came back empty, as an
+        app caught mid-reload does) is reported, so the reindex keeps its
+        earlier tables instead of pruning them."""
+        client = make_client()
+        install_qrs(client, {"app/full": APPS[:3], "stream/full": STREAMS})
+        install_engine(monkeypatch, client, {
+            "app-consumer-sales": CONSUMER_SALES_PAYLOAD,
+            "app-content-monitor": EMPTY_PAYLOAD,
+            "app-financial-analysis": {**EMPTY_PAYLOAD, "raise_on": "OpenDoc",
+                                       "raise_msg": "Engine busy"},
+        })
+
+        client.get_schemas()
+
+        assert sorted(client.unindexed_table_prefixes()) == [
+            "Finance/Financial Analysis", "Monitoring apps/Content Monitor",
+        ]
+
+    def test_unindexed_apps_describe_only_the_latest_crawl(self, monkeypatch):
+        client = make_client()
+        install_qrs(client, {"app/full": [APPS[2]], "stream/full": STREAMS})
+        install_engine(monkeypatch, client, {
+            "app-financial-analysis": {**EMPTY_PAYLOAD, "raise_on": "OpenDoc", "raise_msg": "x"},
+        })
+        client.get_schemas()
+        assert client.unindexed_table_prefixes() == ["Finance/Financial Analysis"]
+
+        install_engine(monkeypatch, client, {"app-financial-analysis": CONSUMER_SALES_PAYLOAD})
+        client.get_schemas()
+        assert client.unindexed_table_prefixes() == []
 
     def test_each_app_is_opened_as_its_owner(self, monkeypatch):
         client = make_client()

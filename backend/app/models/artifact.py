@@ -1,5 +1,6 @@
 from sqlalchemy import Boolean, Column, DateTime, String, ForeignKey, Index, Integer, JSON, Text, UniqueConstraint, select
 from sqlalchemy.orm import column_property, relationship
+from app.ee.encryption import EncryptedJSON
 from app.models.base import BaseSchema
 
 
@@ -67,6 +68,9 @@ class Artifact(BaseSchema):
     slug = Column(String(255), nullable=True)
     shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    # "Made with BOW" on this dashboard's pages; the organization's setting
+    # (general.bow_credit) still turns it off everywhere.
+    bow_credit = Column(Boolean, nullable=False, default=True, server_default='1')
     chat_enabled = Column(Boolean, nullable=False, default=False, server_default='0')
     chat_data_source_ids = Column(JSON, nullable=True)
     chat_model_id = Column(String(36), nullable=True)  # llm_models id or 'org_default'; no FK
@@ -150,8 +154,10 @@ class ArtifactVersion(BaseSchema):
     # Version number within the parent artifact (unique per artifact_id)
     version = Column(Integer, nullable=False, default=1)
 
-    # Flexible content storage - structure depends on the parent's mode
-    content = Column(JSON, nullable=False, default=dict)
+    # Flexible content storage - structure depends on the parent's mode.
+    # Encrypted at rest (enterprise data_encryption); file_access_service's
+    # SQL prefilter over this column is envelope-aware.
+    content = Column(EncryptedJSON, nullable=False, default=dict)
 
     # Optional: Store the prompt that generated this version
     generation_prompt = Column(Text, nullable=True)

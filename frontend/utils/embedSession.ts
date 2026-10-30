@@ -39,13 +39,15 @@ export function renewalRetry(failures: number, remainingMs: number): { expire: b
   return { expire: false, delay: Math.min(backoff, latest) }
 }
 
-/** Who the artifact runtime acts for. A renewed embed token is the same
- * viewer (same host application, organization and user); anything else, and
- * a credential that does not name its user, is someone new. The app session
- * keeps its token as the identity. */
-export function embedRuntimeIdentity(embed: { token: string, organizationId: string, hostApplication: string, viewer: Record<string, any> | null } | null, appToken: string): string {
-  if (!embed) return `app:${appToken}`
-  const user = embed.viewer?.id
+/** Who the artifact runtime acts for; its ports are reset when this changes.
+ * A renewed embed token is the same viewer (same host application,
+ * organization and user, from the credential's userId or its viewer); anything
+ * else, and a credential that names no user, is someone new. The app session
+ * is keyed by being signed in at all: its token renewals must not reset the
+ * ports (switching people goes through signing out). */
+export function runtimeIdentity(embed: { token: string, organizationId: string, hostApplication: string, userId?: string | null, viewer: Record<string, any> | null } | null, appToken: string | null | undefined): string {
+  if (!embed) return appToken ? 'app:signed-in' : 'anonymous'
+  const user = embed.userId || embed.viewer?.id
   return user ? `embed:${embed.hostApplication}:${embed.organizationId}:${user}` : `embed-token:${embed.token}`
 }
 

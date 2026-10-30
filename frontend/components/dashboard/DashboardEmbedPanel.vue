@@ -5,10 +5,11 @@
     <div class="space-y-6" data-testid="settings-embed">
         <div v-if="loading" class="flex justify-center py-12"><Spinner class="w-5 h-5 text-gray-400" /></div>
         <template v-else-if="state">
-            <p class="text-sm leading-6 text-gray-500 dark:text-gray-400">{{ tm('embed.tab.intro', mode) }}</p>
-            <div v-if="state.visibility === 'none'" class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+            <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ tm('embed.tab.intro', mode) }}</p>
+            <div v-if="state.visibility === 'none'" class="flex gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300"
                  data-testid="embed-private-warning">
-                {{ tm('embed.tab.privateWarning', mode) }}
+                <UIcon name="i-heroicons-exclamation-circle" class="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{{ tm('embed.tab.privateWarning', mode) }}</span>
             </div>
 
             <section>
@@ -16,8 +17,10 @@
                 <div v-if="state.hosts.length === 0" class="mt-2 rounded-lg border border-dashed border-gray-300 px-4 py-6 text-center text-xs leading-5 text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     {{ state.can_manage_hosts ? $t('embed.tab.noHostsAdmin') : $t('embed.tab.noHosts') }}
                 </div>
-                <ul v-else class="mt-2 divide-y divide-gray-100 rounded-lg border border-gray-200 dark:divide-gray-800 dark:border-gray-800">
-                    <li v-for="host in state.hosts" :key="host.id" class="flex items-center gap-3 px-3 py-2.5">
+                <ul v-else class="mt-2 space-y-1">
+                    <li v-for="host in state.hosts" :key="host.id"
+                        class="flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors"
+                        :class="host.allowed && host.id === selected ? 'bg-gray-50 dark:bg-gray-800/60' : 'hover:bg-gray-50 dark:hover:bg-gray-800/40'">
                         <UCheckbox :model-value="host.allowed" :disabled="saving" :data-testid="`embed-host-${host.public_id}`"
                                    @update:model-value="toggle(host, $event)" />
                         <div class="min-w-0 flex-1">
@@ -27,9 +30,8 @@
                             </div>
                             <p class="truncate text-xs text-gray-500 dark:text-gray-400" dir="ltr">{{ host.allowed_origins.join(', ') }}</p>
                         </div>
-                        <UButton v-if="host.allowed" size="2xs" color="gray" variant="ghost" @click="selected = host.id">
-                            {{ $t('embed.tab.snippet') }}
-                        </UButton>
+                        <button v-if="host.allowed" type="button" class="text-2xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
+                                @click="selected = host.id">{{ $t('embed.tab.snippet') }}</button>
                     </li>
                 </ul>
                 <div v-if="state.can_manage_hosts" class="mt-2">
@@ -41,21 +43,19 @@
                 </div>
             </section>
 
-            <section v-if="selectedHost" data-testid="embed-snippets">
-                <div class="flex items-center justify-between">
+            <section v-if="selectedHost" data-testid="embed-snippets" class="space-y-2">
+                <div class="flex items-center justify-between gap-3">
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('embed.tab.snippetFor', { name: selectedHost.name }) }}</h3>
-                    <div class="flex gap-1">
-                        <UButton v-for="v in variants" :key="v.key" size="2xs" :color="variant === v.key ? 'blue' : 'gray'"
-                                 :variant="variant === v.key ? 'soft' : 'ghost'" @click="variant = v.key">{{ v.label }}</UButton>
+                    <div class="flex rounded-md bg-gray-100 p-0.5 dark:bg-gray-800">
+                        <button v-for="v in variants" :key="v.key" type="button" :data-testid="`embed-variant-${v.key}`"
+                                class="rounded px-2.5 py-0.5 text-2xs transition-colors"
+                                :class="variant === v.key ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-900 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:text-gray-400'"
+                                @click="variant = v.key">{{ v.label }}</button>
                     </div>
                 </div>
-                <div class="relative mt-2" dir="ltr">
-                    <pre class="overflow-x-auto rounded-lg bg-gray-950 p-3 text-2xs leading-5 text-gray-100" dir="ltr" data-testid="embed-snippet">{{ snippet }}</pre>
-                    <UButton class="absolute right-2 top-2" size="2xs" color="white" icon="i-heroicons-clipboard-document" @click="copy(snippet)">
-                        {{ $t('hostApps.copy') }}
-                    </UButton>
-                </div>
-                <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ modeNote }}</p>
+                <EmbedCode :code="snippet" testid="embed-snippet"
+                           :langs="variant === 'backend' ? EXAMPLE_LANGS : undefined" v-model="lang" />
+                <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ modeNote }}</p>
             </section>
         </template>
     </div>
@@ -64,6 +64,8 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import HostApplicationForm from '~/components/embed/HostApplicationForm.vue'
+import EmbedCode from '~/components/embed/EmbedCode.vue'
+import { EXAMPLE_LANGS, backendExample, type ExampleLang } from '~/utils/embedExamples'
 
 const props = defineProps<{ dashboardId: string; slug?: string | null; mode?: string | null; active: boolean }>()
 const { t } = useI18n()
@@ -77,6 +79,7 @@ const saving = ref(false)
 const creating = ref(false)
 const selected = ref<string | null>(null)
 const variant = ref<'inline' | 'floating' | 'backend'>('inline')
+const lang = ref<ExampleLang>('python')
 const variants = computed(() => [
     { key: 'inline' as const, label: t('embed.tab.inline') },
     { key: 'floating' as const, label: t('embed.tab.floating') },
@@ -160,26 +163,7 @@ ${identityLine.value}
 })
 
 function backendSnippet(host: any) {
-    if (host.identity_mode === 'idp_token') {
-        return `// No backend step: BOW verifies the ID token with your identity provider's
-// published keys. Request it for the audience configured on "${host.name}".`
-    }
-    if (host.identity_mode === 'sso') {
-        return `// No backend step: the user signs in to BOW once in a popup.`
-    }
-    return `// POST /bow/assertion — your backend, after checking its own session
-import jwt from 'jsonwebtoken'
-import crypto from 'node:crypto'
-
-app.post('/bow/assertion', requireLogin, (req, res) => {
-  const assertion = jwt.sign(
-    { sub: req.user.employeeId },             // what "${host.name}" maps to a BOW member
-    process.env.BOW_HOST_PRIVATE_KEY,         // from Settings → Integrations, shown once
-    { algorithm: 'RS256', audience: '${host.public_id}', issuer: '<issuer>',
-      expiresIn: 60, jwtid: crypto.randomUUID() },
-  )
-  res.json({ assertion })
-})`
+    return backendExample(host, lang.value)
 }
 
 const modeNote = computed(() => ({
@@ -188,7 +172,4 @@ const modeNote = computed(() => ({
     sso: t('embed.tab.noteSso'),
 } as Record<string, string>)[selectedHost.value?.identity_mode] || '')
 
-async function copy(value: string) {
-    try { await navigator.clipboard.writeText(value); toast.add({ title: t('hostApps.copied') }) } catch { /* no clipboard */ }
-}
 </script>

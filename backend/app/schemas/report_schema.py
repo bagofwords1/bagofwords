@@ -108,6 +108,8 @@ class ReportSchema(ReportBase):
     dashboard_layout_versions: List[DashboardLayoutVersionSchema] = []
     data_sources: List[DataSourceReportSchema] = []
     external_platform: Optional[ExternalPlatformSchema] = None
+    # The outside app it was started through: {type: host_app|oauth_app, id, name}.
+    origin_app: Optional[dict] = None
     user: UserSchema
     created_at: datetime
     updated_at: datetime

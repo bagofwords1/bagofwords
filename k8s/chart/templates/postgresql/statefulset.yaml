@@ -1,0 +1,241 @@
+{{- if include "bowapp.postgresql.enabled" . }}
+{{- $pg := .Values.postgresql }}
+{{- $fullname := include "bowapp.postgresql.fullname" . }}
+{{- $secretName := include "bowapp.postgresql.secretName" . }}
+{{- /* The superuser is always `postgres`; a separate app role exists unless auth.username is `postgres` too. */}}
+{{- $appIsSuperuser := eq $pg.auth.username "postgres" }}
+{{- $hasAppUser := and (not (empty $pg.auth.username)) (not $appIsSuperuser) }}
+{{- /*
+  Checked here, not only in secret.yaml, because that check is skipped with
+  `existingSecret`: an app user with no database would otherwise be handed
+  ownership of the `postgres` maintenance database instead of its own.
+*/}}
+{{- if and $hasAppUser (empty $pg.auth.database) }}
+{{- fail "postgresql.auth.database is required when postgresql.auth.username is set" }}
+{{- end }}
+{{- /*
+  Upgrading a chart 2.x release swaps the image under a live database, so it
+  must be a deliberate step, not something an unpinned `helm upgrade` in a
+  pipeline does on its next run. The 2.x StatefulSet carries the Bitnami
+  subchart's `helm.sh/chart: postgresql-<version>` label; once an upgrade has
+  run with the flag, it carries ours and this never fires again. `lookup` is
+  empty without cluster access (`helm template`, Argo CD), so there it cannot
+  help — those users must pin the chart's major version.
+*/}}
+{{- $live := lookup "apps/v1" "StatefulSet" .Release.Namespace $fullname }}
+{{- $liveChart := dig "metadata" "labels" "helm.sh/chart" "" $live }}
+{{- if and (hasPrefix "postgresql-" $liveChart) (not $pg.migrateFromBitnami) }}
+{{- fail (printf `
+
+This release still runs the Bitnami PostgreSQL subchart (%s) from chart 2.x.
+Upgrading to chart 3.x restarts the database on the official postgres image,
+reusing the existing volume in place. There is no rollback to 2.x afterwards.
+  1. Read the 3.0.0 section of the chart CHANGELOG.
+  2. Recommended: snapshot the volume or pg_dump the database first.
+  3. Re-run the upgrade with --set postgresql.migrateFromBitnami=true
+To stay on 2.x instead, pin the chart: --version "^2.0.0"` $liveChart) }}
+{{- end }}
+{{- /*
+  Pointing the image back at Bitnami (the usual stopgap once docker.io/bitnami
+  disappeared) would run a Bitnami image with this chart's env, args and data
+  path — the upgrade would succeed and the database would not start.
+*/}}
+{{- if regexMatch "(^|/)bitnami[a-z]*/postgresql$" $pg.image.repository }}
+{{- fail (printf "postgresql.image is %s/%s, but chart 3.x runs the official postgres image (docker.io/library/postgres) and cannot run a Bitnami one. Remove the postgresql.image override." $pg.image.registry $pg.image.repository) }}
+{{- end }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "bowapp.postgresql.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $fullname }}-hl
+  selector:
+    matchLabels:
+      {{- include "bowapp.postgresql.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "bowapp.postgresql.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/postgresql/configmap.yaml") . | sha256sum }}
+        {{- with $pg.primary.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      {{- with $pg.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $pg.primary.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- /*
+        uid/gid 1001 is what the Bitnami image ran as, so a data directory
+        adopted from it is already owned correctly; the official image supports
+        an arbitrary uid on a fresh volume too.
+      */}}
+      securityContext:
+        {{- toYaml $pg.primary.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ $pg.primary.terminationGracePeriodSeconds }}
+      containers:
+        - name: postgresql
+          image: "{{ $pg.image.registry }}/{{ $pg.image.repository }}:{{ $pg.image.tag }}"
+          imagePullPolicy: {{ $pg.image.pullPolicy }}
+          args:
+            - -c
+            - config_file=/etc/postgresql/postgresql.conf
+            - -c
+            - hba_file=/etc/postgresql/pg_hba.conf
+          env:
+            {{- /*
+              The volume is mounted at the image's own data path (mounting a
+              parent of it would leave the image's declared VOLUME shadowing the
+              PVC on some runtimes) and the cluster lives in its `data/`
+              subdirectory — the layout the Bitnami chart used.
+            */}}
+            - name: PGDATA
+              value: /var/lib/postgresql/data/data
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ ternary $pg.auth.secretKeys.userPasswordKey $pg.auth.secretKeys.adminPasswordKey $appIsSuperuser }}
+            - name: POSTGRES_DB
+              value: {{ default "postgres" $pg.auth.database | quote }}
+            {{- if $hasAppUser }}
+            - name: BOW_APP_USER
+              value: {{ $pg.auth.username | quote }}
+            - name: BOW_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ $pg.auth.secretKeys.userPasswordKey }}
+            {{- end }}
+          ports:
+            - name: tcp-postgresql
+              containerPort: 5432
+          {{- /*
+            Kubernetes stops containers with SIGTERM, which PostgreSQL treats as
+            a "smart" shutdown: it waits for every client to disconnect. The
+            app's pool never does, so without this each stop runs out the grace
+            period, ends in SIGKILL, and the next start replays WAL. SIGINT is
+            the "fast" shutdown (roll back open transactions, checkpoint, exit)
+            the image itself asks for via STOPSIGNAL, which Kubernetes ignores.
+            The postmaster's PID is read from postmaster.pid rather than assumed
+            to be 1, and a later SIGTERM cannot downgrade a fast shutdown.
+          */}}
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sh", "-c", 'pid=$(head -n1 "$PGDATA/postmaster.pid" 2>/dev/null) && kill -INT "$pid"; exit 0']
+          {{- /*
+            Startup and liveness only ask "is the postmaster answering?":
+            pg_isready exits 1 ("rejecting connections") while the server runs
+            crash recovery, which can take minutes on a large WAL. Treating that
+            as dead would restart the container and start recovery over, in a
+            loop. Readiness alone gates traffic on exit 0 (accepting). `-U` is
+            required: uid 1001 has no passwd entry, so libpq cannot default the
+            user name and would make pg_isready exit 3 on a healthy server.
+          */}}
+          startupProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'exec pg_isready -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -q -h 127.0.0.1 -p 5432 -U "$POSTGRES_USER"; [ $? -le 1 ]']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- with $pg.primary.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml $pg.primary.containerSecurityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: config
+              mountPath: /etc/postgresql/postgresql.conf
+              subPath: postgresql.conf
+            - name: config
+              mountPath: /etc/postgresql/pg_hba.conf
+              subPath: pg_hba.conf
+            - name: config
+              mountPath: /docker-entrypoint-initdb.d/10-create-app-user.sh
+              subPath: 10-create-app-user.sh
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}
+            defaultMode: 0555
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        {{- if not $pg.primary.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- else if $pg.primary.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $pg.primary.persistence.existingClaim }}
+        {{- end }}
+  {{- if and $pg.primary.persistence.enabled (not $pg.primary.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    {{- /*
+      volumeClaimTemplates is immutable: keep this byte-for-byte what the
+      Bitnami chart rendered (no labels, quoted size) so an upgrade from it
+      patches nothing here.
+    */}}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data
+      spec:
+        accessModes:
+        {{- range $pg.primary.persistence.accessModes }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- with $pg.primary.persistence.storageClass }}
+        storageClassName: {{ ternary "" . (eq . "-") | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $pg.primary.persistence.size | quote }}
+  {{- end }}
+{{- end }}

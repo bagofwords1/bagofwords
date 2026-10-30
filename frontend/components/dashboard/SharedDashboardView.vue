@@ -1379,8 +1379,11 @@ async function pollPending() {
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
 // The draft page counts no view (collab01): editors at work are not readers.
+// The draft page is an editor at work: what happens in the app is logged for
+// their agent (never on published pages or inside host applications).
 useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id,
-    recordViews: props.source !== 'draft'}));
+    recordViews: props.source !== 'draft',
+    activity: props.source === 'draft' && !props.hostContext ? { version: artifact.value?.version ?? null } : null}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.

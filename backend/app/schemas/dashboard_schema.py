@@ -122,6 +122,7 @@ class DashboardSharingUpdate(BaseModel):
 class DashboardSettingsSchema(BaseModel):
     shared_run_identity: Literal["viewer", "creator"]
     include_data_tab: bool
+    bow_credit: bool = True  # "Made with BOW" on this dashboard (the organization's setting still wins)
     chat_enabled: bool
     chat_data_source_ids: list[str] | None = None
     chat_model_id: str | None = None
@@ -137,6 +138,7 @@ class DashboardSettingsUpdate(BaseModel):
     chat_model_id "" go back to inheriting from the conversation."""
     shared_run_identity: Literal["viewer", "creator"] | None = None
     include_data_tab: bool | None = None
+    bow_credit: bool | None = None
     chat_enabled: bool | None = None
     chat_data_source_ids: list[str] | None = None
     chat_model_id: str | None = None

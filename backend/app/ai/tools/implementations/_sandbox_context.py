@@ -106,6 +106,13 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
   <Eyebrow>Section label</Eyebrow>   <Divider>optional label</Divider>   <EmptyState icon="inbox">No rows match</EmptyState>   <LoadingSpinner size={24} />
+  OVERLAYS & TABS — prefer these to hand-rolled `{open && <div className="fixed inset-0 …">}` / `{tab === 'x' && …}`: they animate in AND out,
+  trap focus, close on Escape and backdrop click, lock page scroll, follow RTL, and keep a visited tab panel mounted so its charts are not rebuilt on every switch.
+  <Modal open={open} onClose={() => setOpen(false)} title="" subtitle="" size="sm|md|lg|xl|full" footer={<>…buttons</>} padding="none|sm|md|lg">…</Modal>
+  <Drawer open={open} onClose={…} side="end|start|bottom" width={420} title="" subtitle="" footer={…}>…</Drawer>  — record details, filter sheets; `end` = right in LTR, left in RTL.
+  <Tabs items={[{ value: 'overview', label: 'Overview', icon: 'layout-grid', badge: 12, content: <…/> }, …]} value={tab} onChange={setTab} variant="underline|pills" />
+    Uncontrolled: omit value/onChange (optional defaultValue). Without any `content` it renders only the tab bar.
+  usePresence(open, exitMs = 160) → { mounted, closing } — for a custom popover/toast/panel that must animate out: render while `mounted`, apply exit styles while `closing`.
   fmt(n, { currency: true | 'EUR', pct: true, ratio: true, decimals, compact: false, sign: true })  ·  exportCSV(rows, { columns, filename })
     pct accepts either form — a magnitude ≤ 1 is read as a share (0.358 → "35.8%"), larger values as an already-computed percentage (35.8 → "35.8%");
     pass `exact: true` for a genuine sub-1% percentage (0.4 → "0.4%"). `ratio: true` states the share reading explicitly.
@@ -119,7 +126,8 @@ PROVENANCE (required — the ⓘ popover lets readers inspect the data behind ev
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.
 
 CHARTS: <EChart option={{ xAxis:{type:'category',data:[…]}, yAxis:{type:'value'}, series:[{type:'bar',data:[…]}] }} /> — the 'bow' theme sets palette, fonts, axes,
-  grid and tooltip; write only the data mapping unless the design needs more. All ECharts types work (line, bar, pie, scatter, heatmap, treemap, sankey, radar, gauge, calendar…).
+  grid and tooltip; write only the data mapping unless the design needs more. Building `option` inline is fine: the chart redraws only when its content
+  changes, and a data-only change animates the marks to their new values. All ECharts types work (line, bar, pie, scatter, heatmap, treemap, sankey, radar, gauge, calendar…).
   Color one series by role with useTheme().colors (e.g. itemStyle:{color: t.colors.accent}); or use a deliberate custom palette with consistent entity colors.
 """.strip()
 
@@ -154,6 +162,8 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (optional table renderer: sort, "
     "paginate, RTL, CSV, print-safe), FilterBar, FilterSelect (single/multi, searchable), FilterSearch, FilterDateRange, "
     "Segmented, Badge, Delta, Sparkline, ProgressBar, Icon, Eyebrow, Divider, EmptyState, LoadingSpinner, BowFile, "
+    "Modal and Drawer (animated overlays: open, onClose, title, footer; focus trap, Escape), Tabs (items with content; "
+    "visited panels stay mounted), usePresence(open) (keep an element mounted while it animates out), "
     "fmt(), exportCSV(). className MERGES with component defaults (layout classes add; a bg-/text-color/border-color/"
     "rounded-/shadow-/padding class replaces the default of that kind). "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "

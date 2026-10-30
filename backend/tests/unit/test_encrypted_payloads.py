@@ -16,10 +16,11 @@ import zlib
 import pytest
 from sqlalchemy import JSON, select
 
-from app.ee.encryption import types as enc
 from app.ee.encryption import EncryptedJSON, is_encrypted_envelope
+from app.ee.encryption import types as enc
 from app.models.step import Step
 from app.models.tool_execution import ToolExecution
+from tests.fixtures.encryption import seed_encryption_graph
 
 pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.py
 
@@ -205,10 +206,11 @@ async def test_step_data_round_trips_through_the_database(encrypting):
 
     step_id = str(uuid.uuid4())
     async with async_session_maker() as db:
+        g = await seed_encryption_graph(db)
         await db.execute(Step.__table__.insert().values(
             id=step_id, title="enc", slug=step_id, status="success", prompt="",
             code="", data=SAMPLE, description="", type="table", data_model={},
-            view={}, widget_id="w-" + step_id, context_summary_json=None,
+            view={}, widget_id=g["widget"], context_summary_json=None,
         ))
         await db.commit()
 
@@ -237,20 +239,21 @@ async def test_mixed_plaintext_and_encrypted_rows_both_read(encrypting, monkeypa
 
     plain_id, enc_id = str(uuid.uuid4()), str(uuid.uuid4())
 
-    def _insert(step_id):
+    def _insert(step_id, g):
         return ToolExecution.__table__.insert().values(
-            id=step_id, agent_execution_id="ae-" + step_id, tool_name="create_data",
+            id=step_id, agent_execution_id=g["execution"], tool_name="create_data",
             status="success", success=True, result_json=SAMPLE, arguments_json={},
         )
 
     monkeypatch.setattr(enc, "encryption_active", lambda: False)
     async with async_session_maker() as db:
-        await db.execute(_insert(plain_id))
+        g = await seed_encryption_graph(db)
+        await db.execute(_insert(plain_id, g))
         await db.commit()
 
     monkeypatch.setattr(enc, "encryption_active", lambda: True)
     async with async_session_maker() as db:
-        await db.execute(_insert(enc_id))
+        await db.execute(_insert(enc_id, g))
         await db.commit()
 
     async with async_session_maker() as db:

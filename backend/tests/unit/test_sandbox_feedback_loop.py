@@ -83,8 +83,10 @@ class TestUnsafePythonIsRetryable:
         assert len(calls) == 2, "executor must regenerate after an unsafe_python violation"
         df = done["df"]
         assert df is not None and list(df.columns) == ["a"]
-        # The violation is still recorded for the caller/audit trail.
-        assert any("unsafe_python" in (err or "") for _, err in done["errors"])
+        # A successful run reports no errors; the violation is still recorded
+        # under attempt_errors for the caller/audit trail.
+        assert done["errors"] == []
+        assert any("unsafe_python" in (err or "") for _, err in done["attempt_errors"])
 
     def test_violation_still_emits_security_event(self):
         """Retrying must not silence the audit event."""

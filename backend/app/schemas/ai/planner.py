@@ -108,6 +108,8 @@ class PlannerInput(BaseModel):
     available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None
+    # Failures in this conversation's apps the agent has not seen (services/artifact_activity.py).
+    app_activity_context: Optional[str] = None
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None

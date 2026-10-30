@@ -7,6 +7,8 @@ export type EmbedCredential = {
   token: string
   organizationId: string
   hostApplication: string
+  // The BOW user the session is for: renewals keep it, a different person changes it.
+  userId?: string | null
   // ARTIFACT_DATA.current_user for the embedded artifact (viewer_context shape).
   viewer: Record<string, any> | null
 }

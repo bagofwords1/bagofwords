@@ -28,7 +28,8 @@ TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db uv run pytest --db=sqlite -n 6
   tests/e2e/dashboards/test_embed_host_applications.py \
   tests/e2e/dashboards/test_embed_identity_sources.py \
   tests/e2e/dashboards/test_artifact_conversations.py \
-  tests/e2e/test_embed_ldap.py
+  tests/e2e/test_embed_ldap.py \
+  tests/e2e/dashboards/test_artifact_activity.py
 ```
 
 Observed: 39 + 6 + 7 + 5 passed. The identity provider (discovery + keys), the
@@ -63,6 +64,24 @@ from an env var. The back office: `tools/agent/embed/erp_host.py` on :4173
 5. `node tools/agent/embed/sso_flow.mjs <out>` — 4/4: SSO-mode host shows
    *Sign in*, BOW sign-in in a popup on the BOW origin, popup closes, the
    dashboard appears as the person.
+
+6. Backend examples (Settings → Integrations → *Backend example*, the
+   Embed tab's *Server* view, and right after creating a host): the Python
+   (PyJWT) and Node (jsonwebtoken) code, rendered for the real host and run
+   unchanged against `POST /api/embed/{host}/session` — both return 200 for
+   Alice. Screenshots `60-host-apps-python-{en,he}.png`,
+   `61-embed-tab-python-{en,he}.png`.
+
+7. **App activity log** (editor side and BOW's preview):
+   `node tools/agent/embed/editor_activity_flow.mjs <report> <out> "<question>"`
+   (`EXPECT=ok` for a working app) shows the batches the editor's page sends.
+   `backend/ … uv run python ../tools/agent/embed/preview_sdk_check.py <report> <version> <user> "<button>"`
+   drives BOW's own preview with no model and prints `sdk_calls` / `errors`.
+   Live: a broken app (`create({agents:['Music Store']})`) → the editor's
+   failure reaches the next turn and BOW fixes it unprompted; in a fresh
+   conversation BOW's preview finds `agent_forbidden` before anyone uses the app.
+   Sandbox note: the backend's Python Playwright wants browser build 1223;
+   point `PLAYWRIGHT_BROWSERS_PATH` at a folder that links it to the installed one.
 
 Evidence: `media/pr/embedded-artifacts/`.
 

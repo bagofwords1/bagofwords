@@ -650,6 +650,17 @@
       "runsAs": "يعمل كـ {level} على هذا النموذج",
       "faster": "أسرع",
       "smarter": "أذكى"
+    },
+    "voiceInput": {
+      "start": "إملاء طلب",
+      "stop": "إيقاف الإملاء",
+      "errors": {
+        "permissionDenied": "تم حظر الوصول إلى الميكروفون. اسمح به في إعدادات المتصفح للإملاء.",
+        "noSpeech": "لم يتم اكتشاف أي كلام.",
+        "noMicrophone": "لم يتم العثور على ميكروفون.",
+        "network": "يحتاج التعرف على الكلام إلى اتصال بالشبكة.",
+        "failed": "فشل الإدخال الصوتي. يرجى المحاولة مرة أخرى."
+      }
     }
   },
   "reports": {
@@ -1407,7 +1418,17 @@
       "reading": "جارٍ القراءة…",
       "read": "تمت قراءة التعليمات",
       "readSkill": "تمت قراءة المهارة",
-      "failed": "تعذّرت قراءة التعليمات"
+      "failed": "تعذّرت قراءة التعليمات",
+      "lines": "الأسطر {start}–{end} / {total}",
+      "truncated": "مقتطع",
+      "grep": "grep {pattern}",
+      "matchSingular": "{count} تطابق",
+      "matchPlural": "{count} تطابقات",
+      "moreMatches": "+المزيد",
+      "moreShown": "+{count} أخرى عُرضت على الوكيل",
+      "noMatches": "لا توجد أسطر مطابقة — أُعيد المخطط بدلاً من ذلك",
+      "outline": "المخطط",
+      "longLine": "سطر طويل: الأحرف {start}–{end} من {length}"
     },
     "createEval": {
       "drafting": "جارٍ صياغة التقييم",
@@ -2768,6 +2789,7 @@
           "sentinel": "Microsoft Sentinel",
           "s3": "Amazon S3",
           "gcs": "Google Cloud Storage",
+          "cloudwatch": "Amazon CloudWatch Logs",
           "https": "Webhook عبر HTTPS",
           "syslog": "Syslog عبر TLS"
         },
@@ -2777,6 +2799,7 @@
           "sentinel": "Logs Ingestion API ‏(DCR)",
           "s3": "كائنات NDJSON لكل دفعة",
           "gcs": "كائنات NDJSON عبر مفاتيح HMAC",
+          "cloudwatch": "PutLogEvents إلى مجموعة سجلات",
           "https": "طلب POST بصيغة JSON موقّع",
           "syslog": "RFC 5424، ‏JSON أو CEF"
         },
@@ -2804,6 +2827,8 @@
           "stream_name": "اسم التدفق",
           "authority_url": "عنوان جهة المصادقة",
           "bucket": "الحاوية (Bucket)",
+          "log_group": "مجموعة السجلات",
+          "log_stream": "تدفق السجلات",
           "region": "المنطقة",
           "prefix": "بادئة المفتاح",
           "role_arn": "ARN الدور",
@@ -2811,6 +2836,7 @@
           "access_key_id": "معرّف مفتاح الوصول",
           "secret_access_key": "مفتاح الوصول السري",
           "gzip": "ضغط الكائنات بـ gzip",
+          "create_log_group": "إنشاء مجموعة السجلات إذا لم تكن موجودة",
           "endpoint_url": "عنوان نقطة نهاية مخصص",
           "sts_endpoint_url": "نقطة نهاية STS مخصصة",
           "host": "المضيف",
@@ -2922,6 +2948,10 @@
         "enable_follow_ups": {
           "name": "اقتراحات للمتابعة",
           "description": "بعد كل إجابة في التطبيق، يقترح بعض أسئلة المتابعة التي يمكن للمستخدم طرحها. يُولَّد على النموذج الصغير/الافتراضي."
+        },
+        "enable_voice_input": {
+          "name": "الإدخال الصوتي",
+          "description": "إظهار زر ميكروفون في مربع الدردشة ليتمكن المستخدمون من إملاء طلب. يتم التفريغ في متصفح المستخدم (Chrome وEdge وSafari)؛ لا يصل الصوت أبدًا إلى هذا الخادم، لكن قد تعالجه خدمة التعرف على الكلام لدى مزوّد المتصفح."
         },
         "auto_suggest_evals": {
           "name": "اقتراح التقييمات تلقائياً",

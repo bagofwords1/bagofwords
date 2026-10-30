@@ -18,6 +18,7 @@ from app.ai.context.sections.code_section import CodeSection
 from app.ai.context.sections.mentions_section import MentionsSection
 from app.ai.context.sections.entities_section import EntitiesSection
 from app.ai.context.sections.scheduled_tasks_section import ScheduledTasksSection
+from app.ai.context.sections.app_activity_section import AppActivitySection
 
 
 class StaticSections(BaseModel):
@@ -36,6 +37,7 @@ class WarmSections(BaseModel):
     mentions: Optional[MentionsSection] = None
     entities: Optional[EntitiesSection] = None
     scheduled_tasks: Optional[ScheduledTasksSection] = None
+    app_activity: Optional[AppActivitySection] = None
 
 
 class ContextView(BaseModel):

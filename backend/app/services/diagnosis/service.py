@@ -239,6 +239,8 @@ class DiagnosisService:
             AE.total_duration_ms, AE.total_tokens, AE.total_cost_usd, AE.cost_is_partial,
             AE.judge_response_score, AE.judge_instructions_score, AE.judge_context_score,
             AE.feedback_direction, AE.feedback_message, AE.turn_index, AE.is_eval_run, AE.rollup_at,
+            AE.origin_app_type, AE.origin_app_id,
+            Report.origin_app_type.label("report_origin_type"), Report.origin_app_id.label("report_origin_id"),
             func.count().over().label("total"),
         )
         stmt = self._from(stmt).where(*base)
@@ -279,6 +281,16 @@ class DiagnosisService:
             )).all():
                 matched.setdefault(str(ae_id), []).append(str(te_id))
 
+        # The outside app each run came through (the run's own, else its
+        # conversation's), named as it is called now.
+        from app.core import request_origin
+
+        def origin_of(r):
+            if r.origin_app_type:
+                return r.origin_app_type, r.origin_app_id
+            return r.report_origin_type, r.report_origin_id
+        origin_names = await request_origin.names(db, [origin_of(r) for r in rows])
+
         items = []
         stale_before = ctx.now - STALE_AFTER
         for r in rows:
@@ -296,6 +308,7 @@ class DiagnosisService:
                 "prompt": (r.prompt_text or "")[:PROMPT_CHARS],
                 "error": (r.error_text or "")[:ERROR_CHARS] or None,
                 "platform": r.platform or "web",
+                "origin_app": request_origin.describe(*origin_of(r), origin_names),
                 "user": {"id": str(r.user_id) if r.user_id else None, "name": r.user_name, "email": r.user_email},
                 "agents": agents.get(str(r.report_id), []),
                 "report": {

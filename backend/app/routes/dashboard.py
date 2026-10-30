@@ -46,17 +46,18 @@ from app.services import dashboard_access, dashboard_settings_service
 router = APIRouter(tags=["dashboards"])
 
 
-async def _general(db, organization_id) -> PublicGeneralSettings | None:
+async def _general(db, artifact) -> PublicGeneralSettings:
+    """The organization's public branding for this dashboard's pages. "Made
+    with BOW" shows only when both the organization and the dashboard allow it."""
     from app.models.organization_settings import OrganizationSettings
 
     settings = (await db.execute(
-        select(OrganizationSettings).where(OrganizationSettings.organization_id == str(organization_id))
+        select(OrganizationSettings).where(OrganizationSettings.organization_id == str(artifact.organization_id))
     )).scalar_one_or_none()
-    if settings is None or not isinstance(settings.config, dict):
-        return None
-    general = settings.config.get("general", {}) or {}
+    general = (settings.config.get("general", {}) or {}) if settings is not None and isinstance(settings.config, dict) else {}
     return PublicGeneralSettings(ai_analyst_name=general.get("ai_analyst_name", "AI Analyst"),
-                                 bow_credit=general.get("bow_credit", True), icon_url=general.get("icon_url"))
+                                 bow_credit=bool(general.get("bow_credit", True)) and bool(getattr(artifact, "bow_credit", True)),
+                                 icon_url=general.get("icon_url"))
 
 
 @router.get("/d/{ref}", response_model=PublishedDashboardSchema)
@@ -77,7 +78,7 @@ async def get_published_dashboard(
         release_id=str(release.id), published_at=release.published_at, last_run_at=artifact.last_run_at,
         theme_name=release.theme_name, theme_overrides=release.theme_overrides,
         include_data_tab=bool(artifact.include_data_tab), chat_enabled=bool(artifact.chat_enabled),
-        general=await _general(db, artifact.organization_id),
+        general=await _general(db, artifact),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
         data_is_mine=await dashboard_access.holds_snapshot(db, artifact, release, user),
         fork_eligibility=await fork_eligibility(db, artifact, release, user),
@@ -113,7 +114,7 @@ async def get_draft_dashboard(
         version_id=str(shown.id) if shown is not None else None,
         published=await dashboard_access.published_release(db, artifact) is not None,
         theme_name=report[0] if report else None, theme_overrides=report[1] if report else None,
-        general=await _general(db, artifact.organization_id),
+        general=await _general(db, artifact),
         can_edit=await dashboard_access.can_edit(db, artifact, user),
         is_owner=await dashboard_access.counts_as_owner(db, artifact, user),
         capabilities=sorted(await dashboard_access.capabilities(db, artifact, user)),

@@ -7,6 +7,7 @@ thing mocked; the senders run for real (httpx, boto3, asyncio TLS sockets).
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -63,6 +64,8 @@ def _cfg(mock, dest: str):
                {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
         "gcs": ({"bucket": "gcs-audit", "prefix": "bow", "endpoint_url": f"{u}/s3", "gzip": True},
                 {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
+        "cloudwatch": ({"log_group": "/bow/audit", "log_stream": "audit", "region": "us-east-1", "endpoint_url": f"{u}/cloudwatch"},
+                       {"access_key_id": "demo-access-key", "secret_access_key": "x"}),
         "https": ({"url": f"{u}/https/hook"}, {"hmac_secret": "demo-hmac-secret"}),
         "syslog": ({"host": "127.0.0.1", "port": mock.syslog_port, "tls": True, "ca_cert": mock.ca_pem}, {}),
     }[dest]
@@ -88,11 +91,11 @@ async def _wait_for(pred, timeout=5.0):
 
 
 def test_registry_covers_every_planned_destination():
-    assert set(REGISTRY) == {"datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog"}
+    assert set(REGISTRY) == {"datadog", "splunk", "sentinel", "s3", "gcs", "cloudwatch", "https", "syslog"}
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("dest", ["datadog", "splunk", "sentinel", "s3", "gcs", "https", "syslog"])
+@pytest.mark.parametrize("dest", ["datadog", "splunk", "sentinel", "s3", "gcs", "cloudwatch", "https", "syslog"])
 @pytest.mark.parametrize("n", [1, 7])
 async def test_batch_is_delivered_in_the_intakes_format(mock, dest, n):
     config, secrets = _cfg(mock, dest)
@@ -116,7 +119,7 @@ async def test_rejected_credentials_are_invalid_not_retried(mock, dest):
     assert mock.state.envelopes(dest) == []
 
 
-_HTTP_DESTS = ["datadog", "splunk", "sentinel", "s3", "https"]
+_HTTP_DESTS = ["datadog", "splunk", "sentinel", "s3", "cloudwatch", "https"]
 
 
 @pytest.mark.asyncio
@@ -189,3 +192,48 @@ def test_https_signature_is_hmac_sha256_over_timestamp_and_body():
     body = b'[{"id":"x"}]'
     sig = HttpsDestination.signature("s3cret", "1700000000", body)
     assert sig == "v1=" + hmac.new(b"s3cret", b"1700000000." + body, hashlib.sha256).hexdigest()
+
+
+def test_cloudwatch_chunks_sort_and_clamp_timestamps():
+    from app.ee.audit.streams.destinations.cloudwatch import _MAX_BYTES, chunk_log_events
+
+    now = 1_800_000_000_000
+    evs = _events(3)
+    evs[0]["occurred_at"] = "2020-01-01T00:00:00.000Z"  # older than 14 days: clamped, not dropped
+    evs[2]["occurred_at"] = "2099-01-01T00:00:00.000Z"  # far future: clamped
+    chunks = chunk_log_events(evs, now_ms=now)
+    assert len(chunks) == 1
+    ts = [c["timestamp"] for c in chunks[0]]
+    assert ts == sorted(ts)
+    assert all(now - 14 * 86400_000 < t < now + 7_200_000 for t in ts)
+    assert {json.loads(c["message"])["id"] for c in chunks[0]} == {e["id"] for e in evs}
+
+    big = _events(1)
+    big[0]["metadata"] = {"blob": "x" * 300_000}
+    many = [dict(big[0], id=str(uuid.uuid4())) for _ in range(6)]
+    chunks = chunk_log_events(many, now_ms=now)
+    assert sum(len(c) for c in chunks) == 6
+    for c in chunks:
+        assert sum(len(x["message"].encode()) + 26 for x in c) <= _MAX_BYTES
+    assert all(json.loads(x["message"])["metadata"] == {"truncated": True} for c in chunks for x in c)
+
+
+@pytest.mark.asyncio
+async def test_cloudwatch_creates_missing_group_and_stream_then_delivers(mock):
+    config, secrets = _cfg(mock, "cloudwatch")
+    config = dict(config, log_group="/bow/fresh", log_stream="new-stream")
+    events = _events(3)
+    res = await build_destination("cloudwatch", config, secrets).send(events)
+    assert res.kind == OK, res.error
+    assert ("/bow/fresh", "new-stream") in mock.state.cw_streams
+    stats = mock.state.stats("cloudwatch", [e["id"] for e in events])
+    assert stats["missing"] == [] and stats["format_errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_cloudwatch_missing_group_is_fatal_when_creation_is_off(mock):
+    config, secrets = _cfg(mock, "cloudwatch")
+    config = dict(config, log_group="/bow/absent", log_stream="s", create_log_group=False)
+    res = await build_destination("cloudwatch", config, secrets).send(_events(1))
+    assert res.kind == FATAL, (res.kind, res.error)
+    assert "ResourceNotFoundException" in (res.error or "")

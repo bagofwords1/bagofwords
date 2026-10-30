@@ -19,6 +19,7 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
+import json
 import uuid
 from sqlalchemy import select, and_, or_, func, cast, delete, case, String as SAString
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -2197,7 +2198,11 @@ class ReportService:
             select(Report).filter(
                 Report.id == report_id,
                 Report.organization_id == organization.id,
-                Report.report_type == 'regular',
+                # Conversations held through an outside app list with the
+                # person's reports (get_reports), so their unread dot clears too.
+                or_(Report.report_type == 'regular',
+                    and_(Report.report_type == 'artifact_chat', Report.origin_app_type.isnot(None),
+                         Report.user_id == str(current_user.id))),
             )
         )
         report = result.scalar_one_or_none()
@@ -2803,6 +2808,59 @@ class ReportService:
         from app.schemas.artifact_schema import ArtifactSchema
         return ArtifactSchema.model_validate(artifact)
 
+    async def _search_encrypted_completions(
+        self, db: AsyncSession, organization_id, search: str
+    ) -> list[str]:
+        """Report ids whose *encrypted* completions contain ``search``.
+
+        The SQL search in get_reports casts Completion.prompt/completion to text
+        and ILIKEs them; a row stored as a ciphertext envelope (enterprise
+        data_encryption) never matches that way. Only enveloped rows are
+        hydrated here — the column type decrypts them — and tested with the
+        same case-insensitive substring rule, over the serialized JSON like the
+        SQL cast. Plaintext rows stay on the SQL path, so this costs nothing on
+        an instance that has never encrypted.
+        """
+        from app.models.completion import Completion
+        from app.ee.encryption import envelope_marker_expr
+
+        rows = (await db.execute(
+            select(Completion.report_id, Completion.prompt, Completion.completion)
+            .join(Report, Report.id == Completion.report_id)
+            .where(
+                Report.organization_id == organization_id,
+                or_(
+                    envelope_marker_expr(Completion.prompt),
+                    envelope_marker_expr(Completion.completion),
+                ),
+            )
+        )).all()
+        needle = search.lower()
+        hits: set[str] = set()
+        for report_id, prompt, completion in rows:
+            for value in (prompt, completion):
+                if value is None:
+                    continue
+                try:
+                    haystack = json.dumps(value, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    haystack = str(value)
+                if needle in haystack.lower():
+                    hits.add(str(report_id))
+                    break
+        return sorted(hits)
+
+    async def _attach_origins(self, db, reports, schemas) -> None:
+        """Name the outside app each listed conversation came through."""
+        from app.core import request_origin
+
+        pairs = [(r.origin_app_type, r.origin_app_id) for r in reports if getattr(r, "origin_app_type", None)]
+        if not pairs:
+            return
+        known = await request_origin.names(db, pairs)
+        for report, schema in zip(reports, schemas):
+            schema.origin_app = request_origin.describe(report.origin_app_type, report.origin_app_id, known)
+
     async def get_reports(
         self,
         db: AsyncSession,
@@ -2837,7 +2895,14 @@ class ReportService:
 
             from app.services.bow_source_access import visible_reports_clause
             base_conditions.append(await visible_reports_clause(db, organization.id, current_user))
-            base_conditions.append(Report.report_type == 'regular')
+            # Conversations the person held in an app embedded elsewhere (a host
+            # application) or through an OAuth app list with their own; other
+            # app conversations stay inside their app.
+            base_conditions.append(or_(
+                Report.report_type == 'regular',
+                and_(Report.report_type == 'artifact_chat', Report.origin_app_type.isnot(None),
+                     Report.user_id == current_user.id),
+            ))
 
             # Optional filter by mode (chat/deep/training)
             if mode and mode in ('chat', 'training'):
@@ -2877,19 +2942,26 @@ class ReportService:
             # Optional search on report title and completion content
             if search:
                 from app.models.completion import Completion
-                base_conditions.append(
-                    or_(
-                        Report.title.ilike(f"%{search}%"),
-                        Report.id.in_(
-                            select(Completion.report_id).where(
-                                or_(
-                                    cast(Completion.prompt, SAString).ilike(f"%{search}%"),
-                                    cast(Completion.completion, SAString).ilike(f"%{search}%"),
-                                )
+                search_conditions = [
+                    Report.title.ilike(f"%{search}%"),
+                    Report.id.in_(
+                        select(Completion.report_id).where(
+                            or_(
+                                cast(Completion.prompt, SAString).ilike(f"%{search}%"),
+                                cast(Completion.completion, SAString).ilike(f"%{search}%"),
                             )
                         )
-                    )
+                    ),
+                ]
+                # Completions written under enterprise data_encryption are
+                # ciphertext in SQL, so the ILIKE above cannot see them. Match
+                # those in Python after the ORM has decrypted them.
+                encrypted_hits = await self._search_encrypted_completions(
+                    db, organization.id, search
                 )
+                if encrypted_hits:
+                    search_conditions.append(Report.id.in_(encrypted_hits))
+                base_conditions.append(or_(*search_conditions))
 
             # Optional filter by scheduled status (report-level cron OR active scheduled prompts)
             # A conversation with dashboards is scheduled by them (phase 9).
@@ -3081,6 +3153,7 @@ class ReportService:
                     has_next=page < total_pages, has_prev=page > 1,
                 )
                 span.add_event("get_reports done (minimal)")
+                await self._attach_origins(db, reports, report_schemas)
                 return ReportListResponse(reports=report_schemas, meta=meta)
 
             # Suppress DataSource's lazy="selectin" cascade (reports →
@@ -3332,6 +3405,7 @@ class ReportService:
                 has_prev=has_prev
             )
             span.add_event("get_reports done")
+            await self._attach_origins(db, reports, report_schemas)
             return ReportListResponse(reports=report_schemas, meta=meta)
 
     async def bulk_archive_reports(

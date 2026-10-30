@@ -5440,6 +5440,7 @@ class AgentV2:
                         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
                         # Active scheduled tasks for this report (for dedupe + cancellation)
                         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
                         # Loadable prior steps (so the planner prefers reuse via load_step)
                         available_steps_context = await self._build_available_steps_context()
 
@@ -5535,6 +5536,7 @@ class AgentV2:
                             entities_context=entities_context,
                             available_steps_context=available_steps_context,
                             scheduled_tasks_context=scheduled_tasks_context,
+                            app_activity_context=app_activity_context or None,
                             history_summary=history_summary,
                             messages_context=messages_context,
                             resources_context=resources_context,
@@ -8215,6 +8217,7 @@ class AgentV2:
             planner_input.memory_hint = None
             planner_input.scheduled_context = None
             planner_input.scheduled_tasks_context = None
+            planner_input.app_activity_context = None
             planner_input.sub_agents_enabled = False
             if self._sub_agent:
                 planner_input.sub_agent_title = self._sub_agent.get("title")
@@ -8374,6 +8377,7 @@ class AgentV2:
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
         available_steps_context = await self._build_available_steps_context()
         _notes_cfg2 = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
         _notes_on = bool(getattr(_notes_cfg2, "value", False)) if _notes_cfg2 is not None else False
@@ -8400,6 +8404,7 @@ class AgentV2:
             entities_context=entities_context,
             available_steps_context=available_steps_context,
             scheduled_tasks_context=scheduled_tasks_context,
+            app_activity_context=app_activity_context or None,
             history_summary=history_summary,
             messages_context=messages_context,
             resources_context=resources_context,

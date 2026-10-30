@@ -131,7 +131,7 @@ def test_without_host_context_the_bubble_is_unchanged(name, empty, label, builde
 def test_an_apps_conversation_never_shows_the_host_line(name, label, builder, transcript, monkeypatch):
     if transcript is not None:
         monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", transcript)
-    block = _block({**CONTEXTS[name], "surface": "conversation", "host_context": {"customerId": "C-14"}}, builder)
+    block = _block({**CONTEXTS[name], "surface": "app", "host_context": {"customerId": "C-14"}}, builder)
     assert HOST_MARKER not in block and "C-14" not in block
 
 
