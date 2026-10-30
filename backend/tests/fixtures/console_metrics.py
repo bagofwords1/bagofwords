@@ -266,7 +266,7 @@ def seed_agent_executions():
     first_token_ms, thinking_ms, error, platform, is_eval_run,
     judge={"response", "instructions", "context"},
     feedback={"direction", "message"},
-    tools=[{"name", "action", "status", "duration_ms", "attempt", "error"}],
+    tools=[{"name", "action", "status", "duration_ms", "attempt", "error", "step_id"}],
     usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cache_read_tokens",
     "cache_creation_tokens", "cost", "scope"}].
     """
@@ -379,6 +379,7 @@ def seed_agent_executions():
                             attempt_number=tool.get("attempt", 1),
                             max_retries=tool.get("max_retries", 0),
                             error_message=tool.get("error"),
+                            created_step_id=tool.get("step_id"),
                             created_at=created_at + timedelta(seconds=i),
                         ))
 

@@ -7,6 +7,7 @@ from sqlalchemy import case, func, select, cast, String, Integer
 from app.core.console_access import resolve_console_scope
 from app.models.agent_execution import AgentExecution as AE
 from app.models.tool_execution import ToolExecution as TE
+from app.models.step import Step
 from app.models.user import User
 from app.models.report import Report
 from app.models.data_source import DataSource
@@ -37,7 +38,13 @@ TOOL_FIELDS = {
     "attempt": TE.attempt_number, "duration_ms": TE.duration_ms,
     "error": TE.error_message, "output_preview": TE.result_summary,
     "step_id": TE.created_step_id, "args_preview": cast(TE.arguments_json, String),
+    # The code of the step the call created (create_data, ...). It is the
+    # step's current code: a later rerun or edit of that step replaces it.
+    "code": Step.code,
 }
+# Row columns only: code is long, and is withheld per step (see _redact_code).
+ROW_ONLY = {"code"}
+MAX_CODE_CHARS = 20_000
 NUMERIC = {"cost_usd", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "duration_ms", "tool_count", "failed_tool_count", "turn",
            "judge_confidence", "judge_instructions", "judge_context", "attempt", "feedback_direction"}
 DEFAULT_COLUMNS = {
@@ -63,6 +70,27 @@ def column_type(name):
     if name in {"eval", "cost_is_partial"}:
         return "boolean"
     return "datetime" if name == "created_at" else "string"
+
+
+async def _redact_code(db, user, records):
+    """Blank code where the step's rows are withheld from this reader.
+
+    Same boundary as the query/step read paths (query_service, read_query):
+    SQL reveals the schema, tables and filters behind rows the reader may not
+    see, so a withheld snapshot hides its code too. Decided once per step."""
+    from app.services.viewer_data_policy import resolve_step_data
+    withheld = {}
+    for row in records:
+        step_id, report_id = row.pop("_code_step_id", None), row.pop("_code_report_id", None)
+        if not row.get("code"):
+            row["code"] = None
+            continue
+        key = (step_id, report_id)
+        if key not in withheld:
+            step = await db.get(Step, step_id)
+            report = await db.get(Report, report_id) if report_id else None
+            withheld[key] = report is None or (await resolve_step_data(db, step, report, user)).withheld
+        row["code"] = None if withheld[key] else row["code"][:MAX_CODE_CHARS]
 
 
 class BowSourceService:
@@ -124,6 +152,8 @@ class BowSourceService:
         requested = q.group_by if q.metrics else (q.columns or DEFAULT_COLUMNS[q.dataset])
         list_fields = {"agent_ids", "agent_names"} if q.dataset == "runs" and not q.metrics else set()
         unknown = set(requested) - set(fields) - list_fields
+        if q.metrics and (ROW_ONLY & set(requested) or any(m.field in ROW_ONLY for m in q.metrics)):
+            raise ValueError("code is a row column; it cannot be grouped or aggregated")
         if unknown:
             raise ValueError(f"Unknown {q.dataset} columns: {', '.join(sorted(unknown))}")
         if len(set(requested)) != len(requested):
@@ -150,9 +180,15 @@ class BowSourceService:
         internal_report = bool(list_fields.intersection(requested)) and "report_id" not in requested
         if internal_report:
             columns.append(AE.report_id.label("_report_id"))
+        with_code = "code" in requested
+        if with_code:
+            # Identity of the step and its conversation, to withhold code per reader.
+            columns += [TE.created_step_id.label("_code_step_id"), AE.report_id.label("_code_report_id")]
         stmt = diagnosis_service._from(select(*columns)).where(*base)
         if q.dataset == "tool_calls":
             stmt = stmt.join(TE, TE.agent_execution_id == AE.id).where(*tool_match_conditions(parsed.ast, ctx))
+        if with_code:
+            stmt = stmt.outerjoin(Step, Step.id == TE.created_step_id)
         expanded = any(k in ("agent_id", "agent_name") for k in requested) or any(m.field in ("agent_id", "agent_name") for m in q.metrics)
         if expanded:
             stmt = stmt.outerjoin(assoc, assoc.c.report_id == AE.report_id).outerjoin(DataSource, DataSource.id == assoc.c.data_source_id)
@@ -191,6 +227,8 @@ class BowSourceService:
             for preview in ("args_preview", "output_preview"):
                 if row.get(preview):
                     row[preview] = row[preview][:500]
+        if with_code:
+            await _redact_code(db, user, records)
         names = requested + [m.name for m in q.metrics]
         df = pd.DataFrame(records, columns=names)
         # The typed source owns numeric normalization, including all-null and
