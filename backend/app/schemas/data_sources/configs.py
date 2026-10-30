@@ -865,6 +865,49 @@ class AppDynamicsConfig(BaseModel):
     )
 
 
+# CrowdStrike Falcon
+class CrowdStrikeApiClientCredentials(BaseModel):
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="From Support and resources → API clients and keys in the Falcon console. Grant read-only scopes: Hosts, Host groups, Alerts, Incidents, Vulnerabilities, Prevention policies, IOC Management.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Shown once when the API client is created. Short-lived OAuth tokens are fetched and refreshed automatically.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    member_cid: Optional[str] = Field(
+        None,
+        title="Member CID (optional)",
+        description="Flight Control (MSSP) only: the child tenant's CID to read from. Leave empty for a single tenant.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class CrowdStrikeConfig(BaseModel):
+    region: Literal["auto", "us-1", "us-2", "eu-1", "us-gov-1", "us-gov-2"] = Field(
+        "auto",
+        title="Cloud Region",
+        description="The Falcon cloud your tenant lives in (the console URL tells you: falcon.us-2.crowdstrike.com → us-2). \"auto\" detects it from the API client.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["auto", "us-1", "us-2", "eu-1", "us-gov-1", "us-gov-2"]},
+    )
+    base_url: Optional[str] = Field(
+        None,
+        title="API Base URL (optional)",
+        description="Overrides the region, e.g. for an API gateway or proxy in front of the Falcon API. Leave empty to use the region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the API's TLS certificate. Disable only behind a TLS-intercepting proxy on a trusted network.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 # Zabbix
 class ZabbixTokenCredentials(BaseModel):
     api_token: str = Field(
