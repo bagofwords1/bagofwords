@@ -123,6 +123,72 @@ def test_each_viewer_reaches_only_their_own_conversations(corpus, corpus_rows, t
     assert len(test_client.get(base(aid), headers=as_(corpus, "member")).json()["items"]) == 2
 
 
+def _answer_id(corpus_rows, conv_id: str) -> str:
+    from sqlalchemy import text
+
+    with corpus_rows.engine.connect() as conn:
+        return str(conn.execute(text("SELECT id FROM completions WHERE report_id = :r AND role = 'system'"),
+                                {"r": conv_id}).scalar_one())
+
+
+def _still_running(corpus_rows, conv_id: str, *, age_seconds: float = 0, **extra) -> str:
+    """Marks the conversation's answer as a run still in progress, heartbeat
+    `age_seconds` ago. A direct write: the stubbed agent finishes inside the
+    request, so the API cannot hold a run open."""
+    from datetime import datetime, timedelta
+
+    cid = _answer_id(corpus_rows, conv_id)
+    corpus_rows.update("completions", cid, status="in_progress",
+                       updated_at=datetime.utcnow() - timedelta(seconds=age_seconds), **extra)
+    return cid
+
+
+def _flags(test_client, corpus, aid) -> dict:
+    return {c["id"]: c["in_progress"] for c in test_client.get(base(aid), headers=as_(corpus, "member")).json()["items"]}
+
+
+def test_the_list_marks_a_conversation_whose_answer_is_still_running(corpus, corpus_rows, test_client, stub_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    first, second = (test_client.post(base(aid), json={"title": t}, headers=as_(corpus, "member")).json() for t in ("A", "B"))
+    for conv in (first, second):
+        assert test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "Which genres sell best?"},
+                                headers=as_(corpus, "member")).status_code == 200
+    assert _flags(test_client, corpus, aid) == {first["id"]: False, second["id"]: False}
+
+    _still_running(corpus_rows, first["id"])
+    assert _flags(test_client, corpus, aid) == {first["id"]: True, second["id"]: False}
+
+    # A run whose heartbeat stopped beyond the stale window is abandoned, not running.
+    from app.services.completion_service import _COMPLETION_STALE_AFTER_SECONDS
+    _still_running(corpus_rows, first["id"], age_seconds=_COMPLETION_STALE_AFTER_SECONDS + 60)
+    assert _flags(test_client, corpus, aid)[first["id"]] is False
+
+    # A sub-agent's run is not the conversation's answer.
+    _still_running(corpus_rows, first["id"], trigger_source="sub_agent")
+    assert _flags(test_client, corpus, aid)[first["id"]] is False
+
+
+def test_archiving_a_conversation_stops_its_running_answer(corpus, corpus_rows, test_client, stub_agent):
+    from sqlalchemy import text
+
+    aid = _chatty(corpus, corpus_rows, test_client)
+    conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
+    assert test_client.post(f"{base(aid)}/{conv['id']}/messages", json={"text": "Which genres sell best?"},
+                            headers=as_(corpus, "member")).status_code == 200
+    cid = _still_running(corpus_rows, conv["id"])
+
+    # Another viewer can neither archive nor stop it.
+    assert test_client.delete(f"{base(aid)}/{conv['id']}", headers=as_(corpus, "direct_share")).status_code == 404
+    with corpus_rows.engine.connect() as conn:
+        assert conn.execute(text("SELECT sigkill FROM completions WHERE id = :c"), {"c": cid}).scalar_one() is None
+
+    assert test_client.delete(f"{base(aid)}/{conv['id']}", headers=as_(corpus, "member")).status_code == 204
+    with corpus_rows.engine.connect() as conn:
+        sigkill, status = conn.execute(text("SELECT sigkill, status FROM completions WHERE id = :c"), {"c": cid}).one()
+    assert sigkill is not None and status == "stopped"
+    assert conv["id"] not in _flags(test_client, corpus, aid)
+
+
 def test_a_message_streams_once_and_is_stored(corpus, corpus_rows, test_client, stub_agent):
     aid = _chatty(corpus, corpus_rows, test_client)
     conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()

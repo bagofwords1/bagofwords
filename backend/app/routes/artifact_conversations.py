@@ -104,8 +104,8 @@ async def rename_conversation(artifact_id: str, conversation_id: str, body: Conv
 @router.delete("/{conversation_id}", status_code=204)
 async def archive_conversation(artifact_id: str, conversation_id: str, request: Request,
                                db: AsyncSession = Depends(get_async_db), user: Optional[User] = Depends(viewer_optional)):
-    artifact, _, _, user = await _viewer(artifact_id, request, db, user, "read")
-    await conversations.archive(db, await conversations.own(db, artifact, user, conversation_id))
+    artifact, _, organization, user = await _viewer(artifact_id, request, db, user, "read")
+    await conversations.archive(db, await conversations.own(db, artifact, user, conversation_id), organization, user)
     return Response(status_code=204)
 
 

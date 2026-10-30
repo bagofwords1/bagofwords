@@ -49,7 +49,7 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import AsyncIterator, Optional
 
 from sqlalchemy import select
@@ -170,6 +170,32 @@ async def _roster(db, thread: Report) -> list[str]:
         report_data_source_association.c.report_id == str(thread.id)))).scalars().all()]
 
 
+def _live_filter(thread_ids: list[str]):
+    """The answers still running in these threads: system completions in
+    progress, not a sub-agent's, with a heartbeat inside the stale window. A
+    heartbeat-based subset of CompletionService._get_running_system_completion:
+    the per-worker registry of active runs and a missing heartbeat do not
+    count (another worker could not see the one; a crashed run must not show
+    as running forever)."""
+    from sqlalchemy import func
+
+    from app.models.completion import Completion
+    from app.services import completion_service
+
+    cutoff = datetime.utcnow() - timedelta(seconds=completion_service._COMPLETION_STALE_AFTER_SECONDS)
+    return select(Completion.id, Completion.report_id).where(
+        Completion.report_id.in_(thread_ids), Completion.role == "system", Completion.status == "in_progress",
+        (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
+        func.coalesce(Completion.updated_at, Completion.created_at) >= cutoff,
+    )
+
+
+async def _live_answering(db, thread_ids: list[str]) -> set[str]:
+    if not thread_ids:
+        return set()
+    return {str(r.report_id) for r in (await db.execute(_live_filter(thread_ids))).all()}
+
+
 async def list_conversations(db, artifact, user, *, limit: int, before: Optional[str]) -> dict:
     query = select(Report).where(
         Report.report_type == "artifact_chat", Report.source_artifact_id == str(artifact.id),
@@ -182,6 +208,9 @@ async def list_conversations(db, artifact, user, *, limit: int, before: Optional
             raise AppError.bad_request(ErrorCode.CONVERSATION_NOT_FOUND, "Invalid cursor", field="before")
     rows = (await db.execute(query.order_by(Report.created_at.desc()).limit(limit + 1))).scalars().all()
     items = [_summary(t) for t in rows[:limit]]
+    live = await _live_answering(db, [i["id"] for i in items])
+    for item in items:
+        item["in_progress"] = item["id"] in live
     return {"items": items, "next_before": items[-1]["created_at"] if len(rows) > limit else None}
 
 
@@ -236,7 +265,14 @@ async def rename(db, thread: Report, artifact, title: str) -> dict:
     return await describe(db, thread)
 
 
-async def archive(db, thread: Report) -> None:
+async def archive(db, thread: Report, organization, user) -> None:
+    """Stops the conversation's running answers first: once archived nobody
+    can reach the thread, so a run left going would be paid for and unseen."""
+    from app.services.completion_service import CompletionService
+
+    running = [str(r.id) for r in (await db.execute(_live_filter([str(thread.id)]))).all()]
+    for completion_id in running:
+        await CompletionService().update_completion_sigkill(db, completion_id, user, organization)
     thread.deleted_at = datetime.utcnow()
     await db.commit()
 

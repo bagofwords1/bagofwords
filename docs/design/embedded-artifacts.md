@@ -147,9 +147,9 @@ As built (`backend/app/routes/artifact_conversations.py`, `services/artifact_con
 | Route | Does |
 | --- | --- |
 | `GET  /policy` | available or why not (`auth_required`, `disabled`), scope, the agents this viewer may use |
-| `GET  ?limit&before` | the viewer's conversations on this artifact, newest first |
+| `GET  ?limit&before` | the viewer's conversations on this artifact, newest first; each item has `in_progress`: true while its answer still runs (a system completion in progress, not a sub-agent's, with a heartbeat inside the 300 s stale window) |
 | `POST` `{title?, agents?}` | create; `agents` must be ⊆ policy ∩ the viewer's access (`conversation.agent_forbidden`) |
-| `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise) |
+| `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise); archive first stops the conversation's running answer (`update_completion_sigkill`), since nobody can reach it afterwards |
 | `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}`; assistant items also carry `results[]` (and `results_incomplete: true` when some could not be produced) |
 | `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, `result`, then exactly one `completed` (optionally `results_incomplete: true`) or `error`; nothing after it |
 | `POST /{cid}/messages/{mid}/stop` | `update_completion_sigkill` |
