@@ -276,11 +276,13 @@ def classify_preview_output(output: dict) -> dict:
             result["informational_errors"] += 1
         else:
             key = _ECHO_PREFIX.sub("", message).strip()
+            # A refused bow.* call's message is in seen too: then the echo
+            # stands behind that sdk message.
+            reported = first.setdefault(key, _clip(key if key in seen else message))
             if key not in seen:
                 seen.add(key)
-                first[key] = _clip(message)
-                errors.append({"source": source, "message": first[key]})
-            cursors.setdefault(first[key], []).append(event.get("cursor"))
+                errors.append({"source": source, "message": reported})
+            cursors.setdefault(reported, []).append(event.get("cursor"))
     if render:
         errors.append(dict(_RENDER_ERROR))
     failed = [{"query_id": str(q.get("query_id")), "status": str(q.get("status")),
@@ -482,6 +484,11 @@ def _classify_frozen_load(runtime_ctx):
     return load
 
 
+def _echo_key(message):
+    """A crash message without the prefixes it is echoed under."""
+    return _ECHO_PREFIX.sub("", str(message or "")).strip()
+
+
 def _merge(result, classified):
     result["errors"] = (result["errors"] + classified["errors"])[:_MAX_ITEMS]
     result["failed_queries"] = (result["failed_queries"] + classified["failed_queries"])[:_MAX_ITEMS]
@@ -491,10 +498,13 @@ def _merge(result, classified):
         result.setdefault("_cursors", {}).setdefault(message, []).extend(cursors)
 
 
-async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None):
+async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None, messages=None):
     """Stamp the check's preview events in the app's activity log as shown in
     this completion (those with a cursor in ``seqs``, or all of them), so the
-    next turn's <app_activity> skips them. Never raises."""
+    next turn's <app_activity> skips them. ``messages``: reported error
+    messages; the SDK's own error/console rows (no evidence cursor) showing one
+    of them, echo prefixes aside, are the same crash and are stamped too.
+    Never raises."""
     from app.dependencies import async_session_maker
     from app.services import artifact_activity
     from app.services.artifact_preview_service import activity_session_id
@@ -504,8 +514,10 @@ async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None):
         return
     try:
         async with async_session_maker() as db:
-            await artifact_activity.mark_shown(db, session_id=activity_session_id(evidence_id),
-                                               completion_id=str(completion.id), seqs=seqs)
+            keys = {_echo_key(m) for m in messages or ()} - {""}
+            await artifact_activity.mark_shown(
+                db, session_id=activity_session_id(evidence_id), completion_id=str(completion.id), seqs=seqs,
+                match=(lambda detail: _echo_key((detail or {}).get("message")) in keys) if keys else None)
     except Exception:
         # Unstamped, they are reported again next turn: a repeat, never a loss.
         logger.warning("Automatic artifact check could not mark its activity as shown", exc_info=True)
@@ -678,7 +690,8 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
         return _emptied(result, reason)
     if previews:
         await _mark_activity_shown(runtime_ctx, previews[-1],
-                                   [c for e in result["errors"] for c in cursors.get(e["message"], ())])
+                                   [c for e in result["errors"] for c in cursors.get(e["message"], ())],
+                                   [e["message"] for e in result["errors"]])
     return result
 
 

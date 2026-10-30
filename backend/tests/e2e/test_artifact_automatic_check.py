@@ -1198,3 +1198,48 @@ def test_a_restricted_check_hides_all_its_preview_activity(chromium, stub_render
     rows, section = asyncio.run(_preview_rows(owner["report_id"]))
     assert rows == [("conversation.agent_forbidden", completion_id)]
     assert section is None, section
+
+
+def test_a_crash_the_check_reported_is_not_repeated_next_turn(chromium, stub_render, owner):
+    """An uncaught error in the preview: the SDK logs it to the activity log
+    (event_kind=error, no evidence cursor) and the frame reports the same crash
+    as runtime evidence. The result reports it, so neither row is repeated."""
+    async def crash(page):
+        ref = urlparse(page.url).path.rstrip("/").rsplit("/", 1)[-1]
+        await page.binding({"frame": page.main_frame}, {
+            "artifact_id": ref, "kind": "sdk_call", "event_kind": "error",
+            "detail": {"message": "Uncaught TypeError: boom", "where": "window"}})
+        await page.binding({"frame": page.main_frame}, {
+            "artifact_id": ref, "kind": "error", "source": "runtime", "message": "TypeError: boom"})
+
+    chromium.on_goto = crash
+    completion_id = str(uuid.uuid4())
+    _events, payload, _ctx = asyncio.run(_create(
+        owner, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    check = _check(payload)
+    assert [e["message"] for e in check["errors"]] == ["TypeError: boom"]
+    rows, section = asyncio.run(_preview_rows(owner["report_id"]))
+    assert len(rows) == 2 and all(shown == completion_id for _code, shown in rows), rows
+    assert section is None, section
+
+
+def test_an_unreported_sdk_error_row_stays_for_the_next_turn(chromium, stub_render, owner):
+    """An SDK-logged error the result does not report (different message) is not stamped."""
+    async def crash(page):
+        ref = urlparse(page.url).path.rstrip("/").rsplit("/", 1)[-1]
+        await page.binding({"frame": page.main_frame}, {
+            "artifact_id": ref, "kind": "sdk_call", "event_kind": "console",
+            "detail": {"message": "something else broke"}})
+        await page.binding({"frame": page.main_frame}, {
+            "artifact_id": ref, "kind": "error", "source": "runtime", "message": "TypeError: boom"})
+
+    chromium.on_goto = crash
+    completion_id = str(uuid.uuid4())
+    _events, payload, _ctx = asyncio.run(_create(
+        owner, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    assert [e["message"] for e in _check(payload)["errors"]] == ["TypeError: boom"]
+    rows, section = asyncio.run(_preview_rows(owner["report_id"]))
+    assert sorted(shown is None for _code, shown in rows) == [False, True], rows
+    assert section and "something else broke" in section and "boom" not in section

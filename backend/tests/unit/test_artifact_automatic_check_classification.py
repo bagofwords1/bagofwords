@@ -747,3 +747,15 @@ def test_sdk_calls_observed_is_ready_for_an_app_without_queries():
     result = classify_preview_output(_output(service, readiness="sdk_calls_observed"))
     assert result["status"] == "passed" and result["readiness"] == "ready"
     assert "data loading was not confirmed" not in summary_sentence(result)
+
+
+def test_an_error_echoing_a_refused_sdk_call_is_deduplicated():
+    """A console error repeating a refused bow.* call's message counts once, and
+    both evidence cursors stand behind the one reported message."""
+    events = [
+        {"kind": "sdk_call", "status": "error", "op": "conversations.create", "error_code": "x", "cursor": 1},
+        {"kind": "error", "source": "console", "message": "Error: bow.conversations.create failed with x", "cursor": 2},
+    ]
+    result = classify_preview_output({"success": True, "readiness": "ready", "evidence": {"errors": events}})
+    assert result["errors"] == [{"source": "sdk", "message": "bow.conversations.create failed with x"}]
+    assert result["_cursors"] == {"bow.conversations.create failed with x": [1, 2]}
