@@ -3452,13 +3452,27 @@
   };
 
   // The element that scrolls the list (D-18): the list itself when it
-  // overflows, else the document when that overflows (an app that gave the
-  // list no height), else the list. Re-resolved at every check.
-  function _chatScroller(el) {
+  // overflows; the document only when the list has no height of its own (its
+  // box is as tall as its content: an app that gave it none), its own styles
+  // are in place (overflow-y auto: before the Tailwind classes apply its box
+  // always follows its content) and the document overflows; else the list.
+  // A short list with a fixed height never moves the page around it.
+  // Re-resolved at every check.
+  function _chatScroller(el, inner) {
     if (!el) return null;
     if (el.scrollHeight > el.clientHeight + 1 || !el.getClientRects().length) return el;
+    if (!inner || el.clientHeight > inner.offsetHeight + 1) return el;
+    var oy = getComputedStyle(el).overflowY;
+    if (oy !== 'auto' && oy !== 'scroll') return el;
     var d = document.scrollingElement;
     return d && d.scrollHeight > d.clientHeight + 1 ? d : el;
+  }
+  // How far the transcript's end is below the view's end. With the document as
+  // the scroller that is the list's own bottom, not the page's: content after
+  // the list never counts, so following an answer never scrolls past it.
+  function _chatGap(sc, inner) {
+    if (sc === document.scrollingElement) return inner ? inner.getBoundingClientRect().bottom - sc.clientHeight : 0;
+    return sc.scrollHeight - sc.scrollTop - sc.clientHeight;
   }
   function _chatEdge(sc) { return sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top; }
   function _chatRows(inner) { return inner ? inner.querySelectorAll(':scope > [data-testid="bow-chat-row"]') : []; }
@@ -3480,6 +3494,9 @@
     // follows is its own, not the user's (content that grew meanwhile, e.g. late
     // styles, must not read as the user leaving the bottom).
     var own = React.useRef(null);
+    // The last position seen on a scroll event, and the jump's fallback timer.
+    var lastTop = React.useRef(null), jumpTimer = React.useRef(null);
+    var _oe = React.useState(null), olderError = _oe[0], setOlderError = _oe[1];
     var prev = React.useRef(null);
     var _jump = React.useState(false), showJump = _jump[0], setJump = _jump[1];
     var _unseen = React.useState(false), unseen = _unseen[0], setUnseen = _unseen[1];
@@ -3493,10 +3510,17 @@
       }
     }
     function measure(sc) {
+      var seen = lastTop.current;
+      lastTop.current = sc.scrollTop;
       if (own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) return;
       own.current = null;
-      var at = sc.scrollHeight - sc.scrollTop - sc.clientHeight <= _CHAT_BOTTOM_PX;
-      if (jumping.current) { if (!at) return; jumping.current = false; }
+      var at = _chatGap(sc, innerRef.current) <= _CHAT_BOTTOM_PX;
+      // During the smooth scroll of Jump to latest the view moves down; a
+      // scroll up meanwhile is the user's and ends the jump.
+      if (jumping.current) {
+        if (!at && (seen === null || sc.scrollTop >= seen)) return;
+        jumping.current = false;
+      }
       atBottom.current = at;
       record(sc);
       setJump(!at);
@@ -3504,9 +3528,14 @@
     }
     // At the bottom: stay there. Otherwise: put the anchored row back where it was.
     function stick() {
-      var sc = _chatScroller(rootRef.current);
+      var sc = _chatScroller(rootRef.current, innerRef.current);
       if (!sc) return;
-      if (atBottom.current) { sc.scrollTop = sc.scrollHeight; own.current = sc.scrollTop; return; }
+      if (atBottom.current) {
+        if (sc !== document.scrollingElement) sc.scrollTop = sc.scrollHeight;
+        else { var gap = _chatGap(sc, innerRef.current); if (gap > 0.5) sc.scrollTop += gap; }
+        own.current = sc.scrollTop;
+        return;
+      }
       var a = anchor.current;
       if (!a) return;
       var rows = _chatRows(innerRef.current);
@@ -3521,7 +3550,7 @@
     React.useEffect(function() {
       var el = rootRef.current;
       if (!el) return;
-      function onScroll() { var sc = _chatScroller(el); if (sc) measure(sc); }
+      function onScroll() { var sc = _chatScroller(el, innerRef.current); if (sc) measure(sc); }
       el.addEventListener('scroll', onScroll, { passive: true });
       window.addEventListener('scroll', onScroll, { passive: true });
       var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(function() { stick(); }) : null;
@@ -3530,11 +3559,13 @@
         el.removeEventListener('scroll', onScroll);
         window.removeEventListener('scroll', onScroll);
         if (ro) ro.disconnect();
+        if (jumpTimer.current !== null) { clearTimeout(jumpTimer.current); jumpTimer.current = null; }
       };
     }, [!!chat]);
 
     var messages = chat && Array.isArray(chat.messages) ? chat.messages : [];
-    var cur = chat ? { id: chat.conversationId, loading: !!chat.loading, sending: !!chat.sending, messages: messages } : null;
+    var cur = chat ? { id: chat.conversationId, loading: !!chat.loading, sending: !!chat.sending, messages: messages,
+      loadingOlder: !!chat.loadingOlder, error: chat.error || null } : null;
     React.useLayoutEffect(function() {
       if (!cur) return;
       var p = prev.current;
@@ -3548,6 +3579,10 @@
       } else if (!atBottom.current && (p.messages !== cur.messages || cur.sending)) {
         setUnseen(true);
       }
+      // An error that ended an older load shows by its button (the user is at
+      // the top), until `error` changes.
+      if (p && p.loadingOlder && !cur.loadingOlder && cur.error && cur.error !== p.error) setOlderError(cur.error);
+      else if (olderError && cur.error !== olderError) setOlderError(null);
       stick();
     });
 
@@ -3558,6 +3593,11 @@
       kids.push(h('button', { key: 'older', type: 'button', dir: 'auto', 'data-testid': 'bow-chat-older', className: CHAT_LIST.older,
         disabled: !!chat.loadingOlder, onClick: function() { if (typeof chat.loadOlder === 'function') chat.loadOlder(); } },
         [chat.loadingOlder ? h(_LoadingSpinner, { key: 's', size: 12 }) : null, h('span', { key: 'l' }, L.olderMessages)]));
+    }
+    var olderShown = !!olderError && chat.error === olderError;
+    if (olderShown) {
+      kids.push(h('p', { key: 'older-error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-older-error', className: _join(CHAT_LIST.error, 'text-center') },
+        _chatLabelOf(olderError.message) || _chatLabelOf(olderError.code)));
     }
     messages.forEach(function(m, i) {
       if (!m || typeof m !== 'object') return;
@@ -3570,20 +3610,24 @@
     if (!chat.loading && !messages.length) {
       kids.push(h('div', { key: 'empty', 'data-testid': 'bow-chat-empty' }, props.empty == null ? null : props.empty));
     }
-    if (chat.error) {
+    if (chat.error && !olderShown) {
       kids.push(h('p', { key: 'error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-error', className: CHAT_LIST.error },
         _chatLabelOf(chat.error.message) || _chatLabelOf(chat.error.code)));
     }
     var jump = showJump ? h('div', { key: 'jump', className: 'pointer-events-none sticky bottom-0 flex h-0 items-end justify-center' },
       h('button', { type: 'button', dir: 'auto', 'data-testid': 'bow-chat-jump', 'data-unseen': unseen ? 'true' : undefined, className: CHAT_LIST.jump,
         onClick: function() {
-          var sc = _chatScroller(rootRef.current);
+          var sc = _chatScroller(rootRef.current, innerRef.current);
           atBottom.current = true;
           jumping.current = true;
           setJump(false);
           setUnseen(false);
-          if (sc) { try { sc.scrollTo({ top: sc.scrollHeight, behavior: 'smooth' }); } catch (e) { sc.scrollTop = sc.scrollHeight; } }
-          setTimeout(function() { jumping.current = false; }, 1000);
+          if (sc) {
+            var top = sc === document.scrollingElement ? sc.scrollTop + Math.max(0, _chatGap(sc, innerRef.current)) : sc.scrollHeight;
+            try { sc.scrollTo({ top: top, behavior: 'smooth' }); } catch (e) { sc.scrollTop = top; }
+          }
+          if (jumpTimer.current !== null) clearTimeout(jumpTimer.current);
+          jumpTimer.current = setTimeout(function() { jumpTimer.current = null; jumping.current = false; }, 1000);
         } }, [h(_Icon, { key: 'i', name: 'arrow-down', size: 14 }), h('span', { key: 'l' }, L.jumpToLatest)])) : null;
     return h('div', { ref: rootRef, role: 'log', 'aria-busy': !!chat.sending, 'data-testid': 'bow-chat-messages',
       className: _chatCls(CHAT_LIST.root, props.className), style: { overflowAnchor: 'none' } },

@@ -73,6 +73,13 @@ const msgApp = ({opts = null, mode = 'bounded', labels = 'undefined', empty = 'u
     var tab = React.useState('a');
     window.__setTab = tab[1];
     if (MODE === 'unbounded') return h('div', null, h(List, {chat: chat}));
+    if (MODE === 'footer') return h('div', null, [h(List, {key: 'l', chat: chat}), h('div', {key: 'f', id: 'footer', style: {height: '1500px'}}, 'a footer')]);
+    if (MODE === 'cardBelow') return h('div', null, [
+      h('div', {key: 'tall', id: 'tall', style: {height: '2000px'}}, 'the page above'),
+      h('div', {key: 'card', id: 'box', style: {height: '300px', display: 'flex', flexDirection: 'column'}}, h(List, {chat: chat}))]);
+    if (MODE === 'card') return h('div', null, [
+      h('div', {key: 'card', id: 'box', style: {height: '300px', display: 'flex', flexDirection: 'column'}}, h(List, {chat: chat})),
+      h('div', {key: 'tall', id: 'tall', style: {height: '2000px'}}, 'the rest of the page')]);
     if (MODE === 'hidden') return h('div', {id: 'hidebox', style: {display: 'none'}}, h(Box, {chat: chat}));
     if (MODE === 'tabs') return h(Tabs, {value: tab[0], onChange: tab[1], items: [
       {value: 'a', label: 'A', content: h('p', null, 'first tab')},
@@ -382,6 +389,111 @@ scenario('CM10 fixture mode: one send through ChatMessages renders two messages 
   await s.until((c) => !c.sending && c.messages.length === 2 && !String(c.messages[0].id).startsWith('local-'), 'the fixture answer');
   await s.waitFor(() => document.querySelectorAll('[data-testid="bow-chat-messages"] [data-testid="bow-chat-result"]').length === 2, null, 'two results');
   assert.equal(await s.dom(() => document.querySelectorAll('[data-testid="bow-chat-row"]').length), 2);
+  await s.done();
+});
+
+// ── review fixes ────────────────────────────────────────────────────────────
+scenario('CM6b a short fixed-height list above tall page content never scrolls the page', async (env) => {
+  const s = await start(env, {code: msgApp({opts: {conversationId: 'A'}, mode: 'card'}), viewport: {width: 1000, height: 600}, waitLoad: false});
+  await expectComponent(s);
+  const doc = () => s.dom(() => document.scrollingElement.scrollTop);
+  assert.ok(await s.dom(() => document.scrollingElement.scrollHeight > 2000), 'the page is taller than the frame');
+  const req = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(req.id, pageOf(history('n', 2)));
+  await s.until((c) => !c.loading && c.messages.length === 2, 'A loaded');
+  await settle(s);
+  assert.equal(await doc(), 0, 'the page stays at the top after the load');
+  const send = await sendStarted(s, 'q', 'm1');
+  await s.event(send.id, {type: 'text_delta', block: 'b1', text: 'a short answer'});
+  await settle(s);
+  assert.equal(await doc(), 0, 'the page stays at the top through a send');
+  await finish(s, send, pageOf([...history('n', 2), u('uq', 'q'), a('m1', 'a short answer')]));
+  await settle(s);
+  assert.equal(await doc(), 0, 'and after the re-read');
+  await s.done();
+});
+
+scenario('CM6c a short fixed-height list below tall page content never scrolls the page down to it', async (env) => {
+  const s = await start(env, {code: msgApp({opts: {conversationId: 'A'}, mode: 'cardBelow'}), viewport: {width: 1000, height: 600}, waitLoad: false});
+  await expectComponent(s);
+  const doc = () => s.dom(() => document.scrollingElement.scrollTop);
+  const req = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(req.id, pageOf(history('n', 2)));
+  await s.until((c) => !c.loading && c.messages.length === 2, 'A loaded');
+  await settle(s);
+  assert.equal(await doc(), 0, 'the page stays at the top after the load');
+  const send = await sendStarted(s, 'q', 'm1');
+  await s.event(send.id, {type: 'text_delta', block: 'b1', text: 'a short answer'});
+  await settle(s);
+  assert.equal(await doc(), 0, 'the page stays at the top through a send');
+  await finish(s, send, pageOf([...history('n', 2), u('uq', 'q'), a('m1', 'a short answer')]));
+  await s.done();
+});
+
+scenario('CM6d without a height, the document follows the transcript\'s end, not the page content after it', async (env) => {
+  const s = await start(env, {code: msgApp({opts: {conversationId: 'A'}, mode: 'footer'}), viewport: {width: 1000, height: 600}, waitLoad: false});
+  await expectComponent(s);
+  const req = await s.take('messages', (e) => e.args.id === 'A');
+  await s.reply(req.id, pageOf(history('n', 40)));
+  await s.until((c) => !c.loading && c.messages.length === 40, 'A loaded');
+  await settle(s);
+  const end = () => s.dom(() => document.querySelector('[data-testid="bow-chat-messages"] > div').getBoundingClientRect().bottom - document.scrollingElement.clientHeight);
+  assert.ok(Math.abs(await end()) <= 2, 'the transcript\'s end is at the bottom of the view: ' + await end());
+  assert.ok((await s.dom(() => document.scrollingElement.scrollHeight - document.scrollingElement.scrollTop - document.scrollingElement.clientHeight)) > 1000, 'the footer stays below');
+  const send = await sendStarted(s, 'q', 'm1');
+  await s.event(send.id, {type: 'text_delta', block: 'b1', text: 'line one\n\nline two\n\nline three'});
+  await settle(s);
+  assert.ok(Math.abs(await end()) <= 2, 'it follows the answer');
+  await finish(s, send, pageOf([...history('n', 40), u('uq', 'q'), a('m1', 'line one')]));
+  await s.done();
+});
+
+scenario('CM2c a user scroll up during the Jump to latest scroll is kept: the next delta does not snap back', async (env) => {
+  const s = await start(env, {code: msgApp()});
+  await expectComponent(s);
+  await load(s, 'A', history('n', 40));
+  await atBottom(s, 'loaded');
+  const req = await stream(s, (what) => atBottom(s, what));
+  const g = await geo(s);
+  await s.dom((top) => window.__scrollTo(top), g.top - 600);
+  await settle(s);
+  await s.event(req.id, {type: 'text_delta', block: 'b1', text: 'first '});
+  await s.waitFor(() => document.querySelector('[data-testid="bow-chat-jump"]'), null, 'the jump button');
+  await s.frame.click('[data-testid="bow-chat-jump"]');
+  await frames2(s);
+  await s.dom(() => window.__scrollTo(100));
+  await settle(s);
+  await s.event(req.id, {type: 'text_delta', block: 'b1', text: 'second'});
+  await s.until((c) => c.messages.at(-1).text.includes('second'), 'the delta');
+  await settle(s);
+  assert.ok(Math.abs((await geo(s)).top - 100) <= 2, 'the reader stays where they scrolled');
+  await s.done();
+});
+
+scenario('CM7b a failed older page shows its error by the Load earlier button, not below the last message', async (env) => {
+  const s = await start(env, {code: msgApp()});
+  await expectComponent(s);
+  await load(s, 'A', history('n', 40), 'k1');
+  await s.dom(() => window.__scrollTo(0));
+  await settle(s);
+  await s.frame.click('[data-testid="bow-chat-older"]');
+  let req = await s.take('messages', (e) => e.args.before === 'k1');
+  await s.fail(req.id, {code: 'RATE_LIMITED', message: 'Too many reads'});
+  await s.until((c) => c.error && !c.loadingOlder, 'the error');
+  await settle(s);
+  const seen = await s.dom(() => {
+    const p = document.querySelector('[data-testid="bow-chat-older-error"]');
+    if (!p) return null;
+    const r = p.getBoundingClientRect(), box = window.__list().getBoundingClientRect();
+    return [p.getAttribute('role'), p.getAttribute('dir'), p.textContent, r.top >= box.top && r.bottom <= box.bottom, !!document.querySelector('[data-testid="bow-chat-error"]')];
+  });
+  assert.deepEqual(seen, ['alert', 'auto', 'Too many reads', true, false], 'in view, next to the button, once');
+  await s.frame.click('[data-testid="bow-chat-older"]');
+  req = await s.take('messages', (e) => e.args.before === 'k1');
+  await s.reply(req.id, pageOf(history('o', 4), null));
+  await s.until((c) => c.messages.length === 44 && !c.error, 'the retry');
+  await settle(s);
+  assert.equal(await s.dom(() => document.querySelector('[data-testid="bow-chat-older-error"]')), null, 'gone after the retry');
   await s.done();
 });
 
