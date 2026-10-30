@@ -35,12 +35,46 @@ from app.ai.context.summary_write_through import (
 from app.ai.persisted_summary import (
     TOOL_CONTEXT_KIND_FIELD,
     TOOL_CONTEXT_OBSERVATION_KIND,
+    _clamp_row,
+    build_tool_context_summary,
     tool_context_for_replay,
 )
 
 
 _COMPACTION_OBSERVATION_MAX_CHARS_PER_TOOL = 3_000
 _COMPACTION_OBSERVATION_MAX_CHARS_TOTAL = 24_000
+
+# On artifact_chat threads (the dashboard bubble and app conversations) a
+# follow-up turn sees the rows behind its earlier answer, not just the first
+# one: at most this many whole rows, within this many JSON characters. Every
+# other report keeps the single-row history.
+HISTORY_RESULT_ROWS_ARTIFACT_CHAT = 10
+HISTORY_RESULT_ROWS_MAX_CHARS = 2000
+
+
+def _rows_json(rows: list) -> str:
+    """Rows as the prompt shows them (durable_transcript renders the same way)."""
+    return json.dumps(rows, default=str, ensure_ascii=False, separators=(",", ":"))
+
+
+def _history_rows(rows: Any, max_rows: int) -> list:
+    """The first ``max_rows`` whole rows whose rendered JSON fits the
+    character budget. Trailing rows are dropped; a row is never cut."""
+    if not isinstance(rows, list):
+        return []
+    kept = list(rows[:max_rows])
+    while kept and len(_rows_json(kept)) > HISTORY_RESULT_ROWS_MAX_CHARS:
+        kept.pop()
+    return kept
+
+
+def _preview_history_rows(projection: Any, max_rows: int) -> list:
+    """Clamped, budgeted rows from a create_data projection's data_preview."""
+    preview = projection.get("data_preview") if isinstance(projection, dict) else None
+    rows = preview.get("rows") if isinstance(preview, dict) else None
+    if not isinstance(rows, list):
+        return []
+    return _history_rows([_clamp_row(row) for row in rows], max_rows)
 
 
 def _json_value(value: Any) -> Any:
@@ -97,12 +131,19 @@ def _is_postgres_session(db: AsyncSession) -> bool:
         return False
 
 
-def _digest_data_result(rj: dict, allow_llm_see_data: bool, *, applied_params: dict | None = None) -> str:
+def _digest_data_result(
+    rj: dict,
+    allow_llm_see_data: bool,
+    *,
+    applied_params: dict | None = None,
+    max_rows: int = 1,
+) -> str:
     """One history digest for every tool whose result carries a
     ``data_preview`` (create_data, describe_entity): shape, column names,
-    chart type, viz id, the top row when data may be shown, and — for
-    parameterized results — the values it ran with, so a later turn can reuse
-    the result instead of reading or rebuilding it."""
+    chart type, viz id, the top row (or, with ``max_rows`` > 1, the first
+    rows within ``HISTORY_RESULT_ROWS_MAX_CHARS``) when data may be shown,
+    and — for parameterized results — the values it ran with, so a later turn
+    can reuse the result instead of reading or rebuilding it."""
     if not isinstance(rj, dict):
         return ""
     preview = rj.get('data_preview') or {}
@@ -144,6 +185,14 @@ def _digest_data_result(rj: dict, allow_llm_see_data: bool, *, applied_params: d
             parts.append(f"viz_id: {viz_ids[0]}")
     except Exception:
         pass
+    if allow_llm_see_data and max_rows > 1:
+        shown = _history_rows(preview_rows or rows, max_rows)
+        if shown:
+            try:
+                parts.append(f"rows (first {len(shown)} of {row_count}): {_rows_json(shown)}")
+                return "; ".join(parts)
+            except Exception:
+                pass
     if allow_llm_see_data:
         sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
         if sample_row:
@@ -924,6 +973,9 @@ class MessageContextBuilder:
         # refreshes. This matters for old read_query rows whose full JSON can
         # take PostgreSQL seconds to parse even when SQL returns only a digest.
         self._terminal_tool_context_cache: Dict[str, Any] = {}
+        # (execution id, max rows) -> the artifact_chat history rows of a
+        # terminal create_data call; see _with_history_rows.
+        self._history_rows_cache: Dict[tuple, list] = {}
         # Populated from the same batched block/tool query used to render the
         # conversation. AgentV2 adopts it once at run start, so durable replay
         # adds no query to the critical path.
@@ -1089,6 +1141,81 @@ class MessageContextBuilder:
         """Load one execution through the same bounded batch path as build()."""
         loaded = await self._load_tool_executions_for_context([str(tool_execution_id)])
         return loaded.get(str(tool_execution_id))
+
+    def _history_max_rows(self, allow_llm_see_data: bool) -> int:
+        if allow_llm_see_data and getattr(self.report, "report_type", None) == "artifact_chat":
+            return HISTORY_RESULT_ROWS_ARTIFACT_CHAT
+        return 1
+
+    async def _with_history_rows(
+        self, tool_exec_by_id: Dict[str, Any], max_rows: int
+    ) -> Dict[str, Any]:
+        """Give create_data history its earlier rows on artifact_chat threads.
+
+        The stored context summary keeps one create_data row. When
+        ``max_rows`` > 1, read the bounded ``data_preview`` rows from the
+        result and return copies of those executions whose summary and
+        result carry them. The loaded executions — the reuse cache and
+        everything persisted — are never modified.
+        """
+        if max_rows <= 1:
+            return tool_exec_by_id
+        ids = [
+            execution_id
+            for execution_id, execution in tool_exec_by_id.items()
+            if getattr(execution, "tool_name", None) == "create_data"
+            and getattr(execution, "status", None) == "success"
+        ]
+        if not ids:
+            return tool_exec_by_id
+        rows_by_id = {
+            execution_id: self._history_rows_cache[(execution_id, max_rows)]
+            for execution_id in ids
+            if (execution_id, max_rows) in self._history_rows_cache
+        }
+        missing = [execution_id for execution_id in ids if execution_id not in rows_by_id]
+        if missing:
+            try:
+                projections = await self._load_create_data_result_projections(missing)
+            except Exception:
+                projections = None
+            for execution_id in missing if projections is not None else ():
+                try:
+                    rows = _preview_history_rows(projections.get(execution_id), max_rows)
+                except Exception:
+                    rows = []
+                rows_by_id[execution_id] = rows
+                # Terminal executions never change, so their rows are read
+                # once per builder (the planner rebuilds history several
+                # times per loop iteration).
+                if tool_exec_by_id[execution_id].status in TERMINAL_TOOL_EXECUTION_STATUSES:
+                    self._history_rows_cache[(execution_id, max_rows)] = rows
+        enriched = dict(tool_exec_by_id)
+        for execution_id, rows in rows_by_id.items():
+            if len(rows) <= 1:
+                continue
+            execution = tool_exec_by_id[execution_id]
+            try:
+                summary = tool_context_for_replay(execution.context_summary_json)
+                if not isinstance(summary, dict):
+                    summary = build_tool_context_summary(
+                        "create_data", execution.result_json
+                    )
+                if not isinstance(summary, dict):
+                    continue
+                preview = summary.get("data_preview")
+                body = dict(summary)
+                body["data_preview"] = {
+                    **(preview if isinstance(preview, dict) else {}),
+                    "rows": list(rows),
+                }
+                enriched[execution_id] = SimpleNamespace(
+                    **{**vars(execution), "context_summary_json": body, "result_json": body}
+                )
+            except Exception:
+                # Malformed history data keeps today's history, never fails it.
+                continue
+        return enriched
 
     async def _load_tool_executions_for_context(
         self,
@@ -1500,6 +1627,7 @@ class MessageContextBuilder:
                 allow_llm_see_data = settings_dict.get("allow_llm_see_data", {}).get("value", True)
             except:
                 allow_llm_see_data = False  # Default to True if settings unavailable
+        history_max_rows = self._history_max_rows(allow_llm_see_data)
                     
         # Fetch only the most recent window instead of ALL completions then
         # slicing [-max_messages:] in Python (was O(conversation length) every
@@ -1616,6 +1744,13 @@ class MessageContextBuilder:
                     # Add tool execution details if available
                     if block.tool_execution_id:
                         tool_execution = await self._load_tool_execution_for_context(block.tool_execution_id)
+                        if tool_execution is not None:
+                            tool_execution = (
+                                await self._with_history_rows(
+                                    {str(block.tool_execution_id): tool_execution},
+                                    history_max_rows,
+                                )
+                            )[str(block.tool_execution_id)]
                         
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"
@@ -1654,7 +1789,7 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                                 # Digest for create_data results (same style as create_widget)
                                 elif tool_execution.tool_name == 'create_data' and tool_execution.result_json:
-                                    digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data)
+                                    digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data, max_rows=history_max_rows)
                                     if digest:
                                         tool_info += " - " + digest
                                 # Digest for describe_entity results: the entity plus the
@@ -1664,7 +1799,7 @@ class MessageContextBuilder:
                                     digest_parts = []
                                     if rj.get('title'):
                                         digest_parts.append(f"entity: {rj.get('title')}")
-                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None, max_rows=history_max_rows)
                                     if digest:
                                         digest_parts.append(digest)
                                     if digest_parts:
@@ -1677,7 +1812,7 @@ class MessageContextBuilder:
                                     digest_parts = []
                                     if rj.get('title'):
                                         digest_parts.append(f"ran query: {rj.get('title')}")
-                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None, max_rows=history_max_rows)
                                     if digest:
                                         digest_parts.append(digest)
                                     if digest_parts:
@@ -1968,6 +2103,7 @@ class MessageContextBuilder:
                 allow_llm_see_data = settings_dict.get("allow_llm_see_data", {}).get("value", True)
             except Exception:
                 allow_llm_see_data = False
+        history_max_rows = self._history_max_rows(allow_llm_see_data)
 
         summary_text = None
         if completion_ids is not None:
@@ -2155,6 +2291,9 @@ class MessageContextBuilder:
                     )
                 except Exception:
                     tool_exec_by_id = {}
+                tool_exec_by_id = await self._with_history_rows(
+                    tool_exec_by_id, history_max_rows
+                )
 
         # The live planner consumes provider-native tool turns below. The
         # rolling compactor intentionally uses the textual fold path instead,
@@ -2362,7 +2501,7 @@ class MessageContextBuilder:
                                             pass
                                 tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_data' and tool_execution.result_json:
-                                digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data)
+                                digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data, max_rows=history_max_rows)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_entity' and tool_execution.result_json:
@@ -2372,7 +2511,7 @@ class MessageContextBuilder:
                                 digest_parts = []
                                 if rj.get('title'):
                                     digest_parts.append(f"entity: {rj.get('title')}")
-                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None, max_rows=history_max_rows)
                                 if digest:
                                     digest_parts.append(digest)
                                 if digest_parts:
@@ -2383,7 +2522,7 @@ class MessageContextBuilder:
                                 digest_parts = []
                                 if rj.get('title'):
                                     digest_parts.append(f"ran query: {rj.get('title')}")
-                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None, max_rows=history_max_rows)
                                 if digest:
                                     digest_parts.append(digest)
                                 if digest_parts:
