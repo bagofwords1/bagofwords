@@ -740,6 +740,45 @@ def build_view_from_data_model(
     return None
 
 
+def sandbox_helpers_directive(lists_sink, browser, sb) -> str:
+    """Coder prompt text for the helpers this run actually has. Only enabled
+    helpers are described (as load_step is), so the coder never reaches for
+    one that would be None."""
+    parts = []
+    if lists_sink is not None:
+        names = "; ".join(
+            f"{l['slug']!r} (name {l['name']!r}, key {l['key']!r}, fields {', '.join(map(str, l['fields']))})"
+            for l in lists_sink.names()
+        )
+        parts.append(
+            "AGENT LISTS FROM CODE: add a `lists` parameter to generate_df to save rows to these Agent Lists: "
+            f"{names}. Call `lists.submit('<slug>', records)` where records is a list of dicts keyed by "
+            "field name (plain values; for an evidence-backed value use "
+            "{'value': v, 'status': 'found', 'evidence': [{'quote': exact_text_from_the_page, 'ref': page_url}]}). "
+            "Submit as you go (e.g. per page of results). Invalid values raise immediately; rows are saved only "
+            f"after the run succeeds, at most {sb.max_list_rows} rows per run. submit returns counts, not rows. "
+            "Still return a DataFrame of what you submitted (it is the step's result). "
+            "Only submit when the user asked to fill or update the list."
+        )
+    if browser is not None:
+        parts.append(
+            "BROWSER FROM CODE: add a `browser` parameter to generate_df for pages that need JavaScript or "
+            "clicking (pagination buttons, 'load more', tabs, filters). It drives one headless page: "
+            "browser.goto(url) -> {url, status}; browser.click(selector); browser.fill(selector, text); "
+            "browser.press(key, selector=None); browser.select(selector, value); browser.scroll(pixels=2000); "
+            "browser.wait_for(selector, timeout=15); browser.text(selector=None) -> str; "
+            "browser.html(selector=None) -> str; browser.query_all(selector, attrs=['href']) -> "
+            "list of {text, <attr>: value} (hrefs are absolute); browser.url() -> str. "
+            "Selectors are CSS or Playwright text selectors (\"text=Next\"). A missing element raises after the "
+            "timeout: check with query_all before clicking an optional control. "
+            f"Only URLs allowed by the browser connection open; at most {sb.max_pages} page loads per run. "
+            + ("" if sb.allow_mutating_requests else
+               "Form submissions (POST/PUT/DELETE) are blocked: the browser can only read. ")
+            + "Prefer `http` (no browser) for plain HTML pages; it is much faster."
+        )
+    return ("\n\n" + "\n\n".join(parts)) if parts else ""
+
+
 class CreateDataTool(Tool):
     # --- Visualization inference (post-execution) ---------------------------------------------
     @staticmethod
@@ -1404,6 +1443,86 @@ Do not use generic placeholders like "value" unless that is the actual column na
             payload["error_message"] = summary_line or detail[:300]
         return payload
 
+    async def _build_sandbox_helpers(self, runtime_ctx: Dict[str, Any], organization_settings):
+        """`lists` / `browser` for this run's generated code, per the org's
+        Sandbox settings, plus the prompt text that documents them. Returns
+        (None, "") when neither applies. Reruns and dashboard refreshes never
+        get these: only this tool passes them to the executor."""
+        from app.ai.code_execution.sandbox_helpers import (
+            PageTextStore, SandboxBrowser, SandboxHelpers, sandbox_settings,
+        )
+        sb = sandbox_settings(organization_settings)
+        if not (sb.lists or sb.browser):
+            return None, ""
+        lists_sink = None
+        browser = None
+        if sb.lists:
+            try:
+                from app.services.agent_lists.sandbox_sink import SandboxListSink, load_sandbox_lists
+                async with async_session_maker() as _db:
+                    _lists = await load_sandbox_lists(
+                        _db, runtime_ctx.get("report"), runtime_ctx.get("user"), runtime_ctx.get("organization"),
+                    )
+                if _lists:
+                    lists_sink = SandboxListSink(lists=_lists, max_rows=sb.max_list_rows)
+            except Exception as e:
+                logger.warning("create_data: sandbox lists unavailable: %s", e)
+        page_texts = PageTextStore()
+        if sb.browser:
+            from app.ai.tools.implementations._browser_common import get_browser_connection
+            conn = get_browser_connection(runtime_ctx)
+            if conn is not None:
+                patterns, _allow_dl = conn
+                browser = SandboxBrowser(
+                    asyncio.get_running_loop(), patterns=patterns,
+                    allow_mutating_requests=sb.allow_mutating_requests,
+                    max_pages=sb.max_pages, page_texts=page_texts,
+                )
+        if lists_sink is None and browser is None:
+            return None, ""
+        return (
+            SandboxHelpers(lists=lists_sink, browser=browser, page_texts=page_texts),
+            sandbox_helpers_directive(lists_sink, browser, sb),
+        )
+
+    async def _commit_sandbox_helpers(self, helpers, runtime_ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """Save queued list rows and summarize what the code did (counts only)."""
+        if helpers is None:
+            return {}
+        activity: Dict[str, Any] = dict(helpers.summary())
+        sink = helpers.lists
+        if sink is None:
+            return activity
+        pending = sink.take()
+        queued = sum(len(v) for v in pending.values())
+        if not queued:
+            return activity
+        activity["list_rows_queued"] = queued
+        try:
+            from app.services.agent_lists.sandbox_sink import commit_sandbox_submissions
+            async with async_session_maker() as _db:
+                res = await commit_sandbox_submissions(
+                    _db, pending,
+                    report=runtime_ctx.get("report"), user=runtime_ctx.get("user"),
+                    organization=runtime_ctx.get("organization"),
+                    tool_execution_id=runtime_ctx.get("tool_call_id"),
+                    extra_sources=helpers.page_texts.to_sources(),
+                )
+        except Exception as e:
+            logger.exception("create_data: saving list rows from code failed")
+            activity["lists"] = {"saved": False, "error": f"{type(e).__name__}: {e}"[:300]}
+            return activity
+        activity["lists"] = {
+            "inserted": res["inserted"], "updated": res["updated"], "unchanged": res["unchanged"],
+            "rejected": res["rejected"],
+            "per_list": [
+                {k: v for k, v in e.items() if k != "list_id"} for e in res["lists"]
+            ],
+        }
+        if res["errors"]:
+            activity["lists"]["errors"] = res["errors"][:12]
+        return activity
+
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -1581,17 +1700,19 @@ Do not use generic placeholders like "value" unless that is the actual column na
         # Check if we have any data sources (tables or files)
         total_resolved = sum(len(g.get("tables", [])) for g in resolved_tables)
 
-        # When `enable_web_fetch` is on, the sandbox exposes `http` to the
-        # coder — a URL-fetch task is a valid "no tables, no files" case.
+        # Sandbox helpers the org allows (Sandbox settings). Web fetch or a
+        # browser in code makes a URL task a valid "no tables, no files" case.
+        sandbox_helpers, helpers_directive = await self._build_sandbox_helpers(runtime_ctx, organization_settings)
         web_fetch_enabled = False
         try:
-            _ef = organization_settings.get_config("enable_web_fetch") if organization_settings else None
+            from app.ai.code_execution.sandbox_helpers import sandbox_settings as _sb_settings
             from app.schemas.report_api_settings import report_disabled_tools
-            web_fetch_enabled = bool(getattr(_ef, "value", False)) and (
+            web_fetch_enabled = _sb_settings(organization_settings).web_fetch and (
                 "web_fetch" not in report_disabled_tools(runtime_ctx.get("report"))
             )
         except Exception:
             web_fetch_enabled = False
+        web_fetch_enabled = web_fetch_enabled or bool(sandbox_helpers is not None and sandbox_helpers.browser is not None)
 
         if total_resolved == 0 and not has_files and not web_fetch_enabled:
             # No tables resolved AND no files available - fail. Distinguish the
@@ -1787,6 +1908,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             logger=None,
             context_hub=context_hub,
             usage_context=usage_ctx,
+            sandbox_helpers=sandbox_helpers,
         )
 
         # Declared parameters: resolve creator-default values (the creation run
@@ -1858,9 +1980,9 @@ Do not use generic placeholders like "value" unless that is the actual column na
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_context"})
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
-            user_prompt=(data.user_prompt or data.interpreted_prompt or "") + source_directive + params_directive,
+            user_prompt=(data.user_prompt or data.interpreted_prompt or "") + source_directive + params_directive + helpers_directive,
             interpreted_prompt=(
-                ((data.interpreted_prompt or "") + source_directive + params_directive)
+                ((data.interpreted_prompt or "") + source_directive + params_directive + helpers_directive)
                 if data.interpreted_prompt else None
             ),
             schemas_excerpt=(schemas_excerpt or ""),
@@ -2066,6 +2188,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
             },
         )
 
+        # Rows the code queued with `lists.submit` are saved only now, after
+        # the run succeeded; failed attempts already discarded theirs.
+        sandbox_activity = await self._commit_sandbox_helpers(sandbox_helpers, runtime_ctx)
+        if sandbox_activity.get("list_rows_queued"):
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_list_rows"})
+
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
         formatted = await streamer.format_df_for_widget_async(exec_df)
@@ -2206,6 +2334,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
             observation["view"] = view_payload
         if current_step_id:
             observation["step_id"] = current_step_id
+        if sandbox_activity:
+            observation["sandbox_activity"] = sandbox_activity
         run_span.set_attribute("tool.success", True)
         run_span.set_attribute("tool.chart_type", final_dm.get("type", "table"))
         # Keep only declarations the generated code actually consumes — a
@@ -2247,6 +2377,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         {k: v for k, v in (resolved_default_params or {}).items()}
                         if surviving_params else None
                     ),
+                    "sandbox_activity": sandbox_activity or None,
                 },
                 "observation": observation,
             },

@@ -84,6 +84,9 @@ def chromium_executable() -> Optional[str]:
         os.path.join(base, "chromium-*/chrome-linux/chrome"),
         os.path.join(base, "chromium-*/chrome-linux/headless_shell"),
         os.path.join(base, "chromium_headless_shell-*/chrome-linux/headless_shell"),
+        # Newer Playwright builds unpack into *-linux64 folders.
+        os.path.join(base, "chromium-*/chrome-linux64/chrome"),
+        os.path.join(base, "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
     ):
         hits = sorted(glob.glob(pat))
         if hits:
@@ -358,6 +361,11 @@ class BrowserSessionManager:
                 await s.egress.__aexit__(None, None, None)
             except Exception:
                 pass
+
+    async def close_session(self, session_id: str):
+        """Close one session by id (the sandbox's per-run browser)."""
+        async with self._lock:
+            await self._close(session_id)
 
     async def close_report(self, report_id: str):
         for sid, s in list(self._sessions.items()):

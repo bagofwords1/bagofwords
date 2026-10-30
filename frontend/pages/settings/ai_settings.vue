@@ -221,6 +221,10 @@ const FEATURE_PARENT: Record<string, string> = {
     enable_artifact_verification: 'allow_llm_see_data',
     enable_demo_data_generation: 'enable_training_mode',
     ml_training_row_limit: 'enable_ml_training',
+    sandbox_web_fetch_max_urls: 'enable_sandbox_web_fetch',
+    sandbox_browser_allow_mutating_requests: 'enable_sandbox_browser',
+    sandbox_browser_max_pages: 'enable_sandbox_browser',
+    sandbox_lists_max_rows: 'enable_sandbox_lists',
     checkins_max_per_user_per_week: 'enable_agent_checkins',
     checkins_max_runs_per_org_per_day: 'enable_agent_checkins',
     ai_suggestion_expiry_days: 'enable_agent_dreaming',
@@ -234,7 +238,9 @@ const FEATURE_PARENT: Record<string, string> = {
 // A backend setting not listed here lands in "other" so it never disappears.
 const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
-    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_load_step', 'enable_ml_training', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input'] },
+    // What generated code (create_data) may do beyond querying. All off by default.
+    { id: 'sandbox', keys: ['enable_sandbox_web_fetch', 'enable_sandbox_browser', 'enable_sandbox_lists', 'enable_load_step', 'enable_ml_training'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
     { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },

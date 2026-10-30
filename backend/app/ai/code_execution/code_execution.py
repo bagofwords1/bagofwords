@@ -28,8 +28,15 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     build_loadable_closures as _build_loadable_closures_impl,
     build_read_text as _build_read_text,
     invoke_generate_df as _invoke_generate_df_impl,
+    BrowserHelper,
+    ListsHelper,
 )
 from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
+from app.ai.code_execution.sandbox_helpers import (
+    MeteredHttp,
+    SandboxHelpers,
+    sandbox_settings,
+)
 
 # stdout capture for sandboxed user code.
 #
@@ -1270,11 +1277,15 @@ class StreamingCodeExecutor:
         logger=None,
         context_hub=None,
         usage_context: Optional[UsageLimitContext] = None,
+        sandbox_helpers: Optional[SandboxHelpers] = None,
     ):
         self.organization_settings = organization_settings
         self.logger = logger
         self.context_hub = context_hub
         self.usage_context = usage_context
+        # `browser` / `lists` for the agent's own create_data run only; reruns
+        # and refreshes construct the executor without them.
+        self.sandbox_helpers = sandbox_helpers
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
@@ -1333,26 +1344,35 @@ class StreamingCodeExecutor:
                 captured_column_titles=_column_titles,
             )
 
-            # Inject a sync HTTP client when the org has web fetch enabled. The
-            # client owns concurrency internally so model code never imports
-            # asyncio/threading/socket (all of which are AST-forbidden).
+            # Inject a sync HTTP client when the org allows web fetch in code.
+            # The client owns concurrency internally so model code never
+            # imports asyncio/threading/socket (all of which are AST-forbidden).
+            helpers = self.sandbox_helpers
             http_client = self._build_http_client()
             load_step_enabled = self._load_step_enabled()
 
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
-            if sandbox_mode() == MODE_INPROCESS:
-                df, output_log = self._execute_inprocess(
-                    code, wrapped_clients, excel_files, http_client,
-                    loadables=loadables, params=params, load_step_enabled=load_step_enabled,
-                    span=span,
-                )
-            else:
-                df, output_log = self._execute_sandboxed(
-                    code, wrapped_clients, excel_files, http_client,
-                    loadables=loadables, params=params, load_step_enabled=load_step_enabled,
-                    cancel_event=cancel_event, span=span,
-                )
+            if helpers is not None:
+                helpers.begin_attempt()
+            try:
+                if sandbox_mode() == MODE_INPROCESS:
+                    df, output_log = self._execute_inprocess(
+                        code, wrapped_clients, excel_files, http_client,
+                        loadables=loadables, params=params, load_step_enabled=load_step_enabled,
+                        span=span,
+                    )
+                else:
+                    df, output_log = self._execute_sandboxed(
+                        code, wrapped_clients, excel_files, http_client,
+                        loadables=loadables, params=params, load_step_enabled=load_step_enabled,
+                        cancel_event=cancel_event, span=span,
+                    )
+            finally:
+                if helpers is not None:
+                    if isinstance(http_client, MeteredHttp):
+                        helpers.urls_fetched += http_client.used
+                    helpers.end_attempt()
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
             # An empty result on top of a failed query means the code swallowed
@@ -1386,6 +1406,10 @@ class StreamingCodeExecutor:
         per-query timeout, rate limits, quotas and SQL validation all run on
         the trusted side exactly as they did in-process.
         """
+        helpers = self.sandbox_helpers
+        lists_sink = getattr(helpers, "lists", None)
+        browser = getattr(helpers, "browser", None)
+
         def _execute_query(client_key: str, args: list, kwargs: dict):
             client = wrapped_clients.get(client_key)
             if client is None:
@@ -1409,6 +1433,8 @@ class StreamingCodeExecutor:
             client_keys=[str(k) for k in (wrapped_clients or {}).keys()],
             http_enabled=http_client is not None,
             load_step_enabled=load_step_enabled,
+            lists_enabled=lists_sink is not None,
+            browser_enabled=browser is not None,
         )
 
         def _cancel_queries():
@@ -1421,6 +1447,9 @@ class StreamingCodeExecutor:
             execute_query=_execute_query,
             http_get=http_client.get if http_client is not None else None,
             http_batch_get=http_client.batch_get if http_client is not None else None,
+            lists_submit=lists_sink.submit if lists_sink is not None else None,
+            lists_available=lists_sink.names if lists_sink is not None else None,
+            browser_call=browser.call if browser is not None else None,
             cancel_event=cancel_event,
             on_abort=_cancel_queries,
             log=self.logger or logger,
@@ -1455,6 +1484,11 @@ class StreamingCodeExecutor:
         }
         if http_client is not None:
             local_namespace['http'] = http_client
+        helpers = self.sandbox_helpers
+        _sink = getattr(helpers, "lists", None)
+        _drv = getattr(helpers, "browser", None)
+        local_lists = ListsHelper(_sink.submit, _sink.names) if _sink is not None else None
+        local_browser = BrowserHelper(_drv.call) if _drv is not None else None
 
         wait_started = _time.monotonic()
         router = _stdout_router()
@@ -1472,7 +1506,7 @@ class StreamingCodeExecutor:
                 df = self._invoke_generate_df(
                     generate_df, wrapped_clients, excel_files, http_client,
                     load_step=load_step, load_entity=load_entity,
-                    params=params,
+                    params=params, lists=local_lists, browser=local_browser,
                 )
                 output_log = stdout_capture.getvalue()
                 lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
@@ -1511,22 +1545,21 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.swallowed_query_errors", len(errors))
         raise SwallowedQueryError(errors)
 
-    def _build_http_client(self) -> Optional[SafeHttpClient]:
-        """Return a SafeHttpClient when `enable_web_fetch` is on, else None.
-        A conversation that switched off web_fetch (report.tools) gets none."""
+    def _build_http_client(self) -> Optional["MeteredHttp"]:
+        """Return the code's `http` client when `enable_sandbox_web_fetch` is
+        on, else None. A conversation that switched off web_fetch
+        (report.tools) gets none. Each attempt gets a fresh URL budget."""
         settings = self.organization_settings
         if settings is None:
             return None
         from app.schemas.report_api_settings import report_disabled_tools
         if "web_fetch" in report_disabled_tools(getattr(self.context_hub, "report", None)):
             return None
-        try:
-            cfg = settings.get_config("enable_web_fetch")
-        except Exception:
+        sb = sandbox_settings(settings)
+        if not sb.web_fetch:
             return None
-        if cfg is None or not getattr(cfg, "value", False):
-            return None
-        return SafeHttpClient()
+        texts = getattr(self.sandbox_helpers, "page_texts", None)
+        return MeteredHttp(SafeHttpClient(), max_urls=sb.max_urls, page_texts=texts)
 
     def _load_step_enabled(self) -> bool:
         """Whether `load_step` is enabled for this org (default off)."""
@@ -1550,11 +1583,13 @@ class StreamingCodeExecutor:
         http_client: Optional[SafeHttpClient],
         load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
         params: Optional[Dict] = None,
+        lists: Any = None, browser: Any = None,
     ):
         """See sandbox.namespace.invoke_generate_df."""
         return _invoke_generate_df_impl(
             fn, wrapped_clients, excel_files, http_client,
             load_step=load_step, load_entity=load_entity, params=params,
+            lists=lists, browser=browser,
         )
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
