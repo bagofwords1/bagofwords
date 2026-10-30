@@ -833,6 +833,61 @@ scenario('R4 the late initial list keeps a conversation created meanwhile', asyn
   await s.done();
 });
 
+scenario('R5 a reload in flight does not clear an error a send applied meanwhile (create rejects)', async (env) => {
+  const s = await start(env);
+  await s.page.evaluate(() => { window.__host.auto.list = 'hold'; window.__host.auto.create = 'hold'; });
+  const before = (await s.log()).length;
+  await s.call('reload');
+  const list = await s.take('list', (e) => e.seq >= before);
+  await s.call('send', 'q1');
+  const create = await s.take('create');
+  await s.fail(create.id, {code: 'QUOTA_EXCEEDED', message: 'No more conversations'});
+  await s.until((c) => !c.sending && c.error, 'the create error');
+  await s.reply(list.id, page());
+  await sleep(200);
+  const c = await s.chat();
+  assert.deepEqual(c.messages.map((m) => m.status), ['error', 'error']);
+  assert.deepEqual(c.error, {code: 'QUOTA_EXCEEDED', message: 'No more conversations'}, 'the send error stays visible');
+  await s.done();
+});
+
+scenario('R5 a reload in flight across an early end does not clear INTERRUPTED (its list answered during the re-read)', async (env) => {
+  const s = await start(env);
+  const req = await sendStarted(s, 'q1', 'm1');
+  await s.event(req.id, {type: 'text_delta', block: 'b1', text: 'Part'});
+  await s.page.evaluate(() => { window.__host.auto.list = 'hold'; });
+  const before = (await s.log()).length;
+  await s.call('reload');
+  const list = await s.take('list', (e) => e.seq >= before);
+  await s.reply(req.id, null);
+  await s.until((c) => c.error && c.error.code === 'INTERRUPTED', 'the early end');
+  const read = await s.take('messages');
+  await s.reply(list.id, page(CONV));
+  await sleep(200);
+  let c = await s.chat();
+  assert.equal(c.error && c.error.code, 'INTERRUPTED', 'the reload list does not clear it during the re-read');
+  await s.reply(read.id, page(u('u1', 'q1'), a('m1', 'Part', {status: 'error'})));
+  c = await s.until((c) => !c.sending, 'the run end');
+  assert.equal(c.error && c.error.code, 'INTERRUPTED', 'still visible after the run end');
+  await s.done();
+});
+
+scenario('R6 the initial list rejects after the initial history error was cleared by select: chat.error is set', async (env) => {
+  const s = await start(env, {opts: {conversationId: 'X'}, auto: {list: 'hold'}, waitLoad: false});
+  const list = await s.take('list');
+  const hist = await s.take('messages', (e) => e.args.id === 'X');
+  await s.fail(hist.id, {code: 'UNAVAILABLE', message: 'history down'});
+  await s.until((c) => c.error, 'the history error');
+  await s.call('select', 'B');
+  const load = await s.take('messages', (e) => e.args.id === 'B');
+  await s.reply(load.id, page(u('b1', 'from B')));
+  await s.until((c) => !c.loading && c.messages.length === 1 && !c.error, 'B loaded, error cleared');
+  await s.fail(list.id, {code: 'UNAVAILABLE', message: 'list down'});
+  const c = await s.until((c) => c.error, 'the list error', 1500).catch((e) => { throw new Error('the list failure is silent: ' + e.message); });
+  assert.deepEqual([c.error.code, c.error.message, c.conversationId, c.conversations], ['UNAVAILABLE', 'list down', 'B', []]);
+  await s.done();
+});
+
 // ── L23, L24, L25, L26b ─────────────────────────────────────────────────────
 scenario('L23 the completed re-read returns the answer as in_progress: the local message is kept whole', async (env) => {
   const s = await start(env);

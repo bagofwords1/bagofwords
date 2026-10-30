@@ -2263,11 +2263,15 @@
     var c = {
       opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
-      held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {}
+      held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
+      errSeq: 0, errShown: false
     };
+    // `errSeq` counts every applied change of `error` (set or clear);
+    // `errShown` mirrors whether one is shown now.
     function put(action, gen) {
       if (!c.mounted || (gen !== undefined && gen !== c.gen)) return false;
       dispatch(action);
+      if (action.patch && _chatHas(action.patch, 'error')) { c.errSeq++; c.errShown = !!action.patch.error; }
       return true;
     }
     function noop() {}
@@ -2312,11 +2316,16 @@
       var gen = c.gen, id = c.initialId;
       c.count = 0;
       if (id) c.convId = id;
-      // The first applied error wins. The policy and the list do not belong to
-      // one conversation, so their errors apply in any generation while mounted;
-      // the initial history's error only in its own generation.
+      // The first applied error wins while it (or a later error) is still shown;
+      // once select, newConversation or a send cleared it, a later one applies.
+      // The policy and the list do not belong to one conversation, so their
+      // errors apply in any generation while mounted; the initial history's
+      // error only in its own generation.
       var reported = false;
-      function report(e, g) { if (!reported && put({ type: 'apply', patch: { error: _chatError(e) } }, g)) reported = true; }
+      function report(e, g) {
+        if (reported && c.errShown) return;
+        if (put({ type: 'apply', patch: { error: _chatError(e) } }, g)) reported = true;
+      }
       var policyWait = Promise.resolve().then(function() { return conv.policy(); }).then(function(p) {
         c.policy = p || null;
         put({ type: 'apply', patch: { policy: c.policy } });
@@ -2612,15 +2621,16 @@
     c.reload = function() {
       var conv = _chatConv();
       if (!conv || !c.mounted) return Promise.resolve();
-      // A failure sets `error` in this generation; a reload without one clears it.
-      var gen = c.gen, failed = false;
+      // A failure sets `error` in this generation; a reload without one clears
+      // it, unless anything else changed `error` while the reload was in flight.
+      var gen = c.gen, failed = false, errSeq = c.errSeq;
       function fail(e) { failed = true; put({ type: 'apply', patch: { error: _chatError(e) } }, gen); }
       var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
         put({ type: 'apply', patch: { conversations: _chatItems(res) } });
       }, fail)];
       if (c.convId && !c.run) tasks.push(reread(c.convId, null, fail));
       return Promise.all(tasks).then(function() {
-        if (!failed) put({ type: 'apply', patch: { error: null } }, gen);
+        if (!failed && c.errSeq === errSeq) put({ type: 'apply', patch: { error: null } }, gen);
       }).then(noop, noop);
     };
 
