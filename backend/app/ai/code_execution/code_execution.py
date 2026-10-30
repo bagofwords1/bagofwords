@@ -202,6 +202,7 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig,
 from app.data_sources import query_concurrency
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+from app.ai.code_execution.table_scope import TableScopeViolation, enforce_table_scope
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -298,6 +299,17 @@ class UnsafePythonError(CodeSecurityError):
 class UnsafeSQLError(CodeSecurityError):
     """Raised when SQL query contains dangerous operations."""
     pass
+
+
+class TableAccessError(CodeSecurityError):
+    """Raised when SQL reads a table that is not activated for the agent, or
+    when the tables it reads cannot be verified (see table_scope).
+
+    Terminal: if generated code catches it and carries on, the run still
+    fails (see _raise_if_query_errors_were_swallowed) instead of answering
+    from whatever it fell back to.
+    """
+    terminal_execution_error = True
 
 
 class QueryTimeoutError(AppError):
@@ -893,6 +905,12 @@ class QueryCapturingClientWrapper:
                     ensure_read_only(self._original, query)
                 except ReadOnlyViolation as e:
                     raise UnsafeSQLError(str(e)) from e
+                # The agent's table selection holds at query time, not only in
+                # the schema it is shown.
+                try:
+                    enforce_table_scope(self._original, query)
+                except TableScopeViolation as e:
+                    raise TableAccessError(str(e)) from e
                 self._enforce_rate_limit(capture)
                 self._consume_query_quota(capture)
                 # Hold a per-connection concurrency slot for the duration of
@@ -2130,7 +2148,12 @@ class StreamingCodeExecutor:
                 break
             except CodeSecurityError as e:
                 # Tag security violations distinctly so callers can audit them
-                violation_type = "unsafe_python" if isinstance(e, UnsafePythonError) else "unsafe_sql"
+                if isinstance(e, UnsafePythonError):
+                    violation_type = "unsafe_python"
+                elif isinstance(e, TableAccessError):
+                    violation_type = "table_access"
+                else:
+                    violation_type = "unsafe_sql"
                 msg = f"Security violation ({violation_type}): {str(e)}"
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "security_violation", "payload": {"violation_type": violation_type, "message": str(e), "code_snippet": final_code[:500]}}
