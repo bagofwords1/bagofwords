@@ -4671,6 +4671,20 @@
       "stillFailing": "{failed} siguen fallando al ejecutarse de nuevo."
     }
   },
+  "artifactActivity": {
+    "title": "Registro de actividad",
+    "retention": "Lo que hizo la aplicación mientras se usaba en el editor o la comprobaba el agente. Se conserva {days} días, los {count} más recientes por conversación.",
+    "errorsOnly": "Solo errores",
+    "refresh": "Actualizar",
+    "empty": "Todavía no hay nada registrado.",
+    "emptyErrors": "No hay errores registrados.",
+    "emptyHint": "Abre la aplicación y úsala: las solicitudes, filtros, clics y errores aparecen aquí, y el agente ve los fallos.",
+    "sources": {
+      "all": "Todas las fuentes",
+      "editor": "Editor",
+      "preview": "Vista previa"
+    }
+  },
   "filter": {
     "selectColumn": "Selecciona una columna",
     "visualization": "Visualización"

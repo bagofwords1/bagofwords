@@ -80,6 +80,34 @@ def test_an_editor_s_activity_is_recorded_for_their_conversation(corpus, corpus_
     assert rows[1]["error_code"] == "conversation.agent_forbidden"
 
 
+def test_the_editor_reads_the_log_back_newest_first(corpus, corpus_rows, test_client):
+    aid = own(corpus_rows, corpus, DASH)
+    publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+    owner = as_(corpus, "owner")
+    test_client.post(path(aid), json=batch(
+        {"kind": "click", "seq": 1, "detail": {"target": "button 'Send'"}}, {**FAILED_SEND, "seq": 2}), headers=owner)
+
+    r = test_client.get(path(aid), headers=owner)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [e["kind"] for e in body["events"]] == ["request", "click"]  # newest first
+    failed, click = body["events"]
+    assert failed["failed"] is True and failed["source"] == "editor"
+    assert failed["error_code"] == "conversation.agent_forbidden"
+    assert failed["text"].startswith("conversations.create") and "You can't use that agent here" in failed["text"]
+    assert click["failed"] is False and click["text"] == "clicked button 'Send'"
+    assert failed["created_at"].endswith("Z")
+    assert body["retention_days"] == artifact_activity.RETENTION_DAYS
+    only = test_client.get(path(aid), params={"only_errors": "true"}, headers=owner).json()["events"]
+    assert [e["id"] for e in only] == [failed["id"]]
+    assert test_client.get(path(aid), params={"source": "preview"}, headers=owner).json()["events"] == []
+    # Readers of the published app, anonymous callers and other orgs are told nothing.
+    assert test_client.get(path(aid), headers=as_(corpus, "member")).status_code == 404
+    assert test_client.get(path(aid), headers=as_(corpus, "anonymous")).status_code == 401
+    assert test_client.get(path(aid), headers=as_(corpus, "other_org")).status_code in (403, 404)
+
+
 def test_readers_anonymous_callers_and_embed_sessions_are_never_recorded(corpus, corpus_rows, test_client):
     aid = own(corpus_rows, corpus, DASH)
     publish(aid)

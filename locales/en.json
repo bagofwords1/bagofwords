@@ -4751,6 +4751,20 @@
       "stillFailing": "{failed} still failed when run again."
     }
   },
+  "artifactActivity": {
+    "title": "Activity log",
+    "retention": "What the app did while it was used in the editor or checked by the agent. Kept {days} days, newest {count} per conversation.",
+    "errorsOnly": "Errors only",
+    "refresh": "Refresh",
+    "empty": "Nothing recorded yet.",
+    "emptyErrors": "No errors recorded.",
+    "emptyHint": "Open the app and use it: requests, filters, clicks and errors appear here, and the agent sees the failures.",
+    "sources": {
+      "all": "All sources",
+      "editor": "Editor",
+      "preview": "Preview"
+    }
+  },
   "filter": {
     "selectColumn": "Select column",
     "visualization": "Visualization"

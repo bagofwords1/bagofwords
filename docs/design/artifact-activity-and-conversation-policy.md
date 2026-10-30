@@ -1,8 +1,9 @@
 # Next work: app conversation policy and artifact activity
 
 Status: **§1 (conversation policy), §2 (activity log), §3 (preview evidence) and
-§4 (agent context) are implemented**; §5 (the Activity window) and the
-"Fix with BOW" toast are not started (no UI yet). As-built notes for §2–§4 are in
+§4 (agent context) are implemented**, and §5 ships in its simple form (the
+Activity log panel, see §5); row detail, "Ask BOW about this" and the
+"Fix with BOW" toast are not started. As-built notes for §2–§4 are in
 §2.3 below. Written 2026-10-29 on
 `ai/exciting-goodall-m7toth` as the follow-up to `docs/design/embedded-artifacts.md`.
 
@@ -252,6 +253,19 @@ Analytics in `components/dashboard/ArtifactFrame.vue`):
 
 It reads the §2 table and adds no plumbing. Session-only view; viewer history
 would be telemetry, a separate privacy decision.
+
+**As built (simple form).** `components/dashboard/ArtifactActivityLog.vue`,
+opened from the ⋯ menu ("Activity log", editors only, next to History). One
+list, newest first: time (with the date when not today), source (Editor /
+Preview), version, one-line description; failures in red. Filters: source,
+"Errors only"; a Refresh button. It reads
+`GET /api/artifacts/{id}/runtime/activity` (`routes/artifact_activity.py`),
+which takes the same editor-only gate as the POST and returns each event's
+`created_at`, `kind`, `source`, `version`, `status`, `error_code`, `failed` and
+`text` (`artifact_activity.describe`, the part of the agent's line after its
+prefix). Not yet: row detail, kind filter, "Ask BOW about this". Evidence:
+`media/pr/embedded-artifacts/94-activity-log.png`,
+`95-activity-log-errors-only.png`; flow: `tools/agent/embed/activity_log_panel.mjs`.
 
 ## 6. How others do it (checked 2026-10-29)
 

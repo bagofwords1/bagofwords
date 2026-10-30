@@ -152,6 +152,10 @@
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
           @history-changed="onHistoryChanged" />
+        <!-- The app's activity log (what it did while editors or the agent's
+             preview used it), opened from the ⋯ menu. Editors only. -->
+        <ArtifactActivityLog v-if="report && selectedArtifact?.artifact_id" ref="activityLogRef"
+          :artifact-id="selectedArtifact.artifact_id" :report-id="reportId" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -643,6 +647,7 @@ import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
+import ArtifactActivityLog from './ArtifactActivityLog.vue';
 import DashboardStart from './DashboardStart.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
@@ -1882,6 +1887,7 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+const activityLogRef = ref<InstanceType<typeof ArtifactActivityLog> | null>(null);
 // Remounting the Publish button re-reads what readers see now.
 const publishKey = ref(0);
 // A roll back changes what is live; a transfer changes who may do what.
@@ -2029,6 +2035,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     const inspectors = [];
     // History: the conversations, versions and releases (Roll back) -- editors.
     if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { settingsModalRef.value?.open('versions'); } });
+    // Activity log: what the app did while it was used (requests, filters, clicks, errors) -- editors.
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('artifactActivity.title'), icon: 'i-heroicons-clipboard-document-list', testid: 'activity-log-menu', click: () => { activityLogRef.value?.open(); } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);

@@ -141,10 +141,16 @@ async def prune(db, *, report_id: Optional[str] = None, artifact_id: Optional[st
 # ── reading ────────────────────────────────────────────────────────────────
 
 def line(e: ArtifactActivityEvent) -> str:
-    """One compact, readable line for the agent."""
-    d = e.detail or {}
+    """One compact, readable line for the agent: when, who, which version, what."""
     when = e.created_at.strftime("%H:%M:%S") if e.created_at else ""
     who = "preview" if e.source == "preview" else "editor"
+    version = f" v{e.artifact_version}" if e.artifact_version is not None else ""
+    return f"{when} {who}{version} {describe(e)}".strip()
+
+
+def describe(e: ArtifactActivityEvent) -> str:
+    """What happened, in a few words (the part of ``line`` after its prefix)."""
+    d = e.detail or {}
     if e.kind == "click":
         text = f"clicked {d.get('target') or 'an element'}"
     elif e.kind == "request":
@@ -173,8 +179,7 @@ def line(e: ArtifactActivityEvent) -> str:
             text += f" failed{': ' + d['message'] if d.get('message') else ''}"
     else:  # error / console
         text = f"{e.kind}: {d.get('message') or e.error_code or 'unknown'}"
-    version = f" v{e.artifact_version}" if e.artifact_version is not None else ""
-    return f"{when} {who}{version} {text}".strip()
+    return text
 
 
 def is_failure(e: ArtifactActivityEvent) -> bool:
