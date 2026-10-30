@@ -840,6 +840,13 @@ async def create_dashboard_chat_completion(
     completion.prompt.mode = "chat"
     completion.prompt.platform = "artifact_chat"
     completion.prompt.platform_context = await dashboard_chat.build_context(db, artifact, release, agent_ids, user)
+    # The host's current context (the bubble inside a host application):
+    # advisory prompt text in platform_context only, never kept on the prompt
+    # and never used for access or queries.
+    host_context = dashboard_chat.sanitize_host_context(completion.prompt.host_context)
+    if host_context:
+        completion.prompt.platform_context["host_context"] = host_context
+    completion.prompt.host_context = None
     try:
         completion.queue = False
     except Exception:

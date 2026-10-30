@@ -77,6 +77,10 @@ class PromptSchema(BaseModel):
     model_id: Optional[str] = None
     platform: Optional[str] = None  # 'excel', 'slack', 'teams', etc. None = web
     platform_context: Optional[Dict[str, Any]] = None  # Platform-specific context (e.g. Excel selection data)
+    # Set only by the dashboard bubble in a host embed; the dashboard route
+    # moves it into platform_context; every other route ignores it.
+    # Prompt text only (advisory, unverified): never used for access or queries.
+    host_context: Optional[Dict[str, Any]] = None
     # Per-completion reasoning effort (the model picker's level). Resolution:
     #   per-completion > report level > trigger words > LLMModel.config default > off
     # None = Default. Each provider client clamps it to what the model accepts.

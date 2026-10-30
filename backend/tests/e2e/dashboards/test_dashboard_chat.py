@@ -171,3 +171,91 @@ def test_messages_and_threads_stay_with_their_reader(corpus, corpus_rows, test_c
     theirs = test_client.get(path, headers=as_(corpus, "admin")).json()
     assert theirs["report_id"] is None  # the admin's own (none yet), never the member's
     assert test_client.get(f"{path}/abc/stream", headers=as_(corpus, "admin")).status_code == 404
+
+
+# ── host context (finding 2) ─────────────────────────────────────────────
+
+def _capture_completion(monkeypatch) -> list:
+    """Stop at the completion service (the model is not run) and keep what
+    the route handed it."""
+    from app.services.completion_service import CompletionService
+
+    seen: list = []
+
+    async def fake_stream(self, db, report_id, completion, user, organization, *args, **kwargs):
+        seen.append({"report_id": report_id, "prompt": completion.prompt.model_copy(deep=True)})
+        return {"captured": True}
+
+    monkeypatch.setattr(CompletionService, "create_completion_stream", fake_stream)
+    return seen
+
+
+@pytest.mark.e2e
+def test_the_bubble_hands_the_hosts_context_to_the_message_as_advisory_context(
+        corpus, corpus_rows, test_client, monkeypatch):
+    """Inside a host application the bubble sends the host's current context.
+    It reaches the message's platform context, small JSON objects only, and
+    never stays on the prompt itself."""
+    aid = _chatty(corpus, corpus_rows, test_client, f"{CONV}/dash_sales", chat_data_source_ids=[])
+    path = f"/api/d/{aid}/chat/completions"
+    seen = _capture_completion(monkeypatch)
+    hc = {"customerId": "C-14", "region": "EMEA"}
+
+    sent = test_client.post(path, json={"prompt": {"content": "what did this customer buy?", "host_context": hc}},
+                            headers=as_(corpus, "member"))
+    assert sent.status_code == 200 and sent.json() == {"captured": True}
+    prompt = seen[-1]["prompt"]
+    assert prompt.platform == "artifact_chat"
+    assert prompt.platform_context["host_context"] == hc
+    assert prompt.platform_context["artifact_title"] == "לוח מכירות"  # the server's own context is still there
+    assert prompt.host_context is None
+
+    for dropped in ({"k": "x" * 3000}, {f"k{i}": i for i in range(21)}):
+        assert test_client.post(path, json={"prompt": {"content": "and now?", "host_context": dropped}},
+                                headers=as_(corpus, "member")).status_code == 200
+        prompt = seen[-1]["prompt"]
+        assert "host_context" not in prompt.platform_context and prompt.host_context is None
+    sent_count = len(seen)
+    for not_an_object in ("C-14", ["C-14"]):  # refused by the schema before anything runs
+        assert test_client.post(path, json={"prompt": {"content": "and now?", "host_context": not_an_object}},
+                                headers=as_(corpus, "member")).status_code == 422
+    assert len(seen) == sent_count
+
+    assert test_client.post(path, json={"prompt": {"content": "no host"}},
+                            headers=as_(corpus, "member")).status_code == 200
+    assert "host_context" not in seen[-1]["prompt"].platform_context
+
+
+@pytest.mark.e2e
+def test_host_context_cannot_widen_what_a_reader_may_see(corpus, corpus_rows, test_client, monkeypatch):
+    """Host context is prompt text only: naming another user, a role, or the
+    owner does not change the rows the reader's message is given."""
+    aid = _chatty(corpus, corpus_rows, test_client, "identity_param/dash", chat_data_source_ids=[])
+    seen = _capture_completion(monkeypatch)
+    owner_id = corpus.cast.id("owner")
+    hc = {"user_id": owner_id, "role": "admin", "as": "owner", "customer_id": "C-14"}
+    assert test_client.post(f"/api/d/{aid}/chat/completions",
+                            json={"prompt": {"content": "show me everything", "host_context": hc}},
+                            headers=as_(corpus, "member")).status_code == 200
+    ctx = seen[-1]["prompt"].platform_context
+    assert ctx["host_context"] == hc
+    without = dict(ctx)
+    without.pop("host_context")
+    theirs, _ = _context(corpus, aid, "member")
+    assert without == theirs  # exactly the reader's own context, rows withheld as before
+    assert ctx["visualizations"] and all(v["rows"] == [] for v in ctx["visualizations"])
+
+
+@pytest.mark.e2e
+def test_the_conversations_own_chat_drops_host_context(corpus, corpus_rows, test_client, monkeypatch):
+    rid = corpus.reports[CONV]
+    assert test_client.put(f"/api/reports/{rid}/visibility/artifact",
+                           json={"visibility": "internal", "artifact_chat_enabled": True},
+                           headers=as_(corpus, "owner")).status_code == 200
+    seen = _capture_completion(monkeypatch)
+    assert test_client.post(f"/api/r/{rid}/chat/completions",
+                            json={"prompt": {"content": "hi", "host_context": {"customerId": "C-14"}}},
+                            headers=as_(corpus, "member")).status_code == 200
+    prompt = seen[-1]["prompt"]
+    assert prompt.host_context is None
+    assert "host_context" not in (prompt.platform_context or {})

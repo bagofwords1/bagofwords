@@ -353,6 +353,7 @@
             :base="api.chatBase"
             :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
+            :host-context="props.hostContext ?? null"
         />
 
         <ArtifactResourceExplorer

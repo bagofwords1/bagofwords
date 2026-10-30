@@ -148,6 +148,7 @@ async def create_chat_completion(
     completion.prompt.platform_context = await artifact_chat_service.build_platform_context(
         db, report, agent_ids, viewer=user
     )
+    completion.prompt.host_context = None  # only the dashboard bubble in a host embed sends it
     try:
         completion.queue = False
         completion.queue_if_busy = False

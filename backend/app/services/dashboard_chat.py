@@ -17,11 +17,15 @@ the dashboard instead of the conversation:
   conversation it was made in may be gone);
 - the context: the live release -- its title and, in data-only scope, its
   charts with the rows this reader may see (ReleaseRender), never the stored
-  snapshot as such.
+  snapshot as such. Inside a host application the bubble also sends the
+  host's current context (sanitize_host_context): advisory prompt text only,
+  never used for access or queries.
 
 It outlives the conversation: nothing here reads it.
 """
+import json
 import uuid
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -30,6 +34,11 @@ from app.models.artifact import Artifact
 from app.models.artifact_release import ArtifactRelease
 from app.models.report import Report
 from app.services.artifact_chat_service import MAX_CONTEXT_ROWS_PER_VIZ, artifact_chat_service
+
+# Host context (what the host application says the viewer is looking at, from
+# embed.updateContext) is kept only when it is a small JSON object.
+HOST_CONTEXT_MAX_CHARS = 2048
+HOST_CONTEXT_MAX_KEYS = 20
 
 
 async def open_chat(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]:
@@ -134,3 +143,20 @@ async def build_context(db, artifact: Artifact, release: ArtifactRelease, agent_
             "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ], "total_rows": len(v.get("rows") or []),
         } for v in charts]
     return context
+
+
+def sanitize_host_context(value: Any) -> dict | None:
+    """The host's context for a bubble message, or None: a non-empty dict with
+    string keys, at most HOST_CONTEXT_MAX_KEYS keys and HOST_CONTEXT_MAX_CHARS
+    serialized characters. Values pass through as JSON. It is advisory and
+    unverified (any allowed host page can set it): prompt text only, it grants
+    no access."""
+    if not isinstance(value, dict) or not value or len(value) > HOST_CONTEXT_MAX_KEYS:
+        return None
+    if not all(isinstance(k, str) for k in value):
+        return None
+    try:
+        serialized = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return None
+    return value if len(serialized) <= HOST_CONTEXT_MAX_CHARS else None
