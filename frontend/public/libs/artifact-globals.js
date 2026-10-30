@@ -3448,7 +3448,7 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Chat components — ChatMessages, ChatComposer, ChatThreads (compose with useConversation)
+  // Chat components — ChatMessages, ChatComposer, ChatThreads, ChatSuggestions (compose with useConversation)
   // ═══════════════════════════════════════════════════════════════════════════
   // Each takes the hook's object as `chat`. They reach ChatMessage, Icon,
   // LoadingSpinner, Modal and Drawer through this closure (captured here, after
@@ -3900,6 +3900,35 @@
     return h('div', { 'data-testid': 'bow-chat-threads-root', className: _chatCls(CHAT_THREADS.root, props.className) }, [body, modal]);
   }
   window.ChatThreads = ChatThreads;
+
+  var CHAT_SUGGEST = LEGACY ? {
+    root: 'flex flex-wrap gap-2',
+    item: 'rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800'
+  } : {
+    root: 'flex flex-wrap gap-2',
+    item: 'rounded-chip border border-line bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-surface-2 disabled:opacity-50'
+  };
+
+  // <ChatSuggestions chat={chat} items={['…', {label, text}]} className />
+  // Starter questions: a click sends one (never on mount); shown only while
+  // the conversation is loaded, empty and available.
+  function ChatSuggestions(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    if (!chat || chat.loading || (Array.isArray(chat.messages) && chat.messages.length) || (chat.policy && chat.policy.available === false)) return null;
+    var items = (Array.isArray(props.items) ? props.items : []).map(function(x) {
+      if (typeof x === 'string') return { label: x, text: x };
+      if (!x || typeof x !== 'object') return null;
+      var label = _chatLabelOf(x.label) || _chatLabelOf(x.text), text = _chatLabelOf(x.text) || _chatLabelOf(x.label);
+      return { label: label, text: text };
+    }).filter(function(x) { return x && x.text.trim() && x.label.trim(); });
+    if (!items.length) return null;
+    return h('div', { 'data-testid': 'bow-chat-suggestions', className: _chatCls(CHAT_SUGGEST.root, props.className) }, items.map(function(it, i) {
+      return h('button', { key: i, type: 'button', dir: 'auto', 'data-testid': 'bow-chat-suggestion', disabled: !!chat.sending, className: CHAT_SUGGEST.item,
+        onClick: function() { if (typeof chat.send === 'function') chat.send(it.text); } }, it.label);
+    }));
+  }
+  window.ChatSuggestions = ChatSuggestions;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc

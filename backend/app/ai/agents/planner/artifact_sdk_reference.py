@@ -63,18 +63,19 @@ owner's choice or the viewer's default. No setting needs switching on. Pass
 only their own conversations. When policy().available is false, show its reason
 (auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
-send loop, the stream event handling or the result rendering yourself.
+send loop, stream handling, composer keys, scrolling or result rendering yourself.
 const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component; it reopens a conversation still answering
 // {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder, rename, archive}
 // messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
 // conversations: [{id,title,created_at,updated_at,in_progress}]. error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
-// chat.stop() while chat.answering (sending, or an answer left running: only stop() stops it); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
+// chat.stop() while chat.answering (sending, or an answer left running: only stop() stops it); chat.select(id); chat.newConversation().
 <ChatMessages chat={chat} empty={node}/> // the scrolling list: opens at the newest message, follows the answer only while
 //   the user is at the bottom, "Jump to latest", "Load earlier messages", chat.error. Needs a bounded height (flex-1 in a fixed-height column).
 <ChatComposer chat={chat} placeholder="..."/> // Enter sends, Shift+Enter new line, Stop while answering, the reason when unavailable
 <ChatThreads chat={chat}/> // conversation list: select, new, rename, archive, a spinner while an answer runs; a drawer on narrow screens
+<ChatSuggestions chat={chat} items={['...']}/> // starter questions: send on click, hidden once there are messages
 <ChatMessage message={m}/> // one message (ChatMessages renders them): markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
@@ -82,8 +83,9 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 //   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
 function Chat(){const chat=useConversation();
   return <div className="flex h-screen"><ChatThreads chat={chat}/><div className="flex min-w-0 flex-1 flex-col">
-    <ChatMessages chat={chat}/><ChatComposer chat={chat}/></div></div>;}
-You design the layout, composer, empty state and list (chat.conversations).
+    <ChatMessages chat={chat} empty={<ChatSuggestions chat={chat} items={['Revenue by month?']}/>}/>
+    <ChatComposer chat={chat}/></div></div>;}
+You arrange them; style around them, not inside them.
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20, before}); // newest first, items as chat.conversations
