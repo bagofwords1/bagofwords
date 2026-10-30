@@ -6540,6 +6540,7 @@ class AgentV2:
                                 _browser_session = session_manager.get(tool_input.get("session_id"), {
                                     "organization": self.organization, "user": getattr(self.head_completion, "user", None),
                                     "report": self.report, "agent_execution_id": str(self.current_execution.id),
+                                    "sub_agent_id": self._sub_agent_id,
                                 }) if tool_input.get("session_id") else None
                                 _verifying = (tool_name == "browser_navigate" and bool(tool_input.get("artifact_id"))) or (
                                     tool_name.startswith("browser_") and _browser_session is not None and _browser_session.preview is not None)
@@ -9058,8 +9059,13 @@ class AgentV2:
                "report": self.report,
                "user": getattr(self.head_completion, "user", None) if self.head_completion else None,
                "agent_execution_id": str(self.current_execution.id) if self.current_execution else None}
+        candidates = self._browser_catalog_candidates
+        allowed = getattr(self, "_sub_agent_allowed_tools", None) if self._is_sub_agent else None
+        if allowed is not None:
+            # Never advertise a browser tool the sub-agent dispatch check would refuse.
+            candidates = [t for t in candidates if t.name in allowed]
         self.planner.tool_catalog = await refresh_browser_tool_catalog(
-            self.planner.tool_catalog, self._browser_catalog_candidates, ctx)
+            self.planner.tool_catalog, candidates, ctx)
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.
