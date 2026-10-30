@@ -38,6 +38,8 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
+    EXCEL_EXTS,
+    read_excel_sheet,
     DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
 from app.data_sources.clients.graph_drive_client import (
@@ -531,8 +533,8 @@ class DocumentumClient(DataSourceClient):
             return NamedBytes(content, name=name, mime=mime)
         if ext in ("csv", "tsv"):
             return _trim_to_data(pd.read_csv(io.BytesIO(content), sep="\t" if ext == "tsv" else ",", header=None))
-        if ext in ("xls", "xlsx"):
-            return _trim_to_data(pd.read_excel(io.BytesIO(content), sheet_name=sheet if sheet is not None else 0, header=None))
+        if ext in EXCEL_EXTS:
+            return read_excel_sheet(content, sheet)
         if ext == "json":
             return json.loads(content.decode("utf-8-sig"))
         if ext in TEXT_EXTS:

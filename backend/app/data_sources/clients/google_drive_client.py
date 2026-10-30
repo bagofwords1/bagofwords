@@ -28,7 +28,11 @@ from app.data_sources.clients._document_text import (
     extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
+    EXCEL_EXTS,
     DocumentText,
+    pick_sheet,
+    read_excel_sheet,
+    tag_sheets,
     FileTooLargeError,
     NamedBytes,
 )
@@ -341,21 +345,30 @@ class GoogleDriveClient(DataSourceClient):
             # Use Sheets API for live values when a specific sheet is requested,
             # otherwise export the whole spreadsheet as xlsx.
             if sheet:
+                # The tab list comes from the spreadsheet's metadata, so the
+                # model sees every sheet name even on a single-sheet read.
+                titles = [
+                    str((t.get("properties") or {}).get("title") or "")
+                    for t in self._get(
+                        f"{SHEETS_BASE}/spreadsheets/{file_id}",
+                        params={"fields": "sheets.properties.title"},
+                    ).get("sheets", [])
+                ]
+                target = pick_sheet(titles, sheet)
                 values = self._get(
-                    f"{SHEETS_BASE}/spreadsheets/{file_id}/values/{quote(sheet)}",
+                    f"{SHEETS_BASE}/spreadsheets/{file_id}/values/{quote(target)}",
                     params={"valueRenderOption": "UNFORMATTED_VALUE"},
                 ).get("values", [])
                 if not values:
-                    return pd.DataFrame()
+                    return tag_sheets(pd.DataFrame(), titles, target)
                 header = values[0]
                 rows = [r + [None] * (len(header) - len(r)) for r in values[1:]]
-                return pd.DataFrame(rows, columns=header)
+                return tag_sheets(pd.DataFrame(rows, columns=header), titles, target)
             content = self._get_bytes(
                 f"{DRIVE_BASE}/files/{file_id}/export",
                 params={"mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
             )
-            from app.data_sources.clients.graph_drive_client import _trim_to_data
-            return _trim_to_data(pd.read_excel(io.BytesIO(content), header=None))
+            return read_excel_sheet(content)
 
         if mime == GOOGLE_DOC_MIME:
             content = self._get_bytes(
@@ -389,8 +402,8 @@ class GoogleDriveClient(DataSourceClient):
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), sep="\t", header=None))
-        if ext in ("xlsx", "xls"):
-            return _trim_to_data(pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None))
+        if ext in EXCEL_EXTS:
+            return read_excel_sheet(content, sheet)
         if ext == "json":
             try:
                 return json.loads(content.decode("utf-8", errors="replace"))
