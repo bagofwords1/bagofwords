@@ -252,6 +252,11 @@ const MESSAGES = {
   typingText: M('typingText', {status: 'in_progress', text: 'Partial answer so far'}),
   bad: M('bad', {text: 'Robust.', tools: 'x', results: null, results_incomplete: 'yes', steps: 'x'}),
   steps: M('steps', {text: 'Final answer.', steps: ['בודק את הנתונים.', 'Running **the** query.', '', 7]}),
+  failedEmpty: M('failedEmpty', {status: 'error'}),
+  stoppedEmpty: M('stoppedEmpty', {status: 'stopped'}),
+  failedText: M('failedText', {status: 'error', text: 'Half an answer'}),
+  stoppedText: M('stoppedText', {status: 'stopped', text: 'Cut short'}),
+  userFailed: M('userFailed', {role: 'user', status: 'error', text: 'q'}),
 };
 
 const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + artifact(`
@@ -275,7 +280,16 @@ const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + 
       h('div', {key: 11, 'data-vector': 'null'}, h(CM, {message: null})),
       h('div', {key: 12, 'data-vector': 'bad'}, h(CM, {message: MESSAGES.bad})),
       h('div', {key: 13, 'data-vector': 'steps'}, h(CM, {message: MESSAGES.steps})),
-      h('div', {key: 14, 'data-vector': 'stepsLabel'}, h(CM, {message: MESSAGES.steps, labels: {steps: 'שלבים'}}))
+      h('div', {key: 14, 'data-vector': 'stepsLabel'}, h(CM, {message: MESSAGES.steps, labels: {steps: 'שלבים'}})),
+      h('div', {key: 15, 'data-vector': 'failedEmpty'}, h(CM, {message: MESSAGES.failedEmpty})),
+      h('div', {key: 16, 'data-vector': 'stoppedEmpty'}, h(CM, {message: MESSAGES.stoppedEmpty})),
+      h('div', {key: 17, 'data-vector': 'failedText'}, h(CM, {message: MESSAGES.failedText})),
+      h('div', {key: 18, 'data-vector': 'stoppedText'}, h(CM, {message: MESSAGES.stoppedText})),
+      h('div', {key: 19, 'data-vector': 'endedLabels'}, [
+        h(CM, {key: 'f', message: MESSAGES.failedEmpty, labels: {failed: 'התשובה נכשלה'}}),
+        h(CM, {key: 's', message: MESSAGES.stoppedText, labels: {stopped: 'התשובה נעצרה'}})
+      ]),
+      h('div', {key: 20, 'data-vector': 'userFailed'}, h(CM, {message: MESSAGES.userFailed}))
     ]);
   }
   ReactDOM.createRoot(document.getElementById('root')).render(h(App));
@@ -338,6 +352,21 @@ const MESSAGE_APP = `<script>function ChatResult() { return null; }</script>` + 
   assert.deepEqual(await q('stepsLabel', '[data-testid="bow-chat-steps"] summary', 'el.textContent'), ['שלבים']);
   assert.deepEqual(await q('mixed', '[data-testid="bow-chat-steps"]', '1'), [], 'no steps, no section');
   assert.deepEqual(await q('bad', '[data-testid="bow-chat-steps"]', '1'), [], 'steps that are not a list are ignored');
+
+  // M8: a failed or stopped answer is marked (muted, dir="auto"), after its text when it has some.
+  const ended = (v) => q(v, '[data-testid="bow-chat-ended"]', '[el.textContent, el.getAttribute("dir"), el.dataset.status, el.className]');
+  const note = await q('results', '[data-testid="bow-chat-incomplete"]', 'el.className');
+  assert.deepEqual(await ended('failedEmpty'), [['The answer failed', 'auto', 'error', note[0]]], 'an empty failed answer is marked');
+  assert.deepEqual(await ended('stoppedEmpty'), [['The answer was stopped', 'auto', 'stopped', note[0]]], 'an empty stopped answer is marked');
+  assert.deepEqual((await ended('failedText')).map((e) => e[0]), ['The answer failed']);
+  assert.deepEqual((await ended('stoppedText')).map((e) => e[0]), ['The answer was stopped']);
+  for (const v of ['failedText', 'stoppedText']) {
+    const order = await q(v, '[data-testid="bow-chat-message"] > *', 'el.dataset.testid');
+    assert.deepEqual(order, ['bow-chat-text', 'bow-chat-ended'], v + ': the marker comes after the text');
+  }
+  assert.deepEqual((await ended('endedLabels')).map((e) => e[0]), ['התשובה נכשלה', 'התשובה נעצרה'], 'labels.failed / labels.stopped');
+  assert.deepEqual(await ended('userFailed'), [], 'a user item is not marked');
+  for (const v of ['mixed', 'typingEmpty', 'typingText']) assert.deepEqual(await ended(v), [], v + ': no marker');
 
   // M4: malformed messages.
   assert.deepEqual(await q('null', '*', '1'), [], 'message={null} renders nothing');

@@ -70,14 +70,13 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
 //   error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
-// chat.stop() while chat.sending; chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
-// Leaving a running answer keeps it running; only chat.stop() stops it.
+// chat.stop() while chat.sending (leaving keeps an answer running); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
 <ChatMessage message={m}/> // one message: markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
 // Both take labels={{rowsShown:'Showing {shown} of {total} rows',columnsShown:'{shown} of {total} columns',
 //   partial:'Partial table',incomplete:'Some results of this answer could not be shown',inProgress:'Answer in progress...',
-//   steps:'Steps'}}: pass them in the app's language.
+//   steps:'Steps',failed:'The answer failed',stopped:'The answer was stopped'}}: pass them in the app's language.
 function Chat(){const chat=useConversation();const [draft,setDraft]=useState('');
   return <div>{chat.policy&&chat.policy.available===false&&<p>{chat.policy.reason}</p>}
     {chat.messages.map(m=><ChatMessage key={m.id} message={m}/>)}
@@ -86,7 +85,7 @@ function Chat(){const chat=useConversation();const [draft,setDraft]=useState('')
       <textarea dir="auto" value={draft} onChange={e=>setDraft(e.target.value)}/>
       {chat.sending?<button type="button" onClick={()=>chat.stop()}>Stop</button>:<button disabled={!draft.trim()}>Send</button>}
     </form></div>;}
-You design the layout, composer, empty state and conversation list (chat.conversations).
+You design the layout, composer, empty state and list (chat.conversations).
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]

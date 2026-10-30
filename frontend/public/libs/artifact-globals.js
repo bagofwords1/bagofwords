@@ -1986,7 +1986,9 @@
     partial: 'Partial table',
     incomplete: 'Some results of this answer could not be shown',
     inProgress: 'Answer in progress...',
-    steps: 'Steps'
+    steps: 'Steps',
+    failed: 'The answer failed',
+    stopped: 'The answer was stopped'
   };
   function _chatFill(template, vars) {
     return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
@@ -1998,7 +2000,7 @@
       rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
-      steps: _chatFill(src.steps)
+      steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped)
     };
   }
   function _chatUnique(values) { return Array.from(new Set(values)); }
@@ -2175,6 +2177,11 @@
     });
     if (m.results_incomplete) {
       kids.push(h('p', { key: 'inc', dir: 'auto', 'data-testid': 'bow-chat-incomplete', className: CHAT.note }, L.incomplete));
+    }
+    // A failed or stopped answer says so (also with no text, as history loads it).
+    var ended = status === 'error' ? L.failed : status === 'stopped' ? L.stopped : '';
+    if (ended) {
+      kids.push(h('p', { key: 'ended', dir: 'auto', 'data-testid': 'bow-chat-ended', 'data-status': status, className: CHAT.note }, ended));
     }
     if (running) {
       kids.push(h('div', { key: 'busy', 'data-testid': 'bow-chat-typing', role: 'status', className: CHAT_MSG.muted },
