@@ -5895,6 +5895,8 @@
     "vizUnavailable": "התצוגה אינה זמינה",
     "vizRenderFailed": "טעינת התרשים נכשלה",
     "diagramFailed": "טעינת הדיאגרמה נכשלה",
+    "diagramDownloadPng": "הורדה כ-PNG",
+    "diagramExportFailed": "ייצוא הדיאגרמה נכשל",
     "exportMarkdown": "הורדה כ-Markdown",
     "printPdf": "הדפסה / שמירה כ-PDF",
     "exportPdf": "ייצוא כ-PDF",
