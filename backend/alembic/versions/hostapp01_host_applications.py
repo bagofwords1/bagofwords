@@ -1,7 +1,7 @@
 """Host applications that embed artifacts
 
 Revision ID: hostapp01
-Revises: connfail01
+Revises: refhist01
 Create Date: 2026-10-29
 
 * ``host_applications``: external systems (ERP, ServiceNow, portals) allowed
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "hostapp01"
-down_revision: str | None = "connfail01"
+down_revision: str | None = "refhist01"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

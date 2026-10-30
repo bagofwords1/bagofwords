@@ -38,4 +38,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_column():
+        return
     op.drop_column('connections', 'consecutive_test_failures')
