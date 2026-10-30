@@ -149,3 +149,16 @@ def test_the_default_planner_sends_the_same_blocks(name, transcript, monkeypatch
     assert _block(CONTEXTS[name], PromptBuilderV3) == BUBBLE[name]
     conversation = {**CONTEXTS[name], "surface": "app"}
     assert _block(conversation, PromptBuilderV3) == _block(conversation)
+
+
+@pytest.mark.parametrize("name", sorted(CONTEXTS))
+def test_a_conversation_message_computes_arithmetic_with_a_tool(name):
+    # Totals added up in the reply were wrong; an app conversation always has
+    # agents (artifact_conversations never falls back to data-only), so a tool
+    # is always there to compute them.
+    line = _line(_block({**CONTEXTS[name], "surface": "app"}), "ARITHMETIC")
+    for part in ("sums, averages, percentages", "over result rows", "with a tool (create_data or a query)",
+                 "never mentally in your reply"):
+        assert part in line
+    # The bubble prompt has no such rule (its snapshot above stays byte-identical).
+    assert "ARITHMETIC" not in _block(CONTEXTS[name])
