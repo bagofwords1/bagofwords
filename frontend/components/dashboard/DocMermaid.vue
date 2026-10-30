@@ -38,6 +38,7 @@
 import { ref, watch, onMounted } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import { repairMermaid } from '~/utils/mermaidRepair'
+import { downloadMermaidPng } from '~/utils/mermaidExport'
 
 const { t } = useI18n()
 
@@ -107,71 +108,16 @@ async function render() {
   }
 }
 
-// PNG export. Rendered separately from the on-screen diagram because:
-//  - Mermaid's default HTML labels live in <foreignObject>, and drawing such an
-//    SVG onto a canvas taints it (toBlob throws SecurityError) — so labels are
-//    rendered as plain SVG text here;
-//  - the export always uses the light theme on white, whatever the app theme.
-// The global config is restored afterwards so on-screen renders are unchanged.
 async function downloadPng() {
   if (exporting.value || !renderedCode) return
   exporting.value = true
-  const mermaid = (await import('mermaid')).default
-  const isDark = document.documentElement.classList.contains('dark')
-  const base = {
-    startOnLoad: false,
-    suppressErrorRendering: true,
-    securityLevel: 'strict' as const,
-    fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-  }
   try {
-    mermaid.initialize({ ...base, theme: 'neutral', htmlLabels: false, flowchart: { htmlLabels: false } })
-    const id = `doc-mermaid-export-${Math.random().toString(36).slice(2)}`
-    const { svg: exportSvg } = await mermaid.render(id, renderedCode)
-    const blob = await svgToPngBlob(exportSvg, 2)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'diagram.png'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    await downloadMermaidPng(renderedCode)
   } catch {
     useToast().add({ title: t('docViewer.diagramExportFailed'), color: 'red' })
   } finally {
-    mermaid.initialize({ ...base, theme: isDark ? 'dark' : 'neutral', htmlLabels: true, flowchart: { htmlLabels: true } })
     exporting.value = false
   }
-}
-
-async function svgToPngBlob(svgText: string, scale: number): Promise<Blob> {
-  const doc = new DOMParser().parseFromString(svgText, 'image/svg+xml')
-  const el = doc.documentElement
-  // Mermaid emits width="100%" + max-width style; size from the viewBox.
-  const vb = (el.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number)
-  const width = vb.length === 4 && vb[2] > 0 ? vb[2] : 800
-  const height = vb.length === 4 && vb[3] > 0 ? vb[3] : 600
-  el.setAttribute('width', String(width))
-  el.setAttribute('height', String(height))
-  el.removeAttribute('style')
-  const xml = new XMLSerializer().serializeToString(el)
-  const img = new Image()
-  img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`
-  await img.decode()
-  const pad = 16
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.ceil((width + pad * 2) * scale)
-  canvas.height = Math.ceil((height + pad * 2) * scale)
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('no 2d context')
-  ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.scale(scale, scale)
-  ctx.drawImage(img, pad, pad, width, height)
-  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-  if (!blob) throw new Error('toBlob returned null')
-  return blob
 }
 
 onMounted(render)
