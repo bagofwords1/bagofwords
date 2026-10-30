@@ -111,7 +111,8 @@ def _line(block: str, marker: str) -> str:
 def test_a_conversation_message_has_no_language_line(name):
     # A conversation-only language rule made answers narrate their language choice ("I'll reply in English").
     block = _block({**CONTEXTS[name], "surface": "conversation"})
-    assert not [x for x in block.split("\n") if "LANGUAGE" in x]
+    # A *labelled* line, case-insensitive: the RESULTS SURFACE line legitimately says "in any language".
+    assert not [x for x in block.split("\n") if re.match(r"^\s*language\s*:", x, re.I)]
     for part in ("language of the viewer's most recent message", "narration, tool titles"):
         assert part not in block
 

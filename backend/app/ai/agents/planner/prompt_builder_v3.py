@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from app.ai.llm.types import Message, ToolSpec
 from app.ai.context.parts import TextPart as _TextPart
-from app.ai.prompt_language import language_directive_body
+from app.ai.message_script import detect_message_script
+from app.ai.prompt_language import _LOCALE_NAMES, language_directive_body
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
 from . import transcript_bridge
@@ -28,6 +30,26 @@ from .prompt_builder import PromptBuilder
 from .prompt_blocks import NO_OVERFIT_BLOCK
 
 logger = logging.getLogger(__name__)
+
+# Per-turn reply-language hint for app conversations (findings 6 and 10; see
+# PromptBuilderV3._format_reply_language). Variants:
+#   "off"      - no hint (committed default until the live measurement decides)
+#   "tail"     - "Reply in the language of the viewer's latest message."
+#   "detected" - names the script of the latest message (he/ar/ru) when
+#                app.ai.message_script.detect_message_script finds one
+# To switch variants, edit this constant (hot reload applies it) or set the
+# environment variable BOW_REPLY_LANGUAGE_MODE=off|tail|detected. The variable
+# is read on every call and wins over the constant; any other value (empty,
+# misspelled) is ignored and the constant applies.
+ReplyLanguageMode = Literal["off", "tail", "detected"]
+REPLY_LANGUAGE_MODE: ReplyLanguageMode = "off"
+REPLY_LANGUAGE_MODE_ENV = "BOW_REPLY_LANGUAGE_MODE"
+_REPLY_LANGUAGE_MODES = ("off", "tail", "detected")
+
+
+def _reply_language_mode() -> str:
+    override = (os.environ.get(REPLY_LANGUAGE_MODE_ENV) or "").strip().lower()
+    return override if override in _REPLY_LANGUAGE_MODES else REPLY_LANGUAGE_MODE
 
 
 def _tool_specs_from_catalog(catalog: Optional[List[ToolDescriptor]]) -> List[ToolSpec]:
@@ -894,6 +916,30 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return parts
 
     @staticmethod
+    def _format_reply_language(planner_input: PlannerInput) -> str:
+        """One unlabelled line asking for a reply in the viewer's language.
+
+        App conversations only (``artifact_chat`` with surface
+        ``conversation``): short follow-ups there were sometimes answered in
+        English. It is the last part of the turn, outside
+        ``<artifact_chat_context>``, and never carries a "LANGUAGE" label (a
+        labelled rule made answers narrate their language choice).
+        """
+        if planner_input.external_platform != "artifact_chat":
+            return ""
+        if (planner_input.platform_context or {}).get("surface") != "conversation":
+            return ""
+        mode = _reply_language_mode()
+        if mode == "tail":
+            return "Reply in the language of the viewer's latest message."
+        if mode == "detected":
+            code = detect_message_script(planner_input.user_message)
+            if code:
+                name = _LOCALE_NAMES[code].split(" (")[0]
+                return f"The viewer's latest message is in {name}: write this turn's text in {name}."
+        return ""
+
+    @staticmethod
     def _build_turn_head(planner_input: PlannerInput) -> str:
         """The volatile per-turn head: clock, routing state, current artifact,
         conversation history, steering.
@@ -950,6 +996,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             )
         if getattr(planner_input, "sub_agent_budget", None):
             parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
+        reply_language = PromptBuilderV3._format_reply_language(planner_input)
+        if reply_language:
+            parts.append(reply_language)
         return "\n".join(parts)
 
     @staticmethod
@@ -1111,6 +1160,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append("    Never repeat the same failing call.")
         parts.append("  </error_guidance>")
         parts.append("</context>")
+        reply_language = PromptBuilderV3._format_reply_language(planner_input)
+        if reply_language:
+            parts.append(reply_language)
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
