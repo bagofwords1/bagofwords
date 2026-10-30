@@ -23,11 +23,13 @@ const SESSION = { token: 'bow_embed_a1', organization_id: 'org', host_applicatio
 const MINUTE = 60_000
 
 // `credentials` answers each host.requestCredential in turn; `sessions` each
-// POST /session ({ ok, status, body }).
+// POST /session ({ ok, status, body }, or a promise of one: an exchange still
+// in flight).
 function mountGate({ credentials, sessions }) {
   const credential = ref(null)
   const requested = []
   const posted = []
+  const deleted = []
   let hostHandlers = null
   let mounted = null
   const stubs = {
@@ -60,8 +62,9 @@ function mountGate({ credentials, sessions }) {
     },
     fetch: async (url, init = {}) => {
       if (url.endsWith('/bootstrap')) return { ok: true, json: async () => ({ enabled: true, identity_mode: 'assertion', allowed_origins: [] }) }
+      if (init.method === 'DELETE') { deleted.push(init.headers?.Authorization); return { ok: true, status: 204, json: async () => ({}) } }
       assert.equal(init.method, 'POST')
-      const { ok = true, status = 200, body } = sessions.shift()
+      const { ok = true, status = 200, body } = await sessions.shift()
       return { ok, status, json: async () => body }
     },
     onMounted: (fn) => { mounted = fn },
@@ -71,7 +74,8 @@ function mountGate({ credentials, sessions }) {
   new Function('exports', ...Object.keys(stubs), compiled)(exports, ...Object.values(stubs))
   let exposed = {}
   const bindings = exports.default.setup({ hostApplication: 'host_1' }, { expose: (o) => { exposed = o }, emit: () => {} })
-  return { bindings, credential, requested, posted, exposed: () => exposed || {}, mounted: () => mounted(), init: () => hostHandlers.onInit({ context: null }) }
+  return { bindings, credential, requested, posted, deleted, exposed: () => exposed || {}, mounted: () => mounted(),
+    init: () => hostHandlers.onInit({ context: null }), logout: () => hostHandlers.onLogout() }
 }
 
 // Let the gate's awaits (credential, exchange, json) run between timer ticks.
@@ -218,3 +222,119 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: a load that failed on the server is shown with a retry, and the host hears `failed`')
+
+// ── the host signs the user out while a sign-in is in flight ─────────────
+// A renewal (or the first sign-in) is still waiting on its exchange when the
+// host says bow:logout. Whatever that exchange brings back afterwards is
+// dropped: no session, no "authenticated", no "failed", no renewal. A new
+// sign-in the host asks for afterwards (bow:init) works as usual.
+function deferred() {
+  let resolve
+  const promise = new Promise((r) => { resolve = r })
+  return { promise, resolve }
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // The first sign-in: the exchange resolves after the logout.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [pending.promise, { body: SESSION }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  assert.equal(gate.bindings.status.value, 'signing_in', 'the exchange is still in flight')
+  gate.logout()
+  assert.equal(gate.bindings.status.value, 'signed_out')
+  const postsAtLogout = gate.posted.length
+  pending.resolve({ body: SESSION })
+  await settle()
+  assert.equal(gate.bindings.status.value, 'signed_out', 'a sign-in that resolves after the logout does not sign the user in again')
+  assert.equal(gate.credential.value, null, 'and leaves no credential')
+  assert.deepEqual(gate.posted.slice(postsAtLogout).filter((p) => p.type === 'bow:auth' && p.status === 'authenticated'), [],
+    'and the host hears no "authenticated" after its logout')
+  mock.timers.tick(60 * MINUTE)
+  await settle()
+  assert.equal(gate.requested.length, 1, 'nor is a renewal scheduled for it')
+
+  // The host signs the user in again (bow:init): that sign-in works.
+  gate.init()
+  await settle()
+  assert.equal(gate.bindings.status.value, 'ready', 'a new sign-in after the logout succeeds')
+  assert.equal(gate.credential.value?.token, 'bow_embed_a1')
+  assert.equal(gate.posted.slice(postsAtLogout).filter((p) => p.type === 'bow:auth' && p.status === 'authenticated').length, 1)
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A renewal: its exchange fails (transiently) after the logout.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [{ body: SESSION }, pending.promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  assert.equal(gate.bindings.status.value, 'ready')
+  mock.timers.tick(55 * MINUTE)  // the renewal starts
+  await settle()
+  assert.equal(gate.requested.length, 2, 'the renewal is in flight')
+  gate.logout()
+  assert.equal(gate.bindings.status.value, 'signed_out')
+  assert.deepEqual(gate.deleted, ['Bearer bow_embed_a1'], 'the session is ended server-side')
+  const postsAtLogout = gate.posted.length
+  pending.resolve({ ok: false, status: 503, body: { error_code: 'server.unavailable' } })
+  await settle()
+  assert.equal(gate.bindings.status.value, 'signed_out', 'a renewal that fails after the logout does not turn it into a failure')
+  assert.equal(gate.credential.value, null)
+  assert.deepEqual(gate.posted.slice(postsAtLogout), [], 'the host hears nothing more')
+  mock.timers.tick(60 * MINUTE)
+  await settle()
+  assert.equal(gate.requested.length, 2, 'and no renewal is scheduled')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // The host signs the user in again before the dropped exchange has answered:
+  // that is a sign-in of its own, not a wait on the dropped one.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'],
+    sessions: [pending.promise, { body: { ...SESSION, token: 'bow_embed_a2' } }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.logout()
+  gate.init()
+  await settle()
+  assert.equal(gate.requested.length, 2, 'the new sign-in asks the host for a credential of its own')
+  assert.equal(gate.bindings.status.value, 'ready')
+  assert.equal(gate.credential.value?.token, 'bow_embed_a2')
+  pending.resolve({ body: SESSION })
+  await settle()
+  assert.equal(gate.credential.value?.token, 'bow_embed_a2', 'the dropped exchange does not replace the new session')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a sign-in or renewal still in flight at the logout is dropped, and a new sign-in works')
+
+// ── a renewal for the same viewer, with another role ─────────────────────
+// The app stays (no remount: the credential is never cleared on the way) and
+// the credential carries the renewed viewer, which the view hands to the
+// running artifact as current_user (tests/unit/embedViewerRefresh.mjs).
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  const promoted = { ...SESSION, token: 'bow_embed_a2', viewer: { id: 'u-alice', role: 'manager', groups: ['emea'] } }
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [{ body: SESSION }, { body: promoted }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  const seen = []
+  const stop = (await import('vue')).watch(gate.credential, (value) => seen.push(value?.token ?? null), { flush: 'sync' })
+  mock.timers.tick(55 * MINUTE)
+  await settle()
+  stop()
+  assert.deepEqual(seen, ['bow_embed_a2'], 'the credential is swapped in place, never cleared (no remount)')
+  assert.equal(gate.bindings.status.value, 'ready')
+  assert.deepEqual(gate.credential.value.viewer, { id: 'u-alice', role: 'manager', groups: ['emea'] })
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a same-viewer renewal swaps the credential and its viewer in place')

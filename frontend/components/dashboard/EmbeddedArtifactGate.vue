@@ -54,6 +54,9 @@ let renewTimer: ReturnType<typeof setTimeout> | null = null;
 // When the current session really ends, on this page's clock.
 let expiresAt = 0;
 let renewFailures = 0;
+// Bumped by a sign-out (and unmount). A sign-in still in flight from before
+// it is dropped when its answer comes: the host signed the user out meanwhile.
+let generation = 0;
 
 const api = (path: string) => `${config.public.baseURL}/embed/${encodeURIComponent(props.hostApplication)}${path}`;
 
@@ -96,6 +99,7 @@ function schedule(next: () => void, delay: number) {
 }
 
 async function accept(session: any) {
+    const gen = generation;
     const next = {
         token: session.token,
         organizationId: session.organization_id,
@@ -112,6 +116,7 @@ async function accept(session: any) {
         status.value = 'signing_in';
         message.value = t('embed.gate.signingIn');
         await nextTick();
+        if (gen !== generation) return;
     }
     credential.value = next;
     status.value = 'ready';
@@ -171,15 +176,20 @@ defineExpose({ artifactUnavailable, artifactOpened });
 let inflight: Promise<void> | null = null;
 function signIn(): Promise<void> {
     if (inflight) return inflight;
-    inflight = (async () => {
+    const gen = generation;
+    const current: Promise<void> = (async () => {
         if (mode.value === 'sso') { fail('sign_in_required', t('embed.gate.signInRequired')); return; }
         // A renewal is silent, over the artifact or over why it is not shown.
         if (status.value !== 'ready' && status.value !== 'unavailable') { status.value = 'signing_in'; message.value = t('embed.gate.signingIn'); }
         try {
             const kind = mode.value === 'idp_token' ? 'id_token' : 'assertion';
             const value = await host.requestCredential(kind);
-            await accept(await exchange({ [kind]: value }));
+            if (gen !== generation) return;
+            const session = await exchange({ [kind]: value });
+            if (gen !== generation) return;
+            await accept(session);
         } catch (e: any) {
+            if (gen !== generation) return;
             // A failed renewal keeps the session it was renewing, and the app:
             // retry quietly until that session really ends.
             const next = renewalFailure({ hasCredential: !!credential.value, errorCode: e?.data?.error_code, failures: renewFailures, remainingMs: expiresAt - Date.now() });
@@ -192,8 +202,9 @@ function signIn(): Promise<void> {
             retryable.value = !!next.retryable;
             fail('failed', e?.data ? getErrorMessage(e) : (e?.message || t('embed.gate.failed')));
         }
-    })().finally(() => { inflight = null; });
-    return inflight;
+    })().finally(() => { if (inflight === current) inflight = null; });
+    inflight = current;
+    return current;
 }
 
 // SSO mode: BOW's own sign-in in a popup (a user click opens it). The popup
@@ -207,6 +218,7 @@ async function signInWithPopup() {
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const state = crypto.randomUUID();
+    const gen = generation;
     const url = `/embed-signin?host=${encodeURIComponent(props.hostApplication)}&challenge=${challenge}&state=${state}`;
     const popup = window.open(url, 'bow-embed-signin', 'popup,width=480,height=640');
     if (!popup) { fail('sign_in_required', t('embed.gate.popupBlocked')); return; }
@@ -219,8 +231,11 @@ async function signInWithPopup() {
         window.removeEventListener('message', onMessage);
         try { popup.close(); } catch { /* already closed */ }
         try {
-            await accept(await exchange({ sso_code: String(data.code || ''), code_verifier: verifier }));
+            const session = await exchange({ sso_code: String(data.code || ''), code_verifier: verifier });
+            if (gen !== generation) return;
+            await accept(session);
         } catch (e: any) {
+            if (gen !== generation) return;
             fail('failed', getErrorMessage(e));
         }
     };
@@ -228,6 +243,8 @@ async function signInWithPopup() {
 }
 
 async function signOut() {
+    generation++;
+    inflight = null;  // a sign-in from before is dropped; the next one starts afresh
     if (renewTimer) clearTimeout(renewTimer);
     const had = credential.value?.token;
     credential.value = null;
@@ -259,6 +276,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+    generation++;
     host.stop();
     if (renewTimer) clearTimeout(renewTimer);
     credential.value = null;

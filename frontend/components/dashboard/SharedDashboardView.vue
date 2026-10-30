@@ -572,6 +572,15 @@ const unavailable = ref(false);
 const showTopBar = ref(!embedded && !inHostApplication.value);
 // The host page moved to another record: the artifact gets the new context.
 watch(() => props.hostContext, () => { if (artifactIframeLoaded.value) pushArtifactData(); }, { deep: true });
+// A silent renewal for the same viewer keeps this view (the gate remounts it
+// only for someone else), but may bring another role or other groups: the
+// artifact gets the new current_user, its data untouched. Display only; the
+// server enforces access.
+watch(() => JSON.stringify(embedCredential.value?.viewer ?? null), () => {
+    if (!embedCredential.value) return;
+    viewerContext.value = embedCredential.value.viewer;
+    deliverArtifactData();
+});
 const activeTab = ref<'report' | 'data'>('report');
 // The owner's "Include Data Tab" share setting. The report loads after mount,
 // so this is true until proven otherwise — anything but an explicit false
