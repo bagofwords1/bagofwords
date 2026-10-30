@@ -40,7 +40,10 @@ async def refresh_browser_tool_catalog(catalog, candidates, runtime_ctx):
 def _interaction_signature(code: str) -> list[str]:
     # Advisory: identify state and handlers, not text, CSS, chart configuration,
     # or the mere number of datasets. This is not a JavaScript correctness gate.
-    hooks = re.findall(r"(?:useState|useReducer|useParams|setParam|setParams)\s*\([^\n;]{0,240}?\)", code)
+    # useConversation: the chat components hold their own state and handlers,
+    # so a chat built from them has no useState or onClick of its own.
+    hooks = re.findall(r"(?:useState|useReducer|useParams|setParam|setParams|useConversation)\s*\([^\n;]{0,240}?\)",
+                       code)
     handlers = re.findall(r"(?:onClick|onChange|onSubmit|onKeyDown)\s*=\s*\{[^\n]*?\}(?=\s|>)", code)
     return hooks + handlers
 
