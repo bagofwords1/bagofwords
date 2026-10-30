@@ -2518,7 +2518,7 @@
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
       errSeq: 0, errShown: false, before: null, olderLoad: null, messages: [], conversations: [],
-      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0, olderErr: null, touched: false
+      renames: {}, renameSeq: 0, confirmed: {}, confirmedSeq: {}, archived: {}, listTimer: null, listCount: 0, olderErr: null, touched: false
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2565,7 +2565,18 @@
     }
 
     // A list page through the 'listed' rules (rule 25).
-    function listed(res) {
+    // `issued` is c.renameSeq when the list request went out. A pending rename
+    // always wins; a confirmed one wins over lists issued before it and is
+    // dropped once a list issued after it applies. The list's titles are the
+    // last saved ones, unless a rename confirmed after the list was issued.
+    function listed(res, issued) {
+      if (issued === undefined) issued = c.renameSeq;
+      for (var r in c.renames) if (c.renames[r].confirmed && c.renames[r].seq <= issued) delete c.renames[r];
+      _chatItems(res).forEach(function(x) {
+        if (!x || x.id == null || (c.confirmedSeq[x.id] || 0) > issued) return;
+        c.confirmed[x.id] = x.title;
+        c.confirmedSeq[x.id] = 0;
+      });
       var renames = {};
       for (var id in c.renames) renames[id] = c.renames[id].title;
       var archived = {}; for (var x in c.archived) archived[x] = true;
@@ -2598,9 +2609,10 @@
       c.policyWait = policyWait;
       var load = policyWait.then(function(p) {
         if (p && p.available === false) return null;
-        var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
+        var issued;
+        var tasks = [Promise.resolve().then(function() { issued = c.renameSeq; return conv.list({ limit: 20 }); }).then(function(res) {
           // Keep conversations created meanwhile that this page does not hold yet.
-          listed(res);
+          listed(res, issued);
           // Rule 27 (OD-10): opened without a conversation and nothing done yet:
           // reopen the newest conversation whose answer still runs. select()
           // takes over `loading` (this load's own loading:false is dropped).
@@ -2732,6 +2744,8 @@
         if (rec.gen === c.gen && c.mounted && created && created.id != null) {
           c.convId = created.id;
           c.createdIds[created.id] = true;
+          c.confirmed[created.id] = created.title;
+          c.confirmedSeq[created.id] = 0;
           dispatch({ type: 'created', conversation: created });
         }
         return created;
@@ -2935,20 +2949,29 @@
       var conv = _chatConv();
       var t = String(title == null ? '' : title).trim().slice(0, 200);
       if (!t || !id || !c.mounted || !conv) return Promise.resolve();
-      var item = c.conversations.find(function(x) { return x && x.id === id; });
-      var prev = item ? item.title : undefined;
       var seq = ++c.renameSeq;
       c.renames[id] = { seq: seq, title: t };
       put({ type: 'retitle', id: id, title: t });
-      function latest() { return c.renames[id] && c.renames[id].seq === seq; }
       return Promise.resolve().then(function() { return conv.rename(id, t); }).then(function(res) {
-        if (!latest()) return;
-        delete c.renames[id];
-        put({ type: 'retitle', id: id, title: res && res.title != null ? res.title : t, updated_at: res && res.updated_at });
+        var saved = res && res.title != null ? res.title : t;
+        if (seq > (c.confirmedSeq[id] || 0)) { c.confirmed[id] = saved; c.confirmedSeq[id] = seq; }
+        var entry = c.renames[id];
+        // A later rename is still pending or confirmed: it decides the title.
+        if (entry && entry.seq > seq) return;
+        // This one, or a later one that failed and reverted: the saved title shows.
+        if (!entry && c.confirmedSeq[id] !== seq) return;
+        c.renames[id] = { seq: seq, title: saved, confirmed: true };
+        put({ type: 'retitle', id: id, title: saved, updated_at: res && res.updated_at });
       }, function(e) {
-        if (!latest()) return;
+        var entry = c.renames[id];
+        if (!entry || entry.seq !== seq) return;
+        // Back to the last saved title (a list's or a rename's), never an
+        // earlier unsaved one; a saved rename keeps guarding against older lists.
         delete c.renames[id];
-        if (prev !== undefined) put({ type: 'retitle', id: id, title: prev });
+        if (_chatHas(c.confirmed, id)) {
+          if (c.confirmedSeq[id] > 0) c.renames[id] = { seq: c.confirmedSeq[id], title: c.confirmed[id], confirmed: true };
+          put({ type: 'retitle', id: id, title: c.confirmed[id] });
+        }
         put({ type: 'apply', patch: { error: _chatError(e) } });
       }).then(noop, noop);
     };
@@ -2981,7 +3004,8 @@
         c.listCount += 1;
         var conv = _chatConv();
         if (!conv || !c.mounted) return;
-        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(listed, noop);
+        var issued = c.renameSeq;
+        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, noop);
       }, _CHAT_REFRESH_MS);
     };
 
@@ -3018,7 +3042,8 @@
       // it, unless anything else changed `error` while the reload was in flight.
       var gen = c.gen, failed = false, errSeq = c.errSeq;
       function fail(e) { failed = true; put({ type: 'apply', patch: { error: _chatError(e) } }, gen); }
-      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(listed, fail)];
+      var issued = c.renameSeq;
+      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, fail)];
       if (c.convId && !c.run) tasks.push(reread(c.convId, null, fail));
       return Promise.all(tasks).then(function() {
         if (!failed && c.errSeq === errSeq) put({ type: 'apply', patch: { error: null } }, gen);

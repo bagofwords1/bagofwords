@@ -116,6 +116,57 @@ scenario('T3 a list answered during a pending rename keeps the pending title', a
   await s.done();
 });
 
+scenario('T3b a rename confirmed before an earlier-issued list answers keeps its title; a later list applies', async (env) => {
+  const s = await threads(env);
+  await setAuto(s, 'list', 'hold');
+  let seq = await lastSeq(s);
+  await s.call('reload');
+  const list = await newList(s, seq);
+  await s.call('rename', 'c2', 'New');
+  const ren = await s.take('rename');
+  await s.reply(ren.id, {id: 'c2', title: 'New'});
+  await s.until((c) => titleOf(c, 'c2') === 'New', 'confirmed');
+  await s.reply(list.id, LIST);
+  await sleep(150);
+  assert.equal(titleOf(await s.chat(), 'c2'), 'New', 'a list issued before the rename does not undo it');
+  seq = await lastSeq(s);
+  await s.call('reload');
+  const later = await newList(s, seq);
+  await s.reply(later.id, {items: [conv('c3'), conv('c2', {title: 'Renamed elsewhere'}), conv('c1')], next_before: null});
+  await s.until((c) => titleOf(c, 'c2') === 'Renamed elsewhere', 'a list issued after the rename is the truth');
+  await s.done();
+});
+
+for (const order of ['X fails first', 'Y fails first']) {
+  scenario(`T2b two renames that both fail revert to the last saved title (${order})`, async (env) => {
+    const s = await threads(env);
+    await s.call('rename', 'c2', 'X');
+    const rx = await s.take('rename', (e) => e.args.title === 'X');
+    await s.call('rename', 'c2', 'Y');
+    const ry = await s.take('rename', (e) => e.args.title === 'Y');
+    const fail = (r) => s.fail(r.id, {code: 'FORBIDDEN', message: 'no'});
+    if (order === 'X fails first') { await fail(rx); await sleep(60); await fail(ry); } else { await fail(ry); await sleep(60); await fail(rx); }
+    await sleep(150);
+    const c = await s.chat();
+    assert.equal(titleOf(c, 'c2'), 'Tc2', 'never the unsaved X');
+    assert.equal(c.error && c.error.code, 'FORBIDDEN');
+    await s.done();
+  });
+}
+
+scenario('T2c the later rename fails, the earlier one succeeds: the saved title shows', async (env) => {
+  const s = await threads(env);
+  await s.call('rename', 'c2', 'X');
+  const rx = await s.take('rename', (e) => e.args.title === 'X');
+  await s.call('rename', 'c2', 'Y');
+  const ry = await s.take('rename', (e) => e.args.title === 'Y');
+  await s.fail(ry.id, {code: 'FORBIDDEN', message: 'no'});
+  await s.until((c) => titleOf(c, 'c2') === 'Tc2', 'reverted');
+  await s.reply(rx.id, {id: 'c2', title: 'X'});
+  await s.until((c) => titleOf(c, 'c2') === 'X', 'the server kept X');
+  await s.done();
+});
+
 // ── T4-T6 archive ───────────────────────────────────────────────────────────
 scenario('T4 archiving another conversation removes it at once; a list issued before never brings it back', async (env) => {
   const s = await threads(env);
