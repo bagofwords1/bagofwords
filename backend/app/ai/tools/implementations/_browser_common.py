@@ -390,8 +390,12 @@ class BrowserSessionManager:
     def scope_for(ctx, *, internal=True):
         # Connector browsers keep their authorized report session across turns;
         # an internal preview belongs only to the execution that opened it.
+        # A sub-agent gets its own connector browser, kept across its own turns:
+        # parallel children (and the parent) never drive the same page.
         execution = str(ctx.get("agent_execution_id") or "") if internal else ""
-        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (execution,)
+        sub_agent = "" if internal else str(ctx.get("sub_agent_id") or "")
+        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (
+            execution or (f"sub_agent:{sub_agent}" if sub_agent else ""),)
 
     async def close_execution(self, execution_id):
         for sid, s in list(self._sessions.items()):

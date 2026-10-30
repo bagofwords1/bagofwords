@@ -40,6 +40,9 @@ _RESEARCH = (
     "list_mcp_resources", "read_mcp_resource", "execute_mcp", "search_tools", "call_tool",
     "search_instructions", "read_instruction", "search_agents", "read_report", "search_reports",
     "web_fetch", "web_search",
+    # Offered only when the report has a browser connection; each child gets
+    # its own browser session (_browser_common.scope_for).
+    "browser_navigate", "browser_snapshot", "browser_act", "browser_extract", "browser_vision",
     "create_note", "edit_note",
     "finish_subtask", "message_sub_agent",
 )
