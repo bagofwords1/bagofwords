@@ -35,6 +35,8 @@ CURATED_ORDER = [
     "create-evals",
     # Installed everywhere, advertised only while enable_demo_data_generation is on.
     "demo-data",
+    # Installed everywhere, advertised only while enable_sandbox_browser is on.
+    "scrape-with-code",
 ]
 
 
@@ -202,3 +204,19 @@ def test_order_and_default_enabled_are_parsed(tmp_path):
     assert skill.default_enabled is True
     assert skill.to_dict()["order"] == 5
     assert skill.to_dict()["default_enabled"] is True
+
+
+def test_requires_setting_names_a_real_org_setting():
+    """A misspelled setting key reads as "off" forever, so the skill would be
+    installed but never advertised — with no error anywhere."""
+    from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+
+    fields = OrganizationSettingsConfig.model_fields
+    for skill in list_prebuilt_skills():
+        if skill.requires_setting:
+            assert skill.requires_setting in fields, (skill.key, skill.requires_setting)
+
+
+def test_scrape_with_code_follows_the_browser_in_code_toggle():
+    skill = get_prebuilt_skill("scrape-with-code")
+    assert skill.requires_setting == "enable_sandbox_browser"
