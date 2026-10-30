@@ -65,10 +65,10 @@ only their own conversations. When policy().available is false, show its reason
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
 const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component
-// {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder}
+// {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder, rename, archive}
 // messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
-// conversations: [{id,title,created_at,updated_at}]. error: null or {code,message}.
+// conversations: [{id,title,created_at,updated_at,in_progress}]. error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
 // chat.stop() while chat.answering (sending, or an answer left running: only stop() stops it); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
 <ChatMessages chat={chat} empty={node}/> // the scrolling list: opens at the newest message, follows the answer only while

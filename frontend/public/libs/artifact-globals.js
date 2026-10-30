@@ -2240,7 +2240,9 @@
   // const chat = useConversation({conversationId, title, agents, historyLimit})
   // -> {messages, conversations, conversationId, policy, loading, sending,
   //     answering, error, hasOlder, loadingOlder, send, stop, select,
-  //     newConversation, reload, loadOlder}
+  //     newConversation, reload, loadOlder, rename, archive}
+  // conversations: [{id, title, created_at, updated_at, in_progress}]; rename
+  // and archive are optimistic and revert on failure.
   // messages have the bow.conversations.messages() item shape. One answer runs
   // at a time; history is re-read after each answer that reached the server and
   // merged with the server page as the truth; leaving a running answer keeps it
@@ -2359,7 +2361,33 @@
     return add.length ? add.concat(messages) : messages;
   }
 
-  function _chatReduce(state, a) {
+  function _chatNormalizeConv(x) {
+    return { id: x.id, title: x.title, created_at: x.created_at != null ? x.created_at : null,
+      updated_at: x.updated_at != null ? x.updated_at : null, in_progress: !!x.in_progress };
+  }
+  // The same array when the item already has that flag (or is not listed).
+  function _chatWithFlag(list, id, flag) {
+    var at = list.findIndex(function(x) { return x && x.id === id; });
+    if (at === -1 || list[at].in_progress === flag) return list;
+    var out = list.slice(), item = {};
+    for (var k in list[at]) item[k] = list[at][k];
+    item.in_progress = flag;
+    out[at] = item;
+    return out;
+  }
+  // Post-step of every action (rule 21): the open conversation's flag is
+  // derived from its own state; the same state when nothing changes.
+  function _chatSyncCurrent(state) {
+    if (state.conversationId == null) return state;
+    var list = _chatWithFlag(state.conversations, state.conversationId, _chatAnswering(state));
+    if (list === state.conversations) return state;
+    var s = {}; for (var k in state) s[k] = state[k];
+    s.conversations = list;
+    return s;
+  }
+  function _chatReduce(state, a) { return _chatSyncCurrent(_chatStep(state, a)); }
+
+  function _chatStep(state, a) {
     switch (a.type) {
       case 'apply': {
         var next = {}; for (var k in state) next[k] = state[k];
@@ -2377,8 +2405,7 @@
         return next;
       }
       case 'created': {
-        var conv = a.conversation;
-        var c = { id: conv.id, title: conv.title, created_at: conv.created_at != null ? conv.created_at : null, updated_at: conv.updated_at != null ? conv.updated_at : null };
+        var c = _chatNormalizeConv(a.conversation);
         var listed = state.conversations.some(function(x) { return x && x.id === c.id; });
         var s1 = {}; for (var k1 in state) s1[k1] = state[k1];
         if (!listed) s1.conversations = [c].concat(state.conversations);
@@ -2386,12 +2413,64 @@
         return s1;
       }
       case 'listed': {
-        var fetchedIds = {};
-        a.conversations.forEach(function(x) { if (x) fetchedIds[x.id] = true; });
-        var kept = state.conversations.filter(function(x) { return x && _chatHas(a.keep, x.id) && !fetchedIds[x.id]; });
+        // Rule 25: keep created ids the page does not hold yet; never an
+        // archived id; a pending rename's title wins.
+        var archived = a.archived || {}, renames = a.renames || {}, fetchedIds = {};
+        var page = a.conversations.filter(function(x) { return x && typeof x === 'object' && !_chatHas(archived, x.id); }).map(function(x) {
+          var n = _chatNormalizeConv(x);
+          if (_chatHas(renames, n.id)) n.title = renames[n.id];
+          fetchedIds[n.id] = true;
+          return n;
+        });
+        var kept = state.conversations.filter(function(x) { return x && _chatHas(a.keep || {}, x.id) && !fetchedIds[x.id] && !_chatHas(archived, x.id); });
         var s4 = {}; for (var k5 in state) s4[k5] = state[k5];
-        s4.conversations = kept.concat(a.conversations);
+        s4.conversations = kept.concat(page);
         return s4;
+      }
+      case 'retitle': {
+        var changed = false;
+        var list = state.conversations.map(function(x) {
+          if (!x || x.id !== a.id) return x;
+          if (x.title === a.title && (a.updated_at == null || x.updated_at === a.updated_at)) return x;
+          changed = true;
+          var y = {}; for (var ky in x) y[ky] = x[ky];
+          y.title = a.title;
+          if (a.updated_at != null) y.updated_at = a.updated_at;
+          return y;
+        });
+        if (!changed) return state;
+        var s6 = {}; for (var k7 in state) s6[k7] = state[k7];
+        s6.conversations = list;
+        return s6;
+      }
+      case 'unlist': {
+        var rest = state.conversations.filter(function(x) { return !x || x.id !== a.id; });
+        if (rest.length === state.conversations.length) return state;
+        var s7 = {}; for (var k8 in state) s7[k8] = state[k8];
+        s7.conversations = rest;
+        return s7;
+      }
+      case 'relist': {
+        if (state.conversations.some(function(x) { return x && x.id === a.item.id; })) return state;
+        var back = state.conversations.slice();
+        back.splice(Math.min(a.index, back.length), 0, a.item);
+        var s8 = {}; for (var k9 in state) s8[k9] = state[k9];
+        s8.conversations = back;
+        return s8;
+      }
+      case 'switch': {
+        // Rule 22 (D-30): the left conversation keeps its flag when its answer
+        // still runs (streaming when left, or a server answer in progress),
+        // then the patch opens the next one; the post-step syncs only that one.
+        var s9 = {}; for (var k10 in state) s9[k10] = state[k10];
+        if (state.conversationId != null) {
+          var still = !!a.wasStreaming || state.messages.some(function(m) {
+            return m && m.role === 'assistant' && m.status === 'in_progress' && !_chatIsLocal(m);
+          });
+          s9.conversations = _chatWithFlag(state.conversations, state.conversationId, still);
+        }
+        for (var p9 in a.patch) s9[p9] = a.patch[p9];
+        return s9;
       }
       case 'load': {
         var s2 = {}; for (var k3 in state) s2[k3] = state[k3];
@@ -2429,7 +2508,8 @@
       opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
-      errSeq: 0, errShown: false, before: null, olderLoad: null, messages: []
+      errSeq: 0, errShown: false, before: null, olderLoad: null, messages: [], conversations: [],
+      renames: {}, renameSeq: 0, archived: {}, listTimer: null, listCount: 0
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2475,11 +2555,21 @@
       });
     }
 
+    // A list page through the 'listed' rules (rule 25).
+    function listed(res) {
+      var renames = {};
+      for (var id in c.renames) renames[id] = c.renames[id].title;
+      var archived = {}; for (var x in c.archived) archived[x] = true;
+      put({ type: 'listed', conversations: _chatItems(res), keep: c.createdIds, archived: archived, renames: renames });
+    }
+    function cancelList() { if (c.listTimer !== null) { clearTimeout(c.listTimer); c.listTimer = null; } }
+
     function startLoad() {
       var conv = _chatConv();
       if (!conv) return;
       var gen = c.gen, id = c.initialId;
       c.count = 0;
+      c.listCount = 0;
       if (id) c.convId = id;
       // The first applied error wins while it (or a later error) is still shown;
       // once select, newConversation or a send cleared it, a later one applies.
@@ -2501,7 +2591,7 @@
         if (p && p.available === false) return null;
         var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
           // Keep conversations created meanwhile that this page does not hold yet.
-          put({ type: 'listed', conversations: _chatItems(res), keep: c.createdIds });
+          listed(res);
         }, function(e) { report(e); })];
         if (id) {
           tasks.push(Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
@@ -2526,14 +2616,17 @@
     // Leave the active run (rule 8, MR-11): it never dispatches again and only
     // its local stream is aborted. The answer keeps running on the server
     // (only stop() stops it); coming back loads it in progress (rule 13).
+    // Returns whether the run was streaming (its answer keeps running).
     function leave() {
       var run = c.run;
+      var wasStreaming = !!run && run.phase === 'streaming' && !run.terminal;
       if (run) {
         if (!run.terminal) run.terminal = 'left';
         c.run = null;
         run.controller.abort();
       }
       c.gen++;
+      return wasStreaming;
     }
 
     function serverStop(run) {
@@ -2773,23 +2866,25 @@
     };
 
     function resetFor(convId) {
-      leave();
+      var wasStreaming = leave();
       cancelTimer();
       c.count = 0;
+      c.listCount = 0;
       c.held = {};
       raiseFloor();
       c.convId = convId;
       c.before = null;
       c.olderLoad = null;
+      return wasStreaming;
     }
 
     c.select = function(id) {
       if (!c.mounted) return Promise.resolve();
       var conv = _chatConv();
       if (!conv) { put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } }); return Promise.resolve(); }
-      resetFor(id);
+      var wasStreaming = resetFor(id);
       var gen = c.gen;
-      put({ type: 'apply', patch: { sending: false, conversationId: id, messages: [], error: null, loading: true, hasOlder: false, loadingOlder: false } });
+      put({ type: 'switch', wasStreaming: wasStreaming, patch: { sending: false, conversationId: id, messages: [], error: null, loading: true, hasOlder: false, loadingOlder: false } });
       var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
         if (put({ type: 'load', messages: _chatItems(res), patch: { hasOlder: _chatCursor(res) !== null } }, gen)) c.before = _chatCursor(res);
       }, function(e) {
@@ -2804,9 +2899,63 @@
 
     c.newConversation = function() {
       if (!c.mounted) return;
-      resetFor(null);
+      var wasStreaming = resetFor(null);
       c.load = null;
-      put({ type: 'apply', patch: { sending: false, conversationId: null, messages: [], error: null, loading: false, hasOlder: false, loadingOlder: false } });
+      put({ type: 'switch', wasStreaming: wasStreaming, patch: { sending: false, conversationId: null, messages: [], error: null, loading: false, hasOlder: false, loadingOlder: false } });
+    };
+
+    // Rule 19: optimistic; the latest rename of an id wins; a failure reverts.
+    c.rename = function(id, title) {
+      var conv = _chatConv();
+      var t = String(title == null ? '' : title).trim().slice(0, 200);
+      if (!t || !id || !c.mounted || !conv) return Promise.resolve();
+      var item = c.conversations.find(function(x) { return x && x.id === id; });
+      var prev = item ? item.title : undefined;
+      var seq = ++c.renameSeq;
+      c.renames[id] = { seq: seq, title: t };
+      put({ type: 'retitle', id: id, title: t });
+      function latest() { return c.renames[id] && c.renames[id].seq === seq; }
+      return Promise.resolve().then(function() { return conv.rename(id, t); }).then(function(res) {
+        if (!latest()) return;
+        delete c.renames[id];
+        put({ type: 'retitle', id: id, title: res && res.title != null ? res.title : t, updated_at: res && res.updated_at });
+      }, function(e) {
+        if (!latest()) return;
+        delete c.renames[id];
+        if (prev !== undefined) put({ type: 'retitle', id: id, title: prev });
+        put({ type: 'apply', patch: { error: _chatError(e) } });
+      }).then(noop, noop);
+    };
+
+    // Rule 20: optimistic removal (the open one becomes a new conversation
+    // first); an archived id never comes back from a list; a failure restores.
+    c.archive = function(id) {
+      var conv = _chatConv();
+      if (!id || !c.mounted || !conv || c.archived[id]) return Promise.resolve();
+      if (id === c.convId) c.newConversation();
+      c.archived[id] = true;
+      var index = c.conversations.findIndex(function(x) { return x && x.id === id; });
+      var item = index === -1 ? null : c.conversations[index];
+      put({ type: 'unlist', id: id });
+      return Promise.resolve().then(function() { return conv.archive(id); }).then(noop, function(e) {
+        delete c.archived[id];
+        if (item) put({ type: 'relist', item: item, index: index });
+        put({ type: 'apply', patch: { error: _chatError(e) } });
+      }).then(noop, noop);
+    };
+
+    // Rule 23: while another conversation is in progress, re-read the list
+    // every 5 s, at most _CHAT_REFRESH_MAX times per reset.
+    c.checkList = function(conversations, conversationId) {
+      if (!c.mounted || c.listTimer !== null || c.listCount >= _CHAT_REFRESH_MAX) return;
+      if (!conversations.some(function(x) { return x && x.id !== conversationId && x.in_progress; })) return;
+      c.listTimer = setTimeout(function() {
+        c.listTimer = null;
+        c.listCount += 1;
+        var conv = _chatConv();
+        if (!conv || !c.mounted) return;
+        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(listed, noop);
+      }, _CHAT_REFRESH_MS);
     };
 
     // Rule 17: the page before the oldest loaded one, put first. Generation
@@ -2837,9 +2986,7 @@
       // it, unless anything else changed `error` while the reload was in flight.
       var gen = c.gen, failed = false, errSeq = c.errSeq;
       function fail(e) { failed = true; put({ type: 'apply', patch: { error: _chatError(e) } }, gen); }
-      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
-        put({ type: 'apply', patch: { conversations: _chatItems(res) } });
-      }, fail)];
+      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(listed, fail)];
       if (c.convId && !c.run) tasks.push(reread(c.convId, null, fail));
       return Promise.all(tasks).then(function() {
         if (!failed && c.errSeq === errSeq) put({ type: 'apply', patch: { error: null } }, gen);
@@ -2864,6 +3011,7 @@
     c.unmount = function() {
       leave();
       cancelTimer();
+      cancelList();
       c.held = {};
       raiseFloor();
       c.mounted = false;
@@ -2880,17 +3028,19 @@
     var c = ref.current;
     c.opts = opts || {};
     c.messages = state.messages;
+    c.conversations = state.conversations;
     React.useEffect(function() {
       c.mount();
       return c.unmount;
     }, []);
     React.useEffect(function() { c.check(state.messages); }, [state.messages, state.sending]);
+    React.useEffect(function() { c.checkList(state.conversations, state.conversationId); }, [state.conversations, state.conversationId]);
     return {
       messages: state.messages, conversations: state.conversations, conversationId: state.conversationId,
       policy: state.policy, loading: state.loading, sending: state.sending, answering: _chatAnswering(state), error: state.error,
       hasOlder: state.hasOlder, loadingOlder: state.loadingOlder,
       send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload,
-      loadOlder: c.loadOlder
+      loadOlder: c.loadOlder, rename: c.rename, archive: c.archive
     };
   }
   window.useConversation = useConversation;
