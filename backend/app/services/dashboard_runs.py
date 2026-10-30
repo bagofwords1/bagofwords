@@ -196,10 +196,96 @@ async def in_dependency_order(db, release: ArtifactRelease, targets: list) -> li
     return [(sid, codes[sid]) for sid in ordered]
 
 
+# ── a step that waits for the viewer's input ─────────────────────────────
+
+def needs_input_frame(data: dict | None, names: list[str]) -> dict:
+    """The rows of a step that waits for input: none. Columns from `data` (the copy's), or none."""
+    columns = list(data.get("columns") or []) if isinstance(data, dict) else []
+    return {"rows": [], "columns": columns,
+            "info": {"total_rows": 0, "total_columns": len(columns), "needs_input": list(names)}}
+
+
+def needs_input_names(data: dict | None) -> list[str]:
+    """The inputs a waiting frame waits for; [] for any other data."""
+    info = data.get("info") if isinstance(data, dict) else None
+    names = info.get("needs_input") if isinstance(info, dict) else None
+    return [str(n) for n in names] if isinstance(names, list) and names else []
+
+
+def input_wait_blocked_reason(source_errors: list[dict]) -> str | None:
+    """Why a waiting step stores an error instead: the fixed reason of the
+    source errors it is blocked by (connect first, then no access), else the
+    first error's text. None when nothing blocks it."""
+    from app.services.access_errors import CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON
+
+    if not source_errors:
+        return None
+    codes = {e.get("code") for e in source_errors}
+    if "credentials_required" in codes:
+        return CREDENTIALS_REQUIRED_REASON
+    if "no_access" in codes:
+        return NO_ACCESS_REASON
+    return (str(source_errors[0].get("error") or "") or "connection_failed")[:2000]
+
+
+def loaded_input_wait(code: str | None, lookup, data_of) -> list[str]:
+    """The inputs the steps `code` loads (load_step, resolved by `lookup`)
+    wait for, per `data_of(step) -> their data`: a step that loads a waiting
+    step waits for the same inputs -- it is never handed an empty frame as
+    if it were the loaded step's rows."""
+    from app.ai.code_execution.loadables import extract_loadable_refs
+
+    names: list[str] = []
+    for ref in extract_loadable_refs(code or "")[0]:
+        dep = lookup(ref)
+        if dep is None:
+            continue
+        names += [n for n in needs_input_names(data_of(dep)) if n not in names]
+    return names
+
+
+async def _reader_input_wait(db, step: Step, artifact, release, user) -> list[str]:
+    """loaded_input_wait for a reader's run: what each loaded step resolves
+    to for them, as load_step reads it (resolve_release_step) -- their own
+    waiting row, or a waiting copy."""
+    from sqlalchemy.orm import undefer
+
+    from app.ai.code_execution.loadables import extract_loadable_refs
+    from app.services.dashboard_data import resolve_release_step
+    from app.services.identity_taint import release_step_lookup
+
+    refs = extract_loadable_refs(step.code or "")[0]
+    if not refs:
+        return []
+    lookup = await release_step_lookup(db, str(release.id))
+    names: list[str] = []
+    for dep_id in dict.fromkeys(str(d.id) for d in map(lookup, refs) if d is not None):
+        if dep_id == str(step.id):
+            continue
+        dep = (await db.execute(
+            select(Step).options(lazyload("*"), undefer(Step.data)).where(Step.id == dep_id)
+            .execution_options(populate_existing=True)
+        )).scalars().first()
+        if dep is None:
+            continue
+        resolution = await resolve_release_step(db, dep, artifact, release, user)
+        waiting = list((resolution.viewer_result or {}).get("needs_input") or []) \
+            or needs_input_names(resolution.data)
+        names += [n for n in waiting if n not in names]
+    return names
+
+
 async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential_user, executed_as,
-                    ctx, db_clients) -> str:
-    """StepService.run_step_to_user_result for one copy: the reader's own row."""
-    from app.ai.code_execution.query_params import params_fingerprint
+                    ctx, db_clients, sources: list, source_errors: list[dict]) -> str:
+    """StepService.run_step_to_user_result for one copy: the reader's own row.
+
+    A copy that needs a required input the reader never gave does not run,
+    nor one that loads a step waiting for the reader (it waits for the same
+    inputs): the reader's row waits for it ("needs_input"), unless a source
+    the copy uses failed for them -- then that failure's row, so its gate
+    shows -- or another of its params fails to resolve (D3), whose error is
+    stored as on a run."""
+    from app.ai.code_execution.query_params import missing_required_inputs, params_fingerprint
     from app.models.step_user_result import StepUserResult
     from app.services.access_errors import (CREDENTIALS_REQUIRED_REASON, NO_ACCESS_REASON, is_access_denied,
                                             needs_credentials)
@@ -219,8 +305,43 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
             StepUserResult.step_id == str(step.id), StepUserResult.user_id == str(run_user.id))
         .order_by(StepUserResult.last_run_at.desc().nullslast()).limit(1)
     )).scalars().first()
-    stored = prior.applied_params if prior is not None else step.applied_params
+    stored = step.applied_params
+    if prior is not None:
+        # A failed run's row, or a wait, holds no params (a failed
+        # resolution may be what failed; a wait is not a run): the reader's
+        # values, if any, over the copy's -- never "no values", which would
+        # read as a missing input.
+        stored = ({**(step.applied_params or {}), **(prior.applied_params or {})}
+                  if prior.status == "error" or needs_input_names(prior.data) else prior.applied_params)
     specs = service._step_param_specs(step)
+    missing = missing_required_inputs(specs, stored)
+    waiting = missing or await _reader_input_wait(db, step, artifact, release, run_user)
+    if waiting:
+        from app.services.dashboard_publish import needed_sources
+
+        used = {str(ds.id) for ds in needed_sources(sources, [step.code])}
+        blocking = [e for e in source_errors if str(e.get("data_source_id")) in used]
+        reason = input_wait_blocked_reason(blocking)
+        if reason is None:
+            # Every other param still resolves as on a run (D3): a required
+            # identity param that resolves to None is the run's real error,
+            # stored as such -- a wait never hides (or replaces) it.
+            try:
+                await service._resolve_step_params(
+                    db, step, stored=stored, run_user=run_user, organization_id=str(release.organization_id),
+                    specs=[s for s in specs if s.name not in missing])
+            except Exception as e:
+                reason = str(e)[:2000] or e.__class__.__name__
+        # No columns and no values: a wait is not a run of the reader's
+        # (resolve_release_step never serves it as their data).
+        await store_viewer_result(
+            db, step_id=str(step.id), user_id=str(run_user.id), organization_id=str(release.organization_id),
+            report_id=None, params_fingerprint=params_fingerprint({}),
+            status="error" if reason else "success", status_reason=reason,
+            data=None if reason else needs_input_frame(None, waiting),
+            executed_as=executed_as, applied_params=None, last_run_at=datetime.utcnow(),
+        )
+        return "error" if reason else "needs_input"
     params: dict = {}
     status, reason, data = "success", None, None
     try:
@@ -290,7 +411,7 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
     # What a chart loads runs first, so it loads the reader's fresh rows.
     targets = await in_dependency_order(db, release, targets)
-    total, succeeded, failed = 0, 0, 0
+    total, succeeded, failed, needing_input = 0, 0, 0, 0
     for step_id, code in targets:
         total += 1
         if not (code or "").strip():
@@ -299,11 +420,14 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
         try:
             status = await _run_copy(db, step_id, artifact, release, run_user=caller,
                                      credential_user=credential_user, executed_as=identity, ctx=ctx,
-                                     db_clients=db_clients)
+                                     db_clients=db_clients, sources=sources, source_errors=errors)
         except Exception as e:
             logger.warning("Dashboard viewer run failed for step %s: %s", step_id, e)
             status = "error"
-        succeeded, failed = (succeeded + 1, failed) if status == "success" else (succeeded, failed + 1)
+        # Waiting for the reader's input is not a failure: the app gives it.
+        needing_input += status == "needs_input"
+        ok = status in ("success", "needs_input")
+        succeeded, failed = (succeeded + 1, failed) if ok else (succeeded, failed + 1)
     total += unrunnable
     failed += unrunnable
     with contextlib.suppress(Exception):  # the audit trail never fails the run
@@ -311,7 +435,7 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
                                 user_id=str(caller.id), resource_type="artifact", resource_id=str(artifact.id),
                                 details={"executed_as": identity, "release_id": str(release.id),
                                          "steps_total": total, "steps_succeeded": succeeded,
-                                         "steps_failed": failed})
+                                         "steps_failed": failed, "steps_needing_input": needing_input})
     if total == 0:
         message = "No dashboard steps to run"
     elif failed == 0:
@@ -319,7 +443,8 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     else:
         message = f"Ran {succeeded}/{total} steps ({failed} failed)"
     return {"message": message, "steps_total": total, "steps_succeeded": succeeded, "steps_failed": failed,
-            "executed_as": identity, "last_run_at": datetime.utcnow(), "data_source_errors": errors}
+            "steps_needing_input": needing_input, "executed_as": identity, "last_run_at": datetime.utcnow(),
+            "data_source_errors": errors}
 
 
 # ── one chart, with filter values ────────────────────────────────────────

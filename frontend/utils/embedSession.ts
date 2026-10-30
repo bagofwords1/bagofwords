@@ -63,3 +63,40 @@ export function renewalFailure({ hasCredential, errorCode, failures, remainingMs
   const next = renewalRetry(failures, remainingMs)
   return { kind: next.expire ? 'expire' : 'retry', delay: next.delay }
 }
+
+// ── an artifact the embed cannot open ───────────────────────────────────────
+
+/** Why an embedded artifact is not shown. Only its editors and admins are told
+ * it is not published (the backend tells no one else); everyone else gets
+ * `not_found`. `not_allowed`: the artifact's embed settings leave out this
+ * host application. `failed`: the server broke or never answered -- the only
+ * reason worth a retry. */
+export type EmbedUnavailableReason = 'not_published' | 'not_found' | 'denied' | 'not_allowed' | 'failed'
+/** What a failed load of the artifact means for the gate: a reason to show,
+ * or a dead embed session (`session_invalid`), which ends like an expired one. */
+export type EmbedLoadFailure = EmbedUnavailableReason | 'session_invalid'
+
+/** The gate's reading of a failed GET /api/d/{ref} (HTTP status, error_code). */
+export function embedLoadFailure(status?: number | null, errorCode?: string | null): EmbedLoadFailure {
+  if (errorCode === 'dashboard.not_published') return 'not_published'
+  if (errorCode === 'embed.not_allowed') return 'not_allowed'
+  if (errorCode === 'embed.session_invalid' || status === 401) return 'session_invalid'
+  if (status === 403) return 'denied'
+  // No status (network, a thrown load, an empty body) or a server error.
+  if (!status || status >= 500) return 'failed'
+  return 'not_found'
+}
+
+/** A later request of the embedded view (its content, its queries) found the
+ * embed session dead: it ends as an expired one does, not as a load failure. */
+export function embedSessionEnded(status?: number | null, errorCode?: string | null): boolean {
+  return status === 401 || errorCode === 'embed.session_invalid'
+}
+
+export const EMBED_UNAVAILABLE_MESSAGE_KEYS: Record<EmbedUnavailableReason, string> = {
+  not_published: 'embed.unavailable.notPublished',
+  not_found: 'embed.unavailable.notFound',
+  denied: 'embed.unavailable.denied',
+  not_allowed: 'embed.unavailable.notAllowed',
+  failed: 'embed.unavailable.failed',
+}

@@ -69,8 +69,9 @@ function mountGate({ credentials, sessions }) {
   }
   const exports = {}
   new Function('exports', ...Object.keys(stubs), compiled)(exports, ...Object.values(stubs))
-  const bindings = exports.default.setup({ hostApplication: 'host_1' }, { expose: () => {}, emit: () => {} })
-  return { bindings, credential, requested, posted, mounted: () => mounted(), init: () => hostHandlers.onInit({ context: null }) }
+  let exposed = {}
+  const bindings = exports.default.setup({ hostApplication: 'host_1' }, { expose: (o) => { exposed = o }, emit: () => {} })
+  return { bindings, credential, requested, posted, exposed: () => exposed || {}, mounted: () => mounted(), init: () => hostHandlers.onInit({ context: null }) }
 }
 
 // Let the gate's awaits (credential, exchange, json) run between timer ticks.
@@ -115,3 +116,105 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: the gate keeps a live session through a transient renewal failure, and ends it on a permanent one')
+
+// ── the view could not open the artifact (artifactUnavailable) ────────────
+// An unpublished / missing / refused artifact: the gate says why in place and
+// tells the host (bow:unavailable), keeping the session. A dead session (401):
+// it ends as an expired one does, so the host is asked to sign the user in.
+async function readyGate() {
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  assert.equal(gate.bindings.status.value, 'ready')
+  return gate
+}
+// Mock timers: the session's renewal timer (55 min) must not keep the process alive.
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+{
+  const gate = await readyGate()
+  assert.equal(typeof gate.exposed().artifactUnavailable, 'function', 'the gate exposes artifactUnavailable')
+  gate.exposed().artifactUnavailable('not_published')
+  assert.equal(gate.bindings.status.value, 'unavailable')
+  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished')
+  assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:unavailable'),
+    [{ type: 'bow:unavailable', reason: 'not_published', message: 'embed.unavailable.notPublished' }])
+  assert.equal(gate.credential.value?.token, 'bow_embed_a1', 'the session is kept')
+}
+{
+  const gate = await readyGate()
+  gate.exposed().artifactUnavailable('session_invalid')
+  assert.equal(gate.credential.value, null, 'a dead session is ended')
+  assert.equal(gate.bindings.status.value, 'failed')
+  assert.equal(gate.bindings.message.value, 'embed.gate.expired')
+  assert.ok(gate.posted.some((p) => p.type === 'bow:auth' && p.status === 'failed'), 'the host is told to sign in again')
+  assert.equal(gate.posted.filter((p) => p.type === 'bow:unavailable').length, 0)
+}
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: the gate tells the viewer and the host why the artifact is not shown, and ends a dead session')
+
+// ── a renewal while the artifact is unavailable ──────────────────────────
+// The renewal is silent, as over a shown artifact: the message stays (never
+// "Signing you in…"), and the host is not told "authenticated" then
+// "unavailable" again every cycle. It still re-checks (the view remounts),
+// and the host hears "authenticated" once the artifact opens.
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2', 'assertion-3'],
+    sessions: [{ body: SESSION }, { body: SESSION }, { body: SESSION }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  const authenticated = () => gate.posted.filter((p) => p.type === 'bow:auth' && p.status === 'authenticated').length
+  const unavailable = () => gate.posted.filter((p) => p.type === 'bow:unavailable').length
+  assert.equal(authenticated(), 1)
+  gate.exposed().artifactUnavailable('not_published')
+  assert.equal(unavailable(), 1)
+
+  mock.timers.tick(55 * MINUTE)  // the renewal starts
+  assert.equal(gate.requested.length, 2, 'the session renews')
+  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished', 'the renewal is silent')
+  assert.equal(gate.bindings.status.value, 'unavailable')
+  await settle()
+  assert.equal(gate.bindings.status.value, 'ready', 'the renewed session re-checks the artifact (the view remounts)')
+  assert.equal(authenticated(), 1, 'the host is not told "authenticated" over an unavailable artifact')
+  gate.exposed().artifactUnavailable('not_published')  // still not published
+  assert.equal(unavailable(), 1, 'nor "unavailable" again for the same reason')
+  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished')
+
+  mock.timers.tick(55 * MINUTE)
+  await settle()
+  assert.equal(typeof gate.exposed().artifactOpened, 'function', 'the gate exposes artifactOpened')
+  gate.exposed().artifactOpened()  // published meanwhile: the view opened it
+  assert.equal(authenticated(), 2, 'the host hears the artifact is shown')
+  gate.exposed().artifactOpened()
+  assert.equal(authenticated(), 2, 'once')
+  gate.exposed().artifactUnavailable('not_published')  // unpublished again: told again
+  assert.equal(unavailable(), 2)
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a renewal over an unavailable artifact is silent and does not toggle the host')
+
+// ── the server broke: a retryable failure ────────────────────────────────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  const gate = await readyGate()
+  gate.exposed().artifactUnavailable('failed')
+  assert.equal(gate.bindings.status.value, 'unavailable')
+  assert.equal(gate.bindings.message.value, 'embed.unavailable.failed')
+  assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:unavailable'),
+    [{ type: 'bow:unavailable', reason: 'failed', message: 'embed.unavailable.failed' }])
+  assert.equal(gate.bindings.unavailableReason.value, 'failed', 'the Try again button shows for it')
+  gate.bindings.retryOpen()
+  assert.equal(gate.bindings.status.value, 'ready', 'Try again opens the artifact again')
+  assert.equal(gate.credential.value?.token, 'bow_embed_a1', 'with the same session')
+  gate.exposed().artifactUnavailable('not_found')
+  assert.equal(gate.bindings.unavailableReason.value, 'not_found', 'no retry for an artifact that is not there')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a load that failed on the server is shown with a retry, and the host hears `failed`')

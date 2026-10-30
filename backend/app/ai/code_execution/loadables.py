@@ -330,6 +330,19 @@ class LoadablesResolver:
                     resolution = await resolve_step_data(
                         self.db, step, self.report, self.current_user
                     )
+                if self.release is not None:
+                    # A copy waiting for its viewer's input has no rows: never
+                    # hand its empty frame over as if it were its data. (Runs of
+                    # the whole dashboard make the loader wait instead.)
+                    from app.services.dashboard_runs import needs_input_names
+                    waiting = (list((resolution.viewer_result or {}).get("needs_input") or [])
+                               or needs_input_names(resolution.data))
+                    if waiting:
+                        result["errors"].append(
+                            f"load_step({key!r}): that step waits for its viewer's input "
+                            f"({', '.join(waiting)}) and has no rows yet."
+                        )
+                        continue
                 if resolution.withheld:
                     result["errors"].append(
                         f"load_step({key!r}): its snapshot is scoped to another "

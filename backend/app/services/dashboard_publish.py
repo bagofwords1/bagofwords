@@ -13,7 +13,9 @@ at once and returns; the run happens in the background:
    commits.
 2. `run_publish` (background): every copied step runs again with the
    publisher's credentials, what a step loads first, beating the release's
-   updated_at as it goes. A slide deck is frozen: nothing runs.
+   updated_at as it goes. A slide deck is frozen: nothing runs. A step whose
+   query needs a required input nobody gave is not run: its copy holds no
+   rows and waits for the viewer's value (`info.needs_input`).
 3. All or nothing. Every step succeeded: the release goes live in one switch
    (artifacts.published_release_id, with last_run_at) and the dashboard's
    other releases -- the previous live one, failed attempts -- are deleted
@@ -60,10 +62,14 @@ _ERROR_LIMIT = 2000
 
 # ── what the owner sees ──────────────────────────────────────────────────
 
-def _release_view(release: ArtifactRelease | None, version: ArtifactVersion | None = None) -> dict | None:
+def _release_view(release: ArtifactRelease | None, version: ArtifactVersion | None = None,
+                  waiting: list[str] | None = None) -> dict | None:
     if release is None:
         return None
+    waiting = waiting or []
     return {
+        # Steps left unrun, waiting for a viewer's input (a context app): the owner is told which.
+        "steps_needing_input": len(waiting), "steps_needing_input_labels": list(waiting),
         "id": str(release.id), "status": release.status, "error": release.error,
         "source_version_id": str(release.source_version_id) if release.source_version_id else None,
         "source_version_number": version.version if version is not None else None,
@@ -101,15 +107,29 @@ async def publish_status(db, artifact: Artifact) -> dict:
             ArtifactVersion.id == str(release.source_version_id)))).scalars().first()
 
     shown = live if live is not None and live.status == "ready" else None
+    waiting = await waiting_step_labels(db, str(shown.id)) if shown is not None else []
+    same = shown is not None and latest is not None and str(latest.id) == str(shown.id)
     return {
-        "published": _release_view(shown, await source(shown)),
-        "latest": _release_view(latest, await source(latest)),
+        "published": _release_view(shown, await source(shown), waiting),
+        "latest": _release_view(latest, await source(latest), waiting if same else None),
         "has_unpublished_changes": newest is not None and str(newest.id) != published_version,
         "newest_version_id": str(newest.id) if newest is not None else None,
         "newest_version_number": newest.version if newest is not None else None,
         "last_run": {"at": artifact.last_run_at, "status": artifact.last_run_status,
                      "error": artifact.last_run_error},
     }
+
+
+async def waiting_step_labels(db, release_id: str) -> list[str]:
+    """The labels of the release's copies that wait for a viewer's input
+    (their data is a waiting frame), in the run's order."""
+    from app.services.dashboard_runs import needs_input_names
+
+    rows = (await db.execute(
+        select(Step.id, Step.title, Step.data).join(Query, Query.default_step_id == Step.id)
+        .where(Query.artifact_release_id == release_id).order_by(Query.created_at, Query.id)
+    )).all()
+    return [title or str(sid) for sid, title, data in rows if needs_input_names(data)]
 
 
 # ── starting ─────────────────────────────────────────────────────────────
@@ -505,8 +525,11 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
     `before_step()` returning False stops the run (_ABANDONED). None when
     every step ran, else the reason; a step that fails rolls the session
     back."""
+    from app.ai.code_execution.query_params import missing_required_inputs
     from app.ai.tools.implementations.agent_focus_common import accessible_agents
-    from app.services.dashboard_runs import in_dependency_order, release_data_sources, release_files
+    from app.services.dashboard_runs import (in_dependency_order, loaded_input_wait, needs_input_frame,
+                                             release_data_sources, release_files)
+    from app.services.identity_taint import release_step_lookup
     from app.services.data_source_service import DataSourceService
     from app.services.exec_context import ExecContext
     from app.services.step_service import StepService
@@ -549,6 +572,7 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
     ctx.fresh_rows = {}  # the new rows of each step another one loads
     loaded = await _loaded_step_ids(db, release, [s.code for s in steps.values()])
     order = await in_dependency_order(db, release, [(sid, s.code) for sid, s in steps.items()])
+    lookup = await release_step_lookup(db, release_id)
     service = StepService()
     for step_id, code in order:
         if before_step is not None and not await before_step():
@@ -559,11 +583,26 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
         label = step.title or step_id  # read before a rollback expires it
         try:
             specs = service._step_param_specs(step)
-            params = await service._resolve_step_params(
-                db, step, stored=step.applied_params, run_user=run_user,
-                organization_id=str(release.organization_id), specs=specs)
-            data = await service._execute_step_code(db, step, ctx, db_clients=clients, params=params,
-                                                    param_specs=specs)
+            missing = missing_required_inputs(specs, step.applied_params)
+            if missing:
+                _refuse_stale_values(step.applied_params, specs, missing)
+            # Only its viewer can give the value (a context app): never run
+            # without it -- nor a step that loads one waiting (it would read
+            # an empty frame as the loaded step's rows). No rows until a
+            # viewer's own run.
+            waiting = missing or loaded_input_wait(
+                step.code, lookup, lambda dep: ctx.fresh_rows.get(str(dep.id)))
+            if waiting:
+                # The stored values stay (a missing one is still None, so
+                # still missing): the author's other values -- and a
+                # loader's own -- are what the viewer's run resolves with.
+                data, params = needs_input_frame(step.data, waiting), dict(step.applied_params or {})
+            else:
+                params = await service._resolve_step_params(
+                    db, step, stored=step.applied_params, run_user=run_user,
+                    organization_id=str(release.organization_id), specs=specs)
+                data = await service._execute_step_code(db, step, ctx, db_clients=clients, params=params,
+                                                        param_specs=specs)
         except Exception as e:
             await db.rollback()
             return RunFailure(label, _reason(e))
@@ -571,6 +610,21 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
             ctx.fresh_rows[step_id] = data
         await after_step(step, data, params)
     return None
+
+
+def _refuse_stale_values(stored: dict | None, specs: list, missing: list[str]) -> None:
+    """A required input has no value while the step holds a value under a
+    name no parameter declares (one renamed since it ran): a broken query,
+    not a wait for the viewer. Fails the run, naming the stale key."""
+    from app.ai.code_execution.query_params import ParamError
+
+    declared = {s.name for s in specs}
+    stale = sorted(k for k in (stored or {}) if k not in declared)
+    if stale:
+        raise ParamError(
+            f"stored value(s) for {', '.join(repr(k) for k in stale)}, which no parameter declares, while "
+            f"required input(s) {', '.join(repr(k) for k in missing)} have none. Run the query again in its "
+            f"conversation, then publish.")
 
 
 async def _loaded_step_ids(db, release: ArtifactRelease, codes: list) -> set:
@@ -698,9 +752,12 @@ async def _go_live(db, release_id: str) -> bool:
     from app.services.thumbnail_service import ThumbnailService
     fire_and_forget.spawn(ThumbnailService().regenerate_for_release(release_id))
     with contextlib.suppress(Exception):
+        waiting = await waiting_step_labels(db, release_id)
         await audit_service.log(db=db, organization_id=organization_id, action="dashboard.published",
                                 user_id=published_by, resource_type="artifact", resource_id=artifact_id,
-                                details={"release_id": release_id, "version_id": version_id})
+                                details={"release_id": release_id, "version_id": version_id,
+                                         "steps_needing_input": len(waiting),
+                                         "steps_needing_input_labels": waiting})
     return True
 
 

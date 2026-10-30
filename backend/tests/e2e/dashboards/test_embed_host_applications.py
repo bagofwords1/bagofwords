@@ -385,6 +385,25 @@ def test_a_session_stops_working_when_it_should(embed, published, ending, corpus
     assert r.status_code == 401 and r.json()["error_code"] == "embed.session_invalid"
 
 
+def test_an_unpublished_artifact_tells_an_embedded_editor_it_is_not_published_and_no_one_else(
+        embed, corpus, corpus_rows):
+    """The embed gate's message rests on this: only its editors (and admins)
+    learn that an artifact exists but is not published; anyone else is told
+    it is not found. An embed session never opens the draft."""
+    aid = own(corpus_rows, corpus, DASH)  # never published
+    embed.attribute("owner", "E-30")
+    embed.attribute("member", "E-31")
+    host = embed.create()
+    assert embed.allow(aid, host).status_code == 200
+    owner, member = embed.sign_in(host, "E-30"), embed.sign_in(host, "E-31")
+
+    mine = embed.client.get(f"/api/d/{aid}", headers=bearer(owner))
+    assert mine.status_code == 404 and mine.json()["error_code"] == "dashboard.not_published"
+    theirs = embed.client.get(f"/api/d/{aid}", headers=bearer(member))
+    assert theirs.status_code == 404 and theirs.json()["error_code"] == "artifact.not_found"
+    assert embed.client.get(f"/api/d/{aid}/draft", headers=bearer(owner)).status_code == 401
+
+
 def test_a_session_from_one_host_is_not_another_hosts(embed, published):
     embed.attribute("member", "E-21")
     erp = embed.create()

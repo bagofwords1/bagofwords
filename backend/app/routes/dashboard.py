@@ -422,15 +422,19 @@ async def _has_own_run(db, release, user) -> bool:
     from app.models.query import Query
     from app.models.step import Step
     from app.models.step_user_result import StepUserResult
+    from app.services.dashboard_runs import needs_input_names
 
     if user is None:
         return False
-    return (await db.execute(
-        select(StepUserResult.id).join(Step, Step.id == StepUserResult.step_id)
+    rows = (await db.execute(
+        select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
-               StepUserResult.status == "success").limit(1)
-    )).scalar_one_or_none() is not None
+               StepUserResult.status == "success")
+    )).scalars().all()
+    # A wait for input is not a run of theirs (resolve_release_step): it holds no rows. The marker
+    # is inside the encrypted data, so it is read here, not in SQL.
+    return any(not needs_input_names(data) for data in rows)
 
 
 async def _release_pdf(db, artifact, release, user) -> str | None:

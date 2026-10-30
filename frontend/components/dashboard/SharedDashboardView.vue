@@ -385,7 +385,9 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
+import { embedLoadFailure, embedSessionEnded, type EmbedLoadFailure } from '~/utils/embedSession';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
+import { awaitsViewerInput, isOwnSuccess } from '~/utils/viewerInput';
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue';
 import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
@@ -409,7 +411,10 @@ const inHostApplication = computed(() => !!embedCredential.value);
 ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
-const emit = defineEmits<{ (e: 'reload'): void }>();
+// `unavailable`: inside a host application the artifact could not be opened;
+// the embed gate says why (it never navigates away from the host's frame).
+// `opened`: inside a host application, it could (the gate tells the host).
+const emit = defineEmits<{ (e: 'reload'): void; (e: 'unavailable', failure: EmbedLoadFailure): void; (e: 'opened'): void }>();
 const api = sharedDashboardApi(props.source, props.id);
 const route = useRoute();
 const { data: currentUser } = useAuth();
@@ -972,6 +977,12 @@ async function loadReport() {
         }
         if (fetchError.value) {
             const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
+            // Inside a host application: no draft, no sign-in page, no
+            // /not_found -- each would leave the host's frame. The gate says why.
+            if (inHostApplication.value && props.source === 'dashboard') {
+                emit('unavailable', embedLoadFailure(status, (fetchError.value as any)?.data?.error_code));
+                return;
+            }
             // Not published yet: its editors see the draft instead -- unless
             // the draft just sent us here (it would bounce back and forth).
             const fromDraft = route.query.from === 'draft';
@@ -1003,15 +1014,24 @@ async function loadReport() {
             return;
         }
         if (!data.value) {
+            if (inHostApplication.value && props.source === 'dashboard') {
+                emit('unavailable', embedLoadFailure(undefined, null));
+                return;
+            }
             navigateTo('/not_found');
             return;
         }
         report.value = asReport(data.value);
         forkEligibility.value = (data.value as any)?.fork_eligibility || null;
+        if (inHostApplication.value && props.source === 'dashboard') emit('opened');
     } catch (e) {
         console.error('Failed to load report:', e);
         if (embedded) {
             unavailable.value = true;
+            return;
+        }
+        if (inHostApplication.value && props.source === 'dashboard') {
+            emit('unavailable', embedLoadFailure(undefined, null));
             return;
         }
         navigateTo('/not_found');
@@ -1056,11 +1076,22 @@ function asReport(meta: any) {
 }
 const dashboardMeta = ref<any>(null);
 
+// Inside a host application, a later request of the view (content, queries)
+// refused for a dead embed session: the session ended, not the load -- the
+// gate ends it as an expired one (the host is asked to sign the user in).
+function embedSessionEndedOn(error: any): boolean {
+    if (!inHostApplication.value || props.source !== 'dashboard' || !error) return false;
+    if (!embedSessionEnded(error?.statusCode || error?.status, error?.data?.error_code)) return false;
+    emit('unavailable', 'session_invalid');
+    return true;
+}
+
 // A dashboard's published version (or its draft): one artifact, whose
 // content the page renders as it renders a conversation's newest.
 async function loadDashboardContent() {
     try {
         const { data, error } = await useMyFetch(api.content!);
+        if (embedSessionEndedOn(error.value)) return;
         if (error.value || !data.value) throw error.value || new Error('Missing dashboard content');
         const body = data.value as any;
         const meta = dashboardMeta.value || {};
@@ -1124,6 +1155,7 @@ async function loadArtifact() {
 async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
     try {
         const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
+        if (embedSessionEndedOn(error.value)) return [];
         if (error.value || !Array.isArray(data.value)) return null;
         return data.value as any[];
     } catch {
@@ -1200,10 +1232,15 @@ async function loadVisualizationData(artifactId?: string) {
             const vr = (step.value as any)?.viewer_result;
             if ((step.value as any)?.snapshot_withheld) {
                 anyWithheld = true;
-                nextWithheldCharts.push({
-                    title: (query as any).title || 'Untitled',
-                    noAccess: vr?.error_code === 'no_access',
-                });
+                if (awaitsViewerInput(vr)) {
+                    // Nothing ran: the app gives the value (setParams). Its rows and code stay withheld.
+                    visibleQueries += 1;
+                } else {
+                    nextWithheldCharts.push({
+                        title: (query as any).title || 'Untitled',
+                        noAccess: vr?.error_code === 'no_access',
+                    });
+                }
             } else if (step.value) {
                 if (!(step.value as any).pending && vr?.status !== 'success') anyAuthorSnapshot = true;
                 // Only a step that actually loaded counts as viewable — see
@@ -1218,7 +1255,7 @@ async function loadVisualizationData(artifactId?: string) {
                 if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
                 if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
                 if (vr.status === 'error' && vr.error_code === 'credentials_required') anyNeedsConnect = true;
-                if (vr.status === 'success') anyOwnSuccess = true;
+                if (isOwnSuccess(vr)) anyOwnSuccess = true;  // a wait for input is not a run of theirs (exports)
             }
             const viewerRun = vr?.last_run_at;
             if (viewerRun) {

@@ -6406,5 +6406,14 @@
     "owner": "Propriétaire",
     "byOwner": "de {name}",
     "untitled": "Sans titre"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Ce contenu n'a pas encore été publié. Il apparaîtra ici dès qu'il sera publié.",
+      "notFound": "Ce contenu n'est pas disponible. Il n'a peut-être pas encore été publié, ou il a été supprimé.",
+      "denied": "Vous n'avez pas accès à ce contenu. Demandez à son propriétaire de le partager avec vous.",
+      "notAllowed": "Ce contenu n'est pas activé pour cette application. Un éditeur peut l'autoriser dans ses paramètres d'intégration dans Bag of Words.",
+      "failed": "Impossible de charger ce contenu. Réessayez dans un instant."
+    }
   }
 }

@@ -272,6 +272,18 @@ def resolve_param_values(
     return resolved
 
 
+def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, Any]]) -> List[str]:
+    """Required `input` params with no default that `values` leaves empty (absent or None).
+
+    The run must not happen without them: Publish and a refresh leave such a
+    step unrun, and a reader's run waits for the reader's value. Identity
+    params are never "missing" here -- they bind the runner as before.
+    """
+    values = values or {}
+    return [s.name for s in specs
+            if s.source == "input" and s.required and s.default is None and values.get(s.name) is None]
+
+
 # ---------------------------------------------------------------------------
 # Safe SQL rendering
 # ---------------------------------------------------------------------------

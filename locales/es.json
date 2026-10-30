@@ -6796,6 +6796,13 @@
       "popupBlocked": "Se bloqueó la ventana de inicio de sesión. Permite ventanas emergentes en esta página e inténtalo de nuevo.",
       "notFramed": "Este enlace solo funciona dentro de la aplicación en la que se insertó."
     },
+    "unavailable": {
+      "notPublished": "Esto aún no se ha publicado. Aparecerá aquí cuando se publique.",
+      "notFound": "Esto no está disponible. Puede que aún no se haya publicado o que se haya eliminado.",
+      "denied": "No tienes acceso a esto. Pide a su propietario que lo comparta contigo.",
+      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en Bag of Words.",
+      "failed": "No se pudo cargar. Inténtalo de nuevo en un momento."
+    },
     "signin": {
       "working": "Iniciando sesión…",
       "done": "Sesión iniciada. Puedes cerrar esta ventana.",

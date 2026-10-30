@@ -162,6 +162,10 @@ class DashboardReleaseSchema(BaseModel):
     published_by: str | None = None
     started_at: datetime | None = None
     published_at: datetime | None = None
+    # Copies left unrun at Publish, waiting for a viewer's input (a context
+    # app), and their labels: the owner is told which charts start empty.
+    steps_needing_input: int = 0
+    steps_needing_input_labels: list[str] = []
 
 
 class DashboardPublishStatusSchema(BaseModel):

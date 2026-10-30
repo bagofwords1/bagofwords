@@ -6825,6 +6825,13 @@
       "popupBlocked": "The sign-in window was blocked. Allow pop-ups for this page and try again.",
       "notFramed": "This link only works inside the application it was embedded in."
     },
+    "unavailable": {
+      "notPublished": "This hasn't been published yet. It will appear here once it's published.",
+      "notFound": "This isn't available. It may not be published yet, or it was removed.",
+      "denied": "You don't have access to this. Ask its owner to share it with you.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "failed": "This couldn't be loaded. Try again in a moment."
+    },
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",

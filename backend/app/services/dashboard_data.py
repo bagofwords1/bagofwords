@@ -101,6 +101,7 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
     from app.services.access_errors import viewer_error_code
     from app.services.bow_source_access import can_read
     from app.services.dashboard_access import holds_snapshot
+    from app.services.dashboard_runs import needs_input_names
     from app.services.identity_taint import step_identity_scope
 
     if release.bow_source_access and not await can_read(db, release.bow_source_access, user):
@@ -125,7 +126,10 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
                 "executed_as": row.executed_as,
                 "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             }
-            if row.status == "success" and row.data:
+            waiting = needs_input_names(row.data) if row.status == "success" else []
+            if waiting:
+                viewer_result["needs_input"] = waiting  # a wait for input is not a run: fall through
+            elif row.status == "success" and row.data:
                 return StepDataResolution(data=row.data, viewer_result=viewer_result)
 
     tainted, _ = await step_identity_scope(db, step)

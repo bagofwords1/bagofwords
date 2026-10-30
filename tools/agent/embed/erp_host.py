@@ -120,6 +120,7 @@ function track(embed) {{
   embed.on('authenticated', ({{ user }}) => {{ status.textContent = 'BOW: signed in as ' + (user && user.name); }});
   embed.on('authRequired', (e) => {{ status.textContent = 'BOW: ' + e.status + (e.message ? ' — ' + e.message : ''); }});
   embed.on('error', (e) => {{ status.textContent = 'BOW error: ' + e.message; }});
+  embed.on('unavailable', (e) => {{ window.bowUnavailable = e; status.textContent = 'BOW: unavailable (' + e.reason + ')'; }});
   window.embed = embed;
   return embed;
 }}

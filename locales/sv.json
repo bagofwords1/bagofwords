@@ -6406,5 +6406,14 @@
     "owner": "Ägare",
     "byOwner": "av {name}",
     "untitled": "Namnlös"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
+      "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
+      "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "failed": "Det gick inte att läsa in. Försök igen om en stund."
+    }
   }
 }

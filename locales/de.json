@@ -6406,5 +6406,14 @@
     "owner": "Eigentümer",
     "byOwner": "von {name}",
     "untitled": "Ohne Titel"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Dies wurde noch nicht veröffentlicht. Es erscheint hier, sobald es veröffentlicht ist.",
+      "notFound": "Dies ist nicht verfügbar. Möglicherweise wurde es noch nicht veröffentlicht oder es wurde entfernt.",
+      "denied": "Sie haben keinen Zugriff darauf. Bitten Sie den Eigentümer, es mit Ihnen zu teilen.",
+      "notAllowed": "Dies ist für diese Anwendung nicht aktiviert. Ein Bearbeiter kann es in den Einbettungseinstellungen in Bag of Words erlauben.",
+      "failed": "Das konnte nicht geladen werden. Versuchen Sie es gleich noch einmal."
+    }
   }
 }

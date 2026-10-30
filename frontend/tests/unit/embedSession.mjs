@@ -127,3 +127,51 @@ function mountRuntime(embed, appToken) {
   assert.notEqual(key(), before, 'a credential without a user id never keeps the ports')
 }
 console.log('PASS: useArtifactRuntime keeps its ports across a renewal for the same viewer only')
+
+// ── an artifact the embed cannot open ─────────────────────────────────────
+// What GET /api/d/{ref} answered, mapped to what the gate tells the viewer.
+// Only editors and admins are told "not published" (the backend decides that);
+// the host application missing from the artifact's embed settings is its own
+// reason, not "ask its owner to share it"; any 401 means the session is dead.
+{
+  const { embedLoadFailure, EMBED_UNAVAILABLE_MESSAGE_KEYS } = embedSession
+  assert.equal(typeof embedLoadFailure, 'function', 'embedLoadFailure is exported')
+  assert.equal(embedLoadFailure(404, 'dashboard.not_published'), 'not_published')
+  for (const args of [[404, 'artifact.not_found'], [404], [410], [400, 'validation']]) {
+    assert.equal(embedLoadFailure(...args), 'not_found', JSON.stringify(args))
+  }
+  // The server broke, or no answer came (network, a thrown load, an empty
+  // body): not "it does not exist" -- a retryable failure.
+  for (const args of [[500], [502, 'internal_error'], [503], [undefined, null], [undefined], [0]]) {
+    assert.equal(embedLoadFailure(...args), 'failed', JSON.stringify(args))
+  }
+  assert.equal(embedLoadFailure(403, 'embed.not_allowed'), 'not_allowed')
+  assert.equal(embedLoadFailure(403, 'access_denied'), 'denied')
+  assert.equal(embedLoadFailure(403), 'denied')
+  assert.equal(embedLoadFailure(401, 'embed.session_invalid'), 'session_invalid')
+  assert.equal(embedLoadFailure(401), 'session_invalid')
+  assert.equal(embedLoadFailure(undefined, 'embed.session_invalid'), 'session_invalid')
+  assert.equal(embedLoadFailure(500, 'embed.session_invalid'), 'session_invalid')
+
+  // A later request of the view (content, queries) ending the same way.
+  const { embedSessionEnded } = embedSession
+  assert.equal(typeof embedSessionEnded, 'function', 'embedSessionEnded is exported')
+  assert.equal(embedSessionEnded(401), true)
+  assert.equal(embedSessionEnded(403, 'embed.session_invalid'), true)
+  for (const args of [[403], [404], [500], [undefined, null]]) {
+    assert.equal(embedSessionEnded(...args), false, JSON.stringify(args))
+  }
+
+  // Each reason the gate shows has a message in every catalog.
+  assert.deepEqual(Object.keys(EMBED_UNAVAILABLE_MESSAGE_KEYS).sort(), ['denied', 'failed', 'not_allowed', 'not_found', 'not_published'])
+  const localesDir = new URL('../../../locales/', import.meta.url)
+  const catalogs = ['en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it']
+  for (const locale of catalogs) {
+    const catalog = JSON.parse(readFileSync(new URL(`${locale}.json`, localesDir), 'utf8'))
+    for (const key of Object.values(EMBED_UNAVAILABLE_MESSAGE_KEYS)) {
+      const text = key.split('.').reduce((node, part) => (node == null ? undefined : node[part]), catalog)
+      assert.ok(typeof text === 'string' && text.trim(), `${locale}: ${key}`)
+    }
+  }
+}
+console.log('PASS: an embed that cannot open its artifact says why, in every catalog')

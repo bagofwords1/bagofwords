@@ -15,6 +15,10 @@
                          data-testid="embedded-artifact-retry" @click="signIn">
                     {{ $t('embed.gate.retry') }}
                 </UButton>
+                <UButton v-else-if="status === 'unavailable' && unavailableReason === 'failed'" size="sm" variant="soft"
+                         data-testid="embedded-artifact-retry" @click="retryOpen">
+                    {{ $t('embed.gate.retry') }}
+                </UButton>
             </div>
         </div>
     </div>
@@ -22,7 +26,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
-import { embedRuntimeIdentity, renewalDelayMs, renewalFailure, sessionLifetimeMs } from '~/utils/embedSession';
+import { EMBED_UNAVAILABLE_MESSAGE_KEYS, embedRuntimeIdentity, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -38,6 +42,13 @@ const status = ref<Status>('starting');
 const message = ref(t('embed.gate.starting'));
 const mode = ref<'assertion' | 'idp_token' | 'sso' | null>(null);
 const retryable = ref(true);
+// Why the view could not open the artifact (status 'unavailable' after a sign-in).
+const unavailableReason = ref<EmbedUnavailableReason | null>(null);
+// What the host was last told about the artifact: unavailable, and why
+// (bow:unavailable); null once it heard 'authenticated' since. A renewal does
+// not tell it again, so the host's state does not flip every cycle.
+let toldUnavailable: EmbedUnavailableReason | null = null;
+let signedInUser: { name?: string, email?: string } | null = null;
 let allowedOrigins: string[] = [];
 let renewTimer: ReturnType<typeof setTimeout> | null = null;
 // When the current session really ends, on this page's clock.
@@ -64,6 +75,7 @@ function applyLocale(locale: string) {
 function fail(next: Status, text: string) {
     status.value = next;
     message.value = text;
+    toldUnavailable = null;
     host.post('bow:auth', { status: next, error: text });
 }
 
@@ -90,8 +102,12 @@ async function accept(session: any) {
         hostApplication: session.host_application,
         viewer: session.viewer || null,
     };
+    const sameViewer = !!credential.value && embedRuntimeIdentity(credential.value, '') === embedRuntimeIdentity(next, '');
+    // A silent renewal over an artifact that could not be opened: the view
+    // re-checks it (remount below); the host hears again only if that changes.
+    const renewingUnavailable = sameViewer && status.value === 'unavailable';
     // Someone else now: the previous viewer's app unmounts before theirs mounts.
-    if (credential.value && embedRuntimeIdentity(credential.value, '') !== embedRuntimeIdentity(next, '')) {
+    if (credential.value && !sameViewer) {
         credential.value = null;
         status.value = 'signing_in';
         message.value = t('embed.gate.signingIn');
@@ -99,7 +115,11 @@ async function accept(session: any) {
     }
     credential.value = next;
     status.value = 'ready';
-    host.post('bow:auth', { status: 'authenticated', user: { name: session.user?.name, email: session.user?.email } });
+    signedInUser = { name: session.user?.name, email: session.user?.email };
+    if (!renewingUnavailable) {
+        toldUnavailable = null;
+        host.post('bow:auth', { status: 'authenticated', user: signedInUser });
+    }
     renewFailures = 0;
     const lifetime = sessionLifetimeMs(session);
     expiresAt = Date.now() + lifetime;
@@ -119,12 +139,42 @@ function expire() {
     fail(mode.value === 'sso' ? 'sign_in_required' : 'failed', t('embed.gate.expired'));
 }
 
+// The view could not open the artifact (SharedDashboardView's `unavailable`).
+// A dead session ends as an expired one does: the host is asked to sign the
+// user in again (bow:auth). Anything else is said here, in place, and told to
+// the host (bow:unavailable, the SDK's `unavailable` event); the session stays,
+// so its renewal shows the artifact once it can be opened.
+function artifactUnavailable(failure: EmbedLoadFailure) {
+    if (failure === 'session_invalid') { expire(); return; }
+    status.value = 'unavailable';
+    unavailableReason.value = failure;
+    message.value = t(EMBED_UNAVAILABLE_MESSAGE_KEYS[failure]);
+    if (toldUnavailable === failure) return;  // the host already knows (a renewal's re-check)
+    toldUnavailable = failure;
+    host.post('bow:unavailable', { reason: failure, message: message.value });
+}
+
+// The view opened the artifact. A host told it was unavailable hears it is shown now.
+function artifactOpened() {
+    if (toldUnavailable === null) return;
+    toldUnavailable = null;
+    host.post('bow:auth', { status: 'authenticated', user: signedInUser });
+}
+
+// Try again after a failed load (`failed`): the view mounts afresh, same session.
+function retryOpen() {
+    if (status.value === 'unavailable' && credential.value) status.value = 'ready';
+}
+
+defineExpose({ artifactUnavailable, artifactOpened });
+
 let inflight: Promise<void> | null = null;
 function signIn(): Promise<void> {
     if (inflight) return inflight;
     inflight = (async () => {
         if (mode.value === 'sso') { fail('sign_in_required', t('embed.gate.signInRequired')); return; }
-        if (status.value !== 'ready') { status.value = 'signing_in'; message.value = t('embed.gate.signingIn'); }
+        // A renewal is silent, over the artifact or over why it is not shown.
+        if (status.value !== 'ready' && status.value !== 'unavailable') { status.value = 'signing_in'; message.value = t('embed.gate.signingIn'); }
         try {
             const kind = mode.value === 'idp_token' ? 'id_token' : 'assertion';
             const value = await host.requestCredential(kind);
