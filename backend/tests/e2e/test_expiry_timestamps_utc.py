@@ -98,3 +98,123 @@ def test_service_account_key_expiry_is_serialized_with_utc_offset(test_client, a
     assert detail.status_code == 200, detail.text
     listed = next(k for k in detail.json()["keys"] if k["id"] == key.json()["id"])
     assert _assert_utc_aware(listed["expires_at"]) == expected
+
+
+# --- Offset-aware expiry input -------------------------------------------
+#
+# The columns are naive and the services compare them with naive utcnow(), so
+# an aware expires_at must be stored as the same instant in naive UTC. Before
+# the schema normalized it, SQLite dropped the offset (storing local wall time
+# as if it were UTC) and Postgres rejected the aware value outright.
+
+AWARE_INPUT = "2030-01-01T12:00:00+02:00"
+AWARE_EXPECTED = datetime(2030, 1, 1, 10, 0, tzinfo=UTC)
+
+
+@pytest.mark.e2e
+def test_api_key_expiry_aware_input_is_stored_as_the_utc_instant(test_client, admin, api_key_request):
+    token, org_id = admin
+
+    created = test_client.post(
+        "/api/api_keys", json={"name": "tz-aware", "expires_at": AWARE_INPUT}, headers=_hdr(token, org_id)
+    )
+    assert created.status_code == 200, created.text
+    assert _assert_utc_aware(created.json()["expires_at"]) == AWARE_EXPECTED
+
+    listed = test_client.get("/api/api_keys", headers=_hdr(token, org_id))
+    assert listed.status_code == 200, listed.text
+    key = next(k for k in listed.json() if k["id"] == created.json()["id"])
+    assert _assert_utc_aware(key["expires_at"]) == AWARE_EXPECTED
+
+    # The expiry check compares the stored value with naive utcnow(): it must
+    # not raise, and a key that expires in 2030 still authenticates.
+    who = api_key_request(method="GET", url="/api/users/whoami", api_key=created.json()["key"])
+    assert who.status_code == 200, who.text
+
+
+@pytest.mark.e2e
+def test_service_account_key_expiry_aware_input_is_stored_as_the_utc_instant(test_client, admin, api_key_request):
+    token, org_id = admin
+
+    sa = test_client.post(
+        "/api/service_accounts", json={"name": f"sa_{uuid.uuid4().hex[:8]}"}, headers=_hdr(token, org_id)
+    )
+    assert sa.status_code == 200, sa.text
+    sa_id = sa.json()["id"]
+
+    key = test_client.post(
+        f"/api/service_accounts/{sa_id}/keys",
+        json={"name": "k", "expires_at": AWARE_INPUT},
+        headers=_hdr(token, org_id),
+    )
+    assert key.status_code == 200, key.text
+    assert _assert_utc_aware(key.json()["expires_at"]) == AWARE_EXPECTED
+
+    detail = test_client.get(f"/api/service_accounts/{sa_id}", headers=_hdr(token, org_id))
+    assert detail.status_code == 200, detail.text
+    listed = next(k for k in detail.json()["keys"] if k["id"] == key.json()["id"])
+    assert _assert_utc_aware(listed["expires_at"]) == AWARE_EXPECTED
+
+    who = api_key_request(method="GET", url="/api/users/whoami", api_key=key.json()["key"])
+    assert who.status_code == 200, who.text
+
+
+@pytest.mark.e2e
+def test_user_credential_expiry_aware_input_is_stored_as_the_utc_instant(test_client, admin, create_connection):
+    from tests.fixtures.connection_tool import _skip_network
+
+    token, org_id = admin
+    h = _hdr(token, org_id)
+    with _skip_network():
+        conn = create_connection(
+            name=f"sf_{uuid.uuid4().hex[:8]}", type="snowflake",
+            config={"account": "acme", "warehouse": "wh", "database": "db"},
+            credentials={}, auth_policy="user_required",
+            allowed_user_auth_modes=["userpass"],
+            user_token=token, org_id=org_id,
+        )
+        ds = test_client.post("/api/data_sources", headers=h, json={
+            "name": "sf-agent", "connection_ids": [conn["id"]],
+            "generate_summary": False, "generate_conversation_starters": False,
+            "generate_ai_rules": False,
+        })
+    assert ds.status_code == 200, ds.text
+    url = f"/api/data_sources/{ds.json()['id']}/my-credentials"
+
+    created = test_client.post(url, headers=h, json={
+        "auth_mode": "userpass",
+        "credentials": {"user": "u", "password": "pw"},
+        "expires_at": AWARE_INPUT,
+    })
+    assert created.status_code == 200, created.text
+    assert _assert_utc_aware(created.json()["expires_at"]) == AWARE_EXPECTED
+
+    stored = test_client.get(url, headers=h)
+    assert stored.status_code == 200, stored.text
+    assert _assert_utc_aware(stored.json()["expires_at"]) == AWARE_EXPECTED
+
+
+@pytest.mark.e2e
+def test_scim_token_expiry_aware_input_is_stored_as_the_utc_instant(test_client, admin):
+    token, org_id = admin
+
+    created = test_client.post(
+        "/api/enterprise/scim/tokens",
+        json={"name": "tz-aware", "expires_at": AWARE_INPUT},
+        headers=_hdr(token, org_id),
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    # The token response carries an explicit UTC offset on both timestamps.
+    assert _assert_utc_aware(body["expires_at"]) == AWARE_EXPECTED
+    _assert_utc_aware(body["created_at"])
+
+    listed = test_client.get("/api/enterprise/scim/tokens", headers=_hdr(token, org_id))
+    assert listed.status_code == 200, listed.text
+    row = next(t for t in listed.json() if t["id"] == body["id"])
+    assert _assert_utc_aware(row["expires_at"]) == AWARE_EXPECTED
+    _assert_utc_aware(row["created_at"])
+
+    # The SCIM auth check compares with naive utcnow(); the token still works.
+    users = test_client.get("/scim/v2/Users", headers={"Authorization": f"Bearer {body['token']}"})
+    assert users.status_code == 200, users.text

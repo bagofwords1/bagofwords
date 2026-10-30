@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from app.schemas.api_key_schema import ApiKeyResponse, ApiKeyCreated
+from app.schemas.base import OptionalNaiveUTCInput
 
 
 class ServiceAccountRoleSummary(BaseModel):
@@ -44,7 +45,7 @@ class ServiceAccountResponse(BaseModel):
 
 class ServiceAccountKeyCreate(BaseModel):
     name: str = Field(default="Default", max_length=255)
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalNaiveUTCInput = None
 
 
 class ServiceAccountDetail(ServiceAccountResponse):

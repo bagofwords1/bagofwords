@@ -1,12 +1,12 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
-from app.schemas.base import OptionalUTCDatetime
+from app.schemas.base import OptionalNaiveUTCInput, OptionalUTCDatetime
 
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(default="Default", max_length=255)
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalNaiveUTCInput = None
 
 
 class ApiKeyResponse(BaseModel):

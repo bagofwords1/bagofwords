@@ -4,14 +4,14 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 
-from app.schemas.base import OptionalUTCDatetime
+from app.schemas.base import OptionalNaiveUTCInput, OptionalUTCDatetime
 
 
 class UserDataSourceCredentialsCreate(BaseModel):
     auth_mode: str = Field(..., description="Registry auth key, e.g. userpass, pat, iam")
     credentials: Dict[str, Any] = Field(..., description="Credential fields per auth_mode")
     is_primary: Optional[bool] = Field(default=True)
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalNaiveUTCInput = None
     metadata_json: Optional[Dict[str, Any]] = None
 
 
@@ -21,7 +21,7 @@ class UserDataSourceCredentialsUpdate(BaseModel):
     credentials: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
     is_primary: Optional[bool] = None
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalNaiveUTCInput = None
     metadata_json: Optional[Dict[str, Any]] = None
 
 
