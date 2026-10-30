@@ -2233,13 +2233,15 @@
 
   // ── useConversation ─────────────────────────────────────────────────────────
   // const chat = useConversation({conversationId, title, agents, historyLimit})
-  // -> {messages, conversations, conversationId, policy, loading, sending, error,
-  //     hasOlder, loadingOlder, send, stop, select, newConversation, reload,
-  //     loadOlder}
+  // -> {messages, conversations, conversationId, policy, loading, sending,
+  //     answering, error, hasOlder, loadingOlder, send, stop, select,
+  //     newConversation, reload, loadOlder}
   // messages have the bow.conversations.messages() item shape. One answer runs
   // at a time; history is re-read after each answer that reached the server and
   // merged with the server page as the truth; leaving a running answer keeps it
-  // running on the server (only stop() stops it). loadOlder() puts the page
+  // running on the server (only stop() stops it). `answering` is `sending` or
+  // an answer of the open conversation still in progress (also one left
+  // running and come back to); stop() stops either. loadOlder() puts the page
   // before the oldest loaded one first; only conversation loads and loadOlder()
   // move its cursor.
   var _CHAT_REFRESH_MS = 5000;
@@ -2252,6 +2254,10 @@
   }
   function _chatItems(res) { return res && Array.isArray(res.items) ? res.items : []; }
   function _chatCursor(res) { return res && res.next_before != null ? res.next_before : null; }
+  // Sending, or an answer of the open conversation is still in progress.
+  function _chatAnswering(state) {
+    return !!state.sending || state.messages.some(function(m) { return m && m.role === 'assistant' && m.status === 'in_progress'; });
+  }
   function _chatIsLocal(m) { return !!m && typeof m.id === 'string' && m.id.indexOf('local-') === 0; }
   function _chatNormalize(m) {
     if (!m || typeof m !== 'object') return null;
@@ -2418,7 +2424,7 @@
       opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
-      errSeq: 0, errShown: false, before: null, olderLoad: null
+      errSeq: 0, errShown: false, before: null, olderLoad: null, messages: []
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2717,9 +2723,31 @@
       return runSend(run, t).then(noop, noop).then(function() { endRun(run); });
     };
 
+    // Rule 26: no run of its own, but the open conversation's newest server
+    // answer is still in progress (left running and come back to): stop that
+    // one by its id. It shows 'stopped' at once (held against a lagging
+    // re-read); a tagged re-read after the stop brings the server's status.
+    function stopReturned() {
+      var conv = _chatConv(), id = c.convId, target = null;
+      for (var i = c.messages.length - 1; i >= 0; i--) {
+        var m = c.messages[i];
+        if (m && m.role === 'assistant' && m.status === 'in_progress' && m.id != null && !_chatIsLocal(m)) { target = m; break; }
+      }
+      if (!conv || !id || !target || !c.mounted) return Promise.resolve();
+      var gen = c.gen, items = {};
+      c.held[target.id] = 'stopped';
+      cancelTimer();
+      items[target.id] = { status: 'stopped' };
+      put({ type: 'apply', items: items });
+      return Promise.resolve().then(function() { return conv.stop(id, target.id); }).then(noop, noop).then(function() {
+        if (gen === c.gen && c.run === null) return reread(id, null);
+      }).then(noop, noop);
+    }
+
     c.stop = function() {
       var run = c.run;
-      if (!run || run.terminal || (run.phase !== 'queued' && run.phase !== 'creating' && run.phase !== 'streaming')) return Promise.resolve();
+      if (!run) return stopReturned();
+      if (run.terminal || (run.phase !== 'queued' && run.phase !== 'creating' && run.phase !== 'streaming')) return Promise.resolve();
       run.terminal = 'stopped';
       run.stopWanted = true;
       c.run = null;
@@ -2846,6 +2874,7 @@
     if (!ref.current) ref.current = _chatController(dispatch, opts);
     var c = ref.current;
     c.opts = opts || {};
+    c.messages = state.messages;
     React.useEffect(function() {
       c.mount();
       return c.unmount;
@@ -2853,7 +2882,7 @@
     React.useEffect(function() { c.check(state.messages); }, [state.messages, state.sending]);
     return {
       messages: state.messages, conversations: state.conversations, conversationId: state.conversationId,
-      policy: state.policy, loading: state.loading, sending: state.sending, error: state.error,
+      policy: state.policy, loading: state.loading, sending: state.sending, answering: _chatAnswering(state), error: state.error,
       hasOlder: state.hasOlder, loadingOlder: state.loadingOlder,
       send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload,
       loadOlder: c.loadOlder

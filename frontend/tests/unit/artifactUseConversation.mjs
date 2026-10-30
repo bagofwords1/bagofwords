@@ -224,7 +224,7 @@ const scenario = (name, fn, {clock = false} = {}) => scenarios.push({name, fn, c
 scenario('L1 stream order, blocks, tools by id, results deduped by id, then the re-read', async (env) => {
   const s = await start(env);
   const first = await s.chat();
-  assert.deepEqual(first.keys, ['conversationId', 'conversations', 'error', 'hasOlder', 'loadOlder', 'loading', 'loadingOlder', 'messages', 'newConversation', 'policy', 'reload', 'select', 'send', 'sending', 'stop']);
+  assert.deepEqual(first.keys, ['answering', 'conversationId', 'conversations', 'error', 'hasOlder', 'loadOlder', 'loading', 'loadingOlder', 'messages', 'newConversation', 'policy', 'reload', 'select', 'send', 'sending', 'stop']);
   assert.deepEqual(first.policy, DEFAULT_AUTO.policy);
   assert.equal(await s.count('list', (e) => e.args.limit === 20), 1);
   await s.call('send', '  Revenue per month?  ');
