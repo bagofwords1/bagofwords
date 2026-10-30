@@ -445,6 +445,13 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         return '\n'.join(lines)
 
     @staticmethod
+    def _is_app_surface(planner_input: PlannerInput) -> bool:
+        """An app's conversation (bow.conversations), not the dashboard bubble:
+        the agent answers a person's data question and never builds an app."""
+        ctx = getattr(planner_input, 'platform_context', None)
+        return planner_input.external_platform == 'artifact_chat' and isinstance(ctx, dict) and ctx.get('surface') == 'app'
+
+    @staticmethod
     def _format_platform_context(planner_input: PlannerInput) -> str:
         """Render platform-specific context (e.g. Excel selection) for injection into the prompt."""
         ctx = getattr(planner_input, 'platform_context', None)

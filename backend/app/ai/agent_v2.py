@@ -544,6 +544,16 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 }
 
 
+def artifact_chat_tool_allowlist(platform_context) -> set:
+    """The viewer-chat tools for one message. An app's conversation
+    (platform_context surface "app") answers data questions only: it drops
+    read_artifact, whose guidance is about editing an artifact, and its own
+    report holds no artifact to read. The dashboard bubble keeps it."""
+    if isinstance(platform_context, dict) and platform_context.get("surface") == "app":
+        return ARTIFACT_CHAT_TOOL_ALLOWLIST - {"read_artifact"}
+    return ARTIFACT_CHAT_TOOL_ALLOWLIST
+
+
 # Tools that never read the turn's context view or hub; they skip the pre-tool
 # context rebuild. Anything not listed keeps it.
 _CONTEXT_FREE_TOOLS = frozenset({
@@ -1037,9 +1047,10 @@ class AgentV2:
         # (the roster is a server-synced hard scope — see ArtifactChatService).
         # Keyed on the report's own type so no caller can forget to pass it.
         if getattr(self.report, 'report_type', 'regular') == 'artifact_chat':
+            _chat_tools = artifact_chat_tool_allowlist(self.platform_context)
             all_catalog_dicts = [
                 t for t in all_catalog_dicts
-                if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
+                if t['name'] in _chat_tools
             ]
 
         # The conversation's API settings (report.follow_ups /
