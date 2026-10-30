@@ -283,11 +283,6 @@ from app.ai.context.transcript import (  # noqa: E402
     retained_prefix as _retained_prefix,
 )
 
-# Uploaded images to attach when the CURRENT completion has none of its own —
-# a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
-# the most recent few, so a long conversation full of screenshots doesn't
-# re-send its whole gallery on every call.
-_FOLLOWUP_IMAGE_LIMIT = 2
 
 
 
@@ -1973,30 +1968,16 @@ class AgentV2:
         except Exception:
             return None
 
-    def _followup_image_files(self) -> list:
-        """The most recent uploaded images, for a turn that attached none of its
-        own. "Why?" / "?" about a screenshot uploaded one turn ago is a normal
-        way to ask a question, and scoping the attach to the CURRENT completion
-        meant the model entered that turn blind — it had to guess from the
-        <files> listing that the picture was relevant and spend a step reading
-        it back. Bounded to the newest few so a long conversation doesn't
-        re-send its whole gallery."""
-        def _created(f):
-            return getattr(f, "created_at", None) or ""
-        try:
-            ordered = sorted(self.image_files, key=_created, reverse=True)
-        except TypeError:
-            # Mixed/naive timestamps — fall back to report order (oldest first).
-            ordered = list(reversed(self.image_files))
-        return ordered[:_FOLLOWUP_IMAGE_LIMIT]
-
     async def _load_images_as_input(self) -> list[ImageInput]:
-        """Load image files as base64-encoded ImageInput objects for vision models.
+        """Load the images uploaded WITH the current message as vision input.
 
-        Prefers the images uploaded with the CURRENT completion; when that turn
-        uploaded none, falls back to the most recent images on the report so a
-        follow-up question about an earlier screenshot still arrives with the
-        picture attached.
+        Only this turn's uploads. Images from earlier messages are not
+        re-attached: this channel lands on the newest user message, so a
+        re-sent picture reads as "the user just sent this" and the model
+        answers about it as if it were new. Earlier images stay reachable —
+        history tags each message with what it carried
+        ("[attached: name (image/png, id=…)]") and read_file shows the
+        picture again on demand.
         """
         import base64
         import aiofiles
@@ -2004,7 +1985,7 @@ class AgentV2:
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
-        eligible_files = self.image_files
+        eligible_files = []
         if current_cid and self.image_files and self.db and self.report:
             try:
                 image_file_ids = [str(f.id) for f in self.image_files]
@@ -2017,10 +1998,9 @@ class AgentV2:
                 )
                 current_ids = {row[0] for row in result.fetchall()}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
-                if not eligible_files:
-                    eligible_files = self._followup_image_files()
             except Exception as e:
-                logger.warning(f"Failed to filter images by completion, loading all: {e}")
+                logger.warning(f"Failed to filter images by completion, attaching none: {e}")
+                eligible_files = []
 
         images: list[ImageInput] = []
         for f in eligible_files:
