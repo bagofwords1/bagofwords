@@ -2007,8 +2007,26 @@
 
   // The chart option for a result's hint, or null when there is no hint or the
   // hint does not fit the result: the type must be known, x / every y / series
-  // must name a column, y must be non-empty and there must be rows.
+  // must name a column, y must be non-empty and there must be rows. A hint with
+  // aggregate 'count' draws the number of rows per x (and series; y is
+  // ignored), with x bucketed as String(v ?? '') like BOW's charts; any other
+  // aggregate, or count on a scatter, draws nothing.
   var _CHAT_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
+  function _chatCountOption(c, rows, columns) {
+    var key = function(v) { return String(v == null ? '' : v); };
+    var xs = _chatUnique(rows.map(function(x) { return key(x[c.x]); }));
+    var count = function(list, v) { var n = 0; list.forEach(function(x) { if (key(x[c.x]) === v) n++; }); return n; };
+    if (c.type === 'pie') return { tooltip: {}, series: [{ type: 'pie', data: xs.map(function(v) { return { name: v, value: count(rows, v) }; }) }] };
+    var t = c.type === 'area' ? 'line' : c.type;
+    var lines = c.series
+      ? _chatUnique(rows.map(function(x) { return key(x[c.series]); })).map(function(g) { return { name: g, rows: rows.filter(function(x) { return key(x[c.series]) === g; }) }; })
+      : [{ name: (columns.find(function(k) { return k.field === c.y[0]; }) || {}).headerName || c.y[0], rows: rows }];
+    return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: xs }, yAxis: { type: 'value', minInterval: 1 },
+      series: lines.map(function(l) {
+        return { name: l.name, type: t, areaStyle: c.type === 'area' ? {} : undefined,
+          data: xs.map(function(v) { var n = count(l.rows, v); return n ? n : null; }) };
+      }) };
+  }
   function _chatResultOption(r) {
     if (!r || typeof r !== 'object') return null;
     var c = r.chart;
@@ -2021,6 +2039,7 @@
     if (c.series && !fields[c.series]) return null;
     var rows = Array.isArray(r.rows) ? r.rows.filter(function(x) { return x && typeof x === 'object'; }) : [];
     if (!rows.length) return null;
+    if (c.aggregate != null) return c.aggregate === 'count' && c.type !== 'scatter' ? _chatCountOption(c, rows, columns) : null;
     if (c.type === 'pie') return { tooltip: {}, series: [{ type: 'pie', data: rows.map(function(x) { return { name: String(x[c.x]), value: x[c.y[0]] }; }) }] };
     if (c.type === 'scatter') return { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map(function(x) { return [x[c.x], x[c.y[0]]]; }) }] };
     var xs = _chatUnique(rows.map(function(x) { return x[c.x]; }));

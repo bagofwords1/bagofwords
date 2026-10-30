@@ -108,6 +108,7 @@ const cols = (names) => names.map((c) => ({field: c, headerName: c[0].toUpperCas
 const res = (id, chart, rows, names, extra = {}) => ({id, title: 'Result ' + id, chart, rows, columns: cols(names), row_count: rows.length, column_count: names.length, truncated: false, ...extra});
 const ROWS = [{m: 'a', v: 1, w: 4}, {m: 'b', v: 2, w: 5}];
 const GROUPED = [{m: 'a', g: 'x', v: 1}, {m: 'a', g: 'y', v: 2}, {m: 'b', g: 'x', v: 3}];
+const ORDERS = [{s: 'open', r: 'north', id: 'o1'}, {s: 'open', r: 'south', id: 'o2'}, {s: 'open', r: 'north', id: 'o3'}, {s: 'closed', r: 'north', id: 'o4'}];
 const VECTORS = {
   bar: res('bar', {type: 'bar', x: 'm', y: ['v'], series: null}, ROWS, ['m', 'v']),
   area: res('area', {type: 'area', x: 'm', y: ['v', 'w'], series: null}, ROWS, ['m', 'v', 'w']),
@@ -121,8 +122,14 @@ const VECTORS = {
   unknownSeries: res('unknownSeries', {type: 'line', x: 'm', y: ['v'], series: 'nope'}, GROUPED, ['m', 'g', 'v']),
   emptyY: res('emptyY', {type: 'bar', x: 'm', y: [], series: null}, ROWS, ['m', 'v']),
   emptyRows: res('emptyRows', {type: 'bar', x: 'm', y: ['v'], series: null}, [], ['m', 'v']),
+  // aggregate 'count' (the backend's counted hint): the rows per x (and series); y is ignored.
+  countBar: res('countBar', {type: 'bar', x: 's', y: ['id'], series: null, aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
+  countLine: res('countLine', {type: 'line', x: 's', y: ['id'], series: 'r', aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
+  countPie: res('countPie', {type: 'pie', x: 's', y: ['id'], series: null, aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
+  countScatter: res('countScatter', {type: 'scatter', x: 's', y: ['id'], series: null, aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
+  otherAggregate: res('otherAggregate', {type: 'bar', x: 's', y: ['id'], series: null, aggregate: 'sum'}, ORDERS, ['s', 'r', 'id']),
 };
-const CHARTED = ['bar', 'area', 'line', 'pie', 'scatter'];
+const CHARTED = ['bar', 'area', 'line', 'pie', 'scatter', 'countBar', 'countLine', 'countPie'];
 const TWO = [{n: 'A', a: 1}, {n: 'B', a: 2}];
 const NOTES = {
   whole: {...res('whole', null, TWO, ['n', 'a'])},
@@ -165,7 +172,7 @@ const RESULT_APP = artifact(`
   const {page, consoleErrors} = await openPage();
   const frame = await mount(page, RESULT_APP);
   assert.equal(await frame.evaluate(() => window.__componentType), 'object', 'window.ChatResult is a (memo) component');
-  await until(frame, () => document.querySelectorAll('[data-vector] canvas').length >= 6, null, 'the charts');
+  await until(frame, () => document.querySelectorAll('[data-vector] canvas').length >= 9, null, 'the charts');
   await twoFrames(frame);
   const charts = await frame.evaluate(() => window.__charts.map((c) => ({vector: c.vector, inits: c.inits, options: c.options})));
   const last = (v) => { const c = charts.find((x) => x.vector === v); assert.ok(c, `a chart for ${v}`); return c.options.at(-1); };
@@ -181,6 +188,12 @@ const RESULT_APP = artifact(`
   assert.deepEqual(line.series.map((s) => [s.name, s.type, s.data]), [['x', 'line', [1, 3]], ['y', 'line', [2, null]]]);
   assert.deepEqual(last('pie').series[0].data, [{name: 'a', value: 1}, {name: 'b', value: 2}]);
   assert.deepEqual(last('scatter').series[0].data, [[1, 4], [2, 5]]);
+  // Counted hints: open appears 3 times, closed once; with the series, north/south per status.
+  const countBar = last('countBar');
+  assert.deepEqual(countBar.xAxis, {type: 'category', data: ['open', 'closed']});
+  assert.deepEqual(countBar.series.map((s) => [s.type, s.data]), [['bar', [3, 1]]]);
+  assert.deepEqual(last('countLine').series.map((s) => [s.name, s.type, s.data]), [['north', 'line', [2, 1]], ['south', 'line', [1, null]]]);
+  assert.deepEqual(last('countPie').series[0].data, [{name: 'open', value: 3}, {name: 'closed', value: 1}]);
   for (const v of CHARTED) {
     assert.ok(await vectorHas(v, 'canvas'), `${v} draws a chart`);
     assert.ok(await vectorHas(v, '[data-testid="bow-datatable"]'), `${v} also shows the table`);

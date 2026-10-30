@@ -57,7 +57,7 @@ for await (const event of bow.ai.stream(operationName,
 CONVERSATIONS: chat-assistant apps talk to the organization's agents (their
 tools and data access, as the viewer), not to a bare model. Use bow.conversations for that; use bow.ai only for one-off
 text operations without data. On Auto, conversations may use every agent the
-viewer can use (or those the owner limited the app to); the model is the
+viewer can use (or the owner's subset); the model is the
 owner's choice or the viewer's default. No setting needs switching on. Pass
 `agents` only when the user asks to narrow a conversation. Each viewer sees
 only their own conversations. When policy().available is false, show its reason
@@ -102,9 +102,9 @@ for await (const event of bow.conversations.send(conv.id, userText, {signal: abo
   // result {id,block,title,columns:[{field,headerName,type}],rows:[{field:value}],row_count,column_count,truncated,chart}:
   //   one per data result of the answer, before completed; keep them on that message (by id). type is
   //   'number'|'string'|'boolean'|'datetime'. chart is null or {type:'bar'|'line'|'area'|'pie'|'scatter',
-  //   x:field, y:[field], series:field|null}: when chart is null show the table only, never invent a chart;
-  // completed {status, results_incomplete?:true}: when results_incomplete, some results did not arrive in
-  //   the stream: re-read messages() and render its results for that message.
+  //   x:field, y:[field], series:field|null, aggregate?:'count'} (count: rows per x): when chart is null show the table only, never invent a chart;
+  // completed {status, results_incomplete?:true}: when results_incomplete, some are missing:
+  //   re-read messages() and render its results for that message.
 }
 await bow.conversations.stop(conv.id, messageId); // the started event's message_id
 // Send only on a user action. Assistant text is Markdown (tables, lists):

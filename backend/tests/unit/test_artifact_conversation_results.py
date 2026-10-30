@@ -394,10 +394,12 @@ def test_a_series_aggregation_over_distinct_categories_is_a_no_op_so_the_chart_i
         {"type": "line", "x": "month", "y": ["sales"], "series": "genre"}
 
 
-# Every AggregationFn must be classified here: a no-op over distinct categories
-# (sum/avg/min/max of one value is that value) keeps the chart; count draws 1 per
-# category (EChartsVisual counts the values), not the value, so no chart.
-SERIES_AGGREGATION_KEEPS_CHART = {"sum": True, "avg": True, "min": True, "max": True, "count": False}
+# Every AggregationFn must be classified here. sum/avg/min/max over distinct
+# categories are a no-op (one value is that value), so the rows draw the chart
+# as they are. count used to be refused because ChatResult drew the raw values;
+# it now carries ``aggregate: "count"`` and ChatResult counts the rows per x
+# (and series), as EChartsVisual does, so the chart is kept.
+SERIES_AGGREGATION_HINT = {"sum": "raw", "avg": "raw", "min": "raw", "max": "raw", "count": "count"}
 
 
 def test_every_aggregation_fn_is_classified():
@@ -405,18 +407,77 @@ def test_every_aggregation_fn_is_classified():
 
     from app.schemas.view_schema import AggregationFn
 
-    assert set(SERIES_AGGREGATION_KEEPS_CHART) == set(typing.get_args(AggregationFn))
+    assert set(SERIES_AGGREGATION_HINT) == set(typing.get_args(AggregationFn))
 
 
-@pytest.mark.parametrize("fn", sorted(SERIES_AGGREGATION_KEEPS_CHART))
-def test_a_series_aggregation_keeps_the_chart_only_when_it_is_a_no_op(fn):
+@pytest.mark.parametrize("fn", sorted(SERIES_AGGREGATION_HINT))
+def test_a_series_aggregation_keeps_the_chart_raw_or_counted(fn):
     view = _v2({"type": "bar_chart", "x": "month", "y": "revenue",
                 "seriesStyles": [{"key": "revenue", "aggregation": fn}]})
     chart = _shape(BY_MONTH, view)["chart"]
-    if SERIES_AGGREGATION_KEEPS_CHART[fn]:
+    if SERIES_AGGREGATION_HINT[fn] == "raw":
         assert chart == {"type": "bar", "x": "month", "y": ["revenue"], "series": None}
     else:
-        assert chart is None
+        assert chart == {"type": "bar", "x": "month", "y": ["revenue"], "series": None, "aggregate": "count"}
+
+
+ORDERS = _data(["status", "region", "order_id"],
+               [{"status": s, "region": r, "order_id": f"o{i}"} for i, (s, r) in enumerate(
+                   [("open", "north"), ("open", "south"), ("open", "north"), ("closed", "north")])])
+
+
+def test_count_over_repeated_x_is_a_counted_chart_whatever_the_y_column():
+    # Counting needs repeated x; the y column is ignored (here a string id).
+    view = _v2({"type": "bar_chart", "x": "status", "y": "order_id",
+                "seriesStyles": [{"key": "order_id", "aggregation": "count"}]})
+    assert _shape(ORDERS, view)["chart"] == \
+        {"type": "bar", "x": "status", "y": ["order_id"], "series": None, "aggregate": "count"}
+
+
+def test_count_with_a_series():
+    view = _v2({"type": "line_chart", "x": "status", "y": "order_id", "groupBy": "region",
+                "seriesStyles": [{"key": "north", "aggregation": "count"}, {"key": "south", "aggregation": "count"}]})
+    assert _shape(ORDERS, view)["chart"] == \
+        {"type": "line", "x": "status", "y": ["order_id"], "series": "region", "aggregate": "count"}
+
+
+def test_a_pie_counts_with_its_own_aggregation_but_sum_stays_refused():
+    pie = {"type": "pie_chart", "category": "status", "value": "order_id"}
+    assert _shape(ORDERS, _v2({**pie, "aggregation": "count"}))["chart"] == \
+        {"type": "pie", "x": "status", "y": ["order_id"], "series": None, "aggregate": "count"}
+    assert _shape(ORDERS, _v2({**pie, "aggregation": "sum"}))["chart"] is None
+
+
+@pytest.mark.parametrize("view", [
+    # count mixed with another aggregation: the lines would mean different things.
+    {"type": "line_chart", "x": "status", "y": "order_id", "groupBy": "region",
+     "seriesStyles": [{"key": "north", "aggregation": "count"}, {"key": "south", "aggregation": "sum"}]},
+    # two value columns counted would be the same line twice.
+    {"type": "bar_chart", "x": "status", "y": ["order_id", "region"],
+     "seriesStyles": [{"key": "order_id", "aggregation": "count"}]},
+    # points are not counted.
+    {"type": "scatter_plot", "x": "status", "y": "order_id", "aggregation": "count"},
+    # y must still name a column, and differ from x.
+    {"type": "bar_chart", "x": "status", "y": "nope", "seriesStyles": [{"key": "nope", "aggregation": "count"}]},
+    {"type": "bar_chart", "x": "status", "y": "status", "seriesStyles": [{"key": "status", "aggregation": "count"}]},
+])
+def test_count_hints_that_cannot_be_drawn_are_omitted(view):
+    assert _shape(ORDERS, _v2(view))["chart"] is None
+
+
+def test_chat_result_reads_the_count_hint_the_backend_emits():
+    # The frontend half of the contract: _chatResultOption counts on this key and value.
+    from pathlib import Path
+
+    globals_js = (Path(__file__).resolve().parents[3] / "frontend" / "public" / "libs" /
+                  "artifact-globals.js").read_text(encoding="utf-8")
+    option = globals_js[globals_js.index("function _chatResultOption("):]
+    option = option[:option.index("\n  }\n")]
+    assert "c.aggregate === 'count'" in option
+    # And the reference documents the key for apps that render results themselves.
+    from app.ai.agents.planner.artifact_sdk_reference import ARTIFACT_SDK_REFERENCE
+
+    assert "series:field|null, aggregate?:'count'} (count: rows per x)" in ARTIFACT_SDK_REFERENCE
 
 
 def test_null_and_empty_x_are_one_category_so_a_series_aggregation_has_no_chart():

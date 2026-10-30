@@ -159,8 +159,12 @@ def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[
     (no filter or top-level aggregation, the value axes numeric, and x too
     for scatter). Else None. A sum/avg/min/max series aggregation
     (``seriesStyles[].aggregation``) is accepted because the categories must
-    be distinct anyway, which makes it a no-op over one value; ``count`` (1
-    per category, not the value) or any other means None, as do duplicates."""
+    be distinct anyway, which makes it a no-op over one value; duplicates
+    mean None. ``count`` (every series style, or a pie's own aggregation) is
+    a counted chart: ``aggregate: "count"``, one value column (any type, it
+    is ignored), repeated x allowed; ChatResult counts the rows per x (and
+    series), as EChartsVisual does. Count mixed with another aggregation, or
+    on a scatter, means None."""
     from app.schemas.view_schema import ViewSchema
 
     schema = ViewSchema.from_dict(view)
@@ -168,10 +172,12 @@ def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[
     kind = CHART_TYPES.get(getattr(v, "type", None))
     if v is None or kind is None or not rows:
         return None
-    if getattr(v, "aggregation", None) or getattr(v, "defaultFilters", None):
+    if getattr(v, "defaultFilters", None):
         return None
-    if any(getattr(s, "aggregation", None) not in _NO_OP_SERIES_AGGREGATIONS
-           for s in (getattr(v, "seriesStyles", None) or [])):
+    styles = [getattr(s, "aggregation", None) for s in (getattr(v, "seriesStyles", None) or [])]
+    top = getattr(v, "aggregation", None)
+    count = (kind == "pie" and top == "count") or (top is None and bool(styles) and all(a == "count" for a in styles))
+    if not count and (top or any(a not in _NO_OP_SERIES_AGGREGATIONS for a in styles)):
         return None
     series = None
     if kind == "pie":
@@ -180,9 +186,16 @@ def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[
         x, y = v.x, [v.y]
     else:
         x, y, series = v.x, ([v.y] if isinstance(v.y, str) else list(v.y)), v.groupBy
-    if not y or x not in types or x in y or any(types.get(c) != "number" for c in y):
+    if not y or x not in types or x in y or any(c not in types for c in y):
         return None
     if series is not None and (series not in types or series == x or series in y or len(y) != 1):
+        return None
+    if count:
+        # The rows per x (and series): repeated x is the point, y is ignored.
+        if kind == "scatter" or len(y) != 1:
+            return None
+        return {"type": kind, "x": x, "y": y, "series": series, "aggregate": "count"}
+    if any(types[c] != "number" for c in y):
         return None
     if kind == "scatter":
         if types[x] != "number":
