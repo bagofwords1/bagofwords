@@ -246,6 +246,8 @@ scenario('K9 with useConversation: Enter sends one request; Stop while streaming
   await s.event(req.id, {type: 'started', message_id: 'm1'});
   await s.waitFor(() => document.querySelector('[data-testid="bow-chat-stop"]'), null, 'Stop');
   await s.frame.press(IN, 'Enter');
+  // A pointer click on Stop within 500 ms of the send is taken as the rest of the Send click (K12).
+  await sleep(550);
   await s.frame.click('[data-testid="bow-chat-stop"]');
   const stop = await s.take('stop');
   assert.deepEqual([stop.args.id, stop.args.messageId], ['c1', 'm1']);
@@ -279,6 +281,37 @@ scenario('K11 back in a conversation whose answer still runs: Stop shows, stops 
   await s.waitFor(() => document.querySelector('[data-testid="bow-chat-send"]'), null, 'Send back');
   const read = await s.take('messages', (e) => e.args.id === 'A');
   await s.reply(read.id, pageOf([u('u1', 'q1'), a('m7', 'Working', {status: 'stopped'})]));
+  await s.done();
+});
+
+scenario('K12 a double click on Send sends once and never stops the question', async (env) => {
+  const s = await start(env, {code: liveApp()});
+  assert.equal(await s.dom(() => window.__componentType), 'function', 'window.ChatComposer is a component');
+  await s.frame.fill(IN, 'Revenue?');
+  await s.frame.dblclick('[data-testid="bow-chat-send"]');
+  const req = await s.take('send');
+  assert.equal(req.args.text, 'Revenue?');
+  await sleep(200);
+  const c = await s.chat();
+  assert.deepEqual([await s.count('send'), await s.count('stop')], [1, 0]);
+  assert.ok(c.messages.length === 2 && c.messages.every((m) => m.status !== 'stopped'), 'nothing stopped: ' + JSON.stringify(c.messages.map((m) => m.status)));
+  assert.equal(c.sending, true, 'the answer runs');
+  await s.event(req.id, {type: 'started', message_id: 'm1'});
+  await sleep(550);
+  await s.frame.click('[data-testid="bow-chat-stop"]');
+  await s.take('stop');
+  await s.done();
+});
+
+scenario('K13 a keyboard Stop right after an Enter send still stops', async (env) => {
+  const s = await stub(env);
+  await s.frame.fill(IN, 'q');
+  await s.frame.press(IN, 'Enter');
+  await setChat(s, {answering: true, sending: true});
+  await s.waitFor(() => document.querySelector('[data-testid="bow-chat-stop"]'), null, 'Stop');
+  await s.frame.focus('[data-testid="bow-chat-stop"]');
+  await s.page.keyboard.press('Enter');
+  assert.deepEqual(await calls(s), [['send', 'q'], ['stop']]);
   await s.done();
 });
 

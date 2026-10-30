@@ -3680,6 +3680,9 @@
     var draftRef = React.useRef('');
     var composing = React.useRef(false);
     var inputRef = React.useRef(null);
+    // When this composer last sent: Stop takes Send's place at once, so the
+    // second click of a double click (or a double tap) would stop the question.
+    var sentAt = React.useRef(-Infinity);
     var maxRows = typeof props.maxRows === 'number' && props.maxRows > 0 ? Math.floor(props.maxRows) : 6;
     React.useLayoutEffect(function() {
       var el = inputRef.current;
@@ -3704,6 +3707,7 @@
       var text = draftRef.current.trim();
       if (!text || answering || unavailable || typeof chat.send !== 'function') return;
       draftRef.current = '';
+      sentAt.current = performance.now();
       chat.send(text);
       setDraft('');
       if (inputRef.current) inputRef.current.focus();
@@ -3716,7 +3720,13 @@
     var dir = props.dir ? props.dir : draft ? 'auto' : (_chatDirOf(props.placeholder) || undefined);
     var button = answering
       ? h('button', { key: 'stop', type: 'button', 'data-testid': 'bow-chat-stop', 'aria-label': L.stop, title: L.stop, className: CHAT_INPUT.button,
-          onClick: function() { if (typeof chat.stop === 'function') chat.stop(); } }, h(_Icon, { name: 'square', size: 14 }))
+          onClick: function(e) {
+            // A pointer click (detail >= 1) right after this composer's send, or
+            // any multi-click, is the rest of the Send click. Keyboard activation
+            // (detail 0) always stops.
+            if (e.detail > 1 || (e.detail >= 1 && performance.now() - sentAt.current < 500)) return;
+            if (typeof chat.stop === 'function') chat.stop();
+          } }, h(_Icon, { name: 'square', size: 14 }))
       : h('button', { key: 'send', type: 'submit', 'data-testid': 'bow-chat-send', 'aria-label': L.send, title: L.send, className: CHAT_INPUT.button,
           disabled: !draft.trim() || unavailable,
           // Also on click: a sandboxed frame without allow-forms never submits the form.
