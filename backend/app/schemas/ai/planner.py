@@ -192,6 +192,11 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Org Sandbox settings: what create_data's generated code may do
+    # (`http`, `browser`, `lists`). See ai/code_execution/sandbox_helpers.py.
+    sandbox_web_fetch_enabled: bool = False
+    sandbox_browser_enabled: bool = False
+    sandbox_lists_enabled: bool = False
     # Org `enable_ml_training` (default on). Off: the code sandbox rejects
     # sklearn/scipy imports, so the planner must not promise or claim a model.
     ml_training_enabled: bool = True

@@ -767,8 +767,12 @@ def sandbox_helpers_directive(lists_sink, browser, sb) -> str:
             "browser.goto(url) -> {url, status}; browser.click(selector); browser.fill(selector, text); "
             "browser.press(key, selector=None); browser.select(selector, value); browser.scroll(pixels=2000); "
             "browser.wait_for(selector, timeout=15); browser.text(selector=None) -> str; "
-            "browser.html(selector=None) -> str; browser.query_all(selector, attrs=['href']) -> "
-            "list of {text, <attr>: value} (hrefs are absolute); browser.url() -> str. "
+            "browser.html(selector=None) -> str; browser.url() -> str; "
+            "browser.query_all(selector, attrs=None, fields=None) -> one dict per matching element: "
+            "{'text': ..., <attr>: ...} for attrs (hrefs are absolute), plus per-item fields read INSIDE each element: "
+            "{'name': 'css'} = text of the first match, 'css@href' = an attribute, ['css'] = list of every match's text. "
+            "Extract records with ONE query_all per page, e.g. "
+            "browser.query_all('.item', fields={'title': '.title', 'url': 'a@href', 'tags': ['.tag']}). "
             "Selectors are CSS or Playwright text selectors (\"text=Next\"). A missing element raises after the "
             "timeout: check with query_all before clicking an optional control. "
             f"Only URLs allowed by the browser connection open; at most {sb.max_pages} page loads per run. "
@@ -1456,7 +1460,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return None, ""
         lists_sink = None
         browser = None
-        if sb.lists:
+        if sb.lists and runtime_ctx.get("list_writes_allowed"):
             try:
                 from app.services.agent_lists.sandbox_sink import SandboxListSink, load_sandbox_lists
                 async with async_session_maker() as _db:
@@ -1500,14 +1504,23 @@ Do not use generic placeholders like "value" unless that is the actual column na
         activity["list_rows_queued"] = queued
         try:
             from app.services.agent_lists.sandbox_sink import commit_sandbox_submissions
-            async with async_session_maker() as _db:
-                res = await commit_sandbox_submissions(
-                    _db, pending,
-                    report=runtime_ctx.get("report"), user=runtime_ctx.get("user"),
-                    organization=runtime_ctx.get("organization"),
-                    tool_execution_id=runtime_ctx.get("tool_call_id"),
-                    extra_sources=helpers.page_texts.to_sources(),
-                )
+            # Same discipline as the other writes in this tool: serialize with
+            # parallel siblings and end the agent session's open transaction
+            # first. On SQLite (single writer) an open write there would
+            # otherwise hold the lock past busy_timeout ("database is locked").
+            _lock = runtime_ctx.get("tool_db_lock")
+            _writer = runtime_ctx.get("db")
+            async with (_lock if _lock is not None else nullcontext()):
+                if _writer is not None:
+                    await _writer.commit()
+                async with async_session_maker() as _db:
+                    res = await commit_sandbox_submissions(
+                        _db, pending,
+                        report=runtime_ctx.get("report"), user=runtime_ctx.get("user"),
+                        organization=runtime_ctx.get("organization"),
+                        tool_execution_id=runtime_ctx.get("tool_call_id"),
+                        extra_sources=helpers.page_texts.to_sources(),
+                    )
         except Exception as e:
             logger.exception("create_data: saving list rows from code failed")
             activity["lists"] = {"saved": False, "error": f"{type(e).__name__}: {e}"[:300]}

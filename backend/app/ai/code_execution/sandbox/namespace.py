@@ -214,8 +214,12 @@ class BrowserHelper:
     def html(self, selector=None):
         return self._call("html", [], {"selector": selector})
 
-    def query_all(self, selector, attrs=None):
-        return self._call("query_all", [str(selector)], {"attrs": list(attrs or [])})
+    def query_all(self, selector, attrs=None, fields=None):
+        """One dict per element matching `selector`: {"text", <attr>...,
+        <field>...}. `fields` reads inside each element: {"name": "css"} is
+        the first match's text, "css@href" an attribute, ["css"] a list of
+        every match's text."""
+        return self._call("query_all", [str(selector)], {"attrs": list(attrs or []), "fields": dict(fields or {})})
 
     def url(self):
         return self._call("url", [], {})

@@ -181,18 +181,45 @@ _DEFAULT_TIMEOUT_MS = 15_000
 _MAX_TIMEOUT_MS = 60_000
 
 # Called with a list of elements; returns one plain dict per element.
+# `attrs`: attributes of the element itself. `fields`: {name: spec} read
+# inside each element, where spec is "css" (text of the first match),
+# "css@attr" (an attribute of the first match) or ["css"] / ["css@attr"]
+# (one value per match, as a list).
 _QUERY_ALL_JS = """
-(els, attrs) => els.map(el => {
-  const out = {text: (el.innerText || el.textContent || '').trim()};
-  for (const a of attrs) {
-    if (a === 'text') continue;
-    if (a === 'html') { out.html = el.outerHTML; continue; }
-    let v = el.getAttribute(a);
-    if ((a === 'href' || a === 'src') && v) { try { v = new URL(v, document.baseURI).href; } catch (e) {} }
-    out[a] = v;
-  }
-  return out;
-})
+(els, [attrs, fields]) => {
+  const abs = (a, v) => {
+    if ((a === 'href' || a === 'src') && v) { try { return new URL(v, document.baseURI).href; } catch (e) {} }
+    return v;
+  };
+  const read = (node, attr) => {
+    if (!node) return null;
+    if (!attr) return (node.innerText || node.textContent || '').trim();
+    if (attr === 'html') return node.outerHTML;
+    return abs(attr, node.getAttribute(attr));
+  };
+  const split = (spec) => {
+    const i = spec.lastIndexOf('@');
+    return i >= 0 ? [spec.slice(0, i).trim(), spec.slice(i + 1)] : [spec.trim(), null];
+  };
+  // "" (or "@attr") is the element itself; a selector the element itself
+  // matches ("a@href" on an <a>) reads the element, not a descendant.
+  const one = (el, css) => (!css ? el : (el.matches(css) ? el : el.querySelector(css)));
+  const all = (el, css) => (!css ? [el] : (el.matches(css) ? [el] : Array.from(el.querySelectorAll(css))));
+  return els.map(el => {
+    const out = {text: read(el, null)};
+    for (const a of attrs) { if (a !== 'text') out[a] = read(el, a); }
+    for (const [name, spec] of Object.entries(fields || {})) {
+      if (Array.isArray(spec)) {
+        const [css, attr] = split(String(spec[0] || ''));
+        out[name] = all(el, css).map(n => read(n, attr));
+      } else {
+        const [css, attr] = split(String(spec || ''));
+        out[name] = read(one(el, css), attr);
+      }
+    }
+    return out;
+  });
+}
 """
 
 
@@ -224,7 +251,7 @@ class SandboxBrowser:
         self._texts = page_texts
         self._session = None
         self._session_id: Optional[str] = None
-        self.pages_loaded = 0
+        self.pages_loaded = 0  # main-frame navigations: goto and clicks that load a page
         self.blocked_requests = 0
 
     # ── thread side ─────────────────────────────────────────────────────
@@ -257,9 +284,21 @@ class SandboxBrowser:
             self._session = await session_manager.open(self._session_id, self._patterns, False)
             if not self._allow_mutating:
                 await self._session.context.route("**/*", self._block_mutating)
-            self._session.page.set_default_timeout(_DEFAULT_TIMEOUT_MS)
+            page = self._session.page
+            page.set_default_timeout(_DEFAULT_TIMEOUT_MS)
+            page.on("framenavigated", lambda frame: self._count_navigation(page, frame))
         self._session.touch()
         return self._session.page
+
+    def _count_navigation(self, page, frame) -> None:
+        if frame == page.main_frame:
+            self.pages_loaded += 1
+
+    def _check_budget(self) -> None:
+        if self.pages_loaded >= self._max_pages:
+            raise SandboxBrowserError(
+                f"browser: this run may load at most {self._max_pages} pages; load fewer pages per run"
+            )
 
     async def _block_mutating(self, route, request):
         # Registered after the allowlist guard, so it runs first (Playwright
@@ -287,12 +326,8 @@ class SandboxBrowser:
         return max(1_000, min(_MAX_TIMEOUT_MS, ms))
 
     async def _op_goto(self, url, timeout=None):
-        if self.pages_loaded >= self._max_pages:
-            raise SandboxBrowserError(
-                f"browser: this run may load at most {self._max_pages} pages; load fewer pages per run"
-            )
+        self._check_budget()
         page = await self._page()
-        self.pages_loaded += 1
         try:
             resp = await page.goto(str(url), wait_until="domcontentloaded", timeout=self._timeout(timeout))
         except Exception as e:
@@ -302,6 +337,7 @@ class SandboxBrowser:
         return {"url": page.url, "status": resp.status if resp is not None else None}
 
     async def _op_click(self, selector, timeout=None):
+        self._check_budget()
         page = await self._page()
         await page.locator(str(selector)).first.click(timeout=self._timeout(timeout))
         await self._settle(page)
@@ -313,6 +349,7 @@ class SandboxBrowser:
         return {"url": page.url}
 
     async def _op_press(self, key, selector=None, timeout=None):
+        self._check_budget()
         page = await self._page()
         if selector:
             await page.locator(str(selector)).first.press(str(key), timeout=self._timeout(timeout))
@@ -322,6 +359,7 @@ class SandboxBrowser:
         return {"url": page.url}
 
     async def _op_select(self, selector, value, timeout=None):
+        self._check_budget()
         page = await self._page()
         chosen = await page.locator(str(selector)).first.select_option(str(value), timeout=self._timeout(timeout))
         await self._settle(page)
@@ -355,10 +393,14 @@ class SandboxBrowser:
             html = await page.content()
         return (html or "")[:_MAX_HTML_CHARS]
 
-    async def _op_query_all(self, selector, attrs=None):
+    async def _op_query_all(self, selector, attrs=None, fields=None):
         page = await self._page()
         attrs = [str(a) for a in (attrs or [])]
-        items = await page.locator(str(selector)).evaluate_all(_QUERY_ALL_JS, attrs)
+        if fields is not None and not isinstance(fields, dict):
+            raise SandboxBrowserError("browser.query_all: fields must be a dict of {name: css selector}")
+        fields = {str(k): ([str(v[0])] if isinstance(v, (list, tuple)) and v else str(v))
+                  for k, v in (fields or {}).items()}
+        items = await page.locator(str(selector)).evaluate_all(_QUERY_ALL_JS, [attrs, fields])
         items = list(items or [])[:_MAX_ELEMENTS]
         if self._texts is not None and items:
             self._texts.add(page.url, "\n".join(str(i.get("text") or "") for i in items))

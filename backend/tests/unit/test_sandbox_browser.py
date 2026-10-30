@@ -24,10 +24,14 @@ HOME = b"""<!doctype html><html><body>
   for (const n of ["Acme", "Globex", "Initech"]) {
     const li = document.createElement("li"); li.className = "item";
     const a = document.createElement("a"); a.href = "/co/" + n.toLowerCase(); a.textContent = n;
-    li.appendChild(a); document.getElementById("items").appendChild(li);
+    li.appendChild(a);
+    for (const t of ["tag-" + n.length, "all"]) {
+      const s = document.createElement("span"); s.className = "tag"; s.textContent = t; li.appendChild(s);
+    }
+    document.getElementById("items").appendChild(li);
   }
 </script></body></html>"""
-PAGE2 = b"<!doctype html><html><body><h1>Page two</h1></body></html>"
+PAGE2 = b'<!doctype html><html><body><h1>Page two</h1><a id="back" href="/">Back</a></body></html>'
 
 
 class _Site:
@@ -107,13 +111,24 @@ def _drive(site, steps, **kw):
 def test_code_reads_javascript_rendered_items_and_follows_a_link(site):
     def steps(b):
         b.call("goto", [site.base + "/"], {})
-        items = b.call("query_all", ["li.item a"], {"attrs": ["href"]})
+        links = b.call("query_all", ["li.item a"], {"attrs": ["href"]})
+        records = b.call("query_all", ["li.item"], {"fields": {"name": "a", "url": "a@href", "tags": [".tag"]}})
+        # A selector the element itself matches reads the element: the
+        # pagination idiom query_all("li.next a", fields={"href": "a@href"}).
+        nxt = b.call("query_all", ["#next"], {"fields": {"href": "a@href", "self": "@href"}})
         b.call("click", ["#next"], {})
-        return items, b.call("text", [], {"selector": "h1"}), b.call("url", [], {})
+        return links, records, nxt, b.call("text", [], {"selector": "h1"}), b.call("url", [], {})
 
-    _b, (items, heading, url) = _drive(site, steps)
-    assert [i["text"] for i in items] == ["Acme", "Globex", "Initech"]
-    assert items[0]["href"] == f"{site.base}/co/acme"  # absolute
+    _b, (links, records, nxt, heading, url) = _drive(site, steps)
+    assert nxt[0]["href"] == nxt[0]["self"] == f"{site.base}/page2"
+    assert [i["text"] for i in links] == ["Acme", "Globex", "Initech"]
+    assert links[0]["href"] == f"{site.base}/co/acme"  # absolute
+    # One record per item, read inside each element.
+    assert [(r["name"], r["url"], r["tags"]) for r in records] == [
+        ("Acme", f"{site.base}/co/acme", ["tag-4", "all"]),
+        ("Globex", f"{site.base}/co/globex", ["tag-6", "all"]),
+        ("Initech", f"{site.base}/co/initech", ["tag-7", "all"]),
+    ]
     assert heading == "Page two" and url.endswith("/page2")
 
 
@@ -132,15 +147,20 @@ def test_form_submission_follows_the_setting(site, allow, expect_posts):
     assert (b.blocked_requests > 0) is (not allow)
 
 
-def test_page_budget_is_per_run(site):
+@pytest.mark.parametrize("second", ["goto", "click"])
+def test_page_budget_counts_every_page_load(site, second):
+    """Clicking through pagination loads pages too, not only goto."""
     def steps(b):
         b.call("goto", [site.base + "/"], {})
-        b.call("goto", [site.base + "/page2"], {})
+        if second == "goto":
+            b.call("goto", [site.base + "/page2"], {})
+        else:
+            b.call("click", ["#next"], {})
         with pytest.raises(SandboxBrowserError, match="at most 2 pages"):
-            b.call("goto", [site.base + "/"], {})
-        return True
+            b.call("click", ["#back"], {})
+        return b.pages_loaded
 
-    assert _drive(site, steps, max_pages=2)[1] is True
+    assert _drive(site, steps, max_pages=2)[1] == 2
 
 
 def test_pages_outside_the_allowlist_do_not_open(site):
