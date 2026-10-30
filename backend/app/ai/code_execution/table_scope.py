@@ -123,6 +123,38 @@ def _func_name(node) -> str:
         return ""
 
 
+def _resolves_to_cte(table) -> bool:
+    """True when an unqualified table reference names a CTE visible where it
+    stands.
+
+    A WITH clause is visible only inside the query it belongs to (and the
+    queries nested in it), so a CTE defined in a subquery must not exempt a
+    same-named table read in the outer query or in a sibling subquery. Inside
+    a CTE's own body only the CTEs defined before it are visible, plus itself
+    when the WITH is RECURSIVE.
+    """
+    from sqlglot import exp
+
+    name = str(table.name or "").lower()
+    child, inside_cte = table, None
+    node = table.parent
+    while node is not None:
+        if isinstance(node, exp.CTE):
+            inside_cte = node
+        w = node.args.get("with") if isinstance(node, exp.Expression) else None
+        if isinstance(w, exp.With):
+            ctes = list(w.expressions)
+            if child is w and inside_cte in ctes:
+                i = ctes.index(inside_cte)
+                visible = ctes[:i] + ([inside_cte] if w.args.get("recursive") else [])
+            else:
+                visible = ctes
+            if any(str(c.alias_or_name).lower() == name for c in visible):
+                return True
+        child, node = node, node.parent
+    return False
+
+
 def _display(ref: Name) -> str:
     return ".".join(p.upper() for p in ref)
 
@@ -154,8 +186,6 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                 "read its enabled tables, which are already described in its schema."
             )
 
-        cte_names = {str(c.alias_or_name).lower() for c in stmt.find_all(exp.CTE)}
-
         for fn in stmt.find_all(exp.Func):
             name = _func_name(fn)
             if name and _DENIED_FUNCTION.match(name):
@@ -177,7 +207,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
             target = t.this
             if isinstance(target, exp.Identifier):
                 ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
-                if len(ref) == 1 and ref[0] in cte_names:
+                if len(ref) == 1 and _resolves_to_cte(t):
                     continue
                 if not is_allowed(ref, scope):
                     shown = _display(ref)

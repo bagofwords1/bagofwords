@@ -231,3 +231,67 @@ def test_sandbox_code_reading_active_tables_still_runs(clinic_db):
     )
     assert df["n"].iloc[0] == 6
     assert len(queries) == 1
+
+
+# ---------------------------------------------------------------------------
+# CTE names only shadow tables where the CTE is visible
+# ---------------------------------------------------------------------------
+
+# A CTE is visible in the query that defines it and in queries nested in it,
+# never in an outer or sibling query. Inside a CTE body only earlier CTEs are
+# visible (plus itself under RECURSIVE).
+CTE_SHADOWING_BYPASSES = [
+    # Nested CTE named like the inactive table; the outer FROM is the real one.
+    "SELECT * FROM payroll WHERE EXISTS (WITH payroll AS (SELECT 1) SELECT * FROM payroll)",
+    "SELECT * FROM (WITH payroll AS (SELECT 1) SELECT * FROM payroll) a, payroll",
+    # Sibling subquery: the CTE in one does not cover the other.
+    "SELECT * FROM (WITH payroll AS (SELECT 1) SELECT * FROM payroll) a "
+    "JOIN (SELECT * FROM payroll) b ON 1 = 1",
+    # A non-recursive CTE's body cannot see itself.
+    "WITH payroll AS (SELECT * FROM payroll) SELECT * FROM payroll",
+    # A CTE body cannot see CTEs defined after it.
+    "WITH b AS (SELECT * FROM payroll), payroll AS (SELECT 1) SELECT * FROM b",
+]
+
+CTE_LEGITIMATE = [
+    "WITH payroll AS (SELECT * FROM sales.orders) SELECT * FROM payroll",
+    "WITH x AS (SELECT * FROM sales.orders) SELECT * FROM (SELECT * FROM x) s",
+    "WITH x AS (SELECT * FROM sales.orders), y AS (SELECT * FROM x) SELECT * FROM y",
+    "WITH x AS (SELECT * FROM sales.orders) SELECT * FROM x UNION ALL SELECT * FROM x",
+    "SELECT * FROM sales.orders WHERE id IN (WITH x AS (SELECT 1 AS id) SELECT id FROM x)",
+]
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "snowflake", "sqlite", "tsql", "bigquery"])
+@pytest.mark.parametrize("sql", CTE_SHADOWING_BYPASSES)
+def test_cte_names_do_not_shadow_tables_outside_their_scope(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "snowflake", "sqlite", "tsql", "bigquery"])
+@pytest.mark.parametrize("sql", CTE_LEGITIMATE)
+def test_ctes_in_scope_still_run(dialect, sql):
+    check_table_scope(sql, dialect, SCOPE)
+
+
+def test_recursive_cte_can_reference_itself():
+    check_table_scope(
+        "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
+        "postgres", SCOPE,
+    )
+
+
+NESTED_CTE_SHADOW_CODE = (
+    "def generate_df(ds_clients, excel_files):\n"
+    "    return ds_clients['clinic'].execute_query(\n"
+    "        'SELECT name FROM patients WHERE EXISTS '\n"
+    "        '(WITH patients AS (SELECT 1) SELECT * FROM patients)')\n"
+)
+
+
+def test_sandbox_code_cannot_hide_an_inactive_table_behind_a_nested_cte(clinic_db):
+    with pytest.raises(TableAccessError):
+        StreamingCodeExecutor().execute_code(
+            code=NESTED_CTE_SHADOW_CODE, ds_clients={"clinic": _scoped_client(clinic_db)}, excel_files=[]
+        )
