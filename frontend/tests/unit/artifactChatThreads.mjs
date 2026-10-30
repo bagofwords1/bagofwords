@@ -296,4 +296,56 @@ scenario('TH10 Hebrew labels on New, the toggle and the confirmation', async (en
   await s.done();
 });
 
+const messagesOnlyApp = `<script>
+(function () {
+  var h = React.createElement;
+  function App() {
+    var chat = useConversation();
+    window.__chat = chat;
+    return h('div', {style: {height: '500px', display: 'flex', flexDirection: 'column'}}, h(ChatMessages, {chat: chat}));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+})();
+</script>`;
+const LIST3 = {items: [conv('c3'), conv('c2'), conv('c1')], next_before: null};
+const threadsAlert = (s) => s.dom((sel) => {
+  const p = document.querySelector('[data-testid="bow-chat-threads-error"]');
+  if (!p) return null;
+  const panel = document.querySelector(sel);
+  const r = p.getBoundingClientRect();
+  const inPanel = !!panel && panel.contains(p);
+  const visible = r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+  return [p.getAttribute('role'), p.getAttribute('dir'), p.textContent, inPanel, visible, !!document.querySelector('[data-testid="bow-chat-error"]')];
+}, DIALOG);
+
+scenario('TH11 in a Drawer, failed rename and archive show an alert inside the Drawer, not in ChatMessages', async (env) => {
+  const s = await start(env, {code: liveApp('drawer'), auto: {list: LIST3}, viewport: {width: 1000, height: 700}});
+  assert.equal(await s.dom(() => window.__componentType), 'function', 'window.ChatThreads is a component');
+  await s.frame.click('[data-testid="bow-chat-threads-toggle"]');
+  await s.waitFor((sel) => document.querySelector(sel + ' [data-testid="bow-chat-threads"]'), DIALOG, 'the Drawer');
+  await s.frame.click(item('c2', 'bow-chat-thread-rename'));
+  await s.frame.fill(INPUT, 'New');
+  await s.frame.press(INPUT, 'Enter');
+  const ren = await s.take('rename');
+  await s.fail(ren.id, {code: 'FORBIDDEN', message: 'You cannot rename this'});
+  await s.waitFor(() => document.querySelector('[data-testid="bow-chat-threads-error"]'), null, 'the alert');
+  assert.deepEqual(await threadsAlert(s), ['alert', 'auto', 'You cannot rename this', true, true, false], 'in the Drawer, visible, once');
+  await openConfirm(s, 'c3');
+  await s.frame.click('[data-testid="bow-chat-archive-confirm"]');
+  const ar = await s.take('archive');
+  await s.fail(ar.id, {code: 'UNAVAILABLE', message: 'Archive failed'});
+  await s.waitFor(() => (document.querySelector('[data-testid="bow-chat-threads-error"]') || {}).textContent === 'Archive failed', null, 'the archive alert');
+  assert.deepEqual(await threadsAlert(s), ['alert', 'auto', 'Archive failed', true, true, false]);
+  await s.done();
+});
+
+scenario('TH12 without ChatThreads, a failed rename still shows in ChatMessages', async (env) => {
+  const s = await start(env, {code: messagesOnlyApp, auto: {list: LIST3}, viewport: {width: 1000, height: 700}});
+  await s.call('rename', 'c2', 'New');
+  const ren = await s.take('rename');
+  await s.fail(ren.id, {code: 'FORBIDDEN', message: 'You cannot rename this'});
+  await s.waitFor(() => (document.querySelector('[data-testid="bow-chat-error"]') || {}).textContent === 'You cannot rename this', null, 'the error in ChatMessages');
+  await s.done();
+});
+
 await run('artifactChatThreads', scenarios);

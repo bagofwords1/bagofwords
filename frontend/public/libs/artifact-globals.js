@@ -2264,6 +2264,14 @@
   var _CHAT_REFRESH_MAX = 24;
   var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null, hasOlder: false, loadingOlder: false };
 
+  // Error objects of a failed rename or archive (the conversation list's own
+  // failures), and the number of ChatThreads mounted per hook instance (keyed
+  // by its stable rename function): ChatThreads shows those errors, and
+  // ChatMessages leaves them to it while one is mounted.
+  var _chatListErrors = typeof WeakSet === 'function' ? new WeakSet() : null;
+  var _chatThreadsMounted = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function _chatListError(e) { var err = _chatError(e); if (_chatListErrors) _chatListErrors.add(err); return err; }
+  function _chatIsListError(err) { return !!err && typeof err === 'object' && !!_chatListErrors && _chatListErrors.has(err); }
   function _chatConv() { var b = window.bow; return b && b.conversations ? b.conversations : null; }
   function _chatError(e, fallback) {
     return { code: (e && e.code) || fallback || 'UNAVAILABLE', message: (e && e.message) || String(e || 'Request failed') };
@@ -2972,7 +2980,7 @@
           if (c.confirmedSeq[id] > 0) c.renames[id] = { seq: c.confirmedSeq[id], title: c.confirmed[id], confirmed: true };
           put({ type: 'retitle', id: id, title: c.confirmed[id] });
         }
-        put({ type: 'apply', patch: { error: _chatError(e) } });
+        put({ type: 'apply', patch: { error: _chatListError(e) } });
       }).then(noop, noop);
     };
 
@@ -2990,7 +2998,7 @@
       return Promise.resolve().then(function() { return conv.archive(id); }).then(noop, function(e) {
         delete c.archived[id];
         if (item) put({ type: 'relist', item: item, index: index });
-        put({ type: 'apply', patch: { error: _chatError(e) } });
+        put({ type: 'apply', patch: { error: _chatListError(e) } });
       }).then(noop, noop);
     };
 
@@ -3654,7 +3662,8 @@
     if (!chat.loading && !messages.length) {
       kids.push(h('div', { key: 'empty', 'data-testid': 'bow-chat-empty' }, props.empty == null ? null : props.empty));
     }
-    if (chat.error && !olderShown) {
+    var listed = _chatIsListError(chat.error) && !!_chatThreadsMounted && typeof chat.rename === 'function' && (_chatThreadsMounted.get(chat.rename) || 0) > 0;
+    if (chat.error && !olderShown && !listed) {
       kids.push(h('p', { key: 'error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-error', className: CHAT_LIST.error },
         _chatLabelOf(chat.error.message) || _chatLabelOf(chat.error.code)));
     }
@@ -3849,8 +3858,21 @@
       if (target) try { target.focus(); } catch (e) {}
     });
     React.useEffect(function() { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
+    var key = chat && typeof chat.rename === 'function' ? chat.rename : null;
+    React.useEffect(function() {
+      if (!key || !_chatThreadsMounted) return;
+      _chatThreadsMounted.set(key, (_chatThreadsMounted.get(key) || 0) + 1);
+      return function() { _chatThreadsMounted.set(key, (_chatThreadsMounted.get(key) || 1) - 1); };
+    }, [key]);
     if (!chat) return null;
     var L = _chatLabels(props.labels);
+    // A failed rename or archive shows here, where the user acted (inside the
+    // Drawer when it is open, beside its toggle when it is closed).
+    var listError = _chatIsListError(chat.error) ? chat.error : null;
+    function alertLine(k) {
+      return listError ? h('p', { key: k, role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-threads-error', className: _join(CHAT_LIST.error, 'px-3 py-1') },
+        _chatLabelOf(listError.message) || _chatLabelOf(listError.code)) : null;
+    }
 
     function startEdit(x) { committed.current = false; setValue(x.title == null ? '' : String(x.title)); setEditing(x.id); }
     function commit(x) {
@@ -3916,6 +3938,7 @@
           onClick: function() { if (typeof chat.newConversation === 'function') chat.newConversation(); setOpen(false); } },
           [h(_Icon, { key: 'i', name: 'plus', size: 14 }), h('span', { key: 'l', dir: 'auto' }, L.newConversation)])
       ]),
+      alertLine('err'),
       h('ul', { key: 'u', 'data-testid': 'bow-chat-threads', className: CHAT_THREADS.list }, rows)
     ]);
     var modal = h(_Modal, { key: 'confirm', open: !!confirmId, size: 'sm', title: L.archiveConfirm, onClose: function() { setConfirmId(null); },
@@ -3928,6 +3951,7 @@
         h('button', { key: 'toggle', type: 'button', 'data-testid': 'bow-chat-threads-toggle', 'aria-expanded': open ? 'true' : 'false',
           className: CHAT_THREADS.button, onClick: function() { setOpen(true); } },
           [h(_Icon, { key: 'i', name: 'messages-square', size: 16 }), h('span', { key: 'l', dir: 'auto' }, L.conversations)]),
+        open ? null : alertLine('err-closed'),
         h(_Drawer, { key: 'drawer', open: open, side: 'start', width: 320, title: L.conversations, padding: 'none', onClose: function() { setOpen(false); } }, body),
         modal
       ]);
