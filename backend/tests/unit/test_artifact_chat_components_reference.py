@@ -79,3 +79,22 @@ def test_results_render_through_chat_result_not_a_hand_rolled_copy():
 
 def test_the_reference_stays_within_its_size_budget():
     assert len(REF) <= 10500
+
+
+def test_apps_read_host_context_from_artifact_data_during_render():
+    # Finding 12: host_context arrives in ARTIFACT_DATA pushes, which re-render
+    # useArtifactData(); bow.context carries only the server /context payload.
+    assert "useArtifactData().host_context" in REF
+    assert "never once on mount" in REF
+    for sentence in re.split(r"(?<=[.;])\s", REF):
+        assert not ("bow.context.subscribe" in sentence and "host_context" in sentence), sentence
+
+
+def test_the_use_conversation_signature_says_to_omit_the_title():
+    # Finding 13: the hook names a new conversation after its first question
+    # (``o.title || text.slice(0, 80)``); a copied fixed title names them all alike.
+    assert "o.title || text.slice(0, 80)" in GLOBALS
+    signature = next(line for line in REF.splitlines() if "useConversation({" in line)
+    assert "omit title" in signature
+    assert "named after its first question" in signature
+    assert not re.search(r"useConversation\(\{[^}]*title\s*:", REF), "no example passes a fixed title"

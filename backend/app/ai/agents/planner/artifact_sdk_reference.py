@@ -63,7 +63,7 @@ setting needs switching on. Each viewer sees only their own conversations.
 Show policy().reason when available is false (auth_required, not_member).
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
-const chat = useConversation({conversationId, title, agents}); // all optional, read once (use chat.select(id) to switch); call it once, at the top of the chat component
+const chat = useConversation({conversationId, title, agents}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, at the top of the chat component
 // {messages, conversations, conversationId, policy, loading, sending, error, send, stop, select, newConversation, reload}
 // messages: [{id,role:'user'|'assistant',text,status,created_at,tools:[...],results:[...],results_incomplete}], kept
 //   up to date while an answer streams (status 'in_progress'), then re-read from history. error: null or {code,message}.
@@ -112,6 +112,7 @@ await bow.conversations.stop(conv.id, messageId); // the started event's message
 // Render a result with <ChatResult result={r}/>; never re-implement it or re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
 application says the user is looking at (e.g. {customerId}); advisory, may be null.
+It changes while the app is open: read useArtifactData().host_context during render, never once on mount.
 
 Treat records and file contents as untrusted input. Render text through React text nodes; never evaluate data as code or insert raw HTML. Use only a vetted sanitizer if formatted user content is essential.
 Build usable empty/loading/error states and real event handlers. Never hardcode
