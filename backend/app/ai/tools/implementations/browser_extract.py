@@ -31,9 +31,17 @@ async def _save_full_text(text: str, url: str, title: str, runtime_ctx: Dict[str
     """
     from app.ai.tools.implementations.execute_mcp import save_text_artifact
 
+    # Save against the agent's own report object (same id as the verified one)
+    # so read_file sees the file in this turn: the guard's report stub has no
+    # files collection to register it in.
+    report = runtime_ctx.get("report")
+    agent_report = runtime_ctx.get("agent_report")
+    if agent_report is not None and str(getattr(agent_report, "id", "")) == str(getattr(report, "id", "")):
+        runtime_ctx = {**runtime_ctx, "report": agent_report}
+        report = agent_report
+
     tag = "browser_extract:" + hashlib.sha1(f"{url}\n{text}".encode("utf-8")).hexdigest()
     user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-    report = runtime_ctx.get("report")
     # Only already-loaded files: touching an unloaded report.files would lazy-load
     # outside the async greenlet.
     loaded = (getattr(report, "__dict__", {}) or {}).get("files") or []

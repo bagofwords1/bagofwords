@@ -115,7 +115,8 @@ print("REPORT FILES", files)
 completions = c.get(f"/api/reports/{report['id']}/completions").json()
 items = completions if isinstance(completions, list) else completions.get("completions", completions.get("items", []))
 answer = next((x for x in reversed(items) if x.get("role") == "system"), {})
-text = json.dumps(answer.get("completion") or answer.get("content") or answer)[:600]
+blocks = answer.get("completion_blocks") or []
+text = (blocks[-1].get("content") if blocks else None) or json.dumps(answer)[:600]
 print("ANSWER", text)
 print("EXPECTED", EXPECTED, "FOUND_IN_ANSWER", EXPECTED in text)
 server.shutdown()
