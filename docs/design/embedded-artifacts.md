@@ -207,8 +207,10 @@ BOWEmbed.mount({
   identity: { getAssertion }          // §4.1 — or { exchangeToken } §4.2, or { sso: 'popup' } §4.3
   context: { recordId: 'INC-1042' },  // → bow.context.host inside the artifact
   theme, locale,
-})  // .open() .close() .updateContext() .logout() .destroy(); events: ready, authenticated, authRequired, error
+})  // .open() .close() .updateContext() .logout() .destroy(); events: ready, authenticated, authRequired, unavailable, error
 ```
+
+An artifact the signed-in user cannot open here (not published, not found, not shared with them, or not embeddable in this host application) is shown as a message in the frame, and the frame posts `bow:unavailable {reason, message}`. The SDK then emits `unavailable` with `reason` one of `not_published` (editors and admins only), `not_found`, `denied`, `not_allowed`, or `failed` (a server or network error; the frame offers Try again). When the user later opens the artifact, the host receives `authenticated` once. A dead embed session (any 401) ends the way an expired one does, and arrives as `authRequired`. `embed.state.status === 'unavailable'` also follows a failed start (not framed, bootstrap failed, host application disabled), which arrives as `authRequired`, so hosts should listen for the `unavailable` event rather than read `state.status`.
 
 Host context reaches artifact code through `bow.context`; the artifact decides whether to pass it into a conversation turn.
 
