@@ -1994,7 +1994,13 @@
     send: 'Send',
     stop: 'Stop',
     unavailable: 'Chat is not available here',
-    authRequired: 'Sign in to chat'
+    authRequired: 'Sign in to chat',
+    conversations: 'Conversations',
+    newConversation: 'New chat',
+    rename: 'Rename',
+    archive: 'Archive',
+    archiveConfirm: 'Archive this conversation?',
+    cancel: 'Cancel'
   };
   function _chatFill(template, vars) {
     return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
@@ -2008,7 +2014,9 @@
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
       steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
       olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest),
-      send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired)
+      send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired),
+      conversations: _chatFill(src.conversations), newConversation: _chatFill(src.newConversation), rename: _chatFill(src.rename),
+      archive: _chatFill(src.archive), archiveConfirm: _chatFill(src.archiveConfirm), cancel: _chatFill(src.cancel)
     };
   }
   function _chatUnique(values) { return Array.from(new Set(values)); }
@@ -3429,7 +3437,7 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Chat components — ChatMessages, ChatComposer (compose with useConversation)
+  // Chat components — ChatMessages, ChatComposer, ChatThreads (compose with useConversation)
   // ═══════════════════════════════════════════════════════════════════════════
   // Each takes the hook's object as `chat`. They reach ChatMessage, Icon,
   // LoadingSpinner, Modal and Drawer through this closure (captured here, after
@@ -3718,6 +3726,169 @@
     ]);
   }
   window.ChatComposer = ChatComposer;
+
+  var _CHAT_NARROW_PX = 640;
+  var CHAT_THREADS = LEGACY ? {
+    root: 'flex w-64 shrink-0 flex-col overflow-y-auto border-e border-slate-200 dark:border-slate-700',
+    head: 'flex items-center justify-between gap-2 px-3 py-2',
+    title: 'text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400',
+    button: 'inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800',
+    list: 'space-y-0.5 px-2 pb-2',
+    item: 'group flex items-center gap-1 rounded-lg',
+    on: 'bg-slate-100 dark:bg-slate-800',
+    select: 'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-start text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800',
+    action: 'inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700',
+    input: 'min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100',
+    confirm: 'rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white',
+    cancel: 'rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200'
+  } : {
+    root: 'flex w-64 shrink-0 flex-col overflow-y-auto border-e border-line',
+    head: 'flex items-center justify-between gap-2 px-3 py-2',
+    title: 'text-xs font-medium uppercase tracking-eyebrow text-ink-3',
+    button: 'inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-xs text-ink-2 hover:bg-surface-2',
+    list: 'space-y-0.5 px-2 pb-2',
+    item: 'group flex items-center gap-1 rounded-control',
+    on: 'bg-surface-2',
+    select: 'flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-start text-sm text-ink-2 hover:bg-surface-2',
+    action: 'inline-flex h-7 w-7 items-center justify-center rounded-control text-ink-3 hover:bg-surface-2 hover:text-ink',
+    input: 'min-w-0 flex-1 rounded-control border border-line bg-surface px-2 py-1 text-sm text-ink outline-none',
+    confirm: 'rounded-control bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink',
+    cancel: 'rounded-control border border-line px-3 py-1.5 text-sm text-ink-2'
+  };
+  // Hidden until hover or focus on other rows; always shown on the open one
+  // and on screens without hover. Focusable either way.
+  var _CHAT_ACTIONS_HIDDEN = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100';
+
+  function _useNarrow(watch) {
+    var q = '(max-width: ' + (_CHAT_NARROW_PX - 1) + 'px)';
+    var mq = typeof window.matchMedia === 'function' ? window.matchMedia(q) : null;
+    var _n = React.useState(!!(mq && mq.matches)), narrow = _n[0], setNarrow = _n[1];
+    React.useEffect(function() {
+      if (!watch || !mq) return;
+      var on = function() { setNarrow(mq.matches); };
+      on();
+      if (mq.addEventListener) mq.addEventListener('change', on); else mq.addListener(on);
+      return function() { if (mq.removeEventListener) mq.removeEventListener('change', on); else mq.removeListener(on); };
+    }, [watch]);
+    return watch && narrow;
+  }
+
+  // <ChatThreads chat={chat} labels mode="auto|list|drawer" className />
+  // The viewer's conversations: select, new, rename inline, archive (confirmed
+  // in a Modal; the focus then moves to the next thread), a spinner while an
+  // answer runs. mode="auto" shows a toggle that opens a Drawer below 640 px.
+  function ChatThreads(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var mode = props.mode === 'list' || props.mode === 'drawer' ? props.mode : 'auto';
+    var narrow = _useNarrow(mode === 'auto');
+    var asDrawer = mode === 'drawer' || narrow;
+    var _o = React.useState(false), open = _o[0], setOpen = _o[1];
+    var _e = React.useState(null), editing = _e[0], setEditing = _e[1];
+    var _v = React.useState(''), value = _v[0], setValue = _v[1];
+    var _c = React.useState(null), confirmId = _c[0], setConfirmId = _c[1];
+    var listRef = React.useRef(null), newRef = React.useRef(null), inputRef = React.useRef(null);
+    var committed = React.useRef(false);
+    // After an archive: {id, index}; the focus goes to the row now at that index,
+    // else the one before, else New (the archive button left with its row).
+    var focusNext = React.useRef(null);
+    var conversations = chat && Array.isArray(chat.conversations) ? chat.conversations.filter(function(x) { return x && typeof x === 'object'; }) : [];
+    React.useEffect(function() {
+      var f = focusNext.current;
+      if (!f || conversations.some(function(x) { return x.id === f.id; })) return;
+      focusNext.current = null;
+      var root = listRef.current;
+      var buttons = root ? root.querySelectorAll('[data-testid="bow-chat-thread-select"]') : [];
+      var target = buttons[f.index] || buttons[f.index - 1] || newRef.current;
+      if (target) try { target.focus(); } catch (e) {}
+    });
+    React.useEffect(function() { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
+    if (!chat) return null;
+    var L = _chatLabels(props.labels);
+
+    function startEdit(x) { committed.current = false; setValue(x.title == null ? '' : String(x.title)); setEditing(x.id); }
+    function commit(x) {
+      if (committed.current) return;
+      committed.current = true;
+      var t = value.trim();
+      setEditing(null);
+      if (t && t !== String(x.title == null ? '' : x.title) && typeof chat.rename === 'function') chat.rename(x.id, t);
+    }
+    function pick(id) {
+      if (id !== chat.conversationId || chat.loading) { if (typeof chat.select === 'function') chat.select(id); }
+      setOpen(false);
+    }
+    function confirmArchive() {
+      var id = confirmId;
+      setConfirmId(null);
+      if (!id) return;
+      focusNext.current = { id: id, index: conversations.findIndex(function(x) { return x.id === id; }) };
+      if (typeof chat.archive === 'function') chat.archive(id);
+    }
+
+    var rows = conversations.map(function(x) {
+      var on = x.id === chat.conversationId;
+      var title = _chatLabelOf(x.title);
+      var kids;
+      if (editing === x.id) {
+        kids = [h('input', { key: 'in', ref: inputRef, 'data-testid': 'bow-chat-thread-input', dir: 'auto', maxLength: 120, value: value,
+          'aria-label': L.rename, className: CHAT_THREADS.input,
+          onChange: function(e) { setValue(e.target.value); },
+          onBlur: function() { commit(x); },
+          onKeyDown: function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); commit(x); }
+            else if (e.key === 'Escape') {
+              // Not the Drawer's Escape: only the edit ends.
+              e.preventDefault();
+              e.stopPropagation();
+              committed.current = true;
+              setEditing(null);
+            }
+          } })];
+      } else {
+        kids = [
+          h('button', { key: 's', type: 'button', 'data-testid': 'bow-chat-thread-select', 'aria-current': on ? 'true' : undefined,
+            className: CHAT_THREADS.select, onClick: function() { pick(x.id); } },
+            h('span', { dir: 'auto', className: 'min-w-0 flex-1 truncate' }, title)),
+          x.in_progress ? h('span', { key: 'b', 'data-testid': 'bow-chat-thread-busy', role: 'status', 'aria-label': L.inProgress, className: 'inline-flex shrink-0' },
+            h(_LoadingSpinner, { size: 12 })) : null,
+          h('span', { key: 'a', className: _join('flex shrink-0 items-center gap-0.5 transition-opacity', on ? '' : _CHAT_ACTIONS_HIDDEN) }, [
+            h('button', { key: 'r', type: 'button', 'data-testid': 'bow-chat-thread-rename', 'aria-label': L.rename, title: L.rename,
+              className: CHAT_THREADS.action, onClick: function() { startEdit(x); } }, h(_Icon, { name: 'pencil', size: 14 })),
+            h('button', { key: 'x', type: 'button', 'data-testid': 'bow-chat-thread-archive', 'aria-label': L.archive, title: L.archive,
+              className: CHAT_THREADS.action, onClick: function() { setConfirmId(x.id); } }, h(_Icon, { name: 'archive', size: 14 }))
+          ])
+        ];
+      }
+      return h('li', { key: x.id, 'data-testid': 'bow-chat-thread', 'data-id': x.id, 'data-active': on ? 'true' : 'false',
+        'data-in-progress': x.in_progress ? 'true' : 'false', className: _join(CHAT_THREADS.item, on ? CHAT_THREADS.on : '') }, kids);
+    });
+    var body = h('div', { key: 'body', ref: listRef }, [
+      h('div', { key: 'h', className: CHAT_THREADS.head }, [
+        h('span', { key: 't', dir: 'auto', className: CHAT_THREADS.title }, L.conversations),
+        h('button', { key: 'n', ref: newRef, type: 'button', 'data-testid': 'bow-chat-new', className: CHAT_THREADS.button,
+          onClick: function() { if (typeof chat.newConversation === 'function') chat.newConversation(); setOpen(false); } },
+          [h(_Icon, { key: 'i', name: 'plus', size: 14 }), h('span', { key: 'l', dir: 'auto' }, L.newConversation)])
+      ]),
+      h('ul', { key: 'u', 'data-testid': 'bow-chat-threads', className: CHAT_THREADS.list }, rows)
+    ]);
+    var modal = h(_Modal, { key: 'confirm', open: !!confirmId, size: 'sm', title: L.archiveConfirm, onClose: function() { setConfirmId(null); },
+      footer: [
+        h('button', { key: 'c', type: 'button', 'data-testid': 'bow-chat-archive-cancel', className: CHAT_THREADS.cancel, onClick: function() { setConfirmId(null); } }, L.cancel),
+        h('button', { key: 'a', type: 'button', 'data-testid': 'bow-chat-archive-confirm', className: CHAT_THREADS.confirm, onClick: confirmArchive }, L.archive)
+      ] });
+    if (asDrawer) {
+      return h('div', { 'data-testid': 'bow-chat-threads-root', className: _chatCls('shrink-0', props.className) }, [
+        h('button', { key: 'toggle', type: 'button', 'data-testid': 'bow-chat-threads-toggle', 'aria-expanded': open ? 'true' : 'false',
+          className: CHAT_THREADS.button, onClick: function() { setOpen(true); } },
+          [h(_Icon, { key: 'i', name: 'messages-square', size: 16 }), h('span', { key: 'l', dir: 'auto' }, L.conversations)]),
+        h(_Drawer, { key: 'drawer', open: open, side: 'start', width: 320, title: L.conversations, padding: 'none', onClose: function() { setOpen(false); } }, body),
+        modal
+      ]);
+    }
+    return h('div', { 'data-testid': 'bow-chat-threads-root', className: _chatCls(CHAT_THREADS.root, props.className) }, [body, modal]);
+  }
+  window.ChatThreads = ChatThreads;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc

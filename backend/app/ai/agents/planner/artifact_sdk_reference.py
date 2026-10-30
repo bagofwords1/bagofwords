@@ -74,13 +74,15 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 <ChatMessages chat={chat} empty={node}/> // the scrolling list: opens at the newest message, follows the answer only while
 //   the user is at the bottom, "Jump to latest", "Load earlier messages", chat.error. Needs a bounded height (flex-1 in a fixed-height column).
 <ChatComposer chat={chat} placeholder="..."/> // Enter sends, Shift+Enter new line, Stop while answering, the reason when unavailable
+<ChatThreads chat={chat}/> // conversation list: select, new, rename, archive, a spinner while an answer runs; a drawer on narrow screens
 <ChatMessage message={m}/> // one message (ChatMessages renders them): markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
-// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired}}:
+// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired,conversations,newConversation,rename,archive,archiveConfirm,cancel}}:
 //   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
 function Chat(){const chat=useConversation();
-  return <div className="flex h-screen flex-col"><ChatMessages chat={chat}/><ChatComposer chat={chat}/></div>;}
+  return <div className="flex h-screen"><ChatThreads chat={chat}/><div className="flex min-w-0 flex-1 flex-col">
+    <ChatMessages chat={chat}/><ChatComposer chat={chat}/></div></div>;}
 You design the layout, composer, empty state and list (chat.conversations).
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
