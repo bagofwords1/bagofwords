@@ -3836,6 +3836,20 @@
           "title": "Klistra in nedan och testa anslutningen",
           "body": "Klistra in hela utdatan i fältet Klusteråtkomstfil och klicka på Testa anslutning."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Ge kontot läsbehörighet i Configuration Manager",
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+        },
+        {
+          "title": "Kontrollera att administrationstjänsten svarar",
+          "body": "Kör detta mot din SMS Provider från en domänansluten dator. Det ska lista din plats."
+        },
+        {
+          "title": "Exportera SMS Providerns certifikat",
+          "body": "Platsen använder som standard ett självsignerat certifikat. Kör detta i PowerShell på SMS Providern och klistra in utdata i SMS Provider certificate (PEM). Hoppa över steget om certifikatet kommer från en CA som den här servern redan litar på."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",

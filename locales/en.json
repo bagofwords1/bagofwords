@@ -4212,6 +4212,20 @@
           "title": "Paste it below and test the connection",
           "body": "Paste the whole output into the Cluster access file field, then click Test connection."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Give the account read access in Configuration Manager",
+          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see."
+        },
+        {
+          "title": "Check the administration service answers",
+          "body": "From a domain-joined machine, run this against your SMS Provider. It should list your site."
+        },
+        {
+          "title": "Export the SMS Provider certificate",
+          "body": "The site binds a self-signed certificate by default. Run this in PowerShell on the SMS Provider and paste the output into SMS Provider certificate (PEM). Skip this if the certificate comes from a CA this server already trusts."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",

@@ -3836,6 +3836,20 @@
           "title": "Collez-le ci-dessous et testez la connexion",
           "body": "Collez toute la sortie dans le champ Fichier d'accès au cluster, puis cliquez sur Tester la connexion."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Accorder au compte l'accès en lecture dans Configuration Manager",
+          "body": "Dans la console, allez dans Administration > Security > Administrative Users, ajoutez le compte (ou son groupe AD) et attribuez-lui le rôle Read-only Analyst. Ses étendues de sécurité et ses regroupements déterminent ce que Bag of Words peut voir."
+        },
+        {
+          "title": "Vérifier que le service d'administration répond",
+          "body": "Depuis une machine jointe au domaine, exécutez ceci sur votre SMS Provider. La commande doit lister votre site."
+        },
+        {
+          "title": "Exporter le certificat du SMS Provider",
+          "body": "Par défaut, le site utilise un certificat auto-signé. Exécutez ceci dans PowerShell sur le SMS Provider et collez le résultat dans SMS Provider certificate (PEM). Ignorez cette étape si le certificat provient d'une autorité de certification déjà approuvée par ce serveur."
+        }
       ]
     },
     "setupGuideCopyFailed": "Échec de la copie — sélectionnez le texte",
