@@ -426,29 +426,26 @@ scenario('L8 policy unavailable: no list, and send makes no request', async (env
 });
 
 // ── L9: unmount ─────────────────────────────────────────────────────────────
+// MR-11 (reversed): leaving a running answer aborts only the local stream; the
+// answer keeps running on the server and only chat.stop() stops it.
 for (const started of [true, false]) {
-  scenario(`L9 unmount during a send ${started ? 'after' : 'before'} started: stop + cancel, and no dispatch after unmount`, async (env) => {
+  scenario(`L9 unmount during a send ${started ? 'after' : 'before'} started: the cancel frame, no server stop, no dispatch after unmount`, async (env) => {
     const s = await start(env);
     const req = await sendStarted(s, 'q1', started ? 'm1' : null);
     if (started) await s.until((c) => c.messages[1].id === 'm1', 'started');
     const before = (await s.log()).length;
     await s.dom(() => window.__setApp({mounted: false}));
     await s.dom(() => new Promise((r) => { const t = setInterval(() => { if (document.getElementById('unmounted')) { clearInterval(t); r(); } }, 5); }));
+    await s.take('cancel', (e) => e.id === req.id);
     await sleep(50);
     const dispatches = await s.dom(() => window.__dispatches);
-    if (!started) {
-      await sleep(150);
-      assert.equal((await s.log()).length, before, 'nothing is sent before started');
-      await s.event(req.id, {type: 'started', message_id: 'm1'});
-    }
-    await s.take('stop', (e) => e.args.messageId === 'm1');
-    await s.take('cancel', (e) => e.id === req.id);
+    if (!started) await s.event(req.id, {type: 'started', message_id: 'm1'});
     await s.events(req.id, [{type: 'text_delta', block: 'b1', text: 'late'}, {type: 'result', ...result('r1')}, {type: 'completed', status: 'success'}]);
     await s.reply(req.id, null);
     await sleep(300);
     assert.equal(await s.dom(() => window.__dispatches), dispatches, 'no dispatch after unmount');
     const after = (await s.log()).slice(before).map((e) => e.op);
-    assert.deepEqual(after, ['stop', 'cancel'], 'only the stop and the cancel frame after unmount');
+    assert.deepEqual(after, ['cancel'], 'only the cancel frame after unmount: no server stop');
     await s.done();
   });
 }
@@ -707,7 +704,7 @@ scenario('L20 stop before started, the re-read returns the started id as in_prog
 });
 
 for (const [how, started] of [['select', true], ['select', false], ['newConversation', true], ['newConversation', false]]) {
-  scenario(`L21 ${how}() during a run ${started ? 'after' : 'before'} started stops it on the server`, async (env) => {
+  scenario(`L21 ${how}() during a run ${started ? 'after' : 'before'} started aborts it locally and does not stop it on the server`, async (env) => {
     const s = await start(env);
     const req = await sendStarted(s, 'q1', started ? 'm1' : null);
     if (started) await s.until((c) => c.messages[1].id === 'm1', 'started');
@@ -715,14 +712,9 @@ for (const [how, started] of [['select', true], ['select', false], ['newConversa
     let c = await s.chat();
     assert.equal(c.sending, false, 'sending false at once');
     assert.deepEqual(c.messages, []);
-    if (!started) {
-      await sleep(150);
-      assert.equal(await s.count('stop'), 0);
-      await s.event(req.id, {type: 'started', message_id: 'm1'});
-    }
-    const stop = await s.take('stop');
-    assert.deepEqual(stop.args, {op: 'stop', id: 'c1', messageId: 'm1'});
     await s.take('cancel', (e) => e.id === req.id);
+    if (!started) await s.event(req.id, {type: 'started', message_id: 'm1'});
+    await s.events(req.id, [{type: 'text_delta', block: 'b1', text: 'late'}, {type: 'completed', status: 'success'}]);
     if (how === 'select') {
       const load = await s.take('messages', (e) => e.args.id === 'B');
       await s.reply(load.id, page(u('b1', 'from B')));
@@ -732,7 +724,24 @@ for (const [how, started] of [['select', true], ['select', false], ['newConversa
     c = await s.chat();
     assert.deepEqual(ids(c), how === 'select' ? ['b1'] : []);
     assert.equal(c.conversationId, how === 'select' ? 'B' : null);
+    assert.equal(await s.count('stop'), 0, 'leaving sends no server stop');
     assert.equal(await s.count('messages', (e) => e.args.id === 'c1'), 0, 'no re-read of the left conversation');
+    await s.done();
+  });
+}
+
+for (const stopFirst of [true, false]) {
+  scenario(`L21 ${stopFirst ? 'stop while creating, then leave' : 'leave while creating'}: no server stop, no send, nothing applied`, async (env) => {
+    const s = await start(env, {auto: {create: 'hold'}});
+    await s.call('send', 'q1');
+    const create = await s.take('create');
+    if (stopFirst) await s.call('stop');
+    await s.call('newConversation');
+    await s.reply(create.id, CONV);
+    await sleep(250);
+    const c = await s.chat();
+    assert.deepEqual([c.sending, c.messages.length, c.conversationId], [false, 0, null]);
+    assert.deepEqual([await s.count('send'), await s.count('stop')], [0, 0]);
     await s.done();
   });
 }
@@ -1111,6 +1120,31 @@ scenario('L26a variant: the run\'s re-read fails; the refresh issued before the 
   const c = await s.chat();
   assert.equal(c.version, before.version, 'the refresh issued before the send never applies');
   assert.equal(c.messages[1].status, 'in_progress');
+  await s.done();
+}, {clock: true});
+
+scenario('L27 leave a running answer, select it back: history shows it in progress, the refresh turns it to success', async (env) => {
+  const s = await start(env);
+  const req = await sendStarted(s, 'q1', 'm1');
+  await s.event(req.id, {type: 'text_delta', block: 'b1', text: 'Part'});
+  await s.until((c) => c.messages[1].text === 'Part', 'the first delta');
+  await s.call('newConversation');
+  await s.take('cancel', (e) => e.id === req.id);
+  await s.call('select', 'c1');
+  const load = await s.take('messages', (e) => e.args.id === 'c1');
+  await s.event(req.id, {type: 'text_delta', block: 'b1', text: ' late'});
+  await s.reply(load.id, page(u('u1', 'q1'), a('m1', 'Part', {status: 'in_progress'})));
+  let c = await s.until((c) => !c.loading && c.conversationId === 'c1', 'c1 loaded');
+  assert.deepEqual([ids(c), c.messages[1].status, c.messages[1].text, c.sending], [['u1', 'm1'], 'in_progress', 'Part', false]);
+  assert.equal(await s.dom(() => document.querySelectorAll('[data-testid="bow-chat-typing"]').length), 1);
+  await settle();
+  await step(s);
+  const r = await s.take('messages', (e) => e.args.id === 'c1');
+  await s.reply(r.id, page(u('u1', 'q1'), a('m1', 'Part and the rest')));
+  c = await applied(s, c.version);
+  assert.deepEqual([c.messages[1].status, c.messages[1].text], ['success', 'Part and the rest']);
+  assert.equal(await s.dom(() => document.querySelectorAll('[data-testid="bow-chat-typing"]').length), 0);
+  assert.equal(await s.count('stop'), 0, 'leaving never stopped the server run');
   await s.done();
 }, {clock: true});
 

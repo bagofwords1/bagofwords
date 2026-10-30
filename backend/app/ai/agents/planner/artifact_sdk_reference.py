@@ -71,7 +71,7 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 //   error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
 // chat.stop() while chat.sending; chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
-// Leaving a running answer (select, newConversation, unmount) stops it.
+// Leaving a running answer keeps it running; only chat.stop() stops it.
 <ChatMessage message={m}/> // one message: markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note

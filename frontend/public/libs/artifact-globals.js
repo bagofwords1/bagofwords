@@ -2190,7 +2190,8 @@
   //     send, stop, select, newConversation, reload}
   // messages have the bow.conversations.messages() item shape. One answer runs
   // at a time; history is re-read after each answer that reached the server and
-  // merged with the server page as the truth; leaving a running answer stops it.
+  // merged with the server page as the truth; leaving a running answer keeps it
+  // running on the server (only stop() stops it).
   var _CHAT_REFRESH_MS = 5000;
   var _CHAT_REFRESH_MAX = 24;
   var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null };
@@ -2440,16 +2441,15 @@
       c.load = load;
     }
 
-    // Leave the active run (rule 8): it never dispatches again, it still stops
-    // the server run (deferred until started) and aborts its stream.
+    // Leave the active run (rule 8, MR-11): it never dispatches again and only
+    // its local stream is aborted. The answer keeps running on the server
+    // (only stop() stops it); coming back loads it in progress (rule 13).
     function leave() {
       var run = c.run;
       if (run) {
         if (!run.terminal) run.terminal = 'left';
-        if (run.terminal !== 'completed') run.stopWanted = true;
         c.run = null;
-        if (run.stopWanted) serverStop(run);
-        else run.controller.abort();
+        run.controller.abort();
       }
       c.gen++;
     }
