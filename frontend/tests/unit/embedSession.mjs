@@ -175,3 +175,28 @@ console.log('PASS: useArtifactRuntime keeps its ports across a renewal for the s
   }
 }
 console.log('PASS: an embed that cannot open its artifact says why, in every catalog')
+
+// ── the unavailable message is never a raw key (finding 15) ───────────────
+// The gate shows the catalog text and tells it to the host (bow:unavailable).
+// When the catalog it was served lacks the key (a stale catalog: t() answers
+// the key itself, or nothing), it says the built-in English text instead.
+{
+  const { embedUnavailableMessage, EMBED_UNAVAILABLE_FALLBACK_MESSAGES, EMBED_UNAVAILABLE_MESSAGE_KEYS } = embedSession
+  assert.equal(typeof embedUnavailableMessage, 'function', 'embedUnavailableMessage is exported')
+  const reasons = Object.keys(EMBED_UNAVAILABLE_MESSAGE_KEYS)
+  assert.deepEqual(Object.keys(EMBED_UNAVAILABLE_FALLBACK_MESSAGES || {}).sort(), [...reasons].sort(), 'a fallback for every reason')
+
+  const en = JSON.parse(readFileSync(new URL('../../../locales/en.json', import.meta.url), 'utf8'))
+  for (const reason of reasons) {
+    const key = EMBED_UNAVAILABLE_MESSAGE_KEYS[reason]
+    const enText = key.split('.').reduce((node, part) => (node == null ? undefined : node[part]), en)
+    // Parity: the built-in text is the English catalog's, word for word.
+    assert.equal(EMBED_UNAVAILABLE_FALLBACK_MESSAGES[reason], enText, `fallback = en.json for ${reason}`)
+    // The catalog answers: its text.
+    assert.equal(embedUnavailableMessage(reason, (k) => (k === key ? `catalog:${k}` : k)), `catalog:${key}`)
+    // The catalog lacks it (the key comes back, or nothing): the fallback.
+    assert.equal(embedUnavailableMessage(reason, (k) => k), enText, `${reason}: raw key replaced`)
+    assert.equal(embedUnavailableMessage(reason, () => ''), enText, `${reason}: empty text replaced`)
+  }
+}
+console.log('PASS: an unavailable message is the catalog text, else the built-in English, never a raw key')

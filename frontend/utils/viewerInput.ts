@@ -14,3 +14,32 @@ export function awaitsViewerInput(viewerResult?: { needs_input?: unknown } | nul
 export function isOwnSuccess(viewerResult?: { status?: unknown, needs_input?: unknown } | null): boolean {
   return viewerResult?.status === 'success' && !awaitsViewerInput(viewerResult)
 }
+
+/** The values a filter run starts from, before the viewer changes any: for
+ * each declared input, the first stored value a query declaring it was served
+ * with (the step's applied_params, queries in order), else the first declared
+ * default, else nothing. A stored value anywhere beats any default. Identity
+ * inputs are never seeded: the server resolves them for the viewer. Returns a
+ * new object; the inputs are not mutated. */
+export function seedParamValues(
+  specsByQuery: Record<string, any[]>,
+  appliedByQuery: Record<string, Record<string, any> | null | undefined>,
+): Record<string, any> {
+  const seeded: Record<string, any> = {}
+  const has = (name: string) => Object.prototype.hasOwnProperty.call(seeded, name)
+  const seedable = (spec: any) => spec && spec.source !== 'identity' && spec.source !== 'input_identity_default'
+  for (const [qid, specs] of Object.entries(specsByQuery || {})) {
+    for (const spec of specs || []) {
+      if (!seedable(spec) || has(spec.name)) continue
+      const stored = appliedByQuery?.[qid]?.[spec.name]
+      if (stored !== null && stored !== undefined) seeded[spec.name] = stored
+    }
+  }
+  for (const specs of Object.values(specsByQuery || {})) {
+    for (const spec of specs || []) {
+      if (!seedable(spec) || has(spec.name)) continue
+      if (spec.default !== null && spec.default !== undefined) seeded[spec.name] = spec.default
+    }
+  }
+  return seeded
+}

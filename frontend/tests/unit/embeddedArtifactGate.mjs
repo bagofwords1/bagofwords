@@ -19,6 +19,11 @@ const { descriptor } = parse(readFileSync(file, 'utf8'), { filename: 'EmbeddedAr
 const script = compileScript(descriptor, { id: 'embedded-artifact-gate', inlineTemplate: false }).content
 const compiled = ts.transpileModule(script, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
 
+// The stub t() knows no key (it answers the key itself, as a stale catalog
+// would): the viewer and the host get the built-in English text, never the key.
+const NOT_PUBLISHED = embedSession.EMBED_UNAVAILABLE_FALLBACK_MESSAGES?.not_published ?? 'missing fallback: not_published'
+const FAILED = embedSession.EMBED_UNAVAILABLE_FALLBACK_MESSAGES?.failed ?? 'missing fallback: failed'
+
 const SESSION = { token: 'bow_embed_a1', organization_id: 'org', host_application: 'host_1', viewer: { id: 'u-alice' }, user: { name: 'Alice' }, expires_in: 3600 }
 const MINUTE = 60_000
 
@@ -141,9 +146,9 @@ try {
   assert.equal(typeof gate.exposed().artifactUnavailable, 'function', 'the gate exposes artifactUnavailable')
   gate.exposed().artifactUnavailable('not_published')
   assert.equal(gate.bindings.status.value, 'unavailable')
-  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished')
+  assert.equal(gate.bindings.message.value, NOT_PUBLISHED)
   assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:unavailable'),
-    [{ type: 'bow:unavailable', reason: 'not_published', message: 'embed.unavailable.notPublished' }])
+    [{ type: 'bow:unavailable', reason: 'not_published', message: NOT_PUBLISHED }])
   assert.equal(gate.credential.value?.token, 'bow_embed_a1', 'the session is kept')
 }
 {
@@ -180,14 +185,14 @@ try {
 
   mock.timers.tick(55 * MINUTE)  // the renewal starts
   assert.equal(gate.requested.length, 2, 'the session renews')
-  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished', 'the renewal is silent')
+  assert.equal(gate.bindings.message.value, NOT_PUBLISHED, 'the renewal is silent')
   assert.equal(gate.bindings.status.value, 'unavailable')
   await settle()
   assert.equal(gate.bindings.status.value, 'ready', 'the renewed session re-checks the artifact (the view remounts)')
   assert.equal(authenticated(), 1, 'the host is not told "authenticated" over an unavailable artifact')
   gate.exposed().artifactUnavailable('not_published')  // still not published
   assert.equal(unavailable(), 1, 'nor "unavailable" again for the same reason')
-  assert.equal(gate.bindings.message.value, 'embed.unavailable.notPublished')
+  assert.equal(gate.bindings.message.value, NOT_PUBLISHED)
 
   mock.timers.tick(55 * MINUTE)
   await settle()
@@ -209,9 +214,9 @@ try {
   const gate = await readyGate()
   gate.exposed().artifactUnavailable('failed')
   assert.equal(gate.bindings.status.value, 'unavailable')
-  assert.equal(gate.bindings.message.value, 'embed.unavailable.failed')
+  assert.equal(gate.bindings.message.value, FAILED)
   assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:unavailable'),
-    [{ type: 'bow:unavailable', reason: 'failed', message: 'embed.unavailable.failed' }])
+    [{ type: 'bow:unavailable', reason: 'failed', message: FAILED }])
   assert.equal(gate.bindings.unavailableReason.value, 'failed', 'the Try again button shows for it')
   gate.bindings.retryOpen()
   assert.equal(gate.bindings.status.value, 'ready', 'Try again opens the artifact again')

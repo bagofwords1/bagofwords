@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
-import { EMBED_UNAVAILABLE_MESSAGE_KEYS, embedRuntimeIdentity, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
+import { embedRuntimeIdentity, embedUnavailableMessage, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -153,7 +153,7 @@ function artifactUnavailable(failure: EmbedLoadFailure) {
     if (failure === 'session_invalid') { expire(); return; }
     status.value = 'unavailable';
     unavailableReason.value = failure;
-    message.value = t(EMBED_UNAVAILABLE_MESSAGE_KEYS[failure]);
+    message.value = embedUnavailableMessage(failure, t);
     if (toldUnavailable === failure) return;  // the host already knows (a renewal's re-check)
     toldUnavailable = failure;
     host.post('bow:unavailable', { reason: failure, message: message.value });

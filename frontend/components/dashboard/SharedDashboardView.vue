@@ -387,7 +387,7 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
 import { embedLoadFailure, embedSessionEnded, type EmbedLoadFailure } from '~/utils/embedSession';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
-import { awaitsViewerInput, isOwnSuccess } from '~/utils/viewerInput';
+import { awaitsViewerInput, isOwnSuccess, seedParamValues } from '~/utils/viewerInput';
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue';
 import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
@@ -1207,6 +1207,7 @@ async function loadVisualizationData(artifactId?: string) {
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
         const appliedByQuery = new Map<string, any>();
+        const nextServedApplied: Record<string, Record<string, any>> = {};
         const titleToId = new Map<string, string>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
@@ -1278,6 +1279,7 @@ async function loadVisualizationData(artifactId?: string) {
             }
             rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
             appliedByQuery.set(String((query as any).id), (step.value as any)?.applied_params || {});
+            nextServedApplied[String((query as any).id)] = (step.value as any)?.applied_params || {};
             if ((query as any).title) titleToId.set(String((query as any).title).toLowerCase(), String((query as any).id));
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
@@ -1308,6 +1310,8 @@ async function loadVisualizationData(artifactId?: string) {
                 });
             }
         }
+        // What this load was served; replaced on every load, never merged.
+        servedAppliedParams = nextServedApplied;
         // Reorder vizData to match artifact's visualization_ids order
         const vizIds = artifact.value?.content?.visualization_ids;
         if (vizIds && vizIds.length > 0) {
@@ -1396,6 +1400,9 @@ watch(() => colorMode.value, (v) => {
 
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
+// The applied_params each query's served step ran with, from the latest load
+// (loadVisualizationData). initParamValues seeds the inputs from them.
+let servedAppliedParams: Record<string, Record<string, any>> = {};
 // Host-resolved stable choices per param (static options + options-source
 // query rows) — mirrors ArtifactFrame; useParamOptions() reads these.
 const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
@@ -1527,15 +1534,10 @@ async function resolveParamOptions(
     paramOptions.value = out;
 }
 
+// Once, at mount: an input the viewer has not set starts from the value its
+// query was served with, else its default, so a filter run sends it too.
 function initParamValues() {
-    const next: Record<string, any> = {};
-    for (const specs of Object.values(queryParamSpecs.value)) {
-        for (const spec of (specs as any[]) || []) {
-            if (spec.source === 'identity') continue;
-            if (spec.default !== undefined && spec.default !== null) next[spec.name] = spec.default;
-        }
-    }
-    paramValues.value = next;
+    paramValues.value = seedParamValues(queryParamSpecs.value, servedAppliedParams);
 }
 
 function queriesWithIdentityParams(): string[] {

@@ -100,3 +100,22 @@ export const EMBED_UNAVAILABLE_MESSAGE_KEYS: Record<EmbedUnavailableReason, stri
   not_allowed: 'embed.unavailable.notAllowed',
   failed: 'embed.unavailable.failed',
 }
+
+/** The English text of each reason, word for word as in locales/en.json
+ * (tests/unit/embedSession.mjs pins the parity). Said when the catalog the
+ * page was served lacks the key, so the viewer and the host never get a raw key. */
+export const EMBED_UNAVAILABLE_FALLBACK_MESSAGES: Record<EmbedUnavailableReason, string> = {
+  not_published: "This hasn't been published yet. It will appear here once it's published.",
+  not_found: "This isn't available. It may not be published yet, or it was removed.",
+  denied: "You don't have access to this. Ask its owner to share it with you.",
+  not_allowed: "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+  failed: "This couldn't be loaded. Try again in a moment.",
+}
+
+/** What the gate says for `reason`: the catalog text, else (t() answers the
+ * key itself, or nothing) the built-in English. */
+export function embedUnavailableMessage(reason: EmbedUnavailableReason, t: (key: string) => string): string {
+  const key = EMBED_UNAVAILABLE_MESSAGE_KEYS[reason]
+  const s = t(key)
+  return s && s !== key ? s : EMBED_UNAVAILABLE_FALLBACK_MESSAGES[reason]
+}
