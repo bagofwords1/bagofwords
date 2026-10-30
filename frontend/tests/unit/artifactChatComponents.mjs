@@ -108,6 +108,7 @@ const cols = (names) => names.map((c) => ({field: c, headerName: c[0].toUpperCas
 const res = (id, chart, rows, names, extra = {}) => ({id, title: 'Result ' + id, chart, rows, columns: cols(names), row_count: rows.length, column_count: names.length, truncated: false, ...extra});
 const ROWS = [{m: 'a', v: 1, w: 4}, {m: 'b', v: 2, w: 5}];
 const GROUPED = [{m: 'a', g: 'x', v: 1}, {m: 'a', g: 'y', v: 2}, {m: 'b', g: 'x', v: 3}];
+const NULLS = [{s: 'open', r: 'north', id: 'o1'}, {s: null, r: 'north', id: 'o2'}, {s: '', r: null, id: 'o3'}, {s: 'open', r: '', id: 'o4'}, {s: null, r: 'south', id: 'o5'}];
 const ORDERS = [{s: 'open', r: 'north', id: 'o1'}, {s: 'open', r: 'south', id: 'o2'}, {s: 'open', r: 'north', id: 'o3'}, {s: 'closed', r: 'north', id: 'o4'}];
 const VECTORS = {
   bar: res('bar', {type: 'bar', x: 'm', y: ['v'], series: null}, ROWS, ['m', 'v']),
@@ -127,9 +128,14 @@ const VECTORS = {
   countLine: res('countLine', {type: 'line', x: 's', y: ['id'], series: 'r', aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
   countPie: res('countPie', {type: 'pie', x: 's', y: ['id'], series: null, aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
   countScatter: res('countScatter', {type: 'scatter', x: 's', y: ['id'], series: null, aggregate: 'count'}, ORDERS, ['s', 'r', 'id']),
+  // Nulls as EChartsVisual buckets them: a null x joins '' (one category), a null or '' series is
+  // dropped (no unnamed series), a pie skips a null category.
+  countNullX: res('countNullX', {type: 'bar', x: 's', y: ['id'], series: null, aggregate: 'count'}, NULLS, ['s', 'r', 'id']),
+  countNullSeries: res('countNullSeries', {type: 'bar', x: 's', y: ['id'], series: 'r', aggregate: 'count'}, NULLS, ['s', 'r', 'id']),
+  countNullPie: res('countNullPie', {type: 'pie', x: 's', y: ['id'], series: null, aggregate: 'count'}, NULLS, ['s', 'r', 'id']),
   otherAggregate: res('otherAggregate', {type: 'bar', x: 's', y: ['id'], series: null, aggregate: 'sum'}, ORDERS, ['s', 'r', 'id']),
 };
-const CHARTED = ['bar', 'area', 'line', 'pie', 'scatter', 'countBar', 'countLine', 'countPie'];
+const CHARTED = ['bar', 'area', 'line', 'pie', 'scatter', 'countBar', 'countLine', 'countPie', 'countNullX', 'countNullSeries', 'countNullPie'];
 const TWO = [{n: 'A', a: 1}, {n: 'B', a: 2}];
 const NOTES = {
   whole: {...res('whole', null, TWO, ['n', 'a'])},
@@ -172,7 +178,7 @@ const RESULT_APP = artifact(`
   const {page, consoleErrors} = await openPage();
   const frame = await mount(page, RESULT_APP);
   assert.equal(await frame.evaluate(() => window.__componentType), 'object', 'window.ChatResult is a (memo) component');
-  await until(frame, () => document.querySelectorAll('[data-vector] canvas').length >= 9, null, 'the charts');
+  await until(frame, () => document.querySelectorAll('[data-vector] canvas').length >= 12, null, 'the charts');
   await twoFrames(frame);
   const charts = await frame.evaluate(() => window.__charts.map((c) => ({vector: c.vector, inits: c.inits, options: c.options})));
   const last = (v) => { const c = charts.find((x) => x.vector === v); assert.ok(c, `a chart for ${v}`); return c.options.at(-1); };
@@ -194,6 +200,13 @@ const RESULT_APP = artifact(`
   assert.deepEqual(countBar.series.map((s) => [s.type, s.data]), [['bar', [3, 1]]]);
   assert.deepEqual(last('countLine').series.map((s) => [s.name, s.type, s.data]), [['north', 'line', [2, 1]], ['south', 'line', [1, null]]]);
   assert.deepEqual(last('countPie').series[0].data, [{name: 'open', value: 3}, {name: 'closed', value: 1}]);
+  const nullX = last('countNullX');
+  assert.deepEqual(nullX.xAxis.data, ['open', ''], 'a null x is the empty category, never "null"');
+  assert.deepEqual(nullX.series[0].data, [2, 3]);
+  const nullSeries = last('countNullSeries');
+  assert.deepEqual(nullSeries.xAxis.data, ['open', '']);
+  assert.deepEqual(nullSeries.series.map((s) => [s.name, s.data]), [['north', [1, 1]], ['south', [null, 1]]], 'no unnamed series');
+  assert.deepEqual(last('countNullPie').series[0].data, [{name: 'open', value: 2}, {name: '', value: 1}], 'a null category is skipped');
   for (const v of CHARTED) {
     assert.ok(await vectorHas(v, 'canvas'), `${v} draws a chart`);
     assert.ok(await vectorHas(v, '[data-testid="bow-datatable"]'), `${v} also shows the table`);

@@ -27,10 +27,10 @@ console.log('PASS: the page bubble hides for bow.conversations and useConversati
 const iframe = read('utils/artifactIframe.ts');
 const shell = read('public/mcp-artifact-app.html');
 assert.match(iframe, /export const ARTIFACT_GLOBALS_VERSION = '11';/, 'the runtime version is unchanged');
-assert.match(iframe, /libUrl\('artifact-globals\.js', `v=\$\{ARTIFACT_GLOBALS_VERSION\}&revision=chat-count-1`\)/);
-assert.match(shell, /'\/libs\/artifact-globals\.js\?v=11&revision=chat-count-1'/);
+assert.match(iframe, /libUrl\('artifact-globals\.js', `v=\$\{ARTIFACT_GLOBALS_VERSION\}&revision=chat-count-2`\)/);
+assert.match(shell, /'\/libs\/artifact-globals\.js\?v=11&revision=chat-count-2'/);
 assert.doesNotMatch(iframe, /Bump this whenever/, 'the stale "bump the version" advice is gone');
 const versionDoc = iframe.slice(iframe.lastIndexOf('/**', iframe.indexOf('export const ARTIFACT_GLOBALS_VERSION')), iframe.indexOf('export const ARTIFACT_GLOBALS_VERSION'));
 assert.match(versionDoc, /revision=/, 'the version comment points at the revision token');
 assert.match(shell, /<!--[^>]*revision=[^>]*-->/, 'the MCP shell comment mentions the revision token');
-console.log('PASS: the globals URLs carry revision=chat-count-1 and ARTIFACT_GLOBALS_VERSION stays 11');
+console.log('PASS: the globals URLs carry revision=chat-count-2 and ARTIFACT_GLOBALS_VERSION stays 11');

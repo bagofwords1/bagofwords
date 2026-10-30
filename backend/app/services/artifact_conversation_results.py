@@ -162,9 +162,11 @@ def _chart(view: Optional[dict], rows: list, types: dict[str, str]) -> Optional[
     be distinct anyway, which makes it a no-op over one value; duplicates
     mean None. ``count`` (every series style, or a pie's own aggregation) is
     a counted chart: ``aggregate: "count"``, one value column (any type, it
-    is ignored), repeated x allowed; ChatResult counts the rows per x (and
-    series), as EChartsVisual does. Count mixed with another aggregation, or
-    on a scatter, means None."""
+    is ignored), repeated x and null x allowed; ChatResult counts rows per x
+    (and series), not numeric values as EChartsVisual does. Its nulls follow
+    EChartsVisual and ``_distinct``: null and "" x are one category, a null
+    or "" series is dropped, a pie skips a null category. Count mixed with
+    another aggregation, or on a scatter, means None."""
     from app.schemas.view_schema import ViewSchema
 
     schema = ViewSchema.from_dict(view)

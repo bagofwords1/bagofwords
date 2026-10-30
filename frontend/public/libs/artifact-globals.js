@@ -2009,17 +2009,22 @@
   // hint does not fit the result: the type must be known, x / every y / series
   // must name a column, y must be non-empty and there must be rows. A hint with
   // aggregate 'count' draws the number of rows per x (and series; y is
-  // ignored), with x bucketed as String(v ?? '') like BOW's charts; any other
-  // aggregate, or count on a scatter, draws nothing.
+  // ignored). Nulls as in EChartsVisual: x is bucketed as String(v ?? ''), a
+  // null or '' series is dropped, a pie skips a null category. It counts rows,
+  // not numeric values as EChartsVisual does. Any other aggregate, or count on
+  // a scatter, draws nothing.
   var _CHAT_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
   function _chatCountOption(c, rows, columns) {
     var key = function(v) { return String(v == null ? '' : v); };
     var xs = _chatUnique(rows.map(function(x) { return key(x[c.x]); }));
     var count = function(list, v) { var n = 0; list.forEach(function(x) { if (key(x[c.x]) === v) n++; }); return n; };
-    if (c.type === 'pie') return { tooltip: {}, series: [{ type: 'pie', data: xs.map(function(v) { return { name: v, value: count(rows, v) }; }) }] };
+    if (c.type === 'pie') {
+      var named = rows.filter(function(x) { return x[c.x] != null; });
+      return { tooltip: {}, series: [{ type: 'pie', data: _chatUnique(named.map(function(x) { return key(x[c.x]); })).map(function(v) { return { name: v, value: count(named, v) }; }) }] };
+    }
     var t = c.type === 'area' ? 'line' : c.type;
     var lines = c.series
-      ? _chatUnique(rows.map(function(x) { return key(x[c.series]); })).map(function(g) { return { name: g, rows: rows.filter(function(x) { return key(x[c.series]) === g; }) }; })
+      ? _chatUnique(rows.map(function(x) { return key(x[c.series]); })).filter(Boolean).map(function(g) { return { name: g, rows: rows.filter(function(x) { return key(x[c.series]) === g; }) }; })
       : [{ name: (columns.find(function(k) { return k.field === c.y[0]; }) || {}).headerName || c.y[0], rows: rows }];
     return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: xs }, yAxis: { type: 'value', minInterval: 1 },
       series: lines.map(function(l) {

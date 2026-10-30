@@ -441,6 +441,19 @@ def test_count_with_a_series():
         {"type": "line", "x": "status", "y": ["order_id"], "series": "region", "aggregate": "count"}
 
 
+def test_count_with_null_and_empty_x_keeps_the_counted_chart():
+    # The raw chart refuses null next to "" (one category, _distinct); counting
+    # them together is the point, so the counted hint is kept.
+    rows = [{"status": s, "order_id": f"o{i}"} for i, s in enumerate(["open", None, "", None])]
+    data = _data(["status", "order_id"], rows)
+    view = _v2({"type": "bar_chart", "x": "status", "y": "order_id",
+                "seriesStyles": [{"key": "order_id", "aggregation": "count"}]})
+    assert _shape(data, view)["chart"] == \
+        {"type": "bar", "x": "status", "y": ["order_id"], "series": None, "aggregate": "count"}
+    raw = _data(["status", "n"], [{"status": None, "n": 1}, {"status": "", "n": 2}], dtypes={"n": "int64"})
+    assert _shape(raw, _v2({"type": "bar_chart", "x": "status", "y": "n"}))["chart"] is None
+
+
 def test_a_pie_counts_with_its_own_aggregation_but_sum_stays_refused():
     pie = {"type": "pie_chart", "category": "status", "value": "order_id"}
     assert _shape(ORDERS, _v2({**pie, "aggregation": "count"}))["chart"] == \
