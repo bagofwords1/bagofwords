@@ -28,6 +28,7 @@ CURATED_ORDER = [
     "audit-instructions",
     # Task-based app design is the default; dashboards remain a supported view.
     "data-app-design",
+    "create-chatbot",
     "complex-dashboard",
     "migrate-bi-dashboard",
     "usage-review",
