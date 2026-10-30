@@ -756,7 +756,9 @@
       "createdViaExcel": "Creado vía Excel",
       "runningOnSchedule": "Ejecutándose en un horario",
       "createdByTrigger": "Creado por un disparador",
-      "createdBySchedule": "Creado por una tarea programada"
+      "createdBySchedule": "Creado por una tarea programada",
+      "viaHostApp": "Iniciada en {name} (integrada)",
+      "viaOauthApp": "Iniciada a través de {name}"
     },
     "pagination": {
       "showing": "Mostrando {from} a {to} de {total} informes",
@@ -841,7 +843,8 @@
     "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí.",
     "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
     "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
-    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}"
+    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}",
+    "removedApp": "Aplicación eliminada"
   },
   "projects": {
     "title": "Proyectos",
@@ -4209,6 +4212,8 @@
     "copyFailed": "No se pudo copiar",
     "includeDataTab": "Incluir pestaña de datos",
     "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe",
+    "bowCredit": "Insignia “Hecho con BOW”",
+    "bowCreditDesc": "Se muestra en la esquina de las páginas de este dashboard. El ajuste de la organización puede desactivarla en todas partes.",
     "allowChat": "Permitir chat",
     "allowChatDesc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este panel",
     "allowChatDescDoc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este documento",
@@ -5095,7 +5100,10 @@
       "unindexedNote": "{n} ejecuciones sin indexar",
       "unindexedHelp": "El barrido sigue indexando ejecuciones antiguas. Coste, tokens, herramientas y puntuaciones aparecen a medida que se indexan.",
       "openCall": "Abrir esta llamada en la traza",
-      "tableTitle": "Filtrar ejecuciones que consultaron {table}"
+      "tableTitle": "Filtrar ejecuciones que consultaron {table}",
+      "viaHostApp": "A través de una aplicación anfitriona (integrada)",
+      "viaOauthApp": "A través de una aplicación OAuth",
+      "removedApp": "Aplicación eliminada"
     },
     "title": "Monitoreo",
     "tabExplore": "Explorar",
@@ -6874,7 +6882,7 @@
     "emptyHelp": "Agrega el sistema en el que trabaja tu gente y luego inserta tableros y apps desde su Configuración → Insertar.",
     "name": "Nombre",
     "nameHint": "Lo ven los editores",
-    "namePlaceholder": "Priority ERP",
+    "namePlaceholder": "Chatbot de IA del ERP",
     "origins": "Orígenes permitidos",
     "originsHelp": "Las direcciones exactas que pueden mostrarlo, una por línea, p. ej. https://erp.example.com",
     "signIn": "Cómo se inicia la sesión",

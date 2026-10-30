@@ -785,7 +785,9 @@
       "createdViaExcel": "Created via Excel",
       "runningOnSchedule": "Running on a schedule",
       "createdByTrigger": "Created by a trigger",
-      "createdBySchedule": "Created by a scheduled task"
+      "createdBySchedule": "Created by a scheduled task",
+      "viaHostApp": "Started in {name} (embedded)",
+      "viaOauthApp": "Started through {name}"
     },
     "pagination": {
       "showing": "Showing {from} to {to} of {total} reports",
@@ -867,7 +869,8 @@
     "inProject": "In {name}",
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
-    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}"
+    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
+    "removedApp": "Removed app"
   },
   "projects": {
     "title": "Projects",
@@ -4271,6 +4274,8 @@
     "copyFailed": "Failed to copy",
     "includeDataTab": "Include Data Tab",
     "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report",
+    "bowCredit": "“Made with BOW” badge",
+    "bowCreditDesc": "Shown in the corner of this dashboard's pages. The organization's setting can turn it off everywhere.",
     "allowChat": "Allow chat",
     "allowChatDesc": "Signed-in workspace members can ask questions about this dashboard",
     "allowChatDescDoc": "Signed-in workspace members can ask questions about this document",
@@ -5186,7 +5191,10 @@
       "unindexedNote": "{n} runs not yet indexed",
       "unindexedHelp": "The rollup sweep is still indexing older runs. Cost, tokens, tools and scores appear as they are indexed.",
       "openCall": "Open this call in the trace",
-      "tableTitle": "Filter to runs that queried {table}"
+      "tableTitle": "Filter to runs that queried {table}",
+      "viaHostApp": "Through a host application (embedded)",
+      "viaOauthApp": "Through an OAuth app",
+      "removedApp": "Removed app"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",
@@ -6903,7 +6911,7 @@
     "emptyHelp": "Add the system your people work in, then embed dashboards and apps in it from their Settings → Embed.",
     "name": "Name",
     "nameHint": "Shown to editors",
-    "namePlaceholder": "Priority ERP",
+    "namePlaceholder": "AI ERP Chatbot",
     "origins": "Allowed origins",
     "originsHelp": "The exact addresses that may show it, one per line, e.g. https://erp.example.com",
     "signIn": "How people are signed in",

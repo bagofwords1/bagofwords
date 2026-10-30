@@ -62,4 +62,7 @@ async def viewer_optional(
     if artifact_id is None or not await host_application_service.allows(db, artifact_id, ctx.host.id):
         raise AppError.forbidden(ErrorCode.EMBED_NOT_ALLOWED, "This artifact is not embeddable in this application")
     request.state.embed = ctx
+    from app.core.request_origin import HOST_APP, set_origin
+
+    set_origin(HOST_APP, str(ctx.host.id))
     return ctx.user

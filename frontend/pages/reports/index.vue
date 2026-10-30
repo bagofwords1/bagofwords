@@ -303,6 +303,15 @@
                                         <UIcon :name="visibilityIcon(report.conversation_visibility)" class="w-3 h-3" />
                                     </span>
                                 </UTooltip>
+                                <!-- Started in an outside app: an embedded artifact's host
+                                     application, or an OAuth app (MCP client). -->
+                                <UTooltip v-if="report.origin_app"
+                                          :text="$t(report.origin_app.type === 'host_app' ? 'reports.tooltips.viaHostApp' : 'reports.tooltips.viaOauthApp', { name: report.origin_app.name || '' })">
+                                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-gray-700 px-2 py-0.5 text-2xs text-ink-muted" data-testid="report-origin-app">
+                                        <UIcon :name="report.origin_app.type === 'host_app' ? 'i-heroicons-window' : 'i-heroicons-key'" class="w-3 h-3" />
+                                        {{ report.origin_app.name || $t('reports.removedApp') }}
+                                    </span>
+                                </UTooltip>
                                 <!-- Platform icons -->
                                 <img v-if="report.external_platform?.platform_type === 'slack'" src="/icons/slack.png" class="h-3 inline" />
                                 <img v-if="report.external_platform?.platform_type === 'teams'" src="/icons/teams.png" class="h-3 inline" />
