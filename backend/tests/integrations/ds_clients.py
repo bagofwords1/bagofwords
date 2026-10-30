@@ -64,6 +64,14 @@ DATA_SOURCES = [
     #                        "auth_source": "LOCAL", "username": "admin",
     #                        "password": "Aria!2024"}}
     "aria_operations",
+    # Remote mode: Intune is SaaS-only (no container). integrations.json points
+    # at a real tenant's Entra app — or at the doc-shaped Graph stand-in
+    # `tools/intune/docker-compose.yaml` (mock_graph.py), in which case the run
+    # also needs BOW_GRAPH_BASE_URL=http://localhost:8095/v1.0 and
+    # BOW_GRAPH_TOKEN_BASE_URL=http://localhost:8095 in the environment:
+    #   {"intune": {"enabled": true, "tenant_id": "<tenant guid>",
+    #               "client_id": "intune-reader", "client_secret": "Reader123!"}}
+    "intune",
     # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
     # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
     # avoid pulling in elasticsearch-py's strict server-version handshake.
