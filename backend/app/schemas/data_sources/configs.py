@@ -318,6 +318,12 @@ class PostgreSQLConfig(BaseModel):
         description="libpq sslmode: disable, allow, prefer, require, verify-ca, verify-full. Use 'require' for IAM-authenticated connections (e.g. AWS RDS), which reject unencrypted logins.",
         json_schema_extra={"ui:type": "select", "ui:options": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]}
     )
+    index_routines: bool = Field(
+        False,
+        title="Index stored procedures & functions",
+        description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 # SQLite (local file database)
@@ -361,6 +367,13 @@ class SQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(..., ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    # MySQL, MariaDB and SQL Server (MssqlConfig) — the clients that index routines.
+    index_routines: bool = Field(
+        False,
+        title="Index stored procedures & functions",
+        description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 # Snowflake

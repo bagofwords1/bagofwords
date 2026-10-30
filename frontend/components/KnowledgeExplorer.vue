@@ -231,7 +231,7 @@
                    (below) stays reachable for managers — deleting or reconfiguring
                    an agent must not require personal credentials to it. -->
               <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
-                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
+                <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" :icon="t.routine ? ROUTINE_ICON : 'i-heroicons-table-cells'" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
                 </TreeGroup>
@@ -1229,6 +1229,7 @@ import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import { isRoutine, ROUTINE_ICON } from '~/utils/routines'
 const BuildExplorerModal = defineAsyncComponent(() => import('~/components/instructions/BuildExplorerModal.vue'))
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
@@ -1361,7 +1362,7 @@ watch(search, (q) => {
 const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSource = ref<string[]>([]); const fCategory = ref<string[]>([])
 
 const expanded = ref<Set<string>>(new Set())
-const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
+const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean; routine?: boolean }[]>>({})
 // Active-table totals from the paginated response — the fetched rows are
 // capped at one page, so counts must not rely on array length.
 const agentTableTotals = ref<Record<string, number>>({})
@@ -3600,7 +3601,7 @@ const loadAgentMeta = async (id: string) => {
     const { data } = await useMyFetch<any>(`/data_sources/${id}/full_schema?page=1&page_size=500&selected_state=selected&sort_by=name&sort_dir=asc`, { method: 'GET' })
     const v: any = data.value
     const items = Array.isArray(v) ? v : (v?.tables || v?.items || [])
-    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false }))
+    agentTables.value[id] = items.map((t: any) => ({ id: String(t.id ?? t.name), name: t.name, is_active: t.is_active !== false, routine: isRoutine(t) }))
     agentTableTotals.value[id] = typeof v?.total === 'number' ? v.total : agentTables.value[id].length
   } catch { agentTables.value[id] = []; delete agentTableTotals.value[id] }
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/tools`, { method: 'GET' }); agentTools.value[id] = data.value || [] } catch { agentTools.value[id] = [] }

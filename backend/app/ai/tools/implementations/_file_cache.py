@@ -31,7 +31,8 @@ _MAX_TEXT_CHARS = 400_000
 # rendering pipeline changes what a cached payload MEANS — e.g. v2: garbled-text
 # detection (entries cached before it may hold glyph-soup "text" renders that
 # would now escalate to images, and version tokens don't change on a code fix).
-_CACHE_SCHEMA = "2"
+# v3: workbook reads carry `sheet`/`sheets`, and are keyed per sheet.
+_CACHE_SCHEMA = "3"
 
 
 def _entry_dir(connection_id: str, file_id: str) -> Path:

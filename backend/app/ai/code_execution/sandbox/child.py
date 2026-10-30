@@ -33,6 +33,8 @@ import pandas as pd
 from app.ai.code_execution.sandbox import landlock, seccomp
 from app.ai.code_execution.sandbox.config import DEFAULT_MAX_RESULT_MB
 from app.ai.code_execution.sandbox.namespace import (
+    BrowserHelper,
+    ListsHelper,
     SandboxFile,
     build_loadable_closures,
     build_read_text,
@@ -212,6 +214,13 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     excel_files = [SandboxFile(a) for a in (job.get("files") or [])]
     clients = {key: _RemoteClient(rpc, key) for key in (job.get("client_keys") or [])}
     http = _RemoteHttp(rpc) if job.get("http_enabled") else None
+    lists = ListsHelper(
+        lambda name, records: rpc.call("lists_submit", list=name, records=json_safe(records)),
+        lambda: rpc.call("lists_available"),
+    ) if job.get("lists_enabled") else None
+    browser = BrowserHelper(
+        lambda op, args, kwargs: rpc.call("browser", op=op, args=json_safe(args), kwargs=json_safe(kwargs)),
+    ) if job.get("browser_enabled") else None
     load_step, load_entity = build_loadable_closures(
         job.get("loadables"), enable_load_step=bool(job.get("load_step_enabled"))
     )
@@ -226,6 +235,10 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     }
     if http is not None:
         namespace["http"] = http
+    if lists is not None:
+        namespace["lists"] = lists
+    if browser is not None:
+        namespace["browser"] = browser
 
     exec(job["code"], namespace)
     generate_df = namespace.get("generate_df")
@@ -234,6 +247,7 @@ def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     return invoke_generate_df(
         generate_df, clients, excel_files, http,
         load_step=load_step, load_entity=load_entity, params=job.get("params"),
+        lists=lists, browser=browser,
     )
 
 

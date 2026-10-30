@@ -41,6 +41,8 @@ from app.data_sources.clients._document_text import (
 )
 from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
+    EXCEL_EXTS,
+    read_excel_sheet,
     INDEX_CONTENT,
     INDEX_METADATA,
     INDEX_NONE,
@@ -563,8 +565,8 @@ class NetworkDirClient(DataSourceClient):
             return pd.read_csv(io.BytesIO(content))
         if ext == "tsv":
             return pd.read_csv(io.BytesIO(content), sep="\t")
-        if ext in ("xlsx", "xls"):
-            return pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0)
+        if ext in EXCEL_EXTS:
+            return read_excel_sheet(content, sheet, trim=False)
         if ext == "json":
             try:
                 return json.loads(content.decode("utf-8", errors="replace"))

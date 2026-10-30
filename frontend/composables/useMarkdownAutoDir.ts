@@ -33,7 +33,7 @@ const LTR_CHAR = /[A-Za-z\u00C0-\u024F]/
 // Block elements whose direction we manage, inside any markdown surface
 // (`.markdown-wrapper` chat containers and `.markdown-content` markstream
 // roots — the latter also covers thinking/reasoning boxes).
-const BLOCK_SELECTOR = 'ol, ul, li, p, h1, h2, h3, h4, h5, h6, blockquote, table'
+const BLOCK_SELECTOR = 'ol, ul, li, p, h1, h2, h3, h4, h5, h6, blockquote, table, th, td'
 const SCOPE_SELECTOR = '.markdown-wrapper, .markdown-content'
 // RTL wins below 50% because RTL prose routinely embeds Latin identifiers,
 // acronyms and URLs; mostly-Latin text with a stray RTL word stays LTR.
@@ -76,7 +76,14 @@ export function dominantDir(el: Element): 'rtl' | 'ltr' | null {
 }
 
 function applyDir(el: Element) {
-  const dir = dominantDir(el)
+  let dir = dominantDir(el)
+  // A cell holding only code or numbers has no prose to vote with. Give it its
+  // table's direction so it lines up with its neighbours instead of resolving
+  // LTR from an identifier (a lone `order_id` in a Hebrew table).
+  if (!dir && (el.tagName === 'TD' || el.tagName === 'TH')) {
+    const table = el.closest('table')
+    if (table) dir = dominantDir(table)
+  }
   if (!dir) return
   if (el.getAttribute('dir') !== dir) el.setAttribute('dir', dir)
 }

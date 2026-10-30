@@ -24,7 +24,12 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     extract_document_text_from_bytes,
 )
-from app.data_sources.clients._file_source_common import DocumentText, NamedBytes
+from app.data_sources.clients._file_source_common import (
+    DocumentText,
+    NamedBytes,
+    SheetNotFoundError,
+    read_excel_sheet,
+)
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
@@ -794,7 +799,8 @@ class ServiceNowClient(DataSourceClient):
             )
         return response.content
 
-    def read_file(self, file_id: str, max_bytes: Optional[int] = None, **_ignored):
+    def read_file(self, file_id: str, max_bytes: Optional[int] = None,
+                  sheet: Optional[str] = None, **_ignored):
         """Read one attachment. Same contract as the drive clients:
         tabular → DataFrame, text → str, documents → extracted text
         (DocumentText carrying the original bytes), everything else →
@@ -821,7 +827,9 @@ class ServiceNowClient(DataSourceClient):
                     return pd.read_csv(io.BytesIO(content))
                 if ext == "tsv":
                     return pd.read_csv(io.BytesIO(content), sep="\t")
-                return pd.read_excel(io.BytesIO(content))
+                return read_excel_sheet(content, sheet, trim=False)
+            except SheetNotFoundError:
+                raise
             except Exception:
                 return NamedBytes(content, name=name, mime=mime)
         if ext == "json":

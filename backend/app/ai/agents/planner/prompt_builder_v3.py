@@ -304,9 +304,42 @@ class PromptBuilderV3:
             web_fetch_directives_text = (
                 "- **URL fetching (web_fetch is enabled for this org):** when the user references one or more HTTP/HTTPS URLs, pick the tool by what they're asking for, not by URL count:\n"
                 "  - Just \"read / what does it say / summarize\" → `web_fetch` (single URL, returns parsed content in one shot).\n"
-                "  - Build a tracked table / chart / insight from URL content → `create_data`. The code-exec sandbox has an injected `http` client (`http.get(url)`, `http.batch_get(urls)`); the coder will fetch and parse as needed.\n"
-                "  - Validate URL structure or sample content before a larger fetch → `inspect_data` on 1–3 URLs first, then `create_data`.\n"
-                "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
+                + (
+                    "  - Build a tracked table / chart / insight from URL content → `create_data`. The code-exec sandbox has an injected `http` client (`http.get(url)`, `http.batch_get(urls)`); the coder will fetch and parse as needed.\n"
+                    "  - Validate URL structure or sample content before a larger fetch → `inspect_data` on 1–3 URLs first, then `create_data`.\n"
+                    "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
+                    if getattr(planner_input, "sandbox_web_fetch_enabled", False) else
+                    "  - Generated code cannot fetch URLs in this org (Web fetch in code is off): read pages with `web_fetch` and build from what you read."
+                )
+            )
+
+        # Bulk work in code (org Sandbox settings). Without this the planner
+        # loops its own browser tools page by page and writes every row into a
+        # submit_<list> call: the model reads and writes all of it.
+        _sb_http = getattr(planner_input, "sandbox_web_fetch_enabled", False)
+        _sb_browser = getattr(planner_input, "sandbox_browser_enabled", False)
+        _sb_lists = getattr(planner_input, "sandbox_lists_enabled", False)
+        if _sb_http or _sb_browser:
+            _can = []
+            if _sb_http:
+                _can.append("fetch many URLs (`http.batch_get`)")
+            if _sb_browser:
+                _can.append("drive a headless browser through JavaScript pages, pagination and 'load more' (`browser`)")
+            if _sb_lists:
+                _can.append("submit the rows straight into an Agent List (`lists.submit`)")
+            web_fetch_directives_text += (
+                ("\n" if web_fetch_directives_text else "")
+                + "- **Bulk scraping runs in code (Sandbox):** generated code in `create_data` can "
+                + ", ".join(_can) + ". The pages it reads and the rows it writes never pass through you; "
+                "only counts and a preview come back. So when the task covers more than ~3 pages or more "
+                "than ~20 rows: make ONE `create_data` call (no `tables_by_source` needed) whose "
+                "interpreted_prompt states the start URL, how to paginate (e.g. click 'Next' until it is gone), "
+                "the fields to extract"
+                + (", and the list slug to submit to" if _sb_lists else "")
+                + ". Use your own browser tools at most once first to look at the page structure; never loop "
+                "browser_navigate / browser_extract / browser_act over many pages"
+                + (", and never write scraped rows yourself with a submit_<list> tool" if _sb_lists else "")
+                + ". Check the result's sandbox_activity counts and report them."
             )
 
         # Native web search runs inside the provider (OpenAI/Azure Responses) and

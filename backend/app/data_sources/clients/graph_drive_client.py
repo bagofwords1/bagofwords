@@ -37,6 +37,9 @@ from app.data_sources.clients._document_text import (
     extract_pdf_pages_text,
 )
 from app.data_sources.clients._file_source_common import (
+    EXCEL_EXTS,
+    read_excel_sheet,
+    trim_to_data,
     FileTooLargeError,
     GlobScopeError,
     DocumentText,
@@ -132,24 +135,8 @@ def _extract_pdf_pages_from_bytes(data: bytes, name: str, first: int, last: int)
                 pass
 
 
-def _trim_to_data(df: "pd.DataFrame") -> "pd.DataFrame":
-    """Excel files exported from BI tools / users often have leading blank
-    rows and blank columns before the actual table starts. Pandas with
-    `header=0` then treats row 1 (empty) as the column names and returns
-    a 0-row frame — even though the sheet has 10+ rows of real data.
-
-    Drop fully-empty rows and columns, then promote the first remaining row
-    to header. Idempotent for well-formed sheets (no leading blanks → no-op).
-    """
-    if df is None or df.empty:
-        return pd.DataFrame()
-    df = df.dropna(how="all").dropna(axis=1, how="all")
-    if df.empty:
-        return pd.DataFrame()
-    header = df.iloc[0].tolist()
-    body = df.iloc[1:].reset_index(drop=True)
-    body.columns = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(header)]
-    return body
+# Kept under the old name: other connectors and routes import it from here.
+_trim_to_data = trim_to_data
 
 
 class GraphDriveClient(DataSourceClient):
@@ -1210,8 +1197,8 @@ class GraphDriveClient(DataSourceClient):
             return _trim_to_data(pd.read_csv(io.BytesIO(content), header=None))
         if ext == "tsv":
             return _trim_to_data(pd.read_csv(io.BytesIO(content), sep="\t", header=None))
-        if ext in ("xlsx", "xls"):
-            return _trim_to_data(pd.read_excel(io.BytesIO(content), sheet_name=sheet or 0, header=None))
+        if ext in EXCEL_EXTS:
+            return read_excel_sheet(content, sheet)
         if ext == "json":
             try:
                 return json.loads(content.decode("utf-8", errors="replace"))

@@ -235,7 +235,7 @@ hardcoded; phase 5 lets an org author its own as skills-catalog entries
 
 | Profile | Tools | Model (`sub_agent_model=auto`) |
 |---|---|---|
-| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, create_note, edit_note, finish_subtask; plus create_data, write_csv and the parent's `submit_<list>` tools when `sub_agent_allow_create_data` | parent's model |
+| `investigate` | describe_tables, inspect_data, read_query, run_query, load_step, read_resources, read_file, grep_files, search_files, read_mcp_resource, list_mcp_resources, execute_mcp, search_instructions, read_instruction, web_fetch, web_search, the five `browser_*` tools (when the report has a browser connection; each child gets its own browser session), create_note, edit_note, finish_subtask; plus create_data, write_csv and the parent's `submit_<list>` tools when `sub_agent_allow_create_data` | parent's model |
 | `validate` | the same, with create_data and the `submit_<list>` tools always on | parent's model |
 
 Agent Lists are the one write a child may make outside its own record: the

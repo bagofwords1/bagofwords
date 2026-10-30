@@ -456,3 +456,102 @@ def byte_window(data: bytes, offset: int, total: int, window: int) -> dict[str, 
         "total_size": total,
         "eof": raw_end >= total,
     }
+
+
+# ---------------------------------------------------------------------------
+# Excel workbooks
+# ---------------------------------------------------------------------------
+#
+# Every file connector used to call `pd.read_excel(..., sheet_name=sheet or 0)`
+# on its own. That reads ONE sheet and throws away the workbook's sheet list,
+# so the model was handed the first sheet as CSV with no way to know the file
+# had others — it then told users "I can't see the sheet names". One reader
+# here keeps every connector aligned: it returns the requested sheet and
+# records the workbook's sheet names on `df.attrs`, which the read_file tool
+# surfaces to the model.
+
+EXCEL_EXTS = ("xlsx", "xls", "xlsm")
+
+# Keys on DataFrame.attrs. Read by render_file_payload (ai/tools).
+SHEET_NAMES_ATTR = "sheet_names"
+SHEET_ATTR = "sheet"
+
+
+class SheetNotFoundError(ValueError):
+    """The requested sheet is not in the workbook. The message lists the
+    sheets that ARE there, so the model can retry with a real name."""
+
+
+def trim_to_data(df):
+    """Excel files exported from BI tools / users often have leading blank
+    rows and blank columns before the actual table starts. Pandas with
+    `header=0` then treats row 1 (empty) as the column names and returns
+    a 0-row frame — even though the sheet has 10+ rows of real data.
+
+    Drop fully-empty rows and columns, then promote the first remaining row
+    to header. Idempotent for well-formed sheets (no leading blanks → no-op).
+    """
+    import pandas as pd
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df = df.dropna(how="all").dropna(axis=1, how="all")
+    if df.empty:
+        return pd.DataFrame()
+    header = df.iloc[0].tolist()
+    body = df.iloc[1:].reset_index(drop=True)
+    body.columns = [str(c) if c is not None else f"col_{i}" for i, c in enumerate(header)]
+    return body
+
+
+def pick_sheet(sheet_names: List[str], sheet: Optional[str]) -> str:
+    """Resolve the model's `sheet` argument to a real sheet name.
+
+    Empty → the first sheet. Exact match first, then a forgiving match
+    (case / surrounding whitespace), since models retype names. Anything else
+    raises SheetNotFoundError naming the real sheets.
+    """
+    if not sheet_names:
+        raise SheetNotFoundError("The workbook has no sheets.")
+    if sheet is None or str(sheet).strip() == "":
+        return sheet_names[0]
+    wanted = str(sheet)
+    if wanted in sheet_names:
+        return wanted
+    folded = wanted.strip().casefold()
+    for name in sheet_names:
+        if name.strip().casefold() == folded:
+            return name
+    listed = ", ".join(f'"{n}"' for n in sheet_names)
+    raise SheetNotFoundError(
+        f'Sheet "{wanted}" not found. This workbook has {len(sheet_names)} '
+        f"sheet(s): {listed}. Pass one of these names as `sheet`."
+    )
+
+
+def tag_sheets(df, sheet_names: List[str], sheet: str):
+    """Record the workbook's sheet list and the sheet shown on `df`."""
+    df.attrs[SHEET_NAMES_ATTR] = list(sheet_names)
+    df.attrs[SHEET_ATTR] = sheet
+    return df
+
+
+def read_excel_sheet(content: bytes, sheet: Optional[str] = None, *, trim: bool = True):
+    """Read one sheet of an Excel workbook and tag it with the sheet list.
+
+    ``trim=True`` reads headerless and promotes the first non-blank row (see
+    trim_to_data); ``trim=False`` keeps pandas' default header=0, for the
+    connectors that always read that way.
+    """
+    import io
+    import pandas as pd
+
+    with pd.ExcelFile(io.BytesIO(content)) as book:
+        names = [str(n) for n in book.sheet_names]
+        target = pick_sheet(names, sheet)
+        # book.sheet_names may hold non-str names (numeric-looking titles);
+        # parse by position so the str() above can't miss.
+        df = book.parse(names.index(target), header=None if trim else 0)
+    if trim:
+        df = trim_to_data(df)
+    return tag_sheets(df, names, target)

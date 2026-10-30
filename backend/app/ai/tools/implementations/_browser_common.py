@@ -84,6 +84,9 @@ def chromium_executable() -> Optional[str]:
         os.path.join(base, "chromium-*/chrome-linux/chrome"),
         os.path.join(base, "chromium-*/chrome-linux/headless_shell"),
         os.path.join(base, "chromium_headless_shell-*/chrome-linux/headless_shell"),
+        # Newer Playwright builds unpack into *-linux64 folders.
+        os.path.join(base, "chromium-*/chrome-linux64/chrome"),
+        os.path.join(base, "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
     ):
         hits = sorted(glob.glob(pat))
         if hits:
@@ -359,6 +362,11 @@ class BrowserSessionManager:
             except Exception:
                 pass
 
+    async def close_session(self, session_id: str):
+        """Close one session by id (the sandbox's per-run browser)."""
+        async with self._lock:
+            await self._close(session_id)
+
     async def close_report(self, report_id: str):
         for sid, s in list(self._sessions.items()):
             if sid == str(report_id) or (s.scope and s.scope[2] == str(report_id)):
@@ -390,8 +398,12 @@ class BrowserSessionManager:
     def scope_for(ctx, *, internal=True):
         # Connector browsers keep their authorized report session across turns;
         # an internal preview belongs only to the execution that opened it.
+        # A sub-agent gets its own connector browser, kept across its own turns:
+        # parallel children (and the parent) never drive the same page.
         execution = str(ctx.get("agent_execution_id") or "") if internal else ""
-        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (execution,)
+        sub_agent = "" if internal else str(ctx.get("sub_agent_id") or "")
+        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (
+            execution or (f"sub_agent:{sub_agent}" if sub_agent else ""),)
 
     async def close_execution(self, execution_id):
         for sid, s in list(self._sessions.items()):

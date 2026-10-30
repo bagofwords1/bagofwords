@@ -3182,6 +3182,10 @@
           "title": "Agent capabilities",
           "description": "What the agent can do while answering"
         },
+        "sandbox": {
+          "title": "Sandbox",
+          "description": "What generated code can do beyond querying data. Pages and rows the code handles never pass through the model."
+        },
         "learning": {
           "title": "Learning & memory",
           "description": "How the AI learns from users, feedback and usage"
@@ -3470,6 +3474,34 @@
         "sub_agent_allow_create_data": {
           "name": "Sub-agents may create queries",
           "description": "Let sub-agents create tracked queries (create_data) whose ids come back as evidence the agent can chart and cite. Off = research-only sub-agents."
+        },
+        "enable_sandbox_web_fetch": {
+          "name": "Web fetch in code",
+          "description": "Give generated code an `http` client that fetches public URLs in bulk. Pages are read by the code, not by the model, so scraping many pages costs no extra tokens. Separate from Web Fetch, which lets the agent itself read a page."
+        },
+        "sandbox_web_fetch_max_urls": {
+          "name": "Max URLs per code run",
+          "description": "How many URLs one run of generated code may fetch. 1 to 10,000."
+        },
+        "enable_sandbox_browser": {
+          "name": "Browser in code",
+          "description": "Give generated code a headless browser it can drive (open pages, click, type, scroll, read text) for sites that need JavaScript. Uses the URL allowlist of the agent's browser connection; without a browser connection it is not offered."
+        },
+        "sandbox_browser_allow_mutating_requests": {
+          "name": "Allow form submissions from code",
+          "description": "Let the code's browser send POST, PUT, PATCH and DELETE requests (submitting forms, logging in, posting). Off: those requests are blocked, so clicking and typing can only read pages and a retried run cannot change anything on a site."
+        },
+        "sandbox_browser_max_pages": {
+          "name": "Max browser pages per code run",
+          "description": "How many pages one run of generated code may load. 1 to 2,000."
+        },
+        "enable_sandbox_lists": {
+          "name": "Write to Agent Lists from code",
+          "description": "Let generated code submit rows to the conversation's Agent Lists. Rows are checked as they are submitted and saved only after the run succeeds, so a failed or retried run writes nothing. Only the counts reach the model."
+        },
+        "sandbox_lists_max_rows": {
+          "name": "Max list rows per code run",
+          "description": "How many rows one run of generated code may submit to Agent Lists. 1 to 50,000."
         }
       }
     },
@@ -3797,6 +3829,7 @@
       "discovering_schema": "Discovering schema",
       "catalog_ready": "Catalog ready",
       "reading_semantic_views": "Reading semantic views",
+      "reading_routines": "Reading procedures and functions",
       "admin_scan": "Scanning workspace metadata",
       "listing_workspaces": "Listing workspaces",
       "workspace_models": "Listing models",
@@ -5974,6 +6007,8 @@
     "vizUnavailable": "Visualization unavailable",
     "vizRenderFailed": "Chart failed to render",
     "diagramFailed": "Diagram failed to render",
+    "diagramDownloadPng": "Download as PNG",
+    "diagramExportFailed": "Could not export the diagram",
     "exportMarkdown": "Download as Markdown",
     "printPdf": "Print / Save as PDF",
     "exportPdf": "Export as PDF",
@@ -6191,6 +6226,15 @@
     "editQuery": "Edit {name}",
     "rowFiltered": "Row filtered",
     "refreshFailed": "Refresh failed",
+    "routineProcedure": "procedure",
+    "routineFunction": "function",
+    "routineHint": "Stored routine: the agent reads its logic and applies it in its own queries. It never runs it.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Type",
+    "routineSource": "Source",
+    "routineSourceTruncated": "Truncated",
+    "routineSourceHidden": "source not visible",
+    "routineSourceHiddenHint": "The connection's account can't read this routine's source (it needs VIEW DEFINITION or the database's equivalent). The agent sees the signature only.",
     "successful": "Successful",
     "failed": "Failed",
     "lastRefreshed": "Last refreshed",
