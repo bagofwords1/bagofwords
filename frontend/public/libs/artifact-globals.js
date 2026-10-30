@@ -2231,20 +2231,24 @@
   // ── useConversation ─────────────────────────────────────────────────────────
   // const chat = useConversation({conversationId, title, agents, historyLimit})
   // -> {messages, conversations, conversationId, policy, loading, sending, error,
-  //     send, stop, select, newConversation, reload}
+  //     hasOlder, loadingOlder, send, stop, select, newConversation, reload,
+  //     loadOlder}
   // messages have the bow.conversations.messages() item shape. One answer runs
   // at a time; history is re-read after each answer that reached the server and
   // merged with the server page as the truth; leaving a running answer keeps it
-  // running on the server (only stop() stops it).
+  // running on the server (only stop() stops it). loadOlder() puts the page
+  // before the oldest loaded one first; only conversation loads and loadOlder()
+  // move its cursor.
   var _CHAT_REFRESH_MS = 5000;
   var _CHAT_REFRESH_MAX = 24;
-  var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null };
+  var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null, hasOlder: false, loadingOlder: false };
 
   function _chatConv() { var b = window.bow; return b && b.conversations ? b.conversations : null; }
   function _chatError(e, fallback) {
     return { code: (e && e.code) || fallback || 'UNAVAILABLE', message: (e && e.message) || String(e || 'Request failed') };
   }
   function _chatItems(res) { return res && Array.isArray(res.items) ? res.items : []; }
+  function _chatCursor(res) { return res && res.next_before != null ? res.next_before : null; }
   function _chatIsLocal(m) { return !!m && typeof m.id === 'string' && m.id.indexOf('local-') === 0; }
   function _chatNormalize(m) {
     if (!m || typeof m !== 'object') return null;
@@ -2328,6 +2332,19 @@
     return before.concat(merged, after);
   }
 
+  // An older page goes before every current message; ids already present are
+  // dropped. The same array when nothing is added.
+  function _chatPrepend(messages, fetched) {
+    var have = {};
+    messages.forEach(function(m) { if (m) have[m.id] = true; });
+    var add = (Array.isArray(fetched) ? fetched : []).map(_chatNormalize).filter(function(m) {
+      if (!m || have[m.id]) return false;
+      have[m.id] = true;
+      return true;
+    });
+    return add.length ? add.concat(messages) : messages;
+  }
+
   function _chatReduce(state, a) {
     switch (a.type) {
       case 'apply': {
@@ -2365,7 +2382,14 @@
       case 'load': {
         var s2 = {}; for (var k3 in state) s2[k3] = state[k3];
         s2.messages = a.messages.map(_chatNormalize).filter(Boolean);
+        if (a.patch) for (var p2 in a.patch) s2[p2] = a.patch[p2];
         return s2;
+      }
+      case 'prepend': {
+        var s5 = {}; for (var k6 in state) s5[k6] = state[k6];
+        s5.messages = _chatPrepend(state.messages, a.fetched);
+        if (a.patch) for (var p5 in a.patch) s5[p5] = a.patch[p5];
+        return s5;
       }
       case 'merge': {
         var s3 = {}; for (var k4 in state) s3[k4] = state[k4];
@@ -2391,7 +2415,7 @@
       opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
       run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
       held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
-      errSeq: 0, errShown: false
+      errSeq: 0, errShown: false, before: null, olderLoad: null
     };
     // `errSeq` counts every applied change of `error` (set or clear);
     // `errShown` mirrors whether one is shown now.
@@ -2467,7 +2491,7 @@
         }, function(e) { report(e); })];
         if (id) {
           tasks.push(Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
-            put({ type: 'load', messages: _chatItems(res) }, gen);
+            if (put({ type: 'load', messages: _chatItems(res), patch: { hasOlder: _chatCursor(res) !== null } }, gen)) c.before = _chatCursor(res);
           }, function(e) {
             if (gen === c.gen && e && e.code === 'NOT_FOUND' && c.convId === id) {
               c.convId = null;
@@ -2719,6 +2743,8 @@
       c.held = {};
       raiseFloor();
       c.convId = convId;
+      c.before = null;
+      c.olderLoad = null;
     }
 
     c.select = function(id) {
@@ -2727,9 +2753,9 @@
       if (!conv) { put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } }); return Promise.resolve(); }
       resetFor(id);
       var gen = c.gen;
-      put({ type: 'apply', patch: { sending: false, conversationId: id, messages: [], error: null, loading: true } });
+      put({ type: 'apply', patch: { sending: false, conversationId: id, messages: [], error: null, loading: true, hasOlder: false, loadingOlder: false } });
       var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
-        put({ type: 'load', messages: _chatItems(res) }, gen);
+        if (put({ type: 'load', messages: _chatItems(res), patch: { hasOlder: _chatCursor(res) !== null } }, gen)) c.before = _chatCursor(res);
       }, function(e) {
         put({ type: 'apply', patch: { error: _chatError(e) } }, gen);
       }).then(function() {
@@ -2744,7 +2770,28 @@
       if (!c.mounted) return;
       resetFor(null);
       c.load = null;
-      put({ type: 'apply', patch: { sending: false, conversationId: null, messages: [], error: null, loading: false } });
+      put({ type: 'apply', patch: { sending: false, conversationId: null, messages: [], error: null, loading: false, hasOlder: false, loadingOlder: false } });
+    };
+
+    // Rule 17: the page before the oldest loaded one, put first. Generation
+    // only (not a tagged re-read: it never replaces anything); allowed while
+    // an answer runs.
+    c.loadOlder = function() {
+      var conv = _chatConv();
+      if (!conv || !c.mounted || !c.convId || c.before === null || c.olderLoad !== null) return Promise.resolve();
+      var gen = c.gen, id = c.convId, before = c.before;
+      put({ type: 'apply', patch: { loadingOlder: true } });
+      var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit, before: before }); }).then(function(res) {
+        if (gen !== c.gen || !c.mounted) return;
+        c.before = _chatCursor(res);
+        put({ type: 'prepend', fetched: _chatItems(res), patch: { hasOlder: c.before !== null, loadingOlder: false } }, gen);
+      }, function(e) {
+        put({ type: 'apply', patch: { error: _chatError(e), loadingOlder: false } }, gen);
+      }).then(function() {
+        if (c.olderLoad === load) c.olderLoad = null;
+      });
+      c.olderLoad = load;
+      return load;
     };
 
     c.reload = function() {
@@ -2804,7 +2851,9 @@
     return {
       messages: state.messages, conversations: state.conversations, conversationId: state.conversationId,
       policy: state.policy, loading: state.loading, sending: state.sending, error: state.error,
-      send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload
+      hasOlder: state.hasOlder, loadingOlder: state.loadingOlder,
+      send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload,
+      loadOlder: c.loadOlder
     };
   }
   window.useConversation = useConversation;

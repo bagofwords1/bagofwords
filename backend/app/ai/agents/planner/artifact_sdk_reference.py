@@ -65,12 +65,12 @@ only their own conversations. When policy().available is false, show its reason
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, the stream event handling or the result rendering yourself.
 const chat = useConversation({conversationId, title}); // all optional; conversationId is read once (use chat.select(id) to switch); omit title: each conversation is named after its first question; call it once, atop the chat component
-// {messages, conversations, conversationId, policy, loading, sending, error, send, stop, select, newConversation, reload}
+// {messages, conversations, conversationId, policy, loading, sending, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder}
 // messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while an answer streams (status 'in_progress'), then re-read; text and steps as in messages().
-//   error: null or {code,message}.
+// conversations: [{id,title,created_at,updated_at}]. error: null or {code,message}.
 // chat.send(text) on a user action only (creates the conversation on the first send; ignored while sending);
-// chat.stop() while chat.sending (leaving keeps an answer running); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
+// chat.stop() while chat.sending (leaving keeps an answer running); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over; chat.loadOlder() while chat.hasOlder.
 <ChatMessage message={m}/> // one message: markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
@@ -88,30 +88,22 @@ function Chat(){const chat=useConversation();const [draft,setDraft]=useState('')
 You design the layout, composer, empty state and list (chat.conversations).
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
-const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
+const {items, next_before} = await bow.conversations.list({limit: 20, before}); // newest first, items as chat.conversations
 const conv = await bow.conversations.create({title}); // {id,title,agents}; agents:[ids] only to narrow on request
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
-const history = await bow.conversations.messages(conv.id, {limit: 30});
-// {items:[{id,role:'user'|'assistant',text,status,created_at,steps?:[string],tools?:[{name,title,status}],
-//   results?:[...],results_incomplete?:true}],next_before}; text is the reply, steps the narration before it.
-// tools (assistant only) are tool event objects: render tool.title || tool.name, never the object.
-// results (assistant only, possibly empty) are result event objects: render them the same way after reload.
+const history = await bow.conversations.messages(conv.id, {limit: 30, before}); // {items,next_before}: oldest first, as
+//   chat.messages; results?:[...] and tools?:[...] only on assistant items: render tool.title || tool.name, never the object.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
-  // started {message_id}; tool {name,title,status}; text_delta {block,text}: append;
-  // text {block,text}: replace that block's text;
-  // result {id,block,title,columns:[{field,headerName,type}],rows:[{field:value}],row_count,column_count,truncated,chart}:
-  //   one per data result of the answer, before completed; keep them on that message (by id). type is
-  //   'number'|'string'|'boolean'|'datetime'. chart is null or {type:'bar'|'line'|'area'|'pie'|'scatter',
-  //   x:field, y:[field], series:field|null, aggregate?:'count'} (count: rows per x): when chart is null show the table only, never invent a chart;
+  // started {message_id}; tool {id,name,title,status}; text_delta {block,text}: append; text {block,text}: replace that block;
+  // result {id,block,title,columns:[{field,headerName,type}],rows,row_count,column_count,truncated,chart}: before completed, keep
+  //   on that message by id; chart is null or {type, x:field, y:[field], series:field|null, aggregate?:'count'} (count: rows per x):
+  //   when chart is null show the table only, never invent a chart;
   // completed {status, results_incomplete?:true}: when results_incomplete, some are missing:
   //   re-read messages() and render its results for that message.
 }
 await bow.conversations.stop(conv.id, messageId); // the started event's message_id
-// Send only on a user action. Assistant text is Markdown (tables, lists):
-// render it with {bow.markdown(text)} (safe React elements, no HTML), user
-// text as plain text. Show tools as progress. Re-read messages() after
-// completed for the stored answer. Errors as above.
-// Render results with <ChatResult result={r}/>; never re-parse numbers from the answer text.
+// Send only on a user action. Render assistant text (Markdown) with {bow.markdown(text)}, user text as plain text,
+// results with <ChatResult result={r}/>; never re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
 application says the user is looking at (e.g. {customerId}); advisory, may be null.
 It changes while the app is open: read useArtifactData().host_context during render, never once on mount.
