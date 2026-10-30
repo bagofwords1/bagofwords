@@ -1894,6 +1894,783 @@
   try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function() { setTimeout(window.resizeAllCharts, 50); }); } catch (e) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Chat building blocks — ChatResult, ChatMessage, useConversation
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Generated chat apps compose these instead of re-implementing the stream
+  // handling and the result rendering. They reference each other (and EChart /
+  // DataTable) through this closure, so an app that defines its own ChatResult
+  // only changes its own usage.
+
+  var _EChart = window.EChart;
+  var _DataTable = window.DataTable;
+  var _Icon = window.Icon;
+  var _LoadingSpinner = window.LoadingSpinner;
+  function _chatCls(base, extra) {
+    if (LEGACY) return extra ? base + ' ' + extra : base;
+    return _mergeClasses(base, extra);
+  }
+  var CHAT = LEGACY ? {
+    result: 'space-y-2',
+    title: 'text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400',
+    note: 'text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    result: 'space-y-2',
+    title: 'text-[11px] font-medium uppercase tracking-eyebrow text-ink-3',
+    note: 'text-xs text-ink-3'
+  };
+
+  // Note texts; apps pass `labels` in their own language. {shown}/{total} are
+  // filled in.
+  var _CHAT_LABELS = {
+    rowsShown: 'Showing {shown} of {total} rows',
+    columnsShown: '{shown} of {total} columns',
+    partial: 'Partial table',
+    incomplete: 'Some results of this answer could not be shown',
+    inProgress: 'Answer in progress...'
+  };
+  function _chatFill(template, vars) {
+    return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
+  }
+  function _chatLabels(labels) {
+    var src = {};
+    for (var k in _CHAT_LABELS) src[k] = labels && typeof labels[k] === 'string' ? labels[k] : _CHAT_LABELS[k];
+    return {
+      rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
+      columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
+      partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress)
+    };
+  }
+  function _chatUnique(values) { return Array.from(new Set(values)); }
+
+  // The chart option for a result's hint, or null when there is no hint or the
+  // hint does not fit the result: the type must be known, x / every y / series
+  // must name a column, y must be non-empty and there must be rows.
+  var _CHAT_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
+  function _chatResultOption(r) {
+    if (!r || typeof r !== 'object') return null;
+    var c = r.chart;
+    if (!c || typeof c !== 'object' || _CHAT_CHART_TYPES.indexOf(c.type) === -1) return null;
+    var columns = Array.isArray(r.columns) ? r.columns.filter(function(k) { return k && typeof k === 'object'; }) : [];
+    var fields = {};
+    columns.forEach(function(k) { if (typeof k.field === 'string') fields[k.field] = true; });
+    if (!Array.isArray(c.y) || !c.y.length || !fields[c.x]) return null;
+    for (var i = 0; i < c.y.length; i++) if (!fields[c.y[i]]) return null;
+    if (c.series && !fields[c.series]) return null;
+    var rows = Array.isArray(r.rows) ? r.rows.filter(function(x) { return x && typeof x === 'object'; }) : [];
+    if (!rows.length) return null;
+    if (c.type === 'pie') return { tooltip: {}, series: [{ type: 'pie', data: rows.map(function(x) { return { name: String(x[c.x]), value: x[c.y[0]] }; }) }] };
+    if (c.type === 'scatter') return { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map(function(x) { return [x[c.x], x[c.y[0]]]; }) }] };
+    var xs = _chatUnique(rows.map(function(x) { return x[c.x]; }));
+    var t = c.type === 'area' ? 'line' : c.type;
+    var lines = c.series
+      ? _chatUnique(rows.map(function(x) { return x[c.series]; })).map(function(g) { return { name: String(g), col: c.y[0], rows: rows.filter(function(x) { return x[c.series] === g; }) }; })
+      : c.y.map(function(col) { return { name: (columns.find(function(k) { return k.field === col; }) || {}).headerName || col, col: col, rows: rows }; });
+    return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: xs }, yAxis: { type: 'value' },
+      series: lines.map(function(l) {
+        return { name: l.name, type: t, areaStyle: c.type === 'area' ? {} : undefined,
+          data: xs.map(function(v) { var row = l.rows.find(function(x) { return x[c.x] === v; }); return row ? row[l.col] : null; }) };
+      }) };
+  }
+
+  // The truncation note: rows (and columns when they differ) shown of the
+  // total, or "partial table" when only long cells were cut.
+  function _chatResultNote(r, L) {
+    if (!r || typeof r !== 'object' || !r.truncated) return null;
+    L = L || _chatLabels();
+    var rows = Array.isArray(r.rows) ? r.rows.length : 0;
+    var columns = Array.isArray(r.columns) ? r.columns.length : 0;
+    var rowCount = typeof r.row_count === 'number' ? r.row_count : rows;
+    var columnCount = typeof r.column_count === 'number' ? r.column_count : columns;
+    if (rows < rowCount || columns < columnCount) {
+      var note = L.rowsShown({ shown: rows, total: rowCount });
+      if (columns !== columnCount) note += ', ' + L.columnsShown({ shown: columns, total: columnCount });
+      return note;
+    }
+    return L.partial;
+  }
+
+  // <ChatResult result={r} height={260} pageSize={10} labels={...} className />
+  var _CHAT_NO_ROWS = [];
+  var ChatResult = React.memo(function ChatResult(props) {
+    props = props || {};
+    var r = props.result;
+    var ok = !!r && typeof r === 'object';
+    var option = React.useMemo(function() { return ok ? _chatResultOption(r) : null; }, [r]);
+    var columns = React.useMemo(function() {
+      if (!ok || !Array.isArray(r.columns)) return [];
+      return r.columns.filter(function(k) { return k && typeof k === 'object'; }).map(function(k) { return { field: k.field, headerName: k.headerName, dtype: k.type }; });
+    }, [r]);
+    var rows = ok && Array.isArray(r.rows) ? r.rows : _CHAT_NO_ROWS;
+    if (!ok) return null;
+    var note = _chatResultNote(r, _chatLabels(props.labels));
+    var title = typeof r.title === 'string' || typeof r.title === 'number' ? String(r.title) : '';
+    return h('div', { 'data-testid': 'bow-chat-result', className: _chatCls(CHAT.result, props.className) }, [
+      title ? h('div', { key: 't', dir: 'auto', 'data-testid': 'bow-chat-result-title', className: CHAT.title }, title) : null,
+      option ? h(_EChart, { key: 'c', option: option, height: props.height || 260 }) : null,
+      h(_DataTable, { key: 'd', rows: rows, columns: columns, pageSize: props.pageSize != null ? props.pageSize : 10, density: 'compact' }),
+      note ? h('p', { key: 'n', dir: 'auto', 'data-testid': 'bow-chat-result-note', className: CHAT.note }, note) : null
+    ]);
+  });
+  window.ChatResult = ChatResult;
+
+  // Every text block gets its own direction (a Hebrew paragraph next to an
+  // English one); code stays left-to-right.
+  var _CHAT_DIR_AUTO = { p: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, ul: 1, ol: 1, li: 1, table: 1, th: 1, td: 1, blockquote: 1 };
+  function _chatWithDir(node) {
+    if (Array.isArray(node)) return node.map(_chatWithDir);
+    if (!React.isValidElement(node)) return node;
+    var extra = null;
+    if (typeof node.type === 'string') {
+      if (_CHAT_DIR_AUTO[node.type]) extra = { dir: 'auto' };
+      else if (node.type === 'pre') extra = { dir: 'ltr' };
+    }
+    var kids = node.props ? node.props.children : undefined;
+    if (kids === undefined) return extra ? React.cloneElement(node, extra) : node;
+    // Children are passed back the way they came (separate arguments), so the
+    // walk adds no key requirements of its own.
+    var args = [node, extra].concat(Array.isArray(kids) ? kids.map(_chatWithDir) : [_chatWithDir(kids)]);
+    return React.cloneElement.apply(React, args);
+  }
+  function _chatLabelOf(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
+  var _CHAT_RUNNING = { running: 1, in_progress: 1, started: 1 };
+  var _CHAT_SUCCESS = { success: 1, completed: 1, done: 1 };
+  var _CHAT_FAILED = { error: 1, stopped: 1, cancelled: 1, canceled: 1, failed: 1 };
+  var CHAT_MSG = LEGACY ? {
+    root: 'space-y-2',
+    user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100',
+    text: 'text-slate-800 dark:text-slate-100',
+    tools: 'space-y-1 text-xs text-slate-500 dark:text-slate-400',
+    muted: 'flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    root: 'space-y-2',
+    user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-card px-3 py-2 bg-surface-2 text-ink',
+    text: 'text-ink',
+    tools: 'space-y-1 text-xs text-ink-3',
+    muted: 'flex items-center gap-2 text-xs text-ink-3'
+  };
+
+  // <ChatMessage message={m} showTools labels={...} className />
+  var ChatMessage = React.memo(function ChatMessage(props) {
+    props = props || {};
+    var m = props.message;
+    var ok = !!m && typeof m === 'object';
+    var role = ok && m.role === 'user' ? 'user' : 'assistant';
+    var text = ok && m.text != null ? String(m.text) : '';
+    var body = React.useMemo(function() {
+      if (!ok || role === 'user' || !text) return null;
+      var bw = window.bow;
+      if (!bw || typeof bw.markdown !== 'function') return null;
+      try { return _chatWithDir(bw.markdown(text)); } catch (e) { return null; }
+    }, [ok, role, text]);
+    if (!ok) return null;
+    var L = _chatLabels(props.labels);
+    var status = m.status == null ? '' : String(m.status);
+    var running = status === 'in_progress';
+    var rootProps = { 'data-testid': 'bow-chat-message', 'data-role': role, 'data-status': status, 'aria-busy': running, className: _chatCls(CHAT_MSG.root, props.className) };
+    if (role === 'user') {
+      return h('div', rootProps, h('p', { dir: 'auto', 'data-testid': 'bow-chat-text', className: CHAT_MSG.user }, text));
+    }
+    var kids = [];
+    if (text) {
+      kids.push(h('div', { key: 'text', 'data-testid': 'bow-chat-text', className: CHAT_MSG.text },
+        body || h('p', { dir: 'auto', className: 'whitespace-pre-wrap' }, text)));
+    }
+    var tools = props.showTools === false || !Array.isArray(m.tools) ? [] : m.tools.filter(function(t) {
+      return t && typeof t === 'object' && (_chatLabelOf(t.title) || _chatLabelOf(t.name));
+    });
+    if (tools.length) {
+      kids.push(h('ul', { key: 'tools', 'data-testid': 'bow-chat-tools', className: CHAT_MSG.tools }, tools.map(function(t, i) {
+        var s = String(t.status || '');
+        var mark = _CHAT_RUNNING[s] ? h(_LoadingSpinner, { size: 12 })
+          : _CHAT_SUCCESS[s] ? h(_Icon, { name: 'check', size: 12 })
+          : _CHAT_FAILED[s] ? h(_Icon, { name: 'x', size: 12 }) : null;
+        return h('li', { key: t.id != null ? 'id-' + t.id : 'i-' + i, dir: 'auto', 'data-testid': 'bow-chat-tool', 'data-status': s, className: 'flex items-center gap-1.5' },
+          [mark ? h('span', { key: 'm', className: 'inline-flex shrink-0' }, mark) : null, h('span', { key: 'l' }, _chatLabelOf(t.title) || _chatLabelOf(t.name))]);
+      })));
+    }
+    var results = Array.isArray(m.results) ? m.results : [];
+    results.forEach(function(r, i) {
+      kids.push(h(ChatResult, { key: 'r-' + (r && r.id != null ? r.id : i), result: r, labels: props.labels }));
+    });
+    if (m.results_incomplete) {
+      kids.push(h('p', { key: 'inc', dir: 'auto', 'data-testid': 'bow-chat-incomplete', className: CHAT.note }, L.incomplete));
+    }
+    if (running) {
+      kids.push(h('div', { key: 'busy', 'data-testid': 'bow-chat-typing', role: 'status', className: CHAT_MSG.muted },
+        [h(_LoadingSpinner, { key: 's', size: 16 }), h('span', { key: 't', dir: 'auto' }, L.inProgress)]));
+    }
+    return h('div', rootProps, kids);
+  });
+  window.ChatMessage = ChatMessage;
+
+  // ── useConversation ─────────────────────────────────────────────────────────
+  // const chat = useConversation({conversationId, title, agents, historyLimit})
+  // -> {messages, conversations, conversationId, policy, loading, sending, error,
+  //     send, stop, select, newConversation, reload}
+  // messages have the bow.conversations.messages() item shape. One answer runs
+  // at a time; history is re-read after each answer that reached the server and
+  // merged with the server page as the truth; leaving a running answer stops it.
+  var _CHAT_REFRESH_MS = 5000;
+  var _CHAT_REFRESH_MAX = 24;
+  var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null };
+
+  function _chatConv() { var b = window.bow; return b && b.conversations ? b.conversations : null; }
+  function _chatError(e, fallback) {
+    return { code: (e && e.code) || fallback || 'UNAVAILABLE', message: (e && e.message) || String(e || 'Request failed') };
+  }
+  function _chatItems(res) { return res && Array.isArray(res.items) ? res.items : []; }
+  function _chatIsLocal(m) { return !!m && typeof m.id === 'string' && m.id.indexOf('local-') === 0; }
+  function _chatNormalize(m) {
+    if (!m || typeof m !== 'object') return null;
+    return { id: m.id, role: m.role, text: m.text == null ? '' : String(m.text), status: m.status,
+      created_at: m.created_at != null ? m.created_at : null,
+      tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
+      results_incomplete: !!m.results_incomplete };
+  }
+  function _chatLen(v) { return Array.isArray(v) ? v.length : -1; }
+  function _chatSameResult(a, b) {
+    return !!a && !!b && a.id === b.id && _chatLen(a.rows) === _chatLen(b.rows) && _chatLen(a.columns) === _chatLen(b.columns) &&
+      !!a.truncated === !!b.truncated && !!a.chart === !!b.chart;
+  }
+  function _chatHas(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  // The fetched page is the truth (D-3). Optimistic local-* items it covers are
+  // dropped: (a) a local user item with the same trimmed text as an unclaimed
+  // fetched user item (one-to-one, newest first), (b) any local item followed by
+  // a local item the page holds, (c) a local assistant right after a user item
+  // dropped by (a). Kept server items before the first covered item go before
+  // the page; every other kept item after it. A fetched in_progress never
+  // replaces a status in `held` (the run's own completed or stop). Result
+  // objects of the same id and shape are kept, so charts do not reset.
+  function _chatMerge(local, fetched, held) {
+    local = Array.isArray(local) ? local : [];
+    held = held || {};
+    var page = (Array.isArray(fetched) ? fetched : []).map(_chatNormalize).filter(Boolean);
+    var inPage = {}, localById = {};
+    page.forEach(function(f) { inPage[f.id] = true; });
+    local.forEach(function(l) { if (l && !_chatIsLocal(l)) localById[l.id] = l; });
+    var covered = local.map(function(l) { return !!l && inPage[l.id] === true; });
+    // (a)
+    var claimed = {}, dropA = {};
+    page.forEach(function(f, j) { if (f.role === 'user' && localById[f.id]) claimed[j] = true; });
+    for (var i = local.length - 1; i >= 0; i--) {
+      var l = local[i];
+      if (!_chatIsLocal(l) || l.role !== 'user') continue;
+      var t = String(l.text == null ? '' : l.text).trim();
+      for (var j = page.length - 1; j >= 0; j--) {
+        if (claimed[j] || page[j].role !== 'user' || page[j].text.trim() !== t) continue;
+        claimed[j] = true; dropA[i] = true; covered[i] = true;
+        break;
+      }
+    }
+    // (b) and (c)
+    var laterInPage = false;
+    for (var k = local.length - 1; k >= 0; k--) {
+      if (_chatIsLocal(local[k]) && laterInPage) covered[k] = true;
+      if (local[k] && inPage[local[k].id] === true) laterInPage = true;
+    }
+    for (var n = 1; n < local.length; n++) {
+      if (dropA[n - 1] && _chatIsLocal(local[n]) && local[n].role === 'assistant') covered[n] = true;
+    }
+    var firstCovered = covered.indexOf(true);
+    if (firstCovered === -1) firstCovered = local.length;
+    var before = [], after = [];
+    local.forEach(function(l, idx) {
+      if (!l || covered[idx]) return;
+      if (idx < firstCovered && !_chatIsLocal(l)) before.push(l); else after.push(l);
+    });
+    var merged = page.map(function(f) {
+      var l = localById[f.id];
+      if (f.status === 'in_progress' && _chatHas(held, f.id)) {
+        if (l) return l;
+        var kept = {}; for (var key in f) kept[key] = f[key];
+        kept.status = held[f.id];
+        return kept;
+      }
+      if (l && l.results.length && f.results.length) {
+        var reused = f.results.map(function(fr) {
+          var lr = l.results.find(function(x) { return x && fr && x.id === fr.id; });
+          return lr && _chatSameResult(lr, fr) ? lr : fr;
+        });
+        var out = {}; for (var k2 in f) out[k2] = f[k2];
+        out.results = reused;
+        return out;
+      }
+      return f;
+    });
+    return before.concat(merged, after);
+  }
+
+  function _chatReduce(state, a) {
+    switch (a.type) {
+      case 'apply': {
+        var next = {}; for (var k in state) next[k] = state[k];
+        if (a.patch) for (var p in a.patch) next[p] = a.patch[p];
+        if (a.items) {
+          next.messages = next.messages.map(function(m) {
+            if (!m || !_chatHas(a.items, m.id)) return m;
+            var u = {}; for (var mk in m) u[mk] = m[mk];
+            var patch = a.items[m.id];
+            for (var pk in patch) u[pk] = patch[pk];
+            return u;
+          });
+        }
+        if (a.append) next.messages = next.messages.concat(a.append);
+        return next;
+      }
+      case 'created': {
+        var conv = a.conversation;
+        var c = { id: conv.id, title: conv.title, created_at: conv.created_at != null ? conv.created_at : null, updated_at: conv.updated_at != null ? conv.updated_at : null };
+        var listed = state.conversations.some(function(x) { return x && x.id === c.id; });
+        var s1 = {}; for (var k1 in state) s1[k1] = state[k1];
+        if (!listed) s1.conversations = [c].concat(state.conversations);
+        s1.conversationId = c.id;
+        return s1;
+      }
+      case 'listed': {
+        var fetchedIds = {};
+        a.conversations.forEach(function(x) { if (x) fetchedIds[x.id] = true; });
+        var kept = state.conversations.filter(function(x) { return x && _chatHas(a.keep, x.id) && !fetchedIds[x.id]; });
+        var s4 = {}; for (var k5 in state) s4[k5] = state[k5];
+        s4.conversations = kept.concat(a.conversations);
+        return s4;
+      }
+      case 'load': {
+        var s2 = {}; for (var k3 in state) s2[k3] = state[k3];
+        s2.messages = a.messages.map(_chatNormalize).filter(Boolean);
+        return s2;
+      }
+      case 'merge': {
+        var s3 = {}; for (var k4 in state) s3[k4] = state[k4];
+        s3.messages = _chatMerge(state.messages, a.fetched, a.held);
+        return s3;
+      }
+      default: return state;
+    }
+  }
+
+  function _chatInitialState(opts) {
+    var s = {}; for (var k in _CHAT_INITIAL) s[k] = _CHAT_INITIAL[k];
+    if (!_chatConv()) { s.error = { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' }; return s; }
+    s.loading = true;
+    s.conversationId = opts && opts.conversationId ? opts.conversationId : null;
+    return s;
+  }
+
+  // The per-hook controller: refs and callbacks, created once per mount.
+  function _chatController(dispatch, opts) {
+    var hl = opts && typeof opts.historyLimit === 'number' && opts.historyLimit > 0 ? Math.floor(opts.historyLimit) : 30;
+    var c = {
+      opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
+      run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
+      held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {}
+    };
+    function put(action, gen) {
+      if (!c.mounted || (gen !== undefined && gen !== c.gen)) return false;
+      dispatch(action);
+      return true;
+    }
+    function noop() {}
+    function cancelTimer() { if (c.timer !== null) { clearTimeout(c.timer); c.timer = null; } }
+    function raiseFloor() { c.readFloor = ++c.readSeq; }
+    function endRun(run, patch) {
+      if (c.run !== run) return;
+      c.run = null;
+      var p = { sending: false }; if (patch) for (var k in patch) p[k] = patch[k];
+      put({ type: 'apply', patch: p }, run.gen);
+    }
+
+    // A tagged re-read (rule 12): applied only in its generation, when nothing
+    // newer was applied or sent since it was issued, and while no other run is
+    // active.
+    // `onError` (reload only) receives a rejection that the same checks did not drop.
+    function reread(convId, run, onError) {
+      var conv = _chatConv();
+      if (!conv || !convId) return Promise.resolve(false);
+      var tag = ++c.readSeq, gen = c.gen;
+      function current() { return gen === c.gen && tag > c.readFloor && (c.run === null || c.run === run) && c.mounted; }
+      var skipped = {};
+      return Promise.resolve().then(function() {
+        // Left (or unmounted) before the request went out: send nothing.
+        if (gen !== c.gen || !c.mounted) return skipped;
+        return conv.messages(convId, { limit: c.limit });
+      }).then(function(res) {
+        if (res === skipped || !current()) return false;
+        c.readFloor = tag;
+        var held = {}; for (var k in c.held) held[k] = c.held[k];
+        put({ type: 'merge', fetched: _chatItems(res), held: held }, gen);
+        return true;
+      }, function(e) {
+        if (onError && current()) onError(e);
+        return false;
+      });
+    }
+
+    function startLoad() {
+      var conv = _chatConv();
+      if (!conv) return;
+      var gen = c.gen, id = c.initialId;
+      c.count = 0;
+      if (id) c.convId = id;
+      // The first applied error wins. The policy and the list do not belong to
+      // one conversation, so their errors apply in any generation while mounted;
+      // the initial history's error only in its own generation.
+      var reported = false;
+      function report(e, g) { if (!reported && put({ type: 'apply', patch: { error: _chatError(e) } }, g)) reported = true; }
+      var policyWait = Promise.resolve().then(function() { return conv.policy(); }).then(function(p) {
+        c.policy = p || null;
+        put({ type: 'apply', patch: { policy: c.policy } });
+        return c.policy;
+      }, function(e) { report(e); throw e; });
+      c.policyWait = policyWait;
+      var load = policyWait.then(function(p) {
+        if (p && p.available === false) return null;
+        var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
+          // Keep conversations created meanwhile that this page does not hold yet.
+          put({ type: 'listed', conversations: _chatItems(res), keep: c.createdIds });
+        }, function(e) { report(e); })];
+        if (id) {
+          tasks.push(Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
+            put({ type: 'load', messages: _chatItems(res) }, gen);
+          }, function(e) {
+            if (gen === c.gen && e && e.code === 'NOT_FOUND' && c.convId === id) {
+              c.convId = null;
+              put({ type: 'apply', patch: { conversationId: null } }, gen);
+            }
+            report(e, gen);
+          }));
+        }
+        return Promise.all(tasks);
+      }).then(null, noop).then(function() {
+        if (c.policyWait === policyWait) c.policyWait = null;
+        if (c.load === load) c.load = null;
+        put({ type: 'apply', patch: { loading: false } }, gen);
+      });
+      c.load = load;
+    }
+
+    // Leave the active run (rule 8): it never dispatches again, it still stops
+    // the server run (deferred until started) and aborts its stream.
+    function leave() {
+      var run = c.run;
+      if (run) {
+        if (!run.terminal) run.terminal = 'left';
+        if (run.terminal !== 'completed') run.stopWanted = true;
+        c.run = null;
+        if (run.stopWanted) serverStop(run);
+        else run.controller.abort();
+      }
+      c.gen++;
+    }
+
+    function serverStop(run) {
+      if (run.stopSent || !run.messageId || !run.convId) return;
+      run.stopSent = true;
+      var conv = _chatConv();
+      try { if (conv) conv.stop(run.convId, run.messageId).then(noop, noop); } catch (e) { /* the abort below still ends the stream */ }
+      // After the stop request is posted, so the host sees the stop first.
+      Promise.resolve().then(noop).then(function() { run.controller.abort(); });
+    }
+
+    function applyEvent(run, ev) {
+      if (!ev || typeof ev !== 'object') return;
+      if (run.terminal) {
+        if (ev.type === 'started' && run.stopWanted && !run.messageId && ev.message_id != null) {
+          run.messageId = String(ev.message_id);
+          if (run.terminal === 'stopped' && run.gen === c.gen) c.held[run.messageId] = 'stopped';
+          serverStop(run);
+        }
+        return;
+      }
+      var items = {};
+      switch (ev.type) {
+        case 'started':
+          if (run.messageId || ev.message_id == null) return;
+          run.messageId = String(ev.message_id);
+          items[run.userLocalId] = { status: 'success' };
+          if (run.assistantId === run.assistantLocalId) {
+            items[run.assistantLocalId] = { id: run.messageId };
+            run.assistantId = run.messageId;
+          }
+          run.started = true;
+          break;
+        case 'text_delta':
+        case 'text': {
+          var block = ev.block == null ? '_' : String(ev.block);
+          if (!_chatHas(run.blocks, block)) { run.order.push(block); run.blocks[block] = ''; }
+          var piece = ev.text == null ? '' : String(ev.text);
+          run.blocks[block] = ev.type === 'text' ? piece : run.blocks[block] + piece;
+          items[run.assistantId] = { text: run.order.map(function(b) { return run.blocks[b]; }).filter(Boolean).join('\n\n') };
+          break;
+        }
+        case 'tool': {
+          var tool = { name: ev.name, title: ev.title, status: ev.status };
+          if (ev.id != null) tool = { id: ev.id, name: ev.name, title: ev.title, status: ev.status };
+          var at = ev.id != null ? run.tools.findIndex(function(t) { return t.id === ev.id; }) : -1;
+          run.tools = run.tools.slice();
+          if (at >= 0) run.tools[at] = tool; else run.tools.push(tool);
+          items[run.assistantId] = { tools: run.tools };
+          break;
+        }
+        case 'result': {
+          var r = {}; for (var k in ev) if (k !== 'type') r[k] = ev[k];
+          if (r.id != null && run.results.some(function(x) { return x.id === r.id; })) return;
+          run.results = run.results.concat([r]);
+          items[run.assistantId] = { results: run.results };
+          break;
+        }
+        case 'completed': {
+          var status = ev.status || 'success';
+          run.terminal = 'completed';
+          c.held[run.assistantId] = status;
+          items[run.assistantId] = { status: status, results_incomplete: !!ev.results_incomplete };
+          break;
+        }
+        default: return;
+      }
+      put({ type: 'apply', items: items }, run.gen);
+    }
+
+    function failRun(run, e, code) {
+      run.terminal = 'error';
+      var items = {};
+      items[run.assistantId] = { status: 'error' };
+      items[run.userLocalId] = { status: run.started ? 'success' : 'error' };
+      put({ type: 'apply', items: items, patch: { error: code ? { code: code, message: 'The answer ended early' } : _chatError(e) } }, run.gen);
+    }
+
+    function startCreate(run, text) {
+      var conv = _chatConv(), o = c.opts || {};
+      var rec = { gen: run.gen, promise: null };
+      rec.promise = Promise.resolve().then(function() {
+        return conv.create({ title: o.title || text.slice(0, 80), agents: o.agents });
+      }).then(function(created) {
+        if (rec.gen === c.gen && c.mounted && created && created.id != null) {
+          c.convId = created.id;
+          c.createdIds[created.id] = true;
+          dispatch({ type: 'created', conversation: created });
+        }
+        return created;
+      });
+      c.create = rec;
+      function clear() { if (c.create === rec) c.create = null; }
+      rec.promise.then(clear, clear);
+      return rec;
+    }
+
+    async function runSend(run, text) {
+      var waits = [c.load, c.policyWait].filter(Boolean);
+      if (waits.length) await Promise.all(waits).then(noop, noop);
+      if (run.gen !== c.gen || run.terminal) return;
+      if (c.policy && c.policy.available === false) {
+        endRun(run, { error: { code: 'FORBIDDEN', message: c.policy.reason || 'not available' } });
+        return;
+      }
+      var conv = _chatConv();
+      var user = { id: run.userLocalId, role: 'user', text: text, status: 'pending', created_at: null, tools: [], results: [], results_incomplete: false };
+      var assistant = { id: run.assistantLocalId, role: 'assistant', text: '', status: 'in_progress', created_at: null, tools: [], results: [], results_incomplete: false };
+      put({ type: 'apply', append: [user, assistant] }, run.gen);
+      var convId = c.convId;
+      if (!convId) {
+        run.phase = 'creating';
+        var created = null;
+        var pending = c.create && c.create.gen === c.gen ? c.create : null;
+        if (pending) created = await pending.promise.then(function(v) { return v; }, function() { return null; });
+        if (!created && !run.terminal) {
+          var rec = startCreate(run, text);
+          try { created = await rec.promise; } catch (e) {
+            if (!run.terminal && c.run === run) {
+              run.terminal = 'error';
+              var failed = {};
+              failed[run.userLocalId] = { status: 'error' };
+              failed[run.assistantLocalId] = { status: 'error' };
+              put({ type: 'apply', items: failed }, run.gen);
+              endRun(run, { error: _chatError(e) });
+            }
+            return;
+          }
+        }
+        if (!created || created.id == null) {
+          // An adopted create failed after this run was stopped or left, or a
+          // create resolved without an id.
+          if (!run.terminal && c.run === run) { failRun(run, { code: 'UNAVAILABLE', message: 'The conversation could not be created' }); endRun(run); }
+          return;
+        }
+        convId = created.id;
+      }
+      run.convId = convId;
+      if (run.terminal) return;
+      run.phase = 'streaming';
+      var error = null;
+      try {
+        var stream = conv.send(convId, text, { signal: run.controller.signal });
+        for await (var ev of stream) applyEvent(run, ev);
+      } catch (e) { error = e; }
+      var ours = run.controller.signal.aborted;
+      // Left or unmounted (also after `completed`): no re-read, no dispatch.
+      if (run.terminal === 'left' || run.gen !== c.gen || !c.mounted) return;
+      if (run.terminal === 'stopped') {
+        // The stopped run's own re-read, when nothing replaced it meanwhile.
+        if (run.gen === c.gen && c.run === null) await reread(convId, run);
+        return;
+      }
+      if (error && !ours && !run.terminal) {
+        failRun(run, error);
+        if (run.messageId) await reread(convId, run);
+        endRun(run);
+        return;
+      }
+      if (!run.terminal) failRun(run, null, 'INTERRUPTED');
+      run.phase = 'rereading';
+      await reread(convId, run);
+      run.phase = 'done';
+      endRun(run);
+    }
+
+    c.send = function(text) {
+      var t = text == null ? '' : String(text).trim();
+      if (!t || c.run || !c.mounted) return Promise.resolve();
+      if (!_chatConv()) {
+        put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } });
+        return Promise.resolve();
+      }
+      if (c.policy && c.policy.available === false) {
+        put({ type: 'apply', patch: { error: { code: 'FORBIDDEN', message: c.policy.reason || 'not available' } } });
+        return Promise.resolve();
+      }
+      var run = { gen: c.gen, convId: null, messageId: null, controller: new AbortController(), phase: 'queued',
+        terminal: null, stopWanted: false, stopSent: false, started: false,
+        userLocalId: 'local-' + (++c.seq), assistantLocalId: 'local-' + (++c.seq), assistantId: null,
+        blocks: {}, order: [], tools: [], results: [] };
+      run.assistantId = run.assistantLocalId;
+      c.run = run;
+      cancelTimer();
+      c.count = 0;
+      raiseFloor();
+      put({ type: 'apply', patch: { sending: true, error: null } });
+      // Whatever happens inside, the run ends (never leaves `sending` stuck).
+      return runSend(run, t).then(noop, noop).then(function() { endRun(run); });
+    };
+
+    c.stop = function() {
+      var run = c.run;
+      if (!run || run.terminal || (run.phase !== 'queued' && run.phase !== 'creating' && run.phase !== 'streaming')) return Promise.resolve();
+      run.terminal = 'stopped';
+      run.stopWanted = true;
+      c.run = null;
+      var items = {};
+      if (run.phase === 'creating') {
+        items[run.userLocalId] = { status: 'stopped' };
+        items[run.assistantId] = { status: 'stopped' };
+      } else if (run.phase === 'streaming') {
+        items[run.assistantId] = { status: 'stopped' };
+        if (!run.started) items[run.userLocalId] = { status: 'success' };
+      }
+      put({ type: 'apply', items: items, patch: { sending: false } }, run.gen);
+      if (run.phase === 'streaming' && run.messageId) {
+        c.held[run.messageId] = 'stopped';
+        serverStop(run);
+      }
+      return Promise.resolve();
+    };
+
+    function resetFor(convId) {
+      leave();
+      cancelTimer();
+      c.count = 0;
+      c.held = {};
+      raiseFloor();
+      c.convId = convId;
+    }
+
+    c.select = function(id) {
+      if (!c.mounted) return Promise.resolve();
+      var conv = _chatConv();
+      if (!conv) { put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } }); return Promise.resolve(); }
+      resetFor(id);
+      var gen = c.gen;
+      put({ type: 'apply', patch: { sending: false, conversationId: id, messages: [], error: null, loading: true } });
+      var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
+        put({ type: 'load', messages: _chatItems(res) }, gen);
+      }, function(e) {
+        put({ type: 'apply', patch: { error: _chatError(e) } }, gen);
+      }).then(function() {
+        if (c.load === load) c.load = null;
+        put({ type: 'apply', patch: { loading: false } }, gen);
+      });
+      c.load = load;
+      return load;
+    };
+
+    c.newConversation = function() {
+      if (!c.mounted) return;
+      resetFor(null);
+      c.load = null;
+      put({ type: 'apply', patch: { sending: false, conversationId: null, messages: [], error: null, loading: false } });
+    };
+
+    c.reload = function() {
+      var conv = _chatConv();
+      if (!conv || !c.mounted) return Promise.resolve();
+      // A failure sets `error` in this generation; a reload without one clears it.
+      var gen = c.gen, failed = false;
+      function fail(e) { failed = true; put({ type: 'apply', patch: { error: _chatError(e) } }, gen); }
+      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) {
+        put({ type: 'apply', patch: { conversations: _chatItems(res) } });
+      }, fail)];
+      if (c.convId && !c.run) tasks.push(reread(c.convId, null, fail));
+      return Promise.all(tasks).then(function() {
+        if (!failed) put({ type: 'apply', patch: { error: null } }, gen);
+      }).then(noop, noop);
+    };
+
+    // Rule 13: re-read a conversation whose answer still runs on the server.
+    c.check = function(messages) {
+      if (!c.mounted || c.run || c.timer !== null || !c.convId || c.count >= _CHAT_REFRESH_MAX) return;
+      if (!messages.some(function(m) { return m && m.role === 'assistant' && m.status === 'in_progress'; })) return;
+      c.timer = setTimeout(function() {
+        c.timer = null;
+        c.count += 1;
+        if (!c.run && c.convId) reread(c.convId, null);
+      }, _CHAT_REFRESH_MS);
+    };
+
+    c.mount = function() {
+      c.mounted = true;
+      startLoad();
+    };
+    c.unmount = function() {
+      leave();
+      cancelTimer();
+      c.held = {};
+      raiseFloor();
+      c.mounted = false;
+    };
+    return c;
+  }
+
+  function useConversation(opts) {
+    // React is read here, at render time (not captured when this file loads).
+    var st = React.useReducer(_chatReduce, opts, _chatInitialState);
+    var state = st[0], dispatch = st[1];
+    var ref = React.useRef(null);
+    if (!ref.current) ref.current = _chatController(dispatch, opts);
+    var c = ref.current;
+    c.opts = opts || {};
+    React.useEffect(function() {
+      c.mount();
+      return c.unmount;
+    }, []);
+    React.useEffect(function() { c.check(state.messages); }, [state.messages, state.sending]);
+    return {
+      messages: state.messages, conversations: state.conversations, conversationId: state.conversationId,
+      policy: state.policy, loading: state.loading, sending: state.sending, error: state.error,
+      send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload
+    };
+  }
+  window.useConversation = useConversation;
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc
   // ═══════════════════════════════════════════════════════════════════════════
 

@@ -61,6 +61,30 @@ text operations without data. Conversations use the agents this artifact was
 built with (the conversation's agents), as each viewer may use them; no
 setting needs switching on. Each viewer sees only their own conversations.
 Show policy().reason when available is false (auth_required, not_member).
+CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
+send loop, the stream event handling or the result rendering yourself.
+const chat = useConversation({conversationId, title, agents}); // all optional, read once (use chat.select(id) to switch); call it once, at the top of the chat component
+// {messages, conversations, conversationId, policy, loading, sending, error, send, stop, select, newConversation, reload}
+// messages: [{id,role:'user'|'assistant',text,status,created_at,tools:[...],results:[...],results_incomplete}], kept
+//   up to date while an answer streams (status 'in_progress'), then re-read from history. error: null or {code,message}.
+// chat.send(text) on a user action only (it creates the conversation on the first send; ignored while sending);
+// chat.stop() while chat.sending; chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
+// Leaving a running answer (select, newConversation, unmount) stops it.
+<ChatMessage message={m}/> // one message: markdown with dir="auto" per block, tool steps (showTools={false} hides
+//   them), each result as a ChatResult, the note when results_incomplete, and "Answer in progress..." while running
+<ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
+// Both take labels={{rowsShown:'Showing {shown} of {total} rows',columnsShown:'{shown} of {total} columns',
+//   partial:'Partial table',incomplete:'Some results of this answer could not be shown',inProgress:'Answer in progress...'}}: pass them in the app's language.
+function Chat(){const chat=useConversation();const [draft,setDraft]=useState('');
+  return <div>{chat.policy&&chat.policy.available===false&&<p>{chat.policy.reason}</p>}
+    {chat.messages.map(m=><ChatMessage key={m.id} message={m}/>)}
+    {chat.error&&<p role="alert">{chat.error.message}</p>}
+    <form onSubmit={e=>{e.preventDefault();chat.send(draft);setDraft('');}}>
+      <textarea dir="auto" value={draft} onChange={e=>setDraft(e.target.value)}/>
+      {chat.sending?<button type="button" onClick={()=>chat.stop()}>Stop</button>:<button disabled={!draft.trim()}>Send</button>}
+    </form></div>;}
+You design the layout, the composer, the empty state and the conversation list (chat.conversations).
+LOW LEVEL (only when the building blocks cannot do what is asked):
 const policy = await bow.conversations.policy(); // {available,reason?,scope,agents:[{id,name}]}
 const {items, next_before} = await bow.conversations.list({limit: 20}); // newest first: [{id,title,created_at,updated_at}]
 const conv = await bow.conversations.create({title, agents: optionalAgentIds}); // {id,title,agents}
@@ -85,29 +109,7 @@ await bow.conversations.stop(conv.id, messageId); // the started event's message
 // render it with {bow.markdown(text)} (safe React elements, no HTML), user
 // text as plain text. Show tools as progress. Re-read messages() after
 // completed for the stored answer. Errors as above.
-// Render each result under its message, the table always and the chart only when r.chart is set,
-// in its own component so the chart option is computed once per result (keep the received result
-// objects; a new option object on every render resets the chart while text streams in):
-//   function ResultView({r}){const opt = React.useMemo(() => resultOption(r), [r]);
-//     return <div>{opt && <EChart option={opt} height={280}/>}
-//       <DataTable rows={r.rows} columns={r.columns} pageSize={10} density="compact"/>
-//       {r.truncated && <p className="text-xs">{/* the truncation note */}</p>}</div>;}
-// The truncation note: "Showing {r.rows.length} of {r.row_count} rows", plus
-//   ", {r.columns.length} of {r.column_count} columns" when they differ; when both are complete
-//   (long cells were cut) say "partial table" instead.
-// When a message still has results_incomplete after the re-read, show a short note under it:
-//   "some results of this answer could not be shown".
-// Results are already shown: never re-parse numbers from the answer text to draw them.
-function resultOption(r){const c=r.chart;if(!c||!['bar','line','area','pie','scatter'].includes(c.type))return null;
-  const rows=r.rows;
-  if(c.type==='pie')return {tooltip:{},series:[{type:'pie',data:rows.map(x=>({name:String(x[c.x]),value:x[c.y[0]]}))}]};
-  if(c.type==='scatter')return {tooltip:{},xAxis:{type:'value'},yAxis:{type:'value'},series:[{type:'scatter',data:rows.map(x=>[x[c.x],x[c.y[0]]])}]};
-  const xs=[...new Set(rows.map(x=>x[c.x]))], t=c.type==='area'?'line':c.type;
-  const lines=c.series?[...new Set(rows.map(x=>x[c.series]))].map(g=>({name:String(g),col:c.y[0],rows:rows.filter(x=>x[c.series]===g)}))
-    :c.y.map(col=>({name:(r.columns.find(k=>k.field===col)||{}).headerName||col,col,rows}));
-  return {tooltip:{trigger:'axis'},legend:{},xAxis:{type:'category',data:xs},yAxis:{type:'value'},
-    series:lines.map(l=>({name:l.name,type:t,areaStyle:c.type==='area'?{}:undefined,
-      data:xs.map(v=>{const row=l.rows.find(x=>x[c.x]===v);return row?row[l.col]:null;})}))};}
+// Render a result with <ChatResult result={r}/>; never re-implement it or re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
 application says the user is looking at (e.g. {customerId}); advisory, may be null.
 
