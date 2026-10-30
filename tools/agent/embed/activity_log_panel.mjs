@@ -1,5 +1,6 @@
-// The editor opens the app's Activity log from the ⋯ menu and filters it to
-// errors: the UI over services/artifact_activity.py (ArtifactActivityLog.vue).
+// The editor opens Inspect (the activity pane docked under the app) from the
+// ⋯ menu, filters it to errors and expands a row: the UI over
+// services/artifact_activity.py (ArtifactActivityLog.vue).
 //   node tools/agent/embed/activity_log_panel.mjs <report_id> <out_dir>
 // Env: BOW_URL (http://localhost:3000), SEED (/tmp/bow-agent/seed_org.json; admin = the editor).
 import { createRequire } from 'node:module'
@@ -23,18 +24,27 @@ await page.goto(`${BOW}/reports/${reportId}`)
 await page.waitForSelector('iframe[data-artifact-frame]', { state: 'attached' })
 await page.waitForTimeout(4000)
 await page.locator(`button[aria-label="${en.artifactFrame.more}"]`).last().click()
-await page.getByTestId('activity-log-menu').click()
-const panel = page.getByTestId('artifact-activity-log')
-await panel.waitFor()
-await page.getByTestId('artifact-activity-row').first().waitFor()
-await page.waitForTimeout(600)
-await page.screenshot({ path: `${out}/94-activity-log.png` })
-const all = await page.getByTestId('artifact-activity-row').count()
-await page.getByTestId('artifact-activity-errors-only').click()
-await page.waitForTimeout(1200)
-await page.screenshot({ path: `${out}/95-activity-log-errors-only.png` })
-const failed = await page.getByTestId('artifact-activity-row').count()
-const onlyFailed = await page.locator('[data-testid=artifact-activity-row][data-failed=false]').count()
-console.log(JSON.stringify({ reads, rows: all, errors_only_rows: failed, non_failed_rows_shown_in_errors_only: onlyFailed }))
+await page.getByTestId('inspect-menu').click()
+await page.getByTestId('artifact-inspect').waitFor()
+await page.getByTestId('artifact-inspect-row').first().waitFor()
+await page.waitForTimeout(800)
+await page.screenshot({ path: `${out}/94-inspect-pane.png` })
+const all = await page.getByTestId('artifact-inspect-row').count()
+await page.getByTestId('artifact-inspect-filter-errors').click()
+await page.waitForTimeout(500)
+const failed = await page.getByTestId('artifact-inspect-row').count()
+const nonFailedShown = await page.locator('[data-testid=artifact-inspect-row][data-failed=false]').count()
+await page.getByTestId('artifact-inspect-row').first().click()
+await page.getByTestId('artifact-inspect-detail').waitFor()
+await page.waitForTimeout(400)
+await page.screenshot({ path: `${out}/95-inspect-errors-detail.png` })
+// Live: using the app adds a row at once, before the batch reaches the server.
+await page.getByTestId('artifact-inspect-filter-all').click()
+const app = await (await page.locator('iframe[data-artifact-frame]').elementHandle()).contentFrame()
+const fresh = app.getByRole('button', { name: /חדשה|new/i })
+if (await fresh.count()) await fresh.first().click()
+await page.waitForTimeout(1500)
+const afterClick = await page.getByTestId('artifact-inspect-row').count()
+console.log(JSON.stringify({ reads, rows: all, errors_rows: failed, non_failed_rows_under_errors: nonFailedShown, rows_after_using_the_app: afterClick }))
 await browser.close()
-if (!reads.length || reads.some((s) => s !== 200) || all === 0 || failed === 0 || onlyFailed !== 0) process.exit(1)
+if (!reads.length || reads.some((s) => s !== 200) || all === 0 || failed === 0 || nonFailedShown !== 0 || afterClick <= all) process.exit(1)

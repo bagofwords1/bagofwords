@@ -4752,13 +4752,36 @@
     }
   },
   "artifactActivity": {
-    "title": "Activity log",
-    "retention": "What the app did while it was used in the editor or checked by the agent. Kept {days} days, newest {count} per conversation.",
-    "errorsOnly": "Errors only",
+    "title": "Activity",
+    "inspect": "Inspect",
+    "live": "Live",
+    "liveHint": "What this page does appears here as it happens; the agent's preview is picked up every few seconds.",
     "refresh": "Refresh",
     "empty": "Nothing recorded yet.",
-    "emptyErrors": "No errors recorded.",
-    "emptyHint": "Open the app and use it: requests, filters, clicks and errors appear here, and the agent sees the failures.",
+    "emptyFiltered": "Nothing matches this filter.",
+    "emptyHint": "Use the app: requests, streams, filters, clicks and errors appear here, and the agent sees the failures.",
+    "filterPlaceholder": "Filter",
+    "shown": "{shown} of {total}",
+    "noDetail": "No detail recorded.",
+    "queries": "{n} queries",
+    "rows": "{n} rows",
+    "filters": {
+      "all": "All",
+      "requests": "Requests",
+      "streams": "Streams",
+      "filters": "Filters",
+      "clicks": "Clicks",
+      "errors": "Errors"
+    },
+    "columns": {
+      "time": "Time",
+      "source": "Source",
+      "kind": "Kind",
+      "event": "Event",
+      "status": "Status",
+      "duration": "Duration",
+      "version": "Ver."
+    },
     "sources": {
       "all": "All sources",
       "editor": "Editor",

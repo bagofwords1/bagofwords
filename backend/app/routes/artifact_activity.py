@@ -91,9 +91,9 @@ async def read_activity(artifact_id: str, report_id: Optional[str] = None,
     return {
         "events": [{
             "id": e.id, "created_at": e.created_at.isoformat() + "Z" if e.created_at else None,
-            "kind": e.kind, "source": e.source, "version": e.artifact_version, "status": e.status,
-            "error_code": e.error_code, "failed": artifact_activity.is_failure(e),
-            "text": artifact_activity.describe(e), "session_id": e.session_id,
+            "kind": e.kind, "op": e.op, "source": e.source, "version": e.artifact_version, "status": e.status,
+            "error_code": e.error_code, "duration_ms": e.duration_ms, "failed": artifact_activity.is_failure(e),
+            "text": artifact_activity.describe(e), "detail": e.detail or {}, "session_id": e.session_id,
         } for e in reversed(rows)],
         "retention_days": artifact_activity.RETENTION_DAYS,
         "keep_per_report": artifact_activity.KEEP_PER_REPORT,
