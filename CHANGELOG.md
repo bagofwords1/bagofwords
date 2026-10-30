@@ -9,6 +9,7 @@
 - Added Sandbox settings for web fetch, a headless browser and Agent List writes from generated code (#1520) — AI settings → Sandbox, all off by default
 - Added routing bulk scraping to one generated-code run instead of page-by-page browser calls (#1520)
 - Added indexing of stored procedures and functions for Postgres, MySQL, MariaDB and SQL Server (#1506) — "Index stored procedures & functions" on the connection, off by default
+- Added the browser tools to sub-agents, each with its own browser session (#1521)
 - Added saving a long page's full text from `browser_extract`, so the agent can read past the inline limit (#1519)
 - Added Download as PNG for Mermaid diagrams in docs and chat (#1518)
 - Added every sheet name of an Excel workbook to file connector reads, and reading a named sheet (#1517)
