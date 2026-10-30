@@ -25,7 +25,6 @@ import pytest
 
 from app.ai.agent_v2 import (
     AgentV2,
-    _FOLLOWUP_IMAGE_LIMIT,
     _MAX_RETAINED_IMAGES,
 )
 
@@ -110,12 +109,66 @@ def test_batched_decision_leaves_no_base64_on_the_recorded_observation():
     assert "SECRETBYTES" not in json.dumps(agg["parallel_actions"])
 
 
-def test_followup_images_are_the_most_recent_and_bounded():
-    """A turn that uploaded nothing still gets the recent pictures — newest
-    first, capped — so "why?" about a screenshot from a turn ago doesn't start
-    by spending a step to find it again."""
-    files = [SimpleNamespace(id=f"f{i}", created_at=i) for i in range(5)]
-    agent = SimpleNamespace(image_files=files)
-    picked = AgentV2._followup_image_files(agent)
-    assert [f.id for f in picked] == ["f4", "f3"]
-    assert len(picked) == _FOLLOWUP_IMAGE_LIMIT
+class _Rows:
+    def __init__(self, ids):
+        self._ids = ids
+
+    def fetchall(self):
+        return [(i,) for i in self._ids]
+
+
+class _UploadsDb:
+    """Stands in for the report_file_association lookup: which file ids were
+    uploaded with which completion."""
+
+    def __init__(self, uploads_by_completion):
+        self.uploads = uploads_by_completion
+        self.current = None
+
+    async def execute(self, _stmt):
+        return _Rows(self.uploads.get(self.current, []))
+
+
+def _uploads_agent(tmp_path, uploads_by_completion, current_cid):
+    files = []
+    for cid, ids in uploads_by_completion.items():
+        for fid in ids:
+            path = tmp_path / f"{fid}.png"
+            path.write_bytes(fid.encode())
+            files.append(SimpleNamespace(id=fid, path=str(path), content_type="image/png"))
+    db = _UploadsDb(uploads_by_completion)
+    db.current = current_cid
+    # A real AgentV2 (no __init__) so every method the loader may call exists.
+    agent = AgentV2.__new__(AgentV2)
+    agent.image_files = files
+    agent.head_completion = SimpleNamespace(id=current_cid)
+    agent.db = db
+    agent.report = SimpleNamespace(id="r1")
+    agent.report_id = "r1"
+    return agent
+
+
+async def _attached(agent):
+    import base64
+    images = await agent._load_images_as_input()
+    return sorted(base64.b64decode(i.data).decode() for i in images)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("earlier_turns", [1, 3, 9])
+async def test_earlier_uploads_are_not_reattached_to_a_turn_without_its_own(tmp_path, earlier_turns):
+    """The user-image channel lands on the NEWEST message, so a picture from an
+    earlier turn re-sent there reads as "the user just sent this". A turn that
+    uploaded nothing attaches nothing, however recent the earlier upload was —
+    history names the file and read_file shows it again on demand."""
+    uploads = {f"c{i}": [f"img{i}"] for i in range(earlier_turns)}
+    uploads["now"] = []
+    agent = _uploads_agent(tmp_path, uploads, "now")
+    assert await _attached(agent) == []
+
+
+@pytest.mark.asyncio
+async def test_a_turn_attaches_exactly_its_own_uploads(tmp_path):
+    uploads = {"c0": ["old_a", "old_b"], "now": ["new_a", "new_b"]}
+    agent = _uploads_agent(tmp_path, uploads, "now")
+    assert await _attached(agent) == ["new_a", "new_b"]
