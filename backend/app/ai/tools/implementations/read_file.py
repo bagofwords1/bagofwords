@@ -183,6 +183,20 @@ def _materialized_name(file_id: str, ext: str) -> str:
     return leaf if leaf.lower().endswith(f".{ext}") else f"{leaf}.{ext}"
 
 
+def _sheet_keys(file_id: str, sheet: Optional[str]) -> "tuple[str, str]":
+    """(cache/session ref, display-name id) for a read of one workbook sheet.
+
+    A workbook is one file but several reads: sheet 2 must not be served the
+    cached render of sheet 1, nor overwrite sheet 1's session file (rows are
+    keyed by connection + source ref). The default read (no `sheet`) keeps the
+    bare file id, so existing cache entries and session files stay valid.
+    """
+    if not sheet or not str(sheet).strip():
+        return file_id, file_id
+    label = str(sheet).strip().replace("/", "_").replace("\\", "_")
+    return f"{file_id}#sheet={sheet}", f"{file_id} - {label}"
+
+
 def _parse_page_range(value: str) -> "Optional[tuple]":
     """'3' → (3, 3); '10-15' → (10, 15). None for anything malformed."""
     try:
@@ -197,6 +211,30 @@ def _parse_page_range(value: str) -> "Optional[tuple]":
         return (first, last)
     except (ValueError, TypeError):
         return None
+
+
+# Sheet names listed in one observation line. Workbooks with hundreds of tabs
+# exist; the full list is still in the output's `sheets`.
+_MAX_SHEETS_LISTED = 50
+
+
+def _sheets_summary(sheet: Optional[str], sheets: Optional[list]) -> str:
+    """One line telling the model which sheet it got and which others exist —
+    the observation is all it reads, so the list must be here, not only in
+    the output."""
+    if not sheets:
+        return ""
+    total = len(sheets)
+    pos = f"{sheets.index(sheet) + 1} of {total}" if sheet in sheets else f"of {total}"
+    if total == 1:
+        return f'sheet "{sheet}" (the workbook\'s only sheet)'
+    shown = ", ".join(f'"{n}"' for n in sheets[:_MAX_SHEETS_LISTED])
+    if total > _MAX_SHEETS_LISTED:
+        shown += f", … (+{total - _MAX_SHEETS_LISTED} more in `sheets`)"
+    return (
+        f'sheet "{sheet}" ({pos}); workbook sheets: {shown} — '
+        f'read another with the same file_id plus sheet="<name>"'
+    )
 
 
 def _grep_hint(file_id: str | None, connection_id: str | None) -> str:
@@ -734,6 +772,7 @@ class ReadFileTool(Tool):
             and getattr(conn_obj, "auth_policy", None) == "user_required"
             and "oauth" in (getattr(conn_obj, "allowed_user_auth_modes", None) or [])
         )
+        sheet_ref, sheet_name_id = _sheet_keys(data.file_id, data.sheet)
         version = None
         # Session files are already local + immutable — the connector cache
         # buys nothing and its keying assumes a connection id.
@@ -752,7 +791,7 @@ class ReadFileTool(Tool):
         # serving it back would defeat the model's explicit request. The fresh
         # image render then overwrites the entry below.
         if version and not data.as_images:
-            cached = _file_cache.read(data.connection_id, data.file_id, version)
+            cached = _file_cache.read(data.connection_id, sheet_ref, version)
             # Never serve a TRUNCATED render from cache: the cached text is
             # frozen at the caps of whichever call populated it, so (a) a
             # retry asking for more (bigger max_chars/max_rows) would get the
@@ -766,6 +805,7 @@ class ReadFileTool(Tool):
                 rendered = cached.get("rendered") or {}
                 session_file_id = await self._persist_rendered_session(
                     runtime_ctx, data.file_id, rendered,
+                    source_ref=sheet_ref, name_id=sheet_name_id,
                     connection_id=getattr(data, "connection_id", None))
                 # The cached entry carries the source's real name (opaque Graph
                 # ids have none of their own), which is what says whether there
@@ -951,6 +991,7 @@ class ReadFileTool(Tool):
         else:
             session_file_id = await _persist_session_file(
                 runtime_ctx, file_id=data.file_id, payload=payload,
+                source_ref=sheet_ref, name_id=sheet_name_id,
                 connection_id=getattr(data, "connection_id", None),
             )
 
@@ -1029,7 +1070,7 @@ class ReadFileTool(Tool):
                              "image_file_ids", "preview")
             }
             _file_cache.write(
-                data.connection_id, data.file_id, version,
+                data.connection_id, sheet_ref, version,
                 rendered=cache_rendered, image_pngs=image_pngs, pages_total=pages_total,
             )
 
@@ -1186,6 +1227,9 @@ class ReadFileTool(Tool):
         ]
         if ct == "tabular":
             bits.append(f"{output.get('row_count')} rows × {output.get('col_count')} cols")
+            sheet_bit = _sheets_summary(output.get("sheet"), output.get("sheets"))
+            if sheet_bit:
+                bits.append(sheet_bit)
         elif ct == "images":
             bits.append(f"{output.get('image_count')} of {pages_total} page(s) as image(s) for vision")
         elif output.get("image_count"):
@@ -1223,16 +1267,18 @@ class ReadFileTool(Tool):
         return output, observation
 
     async def _persist_rendered_session(self, runtime_ctx, file_id, rendered,
-                                        connection_id=None):
+                                        connection_id=None, source_ref=None,
+                                        name_id=None):
         """Re-materialize a session file from a cached rendered payload (text/csv/
         json) so inspect_data / create_data still work on a cache hit. Images and
         binary carry no attachable text — return None."""
         ct = (rendered or {}).get("content_type")
+        name_id = name_id or file_id
         if ct == "tabular" and rendered.get("csv") is not None:
             return await attach_drive_file_to_session(
-                runtime_ctx, filename=_materialized_name(file_id, "csv"),
+                runtime_ctx, filename=_materialized_name(name_id, "csv"),
                 content_bytes=rendered["csv"].encode("utf-8"), mime_type="text/csv",
-                connection_id=connection_id, source_ref=file_id)
+                connection_id=connection_id, source_ref=source_ref or file_id)
         if ct == "text" and rendered.get("text") is not None:
             return await attach_drive_file_to_session(
                 runtime_ctx, filename=_materialized_name(file_id, "txt"),
@@ -1249,6 +1295,8 @@ class ReadFileTool(Tool):
 async def _persist_session_file(
     runtime_ctx: Dict[str, Any], *, file_id: str, payload: Any,
     connection_id: Optional[str] = None,
+    source_ref: Optional[str] = None,
+    name_id: Optional[str] = None,
 ) -> Optional[str]:
     """Serialize the parsed payload back to bytes + attach to current report.
 
@@ -1276,7 +1324,8 @@ async def _persist_session_file(
         buf = io.StringIO()
         payload.to_csv(buf, index=False)
         content = buf.getvalue().encode("utf-8")
-        name = _materialized_name(file_id, "csv")
+        # One session file per sheet (see _sheet_keys).
+        name = _materialized_name(name_id or file_id, "csv")
         mime = "text/csv"
     elif isinstance(payload, (dict, list)):
         content = json.dumps(payload, default=str, ensure_ascii=False).encode("utf-8")
@@ -1298,5 +1347,6 @@ async def _persist_session_file(
 
     return await attach_drive_file_to_session(
         runtime_ctx, filename=name, content_bytes=content, mime_type=mime,
-        connection_id=connection_id, source_ref=file_id,
+        connection_id=connection_id,
+        source_ref=(source_ref or file_id) if isinstance(payload, pd.DataFrame) else file_id,
     )

@@ -45,6 +45,8 @@ from app.data_sources.clients._document_text import (
 )
 from app.data_sources.clients._email_text import EMAIL_EXTS
 from app.data_sources.clients._file_source_common import (
+    EXCEL_EXTS,
+    read_excel_sheet,
     INDEX_CONTENT,
     INDEX_NONE,
     FileTooLargeError,
@@ -378,8 +380,8 @@ class S3Client(DataSourceClient):
             return pd.read_csv(io.BytesIO(data))
         if ext == "tsv":
             return pd.read_csv(io.BytesIO(data), sep="\t")
-        if ext in ("xlsx", "xls"):
-            return pd.read_excel(io.BytesIO(data), sheet_name=sheet or 0)
+        if ext in EXCEL_EXTS:
+            return read_excel_sheet(data, sheet, trim=False)
         if ext == "parquet":
             return pd.read_parquet(io.BytesIO(data))
         if ext == "json":
