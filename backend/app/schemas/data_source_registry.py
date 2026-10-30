@@ -167,6 +167,10 @@ from app.schemas.data_sources.configs import (
     PriorityErpConfig,
     PriorityErpPatCredentials,
     PriorityErpBasicCredentials,
+    # Microsoft Configuration Manager (SCCM / MECM)
+    MecmConfig,
+    MecmNtlmCredentials,
+    MecmKerberosCredentials,
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
@@ -835,6 +839,48 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
         # Priority catalogs *forms*, not database tables — say so in the copy.
         catalog_nouns=("form", "forms"),
+        version="beta",
+    ),
+    "mecm": DataSourceRegistryEntry(
+        type="mecm",
+        category="infra",
+        title="Microsoft Configuration Manager (SCCM)",
+        description="Microsoft Configuration Manager (SCCM / MECM / ConfigMgr). Query devices, collections, hardware and software inventory, applications, deployments and software update compliance via the AdminService REST API. Read-only.",
+        config_schema=MecmConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            # The SMS Provider only speaks Windows auth. NTLM also offers the
+            # user scope: each person's own CM security scopes then filter what
+            # they see (bring-your-own Windows credentials).
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=MecmNtlmCredentials, scopes=["system", "user"]),
+            # Kerberos runs as a keytab-backed service account mounted on the
+            # server — one identity for everyone, so system scope only.
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=MecmKerberosCredentials, scopes=["system"]),
+        }),
+        setup_guide=[
+            SetupStep(
+                title="Give the account read access in Configuration Manager",
+                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see.",
+            ),
+            SetupStep(
+                title="Check the administration service answers",
+                body="From a domain-joined machine, run this against your SMS Provider. It should list your site.",
+                code="Invoke-RestMethod -UseDefaultCredentials -Uri 'https://cm01.contoso.com/AdminService/wmi/SMS_Site'",
+                language="powershell",
+            ),
+            SetupStep(
+                title="Export the SMS Provider certificate",
+                body="The site binds a self-signed certificate by default. Run this in PowerShell on the SMS Provider and paste the output into SMS Provider certificate (PEM). Skip this if the certificate comes from a CA this server already trusts.",
+                code=(
+                    "$hash = ((netsh http show sslcert ipport=0.0.0.0:443) -match 'Certificate Hash' -split ':\\s*')[-1].Trim()\n"
+                    "$c = Get-Item \"Cert:\\LocalMachine\\My\\$hash\"\n"
+                    "'-----BEGIN CERTIFICATE-----'; [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks'); '-----END CERTIFICATE-----'"
+                ),
+                language="powershell",
+            ),
+        ],
+        client_path="app.data_sources.clients.mecm_client.MecmClient",
+        # Configuration Manager catalogs WMI classes, not database tables.
+        catalog_nouns=("class", "classes"),
         version="beta",
     ),
     "appdynamics": DataSourceRegistryEntry(

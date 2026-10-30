@@ -818,6 +818,94 @@ class PriorityErpConfig(BaseModel):
     )
 
 
+# Microsoft Configuration Manager (SCCM / MECM) — AdminService REST API
+class MecmNtlmCredentials(BaseModel):
+    """Windows credentials, sent with NTLM / Negotiate."""
+    username: str = Field(
+        ...,
+        min_length=1,
+        title="Domain username",
+        description=(
+            "DOMAIN\\username or user@domain. The account must be a Configuration Manager "
+            "administrative user — the Read-only Analyst role is enough. Its security scopes "
+            "decide which devices and collections it can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class MecmKerberosCredentials(BaseModel):
+    """Kerberos service account from a keytab or ticket cache mounted on the server."""
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: str | None = Field(
+        None,
+        title="Service principal",
+        description=(
+            "Optional service-account principal (svc_bow@CONTOSO.COM). Administrators mount "
+            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the Bag of Words server. "
+            "Requests run as this account, not as the signed-in user."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
+class MecmConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="SMS Provider",
+        description=(
+            "Host name of the server with the SMS Provider role (usually the site server), e.g. "
+            "cm01.contoso.com — or the full https://cm01.contoso.com/AdminService URL."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    classes: str | None = Field(
+        None,
+        title="Classes",
+        description=(
+            "Optional comma-separated list of classes to expose, e.g. SMS_R_System, SMS_Collection, "
+            "SMS_G_System_INSTALLED_SOFTWARE, v1.0/Device. If empty, a curated set of device, "
+            "collection, inventory, application, deployment and update classes is used."
+        ),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover all classes",
+        description="Index every class the site exposes (700+, including custom hardware inventory classes) instead of the curated set.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    include_v1: bool = Field(
+        False,
+        title="Include v1.0 entities",
+        description="Also index the versioned v1.0 route (Device and related entities). Needs Configuration Manager 1906 or later.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_certificate: str | None = Field(
+        None,
+        title="SMS Provider certificate (PEM)",
+        description=(
+            "By default the site uses a self-signed certificate for the administration service. "
+            "Paste it here (or the issuing CA's certificate) to trust exactly that certificate "
+            "instead of turning verification off."
+        ),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server certificate. Turn off only for an isolated test lab.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 # AppDynamics (Cisco / Splunk AppDynamics)
 class AppDynamicsUserPassCredentials(BaseModel):
     username: str = Field(
@@ -4074,6 +4162,10 @@ __all__ = [
     "PriorityErpPatCredentials",
     "PriorityErpBasicCredentials",
     "PriorityErpConfig",
+    # Microsoft Configuration Manager
+    "MecmNtlmCredentials",
+    "MecmKerberosCredentials",
+    "MecmConfig",
     # MCP
     "MCPConfig",
     "MCPNoAuthCredentials",
