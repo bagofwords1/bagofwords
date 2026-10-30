@@ -288,3 +288,46 @@ Official (Broadcom TechDocs / KB):
 Third-party:
 - Itential OpenAPI + workflows: https://github.com/itential/assets/pull/130 (files under `Broadcom/DX NetOps Spectrum/`)
 - https://github.com/orgito/spectrum-client · https://github.com/sprootik/oneclick_client · https://github.com/zarulzakuan/spectrumwrapper
+
+## 7. What can we validate against while building? (2026-10-30)
+
+Short answer: **nothing public runs Spectrum.** Options, best first:
+
+| Option | Availability | Verdict |
+|---|---|---|
+| **Customer / partner OneClick instance** (read-only API user, GET+POST only) | needs the customer | The only way to see real JSON shapes, paging and auth. Ask for a Basic-auth local user on a non-prod OneClick, plus `$SPECROOT/RestfulExamples/` (XML samples + `src/xsd/{Request,Response,Filter}.xsd`) and `/spectrum/restful/swagger.json` exported from their server. |
+| **Broadcom's own Docker images** (`spectrum-one-click-server-image`, `spectrum-ss-image`, `spectrum-sdc-image`, OC-SRM) | tar.gz from support.broadcom.com, entitlement required; RHEL 7/8 host, Kubernetes autoinstaller for DSS | Real product in a container, but gated behind a Broadcom support login and license. No Docker Hub / Helm. Only viable if the customer or a partner account can hand us the archives. |
+| **Broadcom NetOps Simulation Lab** (Software Academy) | free on-demand training | Guided lab, not an API endpoint we can script against. Useful to eyeball OneClick and Swagger UI, not for CI. |
+| **Trial download** | no public trial; downloads require a support account tied to a contract | Dead end for us directly. |
+| **Recorded fixtures on GitHub** | none found (no XSDs, no `RestfulExamples`, no Postman collections, no mock servers; `ca-spectrum` topic has one repo) | Build our own. |
+| **Itential OpenAPI spec** | public, Apache-2.0 | Paths/params only, **zero example payloads**, no response schemas. Good contract checklist, cannot drive a mock on its own. |
+
+### Plan for a build-time mock
+
+Same approach as `tools/aria_operations/docker-compose.yaml` (`mock_suite_api.py`)
+and `tools/brocade/simulated_api.py`: a `tools/spectrum/mock_oneclick.py`
+(FastAPI, XML in / XML or JSON out, Basic + Bearer) seeded from the
+**documented XML responses** we already have verbatim or near-verbatim:
+
+- `landscape-response` (landscapes page), `model-response-list` (devices/models pages),
+  `alarm-response-list`, `alarmcount-response`, `alarmfilters-response`
+  (alarms page), `get-event-response-list` with `link rel="next"` (events page),
+  `connection-response-list` (connectivity page), `attribute-enum-response`
+  (attribute page), association and PUT/DELETE success bodies.
+- Request grammar from `rs:model-request` / `rs:alarm-request` /
+  `rs:get-event-request` examples (models, alarms, events pages; KB 194661).
+
+Known unknowns the mock must mark as *assumed* and the first live pass must
+confirm (keep them in one `ASSUMPTIONS` block in the mock):
+
+1. JSON rendering of the XML (JAXB/Jersey style: attributes as `@`-less keys?
+   single-item arrays collapsed?). Design the parser to accept XML first and
+   treat JSON as an optimisation, so a JSON-shape mismatch cannot break v1.
+2. `next` link format per noun (`?id=` result set for models vs `?start=` for events) and the 1000 default throttle.
+3. Bearer header spelling on 24.3.10+.
+4. `connectivity/{ip}` vs `{mh}`; whether `models/getAllDevices` exists.
+5. Severity / condition enum integers (resolve live via `attribute/<id>/enums`).
+
+A unit-test contract file like `tests/unit/test_aria_mock_contract.py` should
+pin the mock to these documented bodies so later live corrections are diffs,
+not rewrites.
