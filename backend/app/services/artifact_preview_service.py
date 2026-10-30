@@ -146,7 +146,9 @@ class ArtifactPreviewService:
                     db, organization_id=self.org_id, report_id=self.report_id,
                     artifact_id=self.artifact.get("artifact_id") or self.artifact["id"],  # the app, not this version
                     user_id=self.user_id, session_id=f"preview-{self.evidence_id}", source="preview",
-                    artifact_version=self.artifact.get("version"), events=[{**event, "kind": kind}])
+                    artifact_version=self.artifact.get("version"), events=[{**event, "kind": kind}],
+                    # Set while the automatic check runs: its result already reports them.
+                    shown_in_completion_id=self.ctx.get("artifact_activity_shown_in"))
         except Exception:
             pass  # evidence in the tool result still carries it
 

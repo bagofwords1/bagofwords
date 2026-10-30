@@ -95,8 +95,11 @@ async def _redactor(organization_id: str):
 
 async def record(db, *, organization_id: str, artifact_id: str, report_id: Optional[str],
                  user_id: Optional[str], session_id: str, source: str, events: Iterable[dict],
-                 artifact_version: Optional[int] = None, commit: bool = True) -> int:
-    """Store cleaned events and prune. Returns how many were stored."""
+                 artifact_version: Optional[int] = None, commit: bool = True,
+                 shown_in_completion_id: Optional[str] = None) -> int:
+    """Store cleaned events and prune. Returns how many were stored.
+    ``shown_in_completion_id``: the events are already in that completion
+    (the automatic check's tool result), so ``context_section`` skips them."""
     assert source in SOURCES
     rows = [e for e in (clean_event(e) for e in list(events)[:MAX_BATCH]) if e]
     if not rows:
@@ -109,7 +112,8 @@ async def record(db, *, organization_id: str, artifact_id: str, report_id: Optio
             organization_id=str(organization_id), artifact_id=str(artifact_id),
             artifact_version=artifact_version, report_id=str(report_id) if report_id else None,
             user_id=str(user_id) if user_id else None, session_id=str(session_id)[:64],
-            source=source, **row,
+            source=source, shown_in_completion_id=str(shown_in_completion_id) if shown_in_completion_id else None,
+            **row,
         ))
     await db.flush()
     await prune(db, report_id=report_id, artifact_id=artifact_id)

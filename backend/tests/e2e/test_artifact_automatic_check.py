@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 import uuid
+from types import SimpleNamespace
 from urllib.parse import urlparse
 
 import pytest
@@ -1059,3 +1060,44 @@ def test_gate_skips_are_logged_with_their_reason(check_logs, chromium, stub_rend
         asyncio.run(_create(owner, STATIC_CODE))
     messages = [record.getMessage() for record in caplog.records if record.name == av.logger.name]
     assert any("automatic_artifact_check skipped" in m and "reason=not_recommended" in m for m in messages), messages
+
+
+def test_the_check_s_preview_activity_is_not_reported_again_next_turn(chromium, stub_render, owner):
+    """The check's own preview events (logged as source=preview) are already in
+    this completion's tool result: they are stamped as shown in it, so the
+    next turn's <app_activity> does not repeat them."""
+    from sqlalchemy import text
+
+    from app.services import artifact_activity
+
+    chromium.behavior, chromium.snapshot = "reply_ok", CHAT_SNAPSHOT
+    completion_id = str(uuid.uuid4())
+
+    async def refused_create(page):
+        ref = urlparse(page.url).path.rstrip("/").rsplit("/", 1)[-1]
+        await page.binding({"frame": page.main_frame}, {
+            "artifact_id": ref, "kind": "sdk_call", "event_kind": "request", "op": "conversations.create",
+            "status": "error", "error_code": "conversation.agent_forbidden",
+            "detail": {"message": "You can't use that agent here"}})
+
+    chromium.on_goto = refused_create
+    _events, payload, ctx = asyncio.run(_create(
+        owner, CHAT_CODE, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    check = _check(payload)
+    assert check["status"] == "problems_found"
+    assert any(e["source"] == "sdk" and "conversation.agent_forbidden" in e["message"] for e in check["errors"])
+
+    async def logged():
+        async with async_session_maker() as db:
+            rows = (await db.execute(text(
+                "select source, error_code, shown_in_completion_id from artifact_activity_events "
+                "where report_id = :r"), {"r": owner["report_id"]})).all()
+            section = await artifact_activity.context_section(db, report_id=owner["report_id"],
+                                                              completion_id=str(uuid.uuid4()))
+            return [tuple(r) for r in rows], section
+
+    rows, section = asyncio.run(logged())
+    assert ("preview", "conversation.agent_forbidden", completion_id) in rows
+    assert all(shown == completion_id for _source, _code, shown in rows)
+    assert section is None, section

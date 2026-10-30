@@ -207,3 +207,33 @@ def test_the_tool_reads_a_conversation_s_activity(corpus, corpus_rows, test_clie
     detail = run(call(event_id=failed["id"][:8]))["event"]
     assert detail["error_code"] == "conversation.agent_forbidden" and detail["detail"]["agents"] == ["music-store"]
     assert run(call(source="preview"))["events"] == []
+
+
+def test_preview_activity_is_shown_next_turn_unless_the_automatic_check_logged_it(corpus, corpus_rows, test_client):
+    from types import SimpleNamespace
+
+    from app.services.artifact_preview_service import ArtifactPreviewService
+
+    aid = own(corpus_rows, corpus, DASH)
+    report_id = report_of(corpus_rows, aid)
+    with corpus_rows.engine.begin() as conn:
+        org_id = str(conn.execute(text("select organization_id from artifacts where id = :id"), {"id": aid}).scalar_one())
+
+    def preview(**extra):
+        service = ArtifactPreviewService({"report": SimpleNamespace(id=report_id), "user": SimpleNamespace(id=corpus.cast.id("owner")),
+                                          "organization": SimpleNamespace(id=org_id), **extra})
+        service.artifact = {"id": aid, "artifact_id": aid, "version": 1}
+        return service
+
+    async def section():
+        async with async_session_maker() as db:
+            return await artifact_activity.context_section(db, report_id=report_id, completion_id=str(uuid.uuid4()))
+
+    event = {k: v for k, v in FAILED_SEND.items() if k != "kind"}
+    # The automatic check's events are already in its tool result.
+    run(preview(artifact_activity_shown_in=str(uuid.uuid4())).log_activity("request", event))
+    assert run(section()) is None
+    # The agent's own preview browsing is still reported on the next turn.
+    run(preview().log_activity("request", event))
+    shown = run(section())
+    assert shown and "conversation.agent_forbidden" in shown and shown.count("conversation.agent_forbidden") == 1

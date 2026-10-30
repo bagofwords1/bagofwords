@@ -551,6 +551,13 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
     run = runtime_ctx.get("artifact_check_run")
     result = _new_result(artifact_id, version)
     restricted = failed = cancelled = final_ok = False
+    # What the preview logs to the app's activity log meanwhile (source=preview)
+    # is reported in this completion's tool result: stamp it as shown there, so
+    # the next turn's <app_activity> does not report it again.
+    completion = runtime_ctx.get("system_completion")
+    shown_before = runtime_ctx.get("artifact_activity_shown_in")
+    if getattr(completion, "id", None):
+        runtime_ctx["artifact_activity_shown_in"] = str(completion.id)
     try:
         navigation = None
         try:
@@ -622,6 +629,10 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
             if not cancelled:
                 logger.warning("Automatic artifact check cleanup failed: %s", _log_ids(runtime_ctx, result), exc_info=True)
             failed = True
+        if shown_before is None:
+            runtime_ctx.pop("artifact_activity_shown_in", None)
+        else:
+            runtime_ctx["artifact_activity_shown_in"] = shown_before
     result["duration_ms"] = int((time.monotonic() - started) * 1000)
     # Privacy precedence: applied last, it overrides everything above.
     if restricted or failed or not final_ok:
