@@ -72,6 +72,17 @@ TESTING=true ENVIRONMENT=production uv run pytest tests/e2e/test_data_source.py 
 | Mutation check: breaking retry-header max, single-clause filter, or paging fails 3 tests | pass |
 | Existing data-source / connection e2e suites | 54 passed |
 
+## Loop A2 — live stack, no Azure account (done)
+
+`tools/agent/boot_stack.sh --dev` + `seed_org.py`, then:
+
+| Check | Result |
+|---|---|
+| `GET /api/available_data_sources` lists `azure_cost` (category `infra`, beta) | pass |
+| Onboarding picker: searching "azure cost" shows the tile with its icon; the form renders Scope, Default cost view (ActualCost / AmortizedCost), and the Service Principal / Managed Identity credential switch | pass (screenshots in the PR) |
+| `POST /api/connections/test-params` with a fake tenant → real round trip to `login.microsoftonline.com`, `success: false` with the "check the tenant ID, client ID and secret" message in ~2 s | pass |
+| Unauthenticated `POST management.azure.com/…/Microsoft.CostManagement/query?api-version=2025-03-01` from the sandbox → ARM answers (`SubscriptionNotFound`), so egress to Azure is open and only credentials are missing | pass |
+
 ## Loop B — live Azure (not yet run)
 
 ### What it needs
