@@ -628,12 +628,20 @@ async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000, roo
 
     if not full:
         # Drop pure structural containers with no accessible name to shrink the tree.
+        # Their children move up one level per dropped ancestor, so the filtered
+        # tree keeps the real nesting (a dropped list after an alert must not put
+        # its items under that alert).
         lines = []
+        dropped = []  # indents of the dropped containers enclosing the current line
         for ln in snap.splitlines():
             stripped = ln.strip()
+            indent = len(ln) - len(ln.lstrip(" "))
+            while dropped and indent <= dropped[-1]:
+                dropped.pop()
             if re.fullmatch(r'-\s+(generic|group|paragraph|list|listitem)\s+\[ref=[^\]]+\]:?', stripped):
+                dropped.append(indent)
                 continue
-            lines.append(ln)
+            lines.append(ln[min(indent, 2 * len(dropped)):] if stripped else ln)
         snap = "\n".join(lines)
 
     truncated = False

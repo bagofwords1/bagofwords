@@ -18,6 +18,7 @@ import httpx
 
 from app.ai.code_execution.query_params import date_range_issue, param_values_equal
 from app.schemas.param_schema import parse_param_specs
+from app.services.artifact_preview_noise import is_preview_noise_error
 
 
 class PreviewUnavailableError(RuntimeError):
@@ -230,7 +231,7 @@ class ArtifactPreviewService:
     async def wait_ready(self, timeout=10):
         deadline = time.monotonic() + timeout
         while not any(e["kind"] == "data_received" for e in self.events):
-            if any(e["kind"] == "error" for e in self.events):
+            if any(e["kind"] == "error" and not is_preview_noise_error(e) for e in self.events):
                 return "errors_observed"
             remaining = deadline - time.monotonic()
             if remaining <= 0:

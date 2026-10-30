@@ -10,6 +10,8 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from app.services.artifact_preview_noise import HOST_NOISE_PREFIXES, SANDBOX_SW_NOISE, is_preview_noise_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -176,16 +178,14 @@ _FROZEN_ERROR = {"source": "render",
                  "message": "The saved app stopped responding after it started rendering: the load did not "
                             "finish within the check budget."}
 _RESTRICTED_CODES = {"preview_restricted", "session_scope_mismatch"}
-_HOST_NOISE_PREFIXES = ("Failed to load resource", "[vite]", "[nuxt]", "[Vue warn]", "[HMR]")
-# Playwright's service_workers="block" (preview contexts, _browser_common.py)
-# installs an init script that reads navigator.serviceWorker in every frame; in
-# the sandboxed artifact iframe that read throws. Not app code.
-_SANDBOX_SW_NOISE = "Failed to read the 'serviceWorker' property from 'Navigator'"
+_HOST_NOISE_PREFIXES = HOST_NOISE_PREFIXES
+_SANDBOX_SW_NOISE = SANDBOX_SW_NOISE
 _BREAKER_REASONS = {"preview_unavailable", "preview_not_ready", "timeout"}
 _MAX_ITEMS = 5
 _MAX_MESSAGE = 300
 
 _REF_TOKEN = re.compile(r"\s*\[ref=[^\]]*\]")
+_ACTIVE_TOKEN = re.compile(r"\s*\[active\]")
 _STRONG_TOKENS = ("TypeError", "ReferenceError", "SyntaxError", "RangeError", "Cannot read properties",
                   "is not a function", "undefined is not", "is not defined", "Unexpected token",
                   "Maximum update depth")
@@ -200,7 +200,7 @@ _ECHO_PREFIX = re.compile(r"^\s*(?:\[ArtifactFrame\] Iframe render error:\s*)?(?
 _SEND_WORD = re.compile(r"\bsend\b")
 _TEXTBOX_LINE = re.compile(r"^\s*-\s*textbox\b[^\n]*?\[ref=([^\]]+)\]", re.M)
 _BUTTON_LINE = re.compile(r'^\s*-\s*button\s+"([^"]*)"[^\n]*?\[ref=([^\]]+)\]', re.M)
-_SEND_NAME = re.compile(r"\b(?:send|submit|ask|enviar|preguntar|שלח|שאל)\b", re.I)
+_SEND_NAME = re.compile(r"\b(?:send|submit|ask|enviar|preguntar|שלח|שלחי|שלחו|שליחה|שאל|שאלי)\b", re.I)
 
 
 @dataclass
@@ -245,9 +245,7 @@ def classify_preview_output(output: dict) -> dict:
         elif source == "transport":
             transport = True
             result["informational_errors"] += 1
-        elif source == "console" and message.startswith(_HOST_NOISE_PREFIXES):
-            result["informational_errors"] += 1
-        elif _SANDBOX_SW_NOISE in message:
+        elif is_preview_noise_error(event):
             result["informational_errors"] += 1
         else:
             key = _ECHO_PREFIX.sub("", message).strip()
@@ -279,17 +277,50 @@ def classify_load_output(output: dict) -> dict:
     result = classify_preview_output(output)
     if result["status"] == "unavailable" or (output or {}).get("success") is False:
         return result
-    verdict = classify_smoke_snapshot("", (output or {}).get("snapshot") or "")
+    verdict = classify_load_snapshot((output or {}).get("snapshot") or "")
     if verdict["indicator"] == "strong":
         result["errors"] = (result["errors"] + [{"source": "ui", "message": verdict["message"]}])[:_MAX_ITEMS]
         result["status"] = "problems_found"
     return result
 
 
+def classify_load_snapshot(snapshot: str) -> dict:
+    """Look for an error the app shows in an alert at load.
+
+    Only alert/alertdialog lines and the lines nested under them are in scope:
+    a table cell or log line reading "TypeError" is data. Inside that scope a
+    JS-error token is strong; error words alone ("12 failed logins") are weak.
+    """
+    strong = weak = None
+    alert_indent = None
+    for raw in (snapshot or "").splitlines():
+        line = _REF_TOKEN.sub("", raw).rstrip()
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if alert_indent is not None and indent <= alert_indent:
+            alert_indent = None
+        if _ALERT_LINE.match(line):
+            alert_indent = indent if alert_indent is None else alert_indent
+        elif alert_indent is None:
+            continue
+        if any(token in line for token in _STRONG_TOKENS):
+            strong = strong or line
+        elif _ALERT_LINE.match(line) or _ALERT_STRONG.search(line) or _WEAK_TEXT.search(line):
+            weak = weak or line
+    line = strong or weak
+    return {"reply_seen": False,
+            "indicator": "strong" if strong else "weak" if weak else None,
+            "message": _clip(line.strip()) if line else None}
+
+
 def classify_smoke_snapshot(before: str, after: str) -> dict:
     """Look for error indicators among lines that appeared after the test send."""
+    # Compared without indentation or the focus marker: focus moving onto an
+    # unnamed container keeps it in the filtered snapshot and moves its old
+    # children one level deeper, which must not make them look new.
     def lines(text):
-        return [_REF_TOKEN.sub("", line).rstrip() for line in (text or "").splitlines()]
+        return [_ACTIVE_TOKEN.sub("", _REF_TOKEN.sub("", line)).strip() for line in (text or "").splitlines()]
 
     seen = set(lines(before))
     fresh = [line for line in lines(after) if line.strip() and line not in seen]

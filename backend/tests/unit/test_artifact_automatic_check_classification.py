@@ -8,6 +8,7 @@ forwarded query is replaced (the true boundary).
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from types import SimpleNamespace
@@ -268,6 +269,21 @@ def test_changed_refs_do_not_create_new_lines():
     assert classify_smoke_snapshot(BEFORE, after)["reply_seen"] is False
 
 
+def test_focus_moving_onto_an_unnamed_container_does_not_create_new_lines():
+    # Before the send the log div is dropped by the filter (its children sit one
+    # level up); after the send the app focuses it, so it is kept ([active]) and
+    # its old children move one level deeper. They are not new.
+    before = ("- textbox [ref=e3]\n"
+              "- generic [ref=e9]: \"Earlier: export failed\"\n"
+              "- generic [ref=e10]: TypeError in checkout\n")
+    after = ("- textbox [ref=e3]\n"
+             "- generic [active] [ref=e8]:\n"
+             "  - generic [ref=e9]: \"Earlier: export failed\"\n"
+             "  - generic [ref=e10]: TypeError in checkout\n")
+    assert classify_smoke_snapshot(before, after)["indicator"] is None
+    assert classify_smoke_snapshot(before, after + "- generic [ref=e11]: TypeError: x is undefined")["indicator"] == "strong"
+
+
 def test_failed_query_summary_points_to_query_repair_not_code_edits():
     text = summary_sentence(_result(status="problems_found", checked=["load"],
                                     failed_queries=[{"query_id": "q", "status": "error", "error": "bad column"}]))
@@ -342,14 +358,86 @@ def test_one_crash_echoed_three_ways_counts_once():
 
 
 def test_an_error_rendered_in_the_load_snapshot_is_a_ui_problem():
+    # A crash the app shows on screen at load sits in an alert (an error
+    # boundary, a toast); the JS-error token inside that alert is the problem.
+    service = _service()
+    output = _output(service)
+    output["snapshot"] = ('- heading "Sales" [ref=e1]\n'
+                          '- alert [ref=e2]:\n'
+                          '  - text: "TypeError: Cannot read properties of undefined (reading \'map\')"')
+    result = av.classify_load_output(output)
+    assert result["status"] == "problems_found"
+    assert result["errors"] == [{"source": "ui", "message":
+                                 "- text: \"TypeError: Cannot read properties of undefined (reading 'map')\""}]
+
+
+def test_plain_text_js_error_outside_an_alert_is_data_at_load():
     service = _service()
     output = _output(service)
     output["snapshot"] = ('- heading "Sales" [ref=e1]\n'
                           '- text: "TypeError: Cannot read properties of undefined (reading \'map\')"')
     result = av.classify_load_output(output)
+    assert (result["status"], result["errors"]) == ("passed", [])
+
+
+LOG_DASHBOARD = (
+    '- heading "Application log" [ref=e1]\n'
+    '- alert [ref=e2]: "12 failed logins"\n'
+    '- table [ref=e3]:\n'
+    '  - row [ref=e4]:\n'
+    '    - cell "TypeError in checkout" [ref=e5]\n'
+    '    - cell "ReferenceError: total is not defined" [ref=e6]\n'
+    '  - row [ref=e7]:\n'
+    '    - cell "Something went wrong at 10:42" [ref=e8]'
+)
+
+
+def test_a_log_dashboard_showing_errors_as_data_passes_the_load():
+    service = _service()
+    output = _output(service)
+    output["snapshot"] = LOG_DASHBOARD
+    result = av.classify_load_output(output)
+    assert (result["status"], result["errors"]) == ("passed", [])
+
+
+def test_a_js_error_nested_under_an_alertdialog_is_a_ui_problem():
+    snapshot = ('- heading "Orders" [ref=e1]\n'
+                '- alertdialog "Crash" [ref=e2]:\n'
+                '  - group [ref=e3]:\n'
+                '    - paragraph [ref=e4]: "x.map is not a function"\n'
+                '- table [ref=e5]:\n'
+                '  - cell "ReferenceError in job 7" [ref=e6]')
+    verdict = av.classify_load_snapshot(snapshot)
+    assert verdict["indicator"] == "strong"
+    assert verdict["message"] == '- paragraph: "x.map is not a function"'
+    assert verdict["reply_seen"] is False
+
+
+def test_lines_after_an_alert_subtree_closes_are_out_of_scope():
+    # A sibling of the alert (same indent) is outside it, even if a JS-error
+    # token follows; only lines indented under the alert count.
+    snapshot = ('- alert [ref=e1]:\n'
+                '  - text: "Saved"\n'
+                '- text: "TypeError: shown in a log line"')
+    verdict = av.classify_load_snapshot(snapshot)
+    assert verdict["indicator"] != "strong"
+
+
+def test_an_alert_with_only_error_words_is_weak_at_load():
+    verdict = av.classify_load_snapshot('- alert [ref=e1]: "12 failed logins"')
+    assert verdict["indicator"] == "weak"
+    assert verdict["message"] == '- alert: "12 failed logins"'
+
+
+def test_a_page_error_with_a_clean_load_snapshot_is_still_a_problem():
+    # R1: a crash that renders no alert still raises a pageerror.
+    service = _service()
+    service.record("error", source="browser", message="TypeError: Cannot read properties of undefined")
+    output = _output(service, readiness="errors_observed")
+    output["snapshot"] = LOG_DASHBOARD
+    result = av.classify_load_output(output)
     assert result["status"] == "problems_found"
-    assert result["errors"] == [{"source": "ui", "message":
-                                 "- text: \"TypeError: Cannot read properties of undefined (reading 'map')\""}]
+    assert [error["source"] for error in result["errors"]] == ["browser"]
 
 
 def test_a_clean_load_snapshot_adds_nothing():
@@ -426,3 +514,189 @@ async def test_shared_db_release_honors_the_agent_release_toggle(monkeypatch):
     monkeypatch.setenv("BOW_AGENT_RELEASE_DB_BETWEEN_STEPS", "1")
     await av._release_shared_db({"db": db})
     assert db.commits == 1
+
+
+@pytest.mark.parametrize(("event", "expected"), [
+    ({"kind": "error", "source": "console", "message": "Failed to load resource: 404"}, True),
+    ({"kind": "error", "source": "console", "message": "[vite] connecting..."}, True),
+    ({"kind": "error", "source": "browser", "message": "SecurityError: " + _SW_NOISE}, True),
+    ({"kind": "error", "source": "browser", "message": "Failed to load resource: 404"}, False),
+    ({"kind": "error", "source": "browser", "message": "TypeError: boom"}, False),
+    ({"kind": "error", "source": "transport", "message": "ReadTimeout forwarding /api/queries"}, False),
+    ({"kind": "warning", "source": "console", "message": "[vite] connecting..."}, False),
+])
+def test_preview_noise_predicate(event, expected):
+    from app.services.artifact_preview_noise import is_preview_noise_error
+    assert is_preview_noise_error(event) is expected
+
+
+def test_noise_constants_stay_reachable_from_the_classifier():
+    from app.services import artifact_preview_noise as noise
+    assert av._HOST_NOISE_PREFIXES == noise.HOST_NOISE_PREFIXES
+    assert av._SANDBOX_SW_NOISE == noise.SANDBOX_SW_NOISE
+
+
+async def _ready_after(service, *errors):
+    """Record errors, start wait_ready, then deliver the data push."""
+    for source, message in errors:
+        service.record("error", source=source, message=message)
+    waiter = asyncio.create_task(service.wait_ready(timeout=5))
+    await asyncio.sleep(0)
+    if not waiter.done():
+        service.record("data_received", data_revision=1)
+    return await waiter
+
+
+@pytest.mark.asyncio
+async def test_preview_noise_does_not_end_the_readiness_wait():
+    service = _service()
+    readiness = await _ready_after(service, ("browser", "SecurityError: " + _SW_NOISE),
+                                   ("console", "Failed to load resource: the server responded with 404"))
+    assert readiness == "ready"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source", "message"), [
+    ("browser", "TypeError: Cannot read properties of undefined (reading 'map')"),
+    ("transport", "ReadTimeout forwarding /api/queries"),
+    ("navigation", "Page.goto: net::ERR_CONNECTION_REFUSED"),
+])
+async def test_real_errors_still_end_the_readiness_wait(source, message):
+    service = _service()
+    assert await _ready_after(service, (source, message)) == "errors_observed"
+
+
+@pytest.mark.asyncio
+async def test_an_app_without_queries_reaches_ready_on_the_data_push():
+    # A6: data_received does not depend on queries. ArtifactFrame.sendDataToIframe
+    # posts ARTIFACT_DATA on every ARTIFACT_READY (with verification_revision in
+    # preview), and artifact-globals.js __setArtifactData answers it with
+    # ARTIFACT_DATA_RECEIVED whatever the visualizations list holds; ArtifactFrame
+    # records that as data_received. So a data-less app is "ready", not "pending".
+    service = _service()
+    service.query_ids = set()
+    assert await _ready_after(service) == "ready"
+
+
+def test_passed_summary_with_ready_data_does_not_hedge():
+    text = summary_sentence(_result(readiness="ready"))
+    assert "data loading was not confirmed" not in text
+
+
+SEND_SNAPSHOT = '- textbox "{box}" [ref=e3]\n- button "{name}" [ref=e5]'
+
+
+@pytest.mark.parametrize("name", ["שליחה", "שלח", "שלחי", "שלחו", "שאל", "שאלי", "Send", "Submit", "Ask",
+                                  "Enviar", "Preguntar"])
+def test_send_button_names_are_found(name):
+    assert av._send_ref(SEND_SNAPSHOT.format(box="Ask a question", name=name)) == "e5"
+
+
+@pytest.mark.parametrize("name", ["שאלות מכירות", "Sender list", "Asked questions"])
+def test_words_that_only_start_like_send_are_not_the_send_button(name):
+    assert av._send_ref(SEND_SNAPSHOT.format(box="שאלה", name=name)) is None
+
+
+
+# Real aria snapshots (Playwright 1.60, page.locator("body").aria_snapshot(mode="ai"))
+# of small pages, fed through the real build_snapshot filter, which drops unnamed
+# containers (generic, group, list, listitem, paragraph) before the classifier sees
+# the tree.
+ARIA_ALERT_THEN_LIST_LOG = (
+    '- generic [active] [ref=e7]:\n'
+    '  - heading "Log" [level=1] [ref=e8]\n'
+    '  - alert [ref=e9]: 12 failed logins\n'
+    '  - list [ref=e10]:\n'
+    '    - listitem [ref=e11]: TypeError in checkout\n'
+    '    - listitem [ref=e12]: login ok'
+)
+ARIA_ALERT_THEN_DIV_LOG = (
+    '- generic [active] [ref=e1]:\n'
+    '  - heading "Log" [level=1] [ref=e2]\n'
+    '  - alert [ref=e3]: 3 new incidents\n'
+    '  - generic [ref=e4]:\n'
+    '    - generic [ref=e5]: TypeError in checkout\n'
+    '    - generic [ref=e6]: "ReferenceError: total is not defined"'
+)
+ARIA_ALERT_THEN_CARD_GRID = (
+    '- generic [active] [ref=e13]:\n'
+    '  - alert [ref=e14]: Data refreshed\n'
+    '  - generic [ref=e15]:\n'
+    '    - heading "Errors" [level=3] [ref=e17]\n'
+    '    - generic [ref=e18]: RangeError 14'
+)
+ARIA_CRASH_NESTED_IN_ALERT = (
+    '- generic [active] [ref=e19]:\n'
+    '  - heading "Sales" [level=1] [ref=e20]\n'
+    '  - alert [ref=e21]:\n'
+    '    - generic [ref=e22]:\n'
+    '      - generic [ref=e23]: Something went wrong\n'
+    '      - generic [ref=e24]: "TypeError: Cannot read properties of undefined (reading \'map\')"'
+)
+
+
+class _AriaPage:
+    """The Playwright boundary build_snapshot touches: evaluate and aria_snapshot."""
+
+    def __init__(self, aria):
+        self.aria = aria
+
+    async def evaluate(self, *_args):
+        return []
+
+    def locator(self, _selector):
+        return self
+
+    async def aria_snapshot(self, **_kwargs):
+        return self.aria
+
+
+async def _filtered(aria):
+    from app.ai.tools.implementations._browser_common import build_snapshot
+    snapshot, _truncated = await build_snapshot(_AriaPage(aria))
+    return snapshot
+
+
+@pytest.mark.asyncio
+async def test_dropped_containers_do_not_push_their_children_under_a_preceding_alert():
+    # The list is dropped; its items are siblings of the alert, not inside it.
+    assert await _filtered(ARIA_ALERT_THEN_LIST_LOG) == (
+        '- generic [active] [ref=e7]:\n'
+        '  - heading "Log" [level=1] [ref=e8]\n'
+        '  - alert [ref=e9]: 12 failed logins\n'
+        '  - listitem [ref=e11]: TypeError in checkout\n'
+        '  - listitem [ref=e12]: login ok'
+    )
+
+
+@pytest.mark.asyncio
+async def test_children_of_a_dropped_container_inside_an_alert_stay_inside_it():
+    assert await _filtered(ARIA_CRASH_NESTED_IN_ALERT) == (
+        '- generic [active] [ref=e19]:\n'
+        '  - heading "Sales" [level=1] [ref=e20]\n'
+        '  - alert [ref=e21]:\n'
+        '    - generic [ref=e23]: Something went wrong\n'
+        '    - generic [ref=e24]: "TypeError: Cannot read properties of undefined (reading \'map\')"'
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("aria", [ARIA_ALERT_THEN_LIST_LOG, ARIA_ALERT_THEN_DIV_LOG, ARIA_ALERT_THEN_CARD_GRID],
+                         ids=["alert-then-list-log", "alert-then-div-log", "alert-then-card-grid"])
+async def test_error_words_shown_as_data_beside_an_alert_pass_the_load(aria):
+    service = _service()
+    output = _output(service)
+    output["snapshot"] = await _filtered(aria)
+    result = av.classify_load_output(output)
+    assert (result["status"], result["errors"]) == ("passed", [])
+
+
+@pytest.mark.asyncio
+async def test_a_crash_nested_inside_an_alert_fails_the_load_after_filtering():
+    service = _service()
+    output = _output(service)
+    output["snapshot"] = await _filtered(ARIA_CRASH_NESTED_IN_ALERT)
+    result = av.classify_load_output(output)
+    assert result["status"] == "problems_found"
+    assert [error["source"] for error in result["errors"]] == ["ui"]
+    assert "Cannot read properties of undefined" in result["errors"][0]["message"]

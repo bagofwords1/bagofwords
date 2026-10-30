@@ -973,7 +973,10 @@ def test_a_non_chat_app_reports_the_smoke_as_not_detected(chromium, stub_render,
 
 
 def test_an_error_rendered_on_load_is_a_ui_problem(chromium, stub_render, owner):
-    chromium.snapshot = PAGE_SNAPSHOT + '\n- text: "TypeError: rows.map is not a function"'
+    # An error boundary renders the crash inside an alert; the unnamed wrapper
+    # div is dropped by the snapshot filter, and its text stays in the alert.
+    chromium.snapshot = (PAGE_SNAPSHOT + '\n- alert [ref=e3]:\n  - generic [ref=e4]:\n'
+                         '    - generic [ref=e5]: "TypeError: rows.map is not a function"')
     _events, payload, _ctx = asyncio.run(_create(owner))
 
     check = _check(payload)
@@ -981,6 +984,15 @@ def test_an_error_rendered_on_load_is_a_ui_problem(chromium, stub_render, owner)
     assert [error["source"] for error in check["errors"]] == ["ui"]
     assert "rows.map is not a function" in check["errors"][0]["message"]
     assert check["checked"] == ["load"]
+
+
+def test_error_words_in_a_log_list_beside_an_alert_pass_the_load(chromium, stub_render, owner):
+    chromium.snapshot = (PAGE_SNAPSHOT + '\n- alert [ref=e3]: 12 failed logins\n- list [ref=e4]:\n'
+                         '  - listitem [ref=e5]: "TypeError: rows.map is not a function"')
+    _events, payload, _ctx = asyncio.run(_create(owner))
+
+    check = _check(payload)
+    assert (check["status"], check["errors"]) == ("passed", [])
 
 
 def test_a_page_that_freezes_after_rendering_is_an_app_problem_not_an_outage(
