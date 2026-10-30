@@ -21,6 +21,11 @@ from app.schemas.param_schema import parse_param_specs
 from app.services.artifact_preview_noise import is_preview_noise_error
 
 
+def activity_session_id(evidence_id) -> str:
+    """The activity log session of one preview (``artifact_activity`` rows)."""
+    return f"preview-{evidence_id}"
+
+
 class PreviewUnavailableError(RuntimeError):
     """The access check could not complete; protected evidence stays withheld."""
 
@@ -47,6 +52,10 @@ class ArtifactPreviewService:
         self.pending = set()
         self.changed = asyncio.Event()
         self.evidence_id = str(uuid4())
+        # Every preview opened in this run, in order: the automatic check finds
+        # its own preview's activity log session here, even when a refused load
+        # returns no evidence_id.
+        runtime_ctx.setdefault("artifact_preview_evidence_ids", []).append(self.evidence_id)
         self.client = None
         self.token = None
         self.operations = 0
@@ -134,7 +143,9 @@ class ArtifactPreviewService:
 
     async def log_activity(self, kind: str, event: dict):
         """Keep a preview event in the app's activity log (``source=preview``),
-        next to the editor's, so the agent reads both in one place."""
+        next to the editor's, so the agent reads both in one place. ``seq`` is
+        the cursor of the evidence event it mirrors (0 when there is none): the
+        automatic check stamps what its result reported by it."""
         from app.dependencies import async_session_maker
         from app.services import artifact_activity
 
@@ -145,10 +156,8 @@ class ArtifactPreviewService:
                 await artifact_activity.record(
                     db, organization_id=self.org_id, report_id=self.report_id,
                     artifact_id=self.artifact.get("artifact_id") or self.artifact["id"],  # the app, not this version
-                    user_id=self.user_id, session_id=f"preview-{self.evidence_id}", source="preview",
-                    artifact_version=self.artifact.get("version"), events=[{**event, "kind": kind}],
-                    # Set while the automatic check runs: its result already reports them.
-                    shown_in_completion_id=self.ctx.get("artifact_activity_shown_in"))
+                    user_id=self.user_id, session_id=activity_session_id(self.evidence_id), source="preview",
+                    artifact_version=self.artifact.get("version"), events=[{**event, "kind": kind}])
         except Exception:
             pass  # evidence in the tool result still carries it
 

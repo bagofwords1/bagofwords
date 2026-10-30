@@ -1101,3 +1101,100 @@ def test_the_check_s_preview_activity_is_not_reported_again_next_turn(chromium, 
     assert ("preview", "conversation.agent_forbidden", completion_id) in rows
     assert all(shown == completion_id for _source, _code, shown in rows)
     assert section is None, section
+
+
+async def _preview_rows(report_id):
+    """(error_code, shown_in_completion_id) of the report's preview activity, and
+    what the next turn's <app_activity> would show."""
+    from sqlalchemy import text
+
+    from app.services import artifact_activity
+
+    async with async_session_maker() as db:
+        rows = (await db.execute(text(
+            "select error_code, shown_in_completion_id from artifact_activity_events "
+            "where report_id = :r and source = 'preview'"), {"r": report_id})).all()
+        section = await artifact_activity.context_section(db, report_id=report_id, completion_id=str(uuid.uuid4()))
+        return [tuple(r) for r in rows], section
+
+
+def _refusing(*codes, op="conversations.create"):
+    """An on_goto that makes the app report one refused bow.* call per code."""
+    async def refuse(page):
+        ref = urlparse(page.url).path.rstrip("/").rsplit("/", 1)[-1]
+        for code in codes:
+            await page.binding({"frame": page.main_frame}, {
+                "artifact_id": ref, "kind": "sdk_call", "event_kind": "request", "op": op,
+                "status": "error", "error_code": code, "detail": {"message": f"refused {code}"}})
+    return refuse
+
+
+def test_a_failed_check_leaves_its_preview_activity_for_the_next_turn(monkeypatch, chromium, stub_render, owner):
+    """check_failed returns no evidence: the events it saw were never in this
+    completion, so they stay unstamped and the next turn reports them."""
+    import app.services.artifact_verification_policy as policy
+
+    real = policy.require_browser_access
+    broken = {"on": False}
+
+    async def flaky_access(*args, **kwargs):
+        if broken["on"]:
+            raise RuntimeError("access check backend down")
+        return await real(*args, **kwargs)
+
+    async def break_access(_context):
+        broken["on"] = True  # the final access check, run after the preview closes, fails
+
+    monkeypatch.setattr(policy, "require_browser_access", flaky_access)
+    chromium.on_goto = _refusing("conversation.agent_forbidden")
+    chromium.on_context_close = break_access
+    completion_id = str(uuid.uuid4())
+    _events, payload, _ctx = asyncio.run(_create(
+        owner, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    check = _check(payload)
+    assert (check["status"], check["reason"]) == ("unavailable", "check_failed")
+    rows, section = asyncio.run(_preview_rows(owner["report_id"]))
+    assert rows == [("conversation.agent_forbidden", None)]
+    assert section and "conversation.agent_forbidden" in section
+
+
+def test_only_the_failures_the_check_reports_are_stamped(chromium, stub_render, owner):
+    """The evidence keeps the last 10 errors and the result the first 5 of those:
+    failures beyond what the result carries stay for the next turn."""
+    codes = [f"app.bug_{i:02d}" for i in range(12)]
+    chromium.on_goto = _refusing(*codes)
+    completion_id = str(uuid.uuid4())
+    _events, payload, _ctx = asyncio.run(_create(
+        owner, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    check = _check(payload)
+    assert check["status"] == "problems_found"
+    reported = [code for code in codes if any(code in e["message"] for e in check["errors"])]
+    assert reported == codes[2:7]
+    rows, section = asyncio.run(_preview_rows(owner["report_id"]))
+    stamped = sorted(code for code, shown in rows if shown == completion_id)
+    assert stamped == reported
+    assert sorted(code for code, shown in rows if shown is None) == codes[:2] + codes[7:]
+    assert section and all(code in section for code in codes[:2] + codes[7:])
+    assert not any(code in section for code in reported)
+
+
+def test_a_restricted_check_hides_all_its_preview_activity(chromium, stub_render, owner):
+    """restricted withholds the evidence: the activity log must not leak it on
+    the next turn, so every event of the check's preview is stamped (hidden)."""
+    refuse = _refusing("conversation.agent_forbidden")
+
+    async def refuse_then_revoke(page):
+        await refuse(page)
+        owner["settings"](allow_llm_see_data=False)
+
+    chromium.on_goto = refuse_then_revoke
+    completion_id = str(uuid.uuid4())
+    _events, payload, _ctx = asyncio.run(_create(
+        owner, prepare=lambda c: c.update(system_completion=SimpleNamespace(id=completion_id))))
+
+    _assert_withheld(_check(payload), payload=payload)
+    rows, section = asyncio.run(_preview_rows(owner["report_id"]))
+    assert rows == [("conversation.agent_forbidden", completion_id)]
+    assert section is None, section

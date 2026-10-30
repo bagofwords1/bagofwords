@@ -95,11 +95,8 @@ async def _redactor(organization_id: str):
 
 async def record(db, *, organization_id: str, artifact_id: str, report_id: Optional[str],
                  user_id: Optional[str], session_id: str, source: str, events: Iterable[dict],
-                 artifact_version: Optional[int] = None, commit: bool = True,
-                 shown_in_completion_id: Optional[str] = None) -> int:
-    """Store cleaned events and prune. Returns how many were stored.
-    ``shown_in_completion_id``: the events are already in that completion
-    (the automatic check's tool result), so ``context_section`` skips them."""
+                 artifact_version: Optional[int] = None, commit: bool = True) -> int:
+    """Store cleaned events and prune. Returns how many were stored."""
     assert source in SOURCES
     rows = [e for e in (clean_event(e) for e in list(events)[:MAX_BATCH]) if e]
     if not rows:
@@ -112,8 +109,7 @@ async def record(db, *, organization_id: str, artifact_id: str, report_id: Optio
             organization_id=str(organization_id), artifact_id=str(artifact_id),
             artifact_version=artifact_version, report_id=str(report_id) if report_id else None,
             user_id=str(user_id) if user_id else None, session_id=str(session_id)[:64],
-            source=source, shown_in_completion_id=str(shown_in_completion_id) if shown_in_completion_id else None,
-            **row,
+            source=source, **row,
         ))
     await db.flush()
     await prune(db, report_id=report_id, artifact_id=artifact_id)
@@ -140,6 +136,21 @@ async def prune(db, *, report_id: Optional[str] = None, artifact_id: Optional[st
     if cutoff is not None:
         await db.execute(delete(ArtifactActivityEvent).where(
             column == str(value), ArtifactActivityEvent.created_at <= cutoff))
+
+
+async def mark_shown(db, *, session_id: str, completion_id: str, seqs: Optional[Iterable[int]] = None) -> None:
+    """Stamp one session's unstamped events as shown in ``completion_id`` (only
+    those with a ``seq`` in ``seqs``, or all of them), so ``context_section``
+    skips them. One UPDATE."""
+    q = update(ArtifactActivityEvent).where(ArtifactActivityEvent.session_id == str(session_id)[:64],
+                                            ArtifactActivityEvent.shown_in_completion_id.is_(None))
+    if seqs is not None:
+        seqs = sorted({int(s) for s in seqs if s})
+        if not seqs:
+            return
+        q = q.where(ArtifactActivityEvent.seq.in_(seqs))
+    await db.execute(q.values(shown_in_completion_id=str(completion_id)))
+    await db.commit()
 
 
 # ── reading ────────────────────────────────────────────────────────────────

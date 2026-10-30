@@ -238,6 +238,9 @@ def classify_preview_output(output: dict) -> dict:
         return {**result, "status": "unavailable", "reason": "restricted", "readiness": None}
     evidence = output.get("evidence") or {}
     errors, render, navigation, transport, seen = [], False, 0, False, set()
+    # Reported message -> cursors of the evidence events it stands for
+    # (duplicates included): the check stamps those in the activity log.
+    cursors, first = {}, {}
     for event in evidence.get("errors") or []:
         if event.get("kind") == "blocked":
             result["blocked_requests"] += 1
@@ -254,6 +257,7 @@ def classify_preview_output(output: dict) -> dict:
             if message not in seen:
                 seen.add(message)
                 errors.append({"source": "sdk", "message": _clip(message)})
+            cursors.setdefault(_clip(message), []).append(event.get("cursor"))
             continue
         if event.get("kind") != "error":
             continue
@@ -272,10 +276,11 @@ def classify_preview_output(output: dict) -> dict:
             result["informational_errors"] += 1
         else:
             key = _ECHO_PREFIX.sub("", message).strip()
-            if key in seen:
-                continue
-            seen.add(key)
-            errors.append({"source": source, "message": _clip(message)})
+            if key not in seen:
+                seen.add(key)
+                first[key] = _clip(message)
+                errors.append({"source": source, "message": first[key]})
+            cursors.setdefault(first[key], []).append(event.get("cursor"))
     if render:
         errors.append(dict(_RENDER_ERROR))
     failed = [{"query_id": str(q.get("query_id")), "status": str(q.get("status")),
@@ -284,6 +289,7 @@ def classify_preview_output(output: dict) -> dict:
     if render and len(errors) > _MAX_ITEMS:
         errors = errors[:_MAX_ITEMS - 1] + [errors[-1]]
     result["errors"], result["failed_queries"] = errors[:_MAX_ITEMS], failed[:_MAX_ITEMS]
+    result["_cursors"] = cursors  # internal: removed before the result is returned
     if errors or failed:
         result["status"] = "problems_found"
     elif output.get("success") is False and navigation and not transport:
@@ -481,6 +487,28 @@ def _merge(result, classified):
     result["failed_queries"] = (result["failed_queries"] + classified["failed_queries"])[:_MAX_ITEMS]
     result["blocked_requests"] += classified["blocked_requests"]
     result["informational_errors"] += classified["informational_errors"]
+    for message, cursors in classified.get("_cursors", {}).items():
+        result.setdefault("_cursors", {}).setdefault(message, []).extend(cursors)
+
+
+async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None):
+    """Stamp the check's preview events in the app's activity log as shown in
+    this completion (those with a cursor in ``seqs``, or all of them), so the
+    next turn's <app_activity> skips them. Never raises."""
+    from app.dependencies import async_session_maker
+    from app.services import artifact_activity
+    from app.services.artifact_preview_service import activity_session_id
+
+    completion = runtime_ctx.get("system_completion")
+    if not evidence_id or not getattr(completion, "id", None):
+        return
+    try:
+        async with async_session_maker() as db:
+            await artifact_activity.mark_shown(db, session_id=activity_session_id(evidence_id),
+                                               completion_id=str(completion.id), seqs=seqs)
+    except Exception:
+        # Unstamped, they are reported again next turn: a repeat, never a loss.
+        logger.warning("Automatic artifact check could not mark its activity as shown", exc_info=True)
 
 
 async def _conversation_smoke(runtime_ctx, session_id, snapshot, state):
@@ -551,13 +579,11 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
     run = runtime_ctx.get("artifact_check_run")
     result = _new_result(artifact_id, version)
     restricted = failed = cancelled = final_ok = False
-    # What the preview logs to the app's activity log meanwhile (source=preview)
-    # is reported in this completion's tool result: stamp it as shown there, so
-    # the next turn's <app_activity> does not report it again.
-    completion = runtime_ctx.get("system_completion")
-    shown_before = runtime_ctx.get("artifact_activity_shown_in")
-    if getattr(completion, "id", None):
-        runtime_ctx["artifact_activity_shown_in"] = str(completion.id)
+    # Every preview opened in this run is appended here (ArtifactPreviewService).
+    # Created up front: the browser guard copies the ctx shallowly, so the inner
+    # tools append to this same list.
+    previews = runtime_ctx.setdefault("artifact_preview_evidence_ids", [])
+    previews_before = len(previews)
     try:
         navigation = None
         try:
@@ -629,18 +655,30 @@ async def run_automatic_artifact_check(runtime_ctx: dict, *, artifact_id: str, v
             if not cancelled:
                 logger.warning("Automatic artifact check cleanup failed: %s", _log_ids(runtime_ctx, result), exc_info=True)
             failed = True
-        if shown_before is None:
-            runtime_ctx.pop("artifact_activity_shown_in", None)
-        else:
-            runtime_ctx["artifact_activity_shown_in"] = shown_before
     result["duration_ms"] = int((time.monotonic() - started) * 1000)
+    # The preview logs what it sees to the app's activity log (source=preview),
+    # unstamped. Stamped below, once the outcome is known: only what this
+    # completion's tool result actually reports is "shown" in it.
+    cursors = result.pop("_cursors", {})
+    # The check opens one preview (its navigate); acts reuse it.
+    previews = previews[previews_before:]
     # Privacy precedence: applied last, it overrides everything above.
     if restricted or failed or not final_ok:
         reason = "restricted" if restricted else "check_failed"
         # The status only: the evidence is exactly what is being withheld.
         logger.info("automatic_artifact_check withheld its result: reason=%s status=%s %s",
                     reason, result["status"], _log_ids(runtime_ctx, result))
+        if restricted:
+            # Withheld evidence must not reach the agent through <app_activity>
+            # either: every event of this preview is stamped (hidden), although
+            # the result does not report it. check_failed stamps nothing: those
+            # events were never shown, so the next turn reports them.
+            for evidence_id in previews:
+                await _mark_activity_shown(runtime_ctx, evidence_id)
         return _emptied(result, reason)
+    if previews:
+        await _mark_activity_shown(runtime_ctx, previews[-1],
+                                   [c for e in result["errors"] for c in cursors.get(e["message"], ())])
     return result
 
 
