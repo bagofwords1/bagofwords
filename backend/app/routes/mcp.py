@@ -90,9 +90,12 @@ async def mcp_auth(
         if token.startswith("bow_oauth_"):
             from app.services.oauth_server_service import OAuthServerService
             svc = OAuthServerService()
-            result = await svc.validate_access_token(db, token, required_scope="mcp")
-            if result:
-                return await _authed(result[0], result[1])  # (user, organization)
+            context = await svc.validate_access_token_context(db, token, required_scope="mcp")
+            if context:
+                from app.core.request_origin import OAUTH_APP, set_origin
+
+                set_origin(OAUTH_APP, str(context.client.id))
+                return await _authed(context.user, context.organization)
             logger.warning("OAuth token validation failed for token starting with: %s...", token[:16])
 
         # 3b. API key via Bearer

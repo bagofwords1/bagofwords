@@ -19,16 +19,18 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
+  // An embedded artifact acts as the host application's user (useEmbedCredential).
+  const embed = useEmbedCredential().value
 
   const isClient = process.client
 
   // Ensure organization is loaded before making the request
-  const orgResult = await ensureOrganization()
+  const orgResult = embed ? { id: embed.organizationId } : await ensureOrganization()
 
   opts = opts || {}
   opts.headers = {
     ...opts.headers,
-    Authorization: `${token.value}`,
+    Authorization: embed ? `Bearer ${embed.token}` : `${token.value}`,
   }
 
   // Add the organization ID to the headers if it's set

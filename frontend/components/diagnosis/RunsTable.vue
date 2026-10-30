@@ -43,6 +43,14 @@
                                             <NuxtLink v-if="item.report.id && isFullAdmin" :to="`/reports/${item.report.id}`" target="_blank" class="flex-shrink-0 inline-flex text-ink-muted hover:text-blue-600" :title="$t('monitoring.diagnosis.openReport')" :aria-label="$t('monitoring.diagnosis.openReport')" data-testid="open-report" @click.stop>
                                                 <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                                             </NuxtLink>
+                                            <template v-if="item.origin_app">
+                                                <span>·</span>
+                                                <span class="inline-flex items-center gap-1 whitespace-nowrap" data-testid="run-origin-app"
+                                                      :title="$t(item.origin_app.type === 'host_app' ? 'monitoring.diagnosis.viaHostApp' : 'monitoring.diagnosis.viaOauthApp')">
+                                                    <UIcon :name="item.origin_app.type === 'host_app' ? 'i-heroicons-window' : 'i-heroicons-key'" class="w-3 h-3" />
+                                                    {{ item.origin_app.name || $t('monitoring.diagnosis.removedApp') }}
+                                                </span>
+                                            </template>
                                             <template v-if="item.report.turn">
                                                 <span>·</span>
                                                 <span class="whitespace-nowrap">{{ $t('monitoring.diagnosis.turnOf', { n: item.report.turn, m: item.report.turns || item.report.turn }) }}</span>

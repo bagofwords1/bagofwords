@@ -199,8 +199,9 @@
             @review="openChanges"
         />
 
-        <!-- "Made with BOW" badge -->
-        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft')"
+        <!-- "Made with BOW" badge. Not inside a host application: there it
+             would float over the customer's own product and its controls. -->
+        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft') && !inHostApplication"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
@@ -347,10 +348,10 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded"
+            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded && !ownConversations"
             :report-id="id"
             :base="api.chatBase"
-            :raised="report.general?.bow_credit !== false"
+            :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
         />
 
@@ -397,7 +398,12 @@ import {
 // The shared dashboard page: a conversation's /r/{id}, a published
 // dashboard's /d/{id}, or its draft for its editors (/d/{id}/draft) -- the
 // same page over each one's endpoints (utils/sharedDashboardApi).
-const props = defineProps<{ source: SharedDashboardSource; id: string }>();
+// hostContext: set inside a host application (/d/{ref}?host=, EmbeddedArtifactGate).
+const props = defineProps<{ source: SharedDashboardSource; id: string; hostContext?: Record<string, any> | null }>();
+const embedCredential = useEmbedCredential();
+// Inside a host application: the host's chrome surrounds the artifact, so no
+// bars of our own; the signed-in user is the host's.
+const inHostApplication = computed(() => !!embedCredential.value);
 // Start downloading the artifact iframe's libraries now, in parallel with the
 // page's data requests (see utils/artifactLibs.ts).
 ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
@@ -461,6 +467,10 @@ const artifact = ref<any>(null);
 // viewers (401) or any fetch failure — the artifact renders anonymously.
 const viewerContext = ref<any>(null);
 async function fetchViewerContext() {
+    if (embedCredential.value) {
+        viewerContext.value = embedCredential.value.viewer;
+        return;
+    }
     try {
         const { data } = await useMyFetch('/api/users/me/viewer_context');
         viewerContext.value = data.value || null;
@@ -548,10 +558,15 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 // never moves elsewhere: the tab's bar names the version it shows, so a
 // version that is gone says so in place (`unavailable`). The published page
 // keeps its badge, as its readers see it.
+// An app that holds its own conversations (bow.conversations) is the chat:
+// the bubble would be a second one, over its controls.
+const ownConversations = computed(() => /\bbow\.conversations\b/.test(artifact.value?.content?.code || ''));
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-const showTopBar = ref(!embedded);
+const showTopBar = ref(!embedded && !inHostApplication.value);
+// The host page moved to another record: the artifact gets the new context.
+watch(() => props.hostContext, () => { if (artifactIframeLoaded.value) pushArtifactData(); }, { deep: true });
 const activeTab = ref<'report' | 'data'>('report');
 // The owner's "Include Data Tab" share setting. The report loads after mount,
 // so this is true until proven otherwise — anything but an explicit false
@@ -1313,8 +1328,11 @@ async function pollPending() {
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
 // The draft page counts no view (collab01): editors at work are not readers.
+// The draft page is an editor at work: what happens in the app is logged for
+// their agent (never on published pages or inside host applications).
 useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id,
-    recordViews: props.source !== 'draft'}));
+    recordViews: props.source !== 'draft',
+    activity: props.source === 'draft' && !props.hostContext ? { version: artifact.value?.version ?? null } : null}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.
@@ -1527,6 +1545,7 @@ function pushArtifactData() {
             visualizations: visualizationsData.value,
             files: filesData.value,
             current_user: viewerContext.value,
+            host_context: props.hostContext ?? null,
             params: paramsPayload(),
             runtime: artifactRuntime()
         }))
@@ -1646,6 +1665,7 @@ const iframeSrcdoc = computed(() => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     };
@@ -1921,6 +1941,7 @@ onMounted(async () => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     }));

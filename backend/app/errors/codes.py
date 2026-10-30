@@ -41,6 +41,25 @@ class ErrorCode(str, Enum):
     SHARING_PUBLIC_DISABLED = "sharing.public_disabled"
     MCP_DYNAMIC_PARAMS_INVALID = "mcp.dynamic_params_invalid"
 
+    # Host applications and embedded artifacts
+    HOST_APP_NOT_FOUND = "host_app.not_found"
+    HOST_APP_DISABLED = "host_app.disabled"
+    HOST_APP_CONFIG_INVALID = "host_app.config_invalid"
+    HOST_APP_REVISION_CONFLICT = "host_app.revision_conflict"
+    EMBED_NOT_ALLOWED = "embed.not_allowed"
+    EMBED_ASSERTION_INVALID = "embed.assertion_invalid"
+    EMBED_ASSERTION_REPLAYED = "embed.assertion_replayed"
+    EMBED_IDENTITY_UNMAPPED = "embed.identity_unmapped"
+    EMBED_IDENTITY_AMBIGUOUS = "embed.identity_ambiguous"
+    EMBED_IDENTITY_UNAVAILABLE = "embed.identity_unavailable"
+    EMBED_USER_INACTIVE = "embed.user_inactive"
+    EMBED_SESSION_INVALID = "embed.session_invalid"
+    CONVERSATION_NOT_FOUND = "conversation.not_found"
+    CONVERSATION_UNAVAILABLE = "conversation.unavailable"
+    CONVERSATION_AGENT_FORBIDDEN = "conversation.agent_forbidden"
+    CONVERSATION_LIMIT = "conversation.limit"
+    CONVERSATION_NO_AGENTS = "conversation.no_agents"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"

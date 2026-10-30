@@ -335,6 +335,13 @@ app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 from app.routes import artifact_resources
 app.include_router(artifact_resources.router, prefix="/api")
+from app.routes import host_applications, embed, artifact_conversations, artifact_activity
+from app.core import request_origin
+request_origin.install()  # stamp conversations and agent runs with the app they came through
+app.include_router(host_applications.router, prefix="/api")
+app.include_router(embed.router, prefix="/api")
+app.include_router(artifact_conversations.router, prefix="/api")
+app.include_router(artifact_activity.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
@@ -350,6 +357,9 @@ app.include_router(scim_router)
 
 # SPA: serve generated Nuxt output at / when SERVE_FRONTEND=1.
 # Must be the last route registration so it only catches unmatched paths.
+if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes"):
+    # /d/{ref}?host=… needs a per-artifact frame policy; before the SPA fallback.
+    app.include_router(embed.frame_router)
 mount_spa(app)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function

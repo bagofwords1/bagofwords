@@ -12,6 +12,7 @@ from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
+from app.models.host_application import HostApplication  # noqa: F401  (FK target)
 
 
 class OAuthClient(BaseSchema):
@@ -58,6 +59,10 @@ class OAuthAccessToken(BaseSchema):
     scope = Column(String(255), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     exchange_context = Column(JSON, nullable=True)
+    # Embed sessions (scope "embed", prefix bow_embed_): the host application
+    # they were issued for. NULL for ordinary OAuth clients.
+    host_application_id = Column(String(36), ForeignKey("host_applications.id", ondelete="CASCADE"),
+                                 nullable=True, index=True)
     refresh_token_hash = Column(String(64), nullable=True, unique=True, index=True)  # SHA-256
     refresh_expires_at = Column(DateTime, nullable=True)
 

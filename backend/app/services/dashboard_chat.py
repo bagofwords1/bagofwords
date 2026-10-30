@@ -5,8 +5,8 @@ the dashboard instead of the conversation:
 
 - who: whoever may read the dashboard (/d access), signed in, a live member
   of its organization, with the dashboard's chat switched on;
-- the thread: one hidden artifact_chat report per reader per dashboard,
-  found by reports.source_artifact_id. forked_from_id stays empty, so the
+- the thread: the reader's newest hidden artifact_chat report on the
+  dashboard, found by reports.source_artifact_id. forked_from_id stays empty, so the
   conversation's /r chat (keyed on it) never finds these threads;
 - the agents: the dashboard's chat_data_source_ids, else the release's own
   sources (an "Auto" release: only those its copies' code names, never the
@@ -88,11 +88,14 @@ def chat_model_id(artifact: Artifact) -> str | None:
 
 
 async def find_thread(db, artifact: Artifact, user) -> Report | None:
+    """The reader's newest thread: a reader may hold several (the artifact's
+    own conversations, services/artifact_conversations.py); the bubble
+    continues the latest."""
     return (await db.execute(
         select(Report).where(
             Report.report_type == "artifact_chat", Report.source_artifact_id == str(artifact.id),
             Report.user_id == str(user.id), Report.deleted_at.is_(None),
-        ).limit(1)
+        ).order_by(Report.created_at.desc()).limit(1)
     )).scalars().first()
 
 

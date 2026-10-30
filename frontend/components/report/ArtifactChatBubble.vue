@@ -62,8 +62,12 @@
                                  content and the tool line render together, in that order —
                                  same as the report page. -->
                             <template v-for="block in orderedBlocks(msg)" :key="block.id">
+                                <!-- cache-key per block: MDC caches its parse by a hash of the
+                                     INITIAL value, so two streamed answers that open with the same
+                                     chunk shared one entry and the later message showed the earlier
+                                     one's text. -->
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
-                                    <MDC :value="block.content" />
+                                    <MDC :value="block.content" :cache-key="`artifact-chat-${msg.id}-${block.id}`" />
                                 </div>
                                 <!-- Tool activity: the collapsed-header look of the report
                                      page's tool components ("Created data — Revenue by

@@ -68,6 +68,9 @@ class Artifact(BaseSchema):
     slug = Column(String(255), nullable=True)
     shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    # "Made with BOW" on this dashboard's pages; the organization's setting
+    # (general.bow_credit) still turns it off everywhere.
+    bow_credit = Column(Boolean, nullable=False, default=True, server_default='1')
     chat_enabled = Column(Boolean, nullable=False, default=False, server_default='0')
     chat_data_source_ids = Column(JSON, nullable=True)
     chat_model_id = Column(String(36), nullable=True)  # llm_models id or 'org_default'; no FK
