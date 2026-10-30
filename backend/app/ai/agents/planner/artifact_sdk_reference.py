@@ -73,18 +73,14 @@ const chat = useConversation({conversationId, title}); // all optional; conversa
 // chat.stop() while chat.answering (sending, or an answer left running: only stop() stops it); chat.select(id) opens one of chat.conversations; chat.newConversation() starts over.
 <ChatMessages chat={chat} empty={node}/> // the scrolling list: opens at the newest message, follows the answer only while
 //   the user is at the bottom, "Jump to latest", "Load earlier messages", chat.error. Needs a bounded height (flex-1 in a fixed-height column).
+<ChatComposer chat={chat} placeholder="..."/> // Enter sends, Shift+Enter new line, Stop while answering, the reason when unavailable
 <ChatMessage message={m}/> // one message (ChatMessages renders them): markdown with dir="auto" per block, its steps collapsed, tools
 //   (showTools={false} hides them), each result as a ChatResult, the incomplete note, "Answer in progress..." while running
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
-// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest}}:
+// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired}}:
 //   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
-function Chat(){const chat=useConversation();const [draft,setDraft]=useState('');
-  return <div>{chat.policy&&chat.policy.available===false&&<p>{chat.policy.reason}</p>}
-    <ChatMessages chat={chat}/>
-    <form onSubmit={e=>{e.preventDefault();chat.send(draft);setDraft('');}}>
-      <textarea dir="auto" value={draft} onChange={e=>setDraft(e.target.value)}/>
-      {chat.sending?<button type="button" onClick={()=>chat.stop()}>Stop</button>:<button disabled={!draft.trim()}>Send</button>}
-    </form></div>;}
+function Chat(){const chat=useConversation();
+  return <div className="flex h-screen flex-col"><ChatMessages chat={chat}/><ChatComposer chat={chat}/></div>;}
 You design the layout, composer, empty state and list (chat.conversations).
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}

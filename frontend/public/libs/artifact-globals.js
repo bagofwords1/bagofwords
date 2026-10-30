@@ -1990,7 +1990,11 @@
     failed: 'The answer failed',
     stopped: 'The answer was stopped',
     olderMessages: 'Load earlier messages',
-    jumpToLatest: 'Jump to latest'
+    jumpToLatest: 'Jump to latest',
+    send: 'Send',
+    stop: 'Stop',
+    unavailable: 'Chat is not available here',
+    authRequired: 'Sign in to chat'
   };
   function _chatFill(template, vars) {
     return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
@@ -2003,7 +2007,8 @@
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
       steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
-      olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest)
+      olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest),
+      send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired)
     };
   }
   function _chatUnique(values) { return Array.from(new Set(values)); }
@@ -3261,7 +3266,7 @@
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // Chat components — ChatMessages (composes with useConversation)
+  // Chat components — ChatMessages, ChatComposer (compose with useConversation)
   // ═══════════════════════════════════════════════════════════════════════════
   // Each takes the hook's object as `chat`. They reach ChatMessage, Icon,
   // LoadingSpinner, Modal and Drawer through this closure (captured here, after
@@ -3422,6 +3427,90 @@
       [h('div', { key: 'inner', ref: innerRef, className: CHAT_LIST.inner }, kids), jump]);
   }
   window.ChatMessages = ChatMessages;
+
+  var CHAT_INPUT = LEGACY ? {
+    wrap: 'relative rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900',
+    input: 'block w-full resize-none bg-transparent py-2.5 ps-3 pe-11 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100',
+    button: 'absolute bottom-1.5 end-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white disabled:opacity-40',
+    note: 'mt-1 text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    wrap: 'relative rounded-card border border-line bg-surface focus-within:ring-2 focus-within:ring-accent/40',
+    input: 'block w-full resize-none bg-transparent py-2.5 ps-3 pe-11 text-sm text-ink outline-none placeholder:text-ink-3 disabled:cursor-not-allowed disabled:opacity-60',
+    button: 'absolute bottom-1.5 end-1.5 inline-flex h-8 w-8 items-center justify-center rounded-control bg-accent text-accent-ink disabled:opacity-40',
+    note: 'mt-1 text-xs text-ink-3'
+  };
+
+  // <ChatComposer chat={chat} placeholder dir labels autoFocus maxRows className />
+  // Enter sends (not while an IME composition is open, not while answering),
+  // Shift+Enter adds a line; Stop replaces Send while chat.answering. Its
+  // direction: `dir` as given, else dir="auto" with text and the
+  // placeholder's direction while empty (dir="auto" on an empty field is ltr).
+  function ChatComposer(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var _d = React.useState(''), draft = _d[0], setDraft = _d[1];
+    // The draft as of the last change, cleared synchronously on submit: two
+    // Enter keydowns in one task would both read the same render's `draft`.
+    var draftRef = React.useRef('');
+    var composing = React.useRef(false);
+    var inputRef = React.useRef(null);
+    var maxRows = typeof props.maxRows === 'number' && props.maxRows > 0 ? Math.floor(props.maxRows) : 6;
+    React.useLayoutEffect(function() {
+      var el = inputRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      var cs = getComputedStyle(el);
+      var lh = parseFloat(cs.lineHeight) || 20;
+      var edges = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      // One row: no inline height, so the row follows its styles (they may
+      // arrive after this runs).
+      if (el.scrollHeight <= el.clientHeight + 1) { el.style.height = ''; el.style.overflowY = 'hidden'; return; }
+      var max = maxRows * lh + edges, full = el.scrollHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      el.style.height = Math.min(full, max) + 'px';
+      el.style.overflowY = full > max + 1 ? 'auto' : 'hidden';
+    });
+    React.useEffect(function() { if (props.autoFocus && inputRef.current) inputRef.current.focus(); }, []);
+    if (!chat) return null;
+    var L = _chatLabels(props.labels);
+    var unavailable = !!((chat.policy && chat.policy.available === false) || (chat.error && chat.error.code === 'UNAVAILABLE' && !window.bow));
+    var answering = !!chat.answering;
+    function submit() {
+      var text = draftRef.current.trim();
+      if (!text || answering || unavailable || typeof chat.send !== 'function') return;
+      draftRef.current = '';
+      chat.send(text);
+      setDraft('');
+      if (inputRef.current) inputRef.current.focus();
+    }
+    function onKeyDown(e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
+      e.preventDefault();
+      submit();
+    }
+    var dir = props.dir ? props.dir : draft ? 'auto' : (_chatDirOf(props.placeholder) || undefined);
+    var button = answering
+      ? h('button', { key: 'stop', type: 'button', 'data-testid': 'bow-chat-stop', 'aria-label': L.stop, title: L.stop, className: CHAT_INPUT.button,
+          onClick: function() { if (typeof chat.stop === 'function') chat.stop(); } }, h(_Icon, { name: 'square', size: 14 }))
+      : h('button', { key: 'send', type: 'submit', 'data-testid': 'bow-chat-send', 'aria-label': L.send, title: L.send, className: CHAT_INPUT.button,
+          disabled: !draft.trim() || unavailable,
+          // Also on click: a sandboxed frame without allow-forms never submits the form.
+          onClick: function(e) { e.preventDefault(); submit(); } }, h(_Icon, { name: 'arrow-up', size: 16 }));
+    var reason = unavailable ? ((chat.policy && chat.policy.reason) === 'auth_required' ? L.authRequired : L.unavailable) : null;
+    return h('form', { 'data-testid': 'bow-chat-composer', className: _chatCls('', props.className),
+      onSubmit: function(e) { e.preventDefault(); submit(); } }, [
+      h('div', { key: 'w', className: CHAT_INPUT.wrap }, [
+        h('textarea', { key: 't', ref: inputRef, rows: 1, 'data-testid': 'bow-chat-input', dir: dir, value: draft,
+          placeholder: props.placeholder, 'aria-label': props.placeholder || L.send, disabled: unavailable, className: CHAT_INPUT.input,
+          onChange: function(e) { draftRef.current = e.target.value; setDraft(e.target.value); },
+          onKeyDown: onKeyDown,
+          onCompositionStart: function() { composing.current = true; },
+          onCompositionEnd: function() { composing.current = false; } }),
+        button
+      ]),
+      reason ? h('p', { key: 'r', dir: 'auto', 'data-testid': 'bow-chat-unavailable', className: CHAT_INPUT.note }, reason) : null
+    ]);
+  }
+  window.ChatComposer = ChatComposer;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc
