@@ -14,6 +14,7 @@ from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from app.data_sources.routines import build_routine_tables, postgres_variants, with_routines
 
 
 class PostgresqlClient(DataSourceClient):
@@ -23,8 +24,11 @@ class PostgresqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
 
-    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer"):
+    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer",
+                 index_routines: bool = False):
         self.host = host
+        # Opt-in routine indexing (see app.data_sources.routines).
+        self.index_routines = bool(index_routines)
         self.port = port
         self.database = database
         self.user = user
@@ -325,8 +329,17 @@ class PostgresqlClient(DataSourceClient):
 
     @discovery_progress
     def get_schemas(self, progress_callback=None):
-        """Discover metadata with phase updates and no additional queries."""
-        return self.get_tables(progress_callback) if progress_callback else self.get_tables()
+        """Tables, views and materialized views, then stored procedures and
+        functions (see app.data_sources.routines)."""
+        tables = self.get_tables(progress_callback) if progress_callback else self.get_tables()
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="postgresql",
+                             client=self, enabled=self.index_routines)
+
+    def get_routines(self, table_names=()) -> List[Table]:
+        """Stored procedures and functions as schema entries, named like tables."""
+        with self.connect() as conn:
+            variants = postgres_variants(conn, self._schemas or None)
+        return build_routine_tables(variants, table_names, lambda schema, name: f"{schema}.{name}")
 
     def prompt_schema(self):
         schemas = self.get_schemas()

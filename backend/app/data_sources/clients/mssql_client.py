@@ -15,6 +15,7 @@ from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from app.data_sources.routines import build_routine_tables, mssql_variants, with_routines
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,11 @@ class MSSQLClient(DataSourceClient):
                  odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None,
                  use_kerberos: bool = False, kerberos_principal: Optional[str] = None,
                  kerberos_impersonate: Optional[str] = None,
-                 kerberos_expected_sid: Optional[str] = None):
+                 kerberos_expected_sid: Optional[str] = None,
+                 index_routines: bool = False):
         self.host = host
+        # Opt-in routine indexing (see app.data_sources.routines).
+        self.index_routines = bool(index_routines)
         self.port = port
         self.database = database
         self.user = user
@@ -356,8 +360,17 @@ class MSSQLClient(DataSourceClient):
 
     @discovery_progress
     def get_schemas(self, progress_callback=None):
-        """Get schemas for all tables in the specified database."""
-        return self.get_tables()
+        """Tables and views, then stored procedures and functions (see
+        app.data_sources.routines)."""
+        tables = self.get_tables()
+        return with_routines(tables, lambda: self.get_routines(t.name for t in tables), source="mssql",
+                             client=self, enabled=self.index_routines)
+
+    def get_routines(self, table_names=()) -> List[Table]:
+        """Stored procedures and functions as schema entries, named like tables."""
+        with self.connect() as conn:
+            variants = mssql_variants(conn, self._schemas or None)
+        return build_routine_tables(variants, table_names, lambda schema, name: f"{schema}.{name}")
 
     def prompt_schema(self):
         schemas = self.get_schemas()

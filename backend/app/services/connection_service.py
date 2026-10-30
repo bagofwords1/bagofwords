@@ -1834,6 +1834,19 @@ class ConnectionService:
                 )
             except Exception:
                 unread_prefixes = ()
+            # Entry types the client could not read on this run (routine
+            # discovery failed while the tables were read): existing entries
+            # of these types are kept rather than pruned as dropped.
+            try:
+                unread_types = frozenset(client.unindexed_entry_types() or ())
+            except Exception:
+                unread_types = frozenset()
+            if unread_types:
+                logger.warning(
+                    "refresh_schema: connection %s could not read its %s entries on this run; "
+                    "the existing ones are kept",
+                    connection.id, ", ".join(sorted(unread_types)),
+                )
             if unread_prefixes:
                 logger.warning(
                     "refresh_schema: connection %s could not read %d part(s) of its catalog "
@@ -2095,6 +2108,11 @@ class ConnectionService:
                 missing = [
                     (name, tbl) for name, tbl in existing_tables.items()
                     if name not in incoming and not name.startswith(unread_prefixes)
+                    and not (
+                        unread_types
+                        and isinstance(tbl.metadata_json, dict)
+                        and tbl.metadata_json.get("type") in unread_types
+                    )
                 ]
                 if missing:
                     user_visible_names = await self._user_visible_table_names(
