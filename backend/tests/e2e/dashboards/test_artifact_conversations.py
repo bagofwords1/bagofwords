@@ -242,6 +242,39 @@ def test_the_older_page_cursor_is_present_only_when_older_messages_exist(corpus,
     assert older["next_before"] is None
 
 
+def test_a_stopped_answer_is_the_only_assistant_and_paging_skips_no_message(corpus, corpus_rows, test_client,
+                                                                             stub_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()
+    url = f"{base(aid)}/{conv['id']}/messages"
+
+    def read(**params):
+        r = test_client.get(url, params=params, headers=as_(corpus, "member"))
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    assert test_client.post(url, json={"text": "first"}, headers=as_(corpus, "member")).status_code == 200
+    cid = _still_running(corpus_rows, conv["id"])
+    assert test_client.post(f"{url}/{cid}/stop", headers=as_(corpus, "member")).status_code == 200
+    # Stopping stores a session event row next to the answer; it is not a message.
+    assert [(m["role"], m["status"]) for m in read()["items"]] == [("user", "success"), ("assistant", "stopped")]
+
+    # Paging across the event row returns every message once, in order.
+    assert test_client.post(url, json={"text": "second"}, headers=as_(corpus, "member")).status_code == 200
+    seen, cursor = [], None
+    for _ in range(5):
+        page = read(limit=2, **({"before": cursor} if cursor else {}))
+        seen = page["items"] + seen
+        cursor = page["next_before"]
+        if cursor is None:
+            break
+    assert cursor is None
+    assert [(m["role"], m["status"]) for m in seen] == [
+        ("user", "success"), ("assistant", "stopped"), ("user", "success"), ("assistant", "success")]
+    assert [m["text"] for m in seen if m["role"] == "user"] == ["first", "second"]
+    assert len({m["id"] for m in seen}) == 4
+
+
 def test_access_is_rechecked_on_every_message(corpus, corpus_rows, test_client, stub_agent):
     aid = _chatty(corpus, corpus_rows, test_client)
     conv = test_client.post(base(aid), json={}, headers=as_(corpus, "member")).json()

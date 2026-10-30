@@ -349,6 +349,11 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
     data = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
     items, expected = [], {}
     for c in data.get("completions") or []:
+        # Only the conversation's turns: session events (e.g. a stop) and
+        # external entries are not messages. Dropping them may leave the page
+        # short; next_before (the oldest fetched row) and has_more stay exact.
+        if c.get("role") not in ("user", "system"):
+            continue
         role = "user" if c.get("role") == "user" else "assistant"
         if role == "assistant":
             expected[str(c.get("id"))] = _expected_steps(c.get("completion_blocks"))
