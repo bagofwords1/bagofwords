@@ -149,16 +149,96 @@ def build_loadable_closures(loadables: Optional[Dict], *, enable_load_step: bool
     return load_step, load_entity
 
 
+class ListsHelper:
+    """`lists` in generated code: submit rows to the conversation's Agent Lists.
+
+    Rows are validated on submit (an invalid value raises right away) and
+    saved only after the run succeeds. `submit` returns counts, never rows.
+    """
+
+    __slots__ = ("_submit", "_available")
+
+    def __init__(self, submit: Callable, available: Callable):
+        self._submit = submit
+        self._available = available
+
+    def submit(self, list_name, records):
+        """Queue `records` (a list of dicts keyed by field name) for list `list_name` (slug or name)."""
+        return self._submit(str(list_name), list(records))
+
+    def available(self):
+        """The lists this run may write to: [{slug, name, key, fields}]."""
+        return self._available()
+
+    def __repr__(self):
+        return "<lists helper: submit(list, records), available()>"
+
+
+class BrowserHelper:
+    """`browser` in generated code: one headless page, driven step by step.
+
+    Every call runs on the trusted side under the browser connection's URL
+    allowlist and the org's per-run page limit. Selectors are CSS (or
+    Playwright text selectors such as "text=Next").
+    """
+
+    __slots__ = ("_call",)
+
+    def __init__(self, call: Callable):
+        self._call = call
+
+    def goto(self, url, timeout=None):
+        return self._call("goto", [str(url)], {"timeout": timeout})
+
+    def click(self, selector, timeout=None):
+        return self._call("click", [str(selector)], {"timeout": timeout})
+
+    def fill(self, selector, text, timeout=None):
+        return self._call("fill", [str(selector), str(text)], {"timeout": timeout})
+
+    def press(self, key, selector=None, timeout=None):
+        return self._call("press", [str(key)], {"selector": selector, "timeout": timeout})
+
+    def select(self, selector, value, timeout=None):
+        return self._call("select", [str(selector), str(value)], {"timeout": timeout})
+
+    def scroll(self, pixels=2000):
+        return self._call("scroll", [int(pixels)], {})
+
+    def wait_for(self, selector, timeout=None, state="visible"):
+        return self._call("wait_for", [str(selector)], {"timeout": timeout, "state": state})
+
+    def text(self, selector=None):
+        return self._call("text", [], {"selector": selector})
+
+    def html(self, selector=None):
+        return self._call("html", [], {"selector": selector})
+
+    def query_all(self, selector, attrs=None, fields=None):
+        """One dict per element matching `selector`: {"text", <attr>...,
+        <field>...}. `fields` reads inside each element: {"name": "css"} is
+        the first match's text, "css@href" an attribute, ["css"] a list of
+        every match's text."""
+        return self._call("query_all", [str(selector)], {"attrs": list(attrs or []), "fields": dict(fields or {})})
+
+    def url(self):
+        return self._call("url", [], {})
+
+    def __repr__(self):
+        return "<browser helper: goto, click, fill, press, select, scroll, wait_for, text, html, query_all, url>"
+
+
 def invoke_generate_df(
     fn: Callable, wrapped_clients: Dict, excel_files: List,
     http_client: Any,
     load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
     params: Optional[Dict] = None,
+    lists: Any = None, browser: Any = None,
 ):
     """Call generate_df, binding injectables by parameter name.
 
     `ds_clients` and `excel_files` are always passed positionally. Any of
-    `calendar_date_bounds`, `http`, `load_step`, `load_entity`, `params` are passed by keyword only
+    `calendar_date_bounds`, `http`, `load_step`, `load_entity`, `params`, `lists`, `browser` are passed by keyword only
     when the function declares a parameter of that name — so legacy two-arg
     `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
     working unchanged. `params` is always a dict (possibly empty) when the
@@ -172,6 +252,8 @@ def invoke_generate_df(
         "load_step": load_step,
         "load_entity": load_entity,
         "params": dict(params or {}),
+        "lists": lists,
+        "browser": browser,
     }
     try:
         names = set(inspect.signature(fn).parameters.keys())

@@ -6458,7 +6458,7 @@ onMounted(async () => {
 	   dir governs alignment — plaintext keeps re-resolving from the first
 	   strong character, which is exactly what mis-aligns an RTL sentence that
 	   opens with a Latin token (see composables/useMarkdownAutoDir.ts). */
-	:where(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table):is([dir="rtl"], [dir="ltr"]) {
+	:where(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table, th, td):is([dir="rtl"], [dir="ltr"]) {
 		unicode-bidi: isolate;
 	}
 }

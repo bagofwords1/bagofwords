@@ -61,7 +61,7 @@ class BrowserExtractInput(_TitleMixin):
     )
     max_chars: int = Field(
         default=12000, ge=500, le=60000,
-        description="Truncate the extracted text to this many characters.",
+        description="How much of the page text to return inline. A longer page is saved in full to a file (text_file_id) you can read with read_file.",
     )
 
 
@@ -101,6 +101,12 @@ class BrowserOutput(BaseModel):
         description="Set when the page needs something the agent can't do: 'authentication', 'captcha', 'allowlist'.",
     )
     truncated: bool = Field(default=False, description="True if snapshot/text was truncated.")
+    text_file_id: Optional[str] = Field(
+        default=None,
+        description="browser_extract: file id holding the page's FULL text when the inline text was truncated. Read it with read_file.",
+    )
+    text_file_name: Optional[str] = Field(default=None, description="Name of the file in text_file_id.")
+    total_chars: Optional[int] = Field(default=None, description="browser_extract: length of the page's full text.")
     error_message: Optional[str] = Field(default=None, description="Error message if the action failed.")
     error_code: Optional[str] = Field(default=None, description="Machine code, e.g. 'stale_ref', 'not_allowed', 'no_session'.")
     artifact: Optional[dict[str, Any]] = None

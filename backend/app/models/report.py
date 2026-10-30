@@ -140,6 +140,10 @@ class Report(BaseSchema):
     organization = relationship("Organization", back_populates="reports")
 
     external_platform_id = Column(String(36), ForeignKey('external_platforms.id'), nullable=True, index=True, default=None)
+    # The outside application this conversation was started through (a host
+    # application or an OAuth app; app/core/request_origin.py). Null: in BOW.
+    origin_app_type = Column(String(16), nullable=True)
+    origin_app_id = Column(String(36), nullable=True, index=True)
     external_platform = relationship("ExternalPlatform", back_populates="reports", lazy="joined")  # to-one: fold into parent query
 
     # Trigger provenance: set when this report was spawned by a standalone

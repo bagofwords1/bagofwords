@@ -283,11 +283,6 @@ from app.ai.context.transcript import (  # noqa: E402
     retained_prefix as _retained_prefix,
 )
 
-# Uploaded images to attach when the CURRENT completion has none of its own —
-# a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
-# the most recent few, so a long conversation full of screenshots doesn't
-# re-send its whole gallery on every call.
-_FOLLOWUP_IMAGE_LIMIT = 2
 
 
 
@@ -1973,30 +1968,16 @@ class AgentV2:
         except Exception:
             return None
 
-    def _followup_image_files(self) -> list:
-        """The most recent uploaded images, for a turn that attached none of its
-        own. "Why?" / "?" about a screenshot uploaded one turn ago is a normal
-        way to ask a question, and scoping the attach to the CURRENT completion
-        meant the model entered that turn blind — it had to guess from the
-        <files> listing that the picture was relevant and spend a step reading
-        it back. Bounded to the newest few so a long conversation doesn't
-        re-send its whole gallery."""
-        def _created(f):
-            return getattr(f, "created_at", None) or ""
-        try:
-            ordered = sorted(self.image_files, key=_created, reverse=True)
-        except TypeError:
-            # Mixed/naive timestamps — fall back to report order (oldest first).
-            ordered = list(reversed(self.image_files))
-        return ordered[:_FOLLOWUP_IMAGE_LIMIT]
-
     async def _load_images_as_input(self) -> list[ImageInput]:
-        """Load image files as base64-encoded ImageInput objects for vision models.
+        """Load the images uploaded WITH the current message as vision input.
 
-        Prefers the images uploaded with the CURRENT completion; when that turn
-        uploaded none, falls back to the most recent images on the report so a
-        follow-up question about an earlier screenshot still arrives with the
-        picture attached.
+        Only this turn's uploads. Images from earlier messages are not
+        re-attached: this channel lands on the newest user message, so a
+        re-sent picture reads as "the user just sent this" and the model
+        answers about it as if it were new. Earlier images stay reachable —
+        history tags each message with what it carried
+        ("[attached: name (image/png, id=…)]") and read_file shows the
+        picture again on demand.
         """
         import base64
         import aiofiles
@@ -2004,7 +1985,7 @@ class AgentV2:
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
-        eligible_files = self.image_files
+        eligible_files = []
         if current_cid and self.image_files and self.db and self.report:
             try:
                 image_file_ids = [str(f.id) for f in self.image_files]
@@ -2017,10 +1998,9 @@ class AgentV2:
                 )
                 current_ids = {row[0] for row in result.fetchall()}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
-                if not eligible_files:
-                    eligible_files = self._followup_image_files()
             except Exception as e:
-                logger.warning(f"Failed to filter images by completion, loading all: {e}")
+                logger.warning(f"Failed to filter images by completion, attaching none: {e}")
+                eligible_files = []
 
         images: list[ImageInput] = []
         for f in eligible_files:
@@ -2610,6 +2590,9 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        # Same gate as the submit_<list> tools (conversation switch,
+                        # sub-agent profile): create_data offers `lists` to code only then.
+                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
@@ -5418,6 +5401,7 @@ class AgentV2:
                         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
                         # Active scheduled tasks for this report (for dedupe + cancellation)
                         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
                         # Loadable prior steps (so the planner prefers reuse via load_step)
                         available_steps_context = await self._build_available_steps_context()
 
@@ -5513,6 +5497,7 @@ class AgentV2:
                             entities_context=entities_context,
                             available_steps_context=available_steps_context,
                             scheduled_tasks_context=scheduled_tasks_context,
+                            app_activity_context=app_activity_context or None,
                             history_summary=history_summary,
                             messages_context=messages_context,
                             resources_context=resources_context,
@@ -5534,6 +5519,7 @@ class AgentV2:
                             disabled_tools=sorted(self._disabled_tools),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+                            **self._sandbox_planner_flags(),
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
@@ -6554,6 +6540,7 @@ class AgentV2:
                                 _browser_session = session_manager.get(tool_input.get("session_id"), {
                                     "organization": self.organization, "user": getattr(self.head_completion, "user", None),
                                     "report": self.report, "agent_execution_id": str(self.current_execution.id),
+                                    "sub_agent_id": self._sub_agent_id,
                                 }) if tool_input.get("session_id") else None
                                 _verifying = (tool_name == "browser_navigate" and bool(tool_input.get("artifact_id"))) or (
                                     tool_name.startswith("browser_") and _browser_session is not None and _browser_session.preview is not None)
@@ -6814,6 +6801,9 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                                        # Same gate as the submit_<list> tools (conversation switch,
+                                        # sub-agent profile): create_data offers `lists` to code only then.
+                                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
@@ -8145,6 +8135,7 @@ class AgentV2:
             planner_input.memory_hint = None
             planner_input.scheduled_context = None
             planner_input.scheduled_tasks_context = None
+            planner_input.app_activity_context = None
             planner_input.sub_agents_enabled = False
             if self._sub_agent:
                 planner_input.sub_agent_title = self._sub_agent.get("title")
@@ -8304,6 +8295,7 @@ class AgentV2:
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
         available_steps_context = await self._build_available_steps_context()
         _notes_cfg2 = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
         _notes_on = bool(getattr(_notes_cfg2, "value", False)) if _notes_cfg2 is not None else False
@@ -8330,6 +8322,7 @@ class AgentV2:
             entities_context=entities_context,
             available_steps_context=available_steps_context,
             scheduled_tasks_context=scheduled_tasks_context,
+            app_activity_context=app_activity_context or None,
             history_summary=history_summary,
             messages_context=messages_context,
             resources_context=resources_context,
@@ -8346,6 +8339,7 @@ class AgentV2:
             disabled_tools=sorted(self._disabled_tools),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+            **self._sandbox_planner_flags(),
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
@@ -8664,6 +8658,22 @@ class AgentV2:
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
             return {"decision": False, "conditions": []}
+
+    def _sandbox_planner_flags(self) -> dict:
+        """What create_data's generated code may do (org Sandbox settings), as
+        the planner should see it: `browser` needs a browser connection on
+        the report, `lists` needs a list this user can submit to (a
+        submit_<list> tool), `http` follows the conversation's web_fetch switch."""
+        from app.ai.code_execution.sandbox_helpers import sandbox_settings
+        from app.ai.tools.implementations._browser_common import get_browser_connection
+
+        sb = sandbox_settings(self.organization_settings)
+        routing = getattr(self, "_list_tool_routing", None) or {}
+        return {
+            "sandbox_web_fetch_enabled": sb.web_fetch and "web_fetch" not in self._disabled_tools,
+            "sandbox_browser_enabled": sb.browser and get_browser_connection({"report": self.report}) is not None,
+            "sandbox_lists_enabled": sb.lists and bool(routing),
+        }
 
     def _web_search_enabled(self) -> bool:
         """Effective gate for native, provider-executed web search.
@@ -9049,8 +9059,13 @@ class AgentV2:
                "report": self.report,
                "user": getattr(self.head_completion, "user", None) if self.head_completion else None,
                "agent_execution_id": str(self.current_execution.id) if self.current_execution else None}
+        candidates = self._browser_catalog_candidates
+        allowed = getattr(self, "_sub_agent_allowed_tools", None) if self._is_sub_agent else None
+        if allowed is not None:
+            # Never advertise a browser tool the sub-agent dispatch check would refuse.
+            candidates = [t for t in candidates if t.name in allowed]
         self.planner.tool_catalog = await refresh_browser_tool_catalog(
-            self.planner.tool_catalog, self._browser_catalog_candidates, ctx)
+            self.planner.tool_catalog, candidates, ctx)
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

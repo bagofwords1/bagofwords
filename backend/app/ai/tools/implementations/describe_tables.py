@@ -16,6 +16,7 @@ from app.ai.tools.schemas import (
 )
 from app.models.instruction_reference import InstructionReference
 from app.models.datasource_table import DataSourceTable
+from app.data_sources.routines import is_routine
 
 
 class DescribeTablesTool(Tool):
@@ -28,7 +29,9 @@ class DescribeTablesTool(Tool):
                 "Use this to ensure you have the right tables and columns for your analysis. "
                 "Also returns instructions and business rules associated with the tables. "
                 "Tables with instructions>0 in the schema have associated rules — use this tool to see them. "
-                "When a data source has multiple connections with identically-named tables, use connection_ids to scope the search to a specific connection and avoid duplicates."
+                "When a data source has multiple connections with identically-named tables, use connection_ids to scope the search to a specific connection and avoid duplicates. "
+                "Also describes stored procedures and functions (<routine> entries): returns their source code, "
+                "so you can apply the business logic they encode in your own SELECT."
             ),
             category="research",
             version="1.0.0",
@@ -39,7 +42,7 @@ class DescribeTablesTool(Tool):
             idempotent=True,
             is_active=True,
             required_permissions=[],
-            tags=["schema", "tables", "columns", "topk", "index"],
+            tags=["schema", "tables", "columns", "topk", "index", "procedures", "functions"],
             observation_policy="on_trigger",
         )
 
@@ -84,6 +87,8 @@ class DescribeTablesTool(Tool):
                         break
                     if (getattr(t, "columns", None) or []):
                         continue  # already has columns — nothing to sample
+                    if is_routine(t):
+                        continue  # a procedure with no parameters, not a thin table
                     if getattr(t, "excluded_columns", None):
                         # Empty because the agent manager hid columns, not
                         # because the source is schema-on-read: sampling would
@@ -210,7 +215,7 @@ class DescribeTablesTool(Tool):
 
                 # Render combined excerpt using a per-source sample cap
                 top_k = max(1, int(data.limit or 20))
-                schemas_excerpt = ctx.render_combined(top_k_per_ds=top_k, index_limit=200)
+                schemas_excerpt = ctx.render_combined(top_k_per_ds=top_k, index_limit=200, include_routine_definitions=True)
 
                 # Determine truncation if any data source has more tables than top_k
                 truncated = any(

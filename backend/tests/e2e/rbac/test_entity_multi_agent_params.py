@@ -56,12 +56,21 @@ def _sales_db(store):
 
 
 @pytest.fixture
-def two_agents(bootstrap_admin, sqlite_data_source, invite_user_to_org, grant_resource):
+def two_agents(bootstrap_admin, sqlite_data_source, invite_user_to_org, grant_resource,
+               update_tables_status_delta, wait_for_connection_indexing):
     admin = bootstrap_admin("admin")
     org_id = admin["org_id"]
     paths = [_sales_db("EU"), _sales_db("US")]
     eu = sqlite_data_source(name=f"eu_{uuid.uuid4().hex[:4]}", user_token=admin["token"], org_id=org_id, database=paths[0])
     us = sqlite_data_source(name=f"us_{uuid.uuid4().hex[:4]}", user_token=admin["token"], org_id=org_id, database=paths[1])
+    # New agents start with every table off; the admin selects `sales` for
+    # both, as in the tables wizard. Queries may only read selected tables.
+    # Indexing runs in the background, so wait for the table rows first.
+    for ds in (eu, us):
+        wait_for_connection_indexing(connection_id=ds["connections"][0]["id"],
+                                     user_token=admin["token"], org_id=org_id)
+        update_tables_status_delta(data_source_id=ds["id"], activate=["sales"],
+                                   user_token=admin["token"], org_id=org_id)
     member = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
     yield {"admin": admin, "org_id": org_id, "eu": eu, "us": us, "member": member, "grant": grant_resource}
     for p in paths:

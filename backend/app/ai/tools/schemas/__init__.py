@@ -13,6 +13,7 @@ from .create_instruction import CreateInstructionInput, CreateInstructionOutput
 from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
+from .read_artifact_activity import ReadArtifactActivityInput, ReadArtifactActivityOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
 from .run_query import RunQueryInput, RunQueryOutput, MissingParam
 from .add_parameter import AddParameterInput, AddParameterOutput
@@ -63,6 +64,8 @@ from .events import (
 )
 
 __all__ = [
+    "ReadArtifactActivityInput",
+    "ReadArtifactActivityOutput",
     "CreateWidgetInput",
     "CreateWidgetOutput",
     "CreateDataInput",

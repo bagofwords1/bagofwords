@@ -148,6 +148,8 @@ class SandboxJob:
     client_keys: List[str] = field(default_factory=list)
     http_enabled: bool = False
     load_step_enabled: bool = False
+    lists_enabled: bool = False
+    browser_enabled: bool = False
     # pptx mode
     visualizations: Optional[List[Dict]] = None
     report: Optional[Dict] = None
@@ -666,6 +668,9 @@ def run_job(
     execute_query: Optional[Callable[[str, list, dict], Any]] = None,
     http_get: Optional[Callable[..., Any]] = None,
     http_batch_get: Optional[Callable[..., Any]] = None,
+    lists_submit: Optional[Callable[[str, list], Any]] = None,
+    lists_available: Optional[Callable[[], Any]] = None,
+    browser_call: Optional[Callable[[str, list, dict], Any]] = None,
     limits: Optional[SandboxLimits] = None,
     cancel_event: Optional[threading.Event] = None,
     on_abort: Optional[Callable[[], None]] = None,
@@ -700,6 +705,8 @@ def run_job(
             "client_keys": list(job.client_keys or []),
             "http_enabled": bool(job.http_enabled and http_get is not None),
             "load_step_enabled": bool(job.load_step_enabled),
+            "lists_enabled": bool(job.lists_enabled and lists_submit is not None),
+            "browser_enabled": bool(job.browser_enabled and browser_call is not None),
             "visualizations": job.visualizations,
             "report": job.report,
             "images": job.images,
@@ -778,6 +785,23 @@ def run_job(
                                 kw[k] = header[k]
                         _urls = list(header.get("urls") or [])
                         handler = lambda: http_batch_get(_urls, **kw)  # noqa: E731
+                    elif method == "lists_submit":
+                        if lists_submit is None:
+                            raise RuntimeError("writing to lists from code is not enabled for this run")
+                        _list = str(header.get("list") or "")
+                        _records = header.get("records")
+                        handler = lambda: lists_submit(_list, _records)  # noqa: E731
+                    elif method == "lists_available":
+                        if lists_available is None:
+                            raise RuntimeError("writing to lists from code is not enabled for this run")
+                        handler = lists_available
+                    elif method == "browser":
+                        if browser_call is None:
+                            raise RuntimeError("the browser is not enabled for code in this run")
+                        _op = str(header.get("op") or "")
+                        _bargs = list(header.get("args") or [])
+                        _bkwargs = {k: v for k, v in dict(header.get("kwargs") or {}).items() if v is not None}
+                        handler = lambda: browser_call(_op, _bargs, _bkwargs)  # noqa: E731
                     else:
                         raise RuntimeError(f"unknown sandbox rpc {method!r}")
                     value = _call_supervised(handler, child, deadline, cancel_event, limits)

@@ -312,7 +312,7 @@
         <Spinner class="w-6 h-6 text-ink-muted" aria-hidden="true" />
       </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
-      <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+      <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="canvasTables" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
@@ -393,7 +393,13 @@
                       <span class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
                     <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-ink-muted" :title="t('tableErd.customQuery')" />
+                    <UIcon v-if="isRoutine(table)" :name="ROUTINE_ICON" class="w-3.5 h-3.5 me-1 text-ink-muted" />
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
+                    <span v-if="isRoutine(table)" :data-testid="`routine-badge-${table.name}`"
+                      class="ms-2 text-2xs px-1 py-0.5 rounded bg-violet-50 dark:bg-violet-900/30 text-violet-700 dark:text-violet-300">
+                      {{ routineKind(table) === 'function' ? t('tableErd.routineFunction') : t('tableErd.routineProcedure') }}
+                    </span>
+                    <span v-if="isRoutine(table) && routineMeta(table).definition_available === false" class="ms-2 text-2xs text-amber-600 dark:text-amber-400">{{ t('tableErd.routineSourceHidden') }}</span>
                     <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
@@ -455,8 +461,41 @@
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
+                <!-- Stored procedure / function: signature, parameters, source.
+                     No column-visibility toggles: parameters are not columns. -->
+                <div v-if="isRoutine(table)" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`routine-panel-${table.name}`">
+                  <div class="flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
+                    <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
+                    {{ t('tableErd.routineHint') }}
+                  </div>
+                  <div class="px-2 py-1.5 space-y-0.5">
+                    <code v-for="sig in (routineMeta(table).signatures || [])" :key="sig" class="block text-xs text-gray-700 dark:text-gray-300 break-all" dir="ltr">{{ sig }}</code>
+                  </div>
+                  <template v-if="table.columns?.length">
+                    <div class="grid grid-cols-[1fr_1fr_4rem] text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1">
+                      <div>{{ t('tableErd.routineParameter') }}</div>
+                      <div>{{ t('tableErd.routineParameterType') }}</div>
+                      <div></div>
+                    </div>
+                    <div class="divide-y divide-gray-100 dark:divide-gray-800">
+                      <div v-for="col in table.columns" :key="col.name" class="grid grid-cols-[1fr_1fr_4rem] items-center text-xs px-2 py-1">
+                        <span class="truncate text-gray-700 dark:text-gray-300"><bdi>{{ col.name }}</bdi></span>
+                        <span class="text-gray-500 dark:text-gray-400"><bdi>{{ col.dtype || col.type }}</bdi></span>
+                        <span class="text-2xs text-ink-muted">{{ col.metadata?.mode && col.metadata.mode !== 'IN' ? col.metadata.mode : '' }}</span>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="border-t border-gray-100 dark:border-gray-800">
+                    <div class="flex items-center justify-between text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1">
+                      <span>{{ t('tableErd.routineSource') }}</span>
+                      <span v-if="routineMeta(table).definition_truncated" class="text-2xs font-normal text-ink-muted">{{ t('tableErd.routineSourceTruncated') }}</span>
+                    </div>
+                    <pre v-if="routineMeta(table).definition" class="text-xs text-gray-700 dark:text-gray-300 px-2 py-1.5 max-h-72 overflow-auto whitespace-pre" dir="ltr" :data-testid="`routine-source-${table.name}`">{{ routineMeta(table).definition }}</pre>
+                    <p v-else class="text-xs text-amber-700 dark:text-amber-400 px-2 py-1.5">{{ t('tableErd.routineSourceHiddenHint') }}</p>
+                  </div>
+                </div>
                 <!-- Columns -->
-                <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`columns-panel-${table.name}`">
+                <div v-else-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded" :data-testid="`columns-panel-${table.name}`">
                   <div v-if="canUpdate" class="flex items-center justify-between gap-2 text-2xs text-gray-500 dark:text-gray-400 px-2 py-1.5 border-b border-gray-100 dark:border-gray-800">
                     <span class="flex items-center gap-1">
                       <UIcon name="heroicons-information-circle" class="w-3.5 h-3.5 shrink-0" />
@@ -654,6 +693,7 @@ import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
 import { useCan } from '~/composables/usePermissions'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
+import { isRoutine, routineKind, routineMeta, ROUTINE_ICON } from '~/utils/routines'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -1107,6 +1147,10 @@ const tableView = ref<'table' | 'erd'>('table')
 const erdOpened = ref(false)
 const diagramReady = ref(false)
 const catalog = ref<Table[]>([])
+// The relationship diagram draws relations only: a stored procedure or
+// function has no keys to draw, and its parameter names would seed false
+// key-name suggestions. Routines stay in the List view.
+const canvasTables = computed(() => catalog.value.filter(t => !isRoutine(t)))
 const catalogLoaded = ref(false)
 const catalogLoading = ref(false)
 const catalogError = ref(false)

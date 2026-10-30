@@ -399,6 +399,14 @@ class TableFormatter:
 
     def format_table(self, table: Table) -> str:
         """Get table format."""
+        meta = table.metadata_json if isinstance(table.metadata_json, dict) else {}
+        if meta.get("type") == "routine":
+            # A stored procedure / function (app.data_sources.routines): not a
+            # relation, so no CREATE TABLE. Its signature, marked reference-only.
+            block = meta.get("routine") if isinstance(meta.get("routine"), dict) else {}
+            sigs = block.get("signatures") or [f"{block.get('kind') or 'procedure'} {table.name}()"]
+            note = "-- stored routine: reference only, not a table (read its source with describe_tables)"
+            return "\n".join([note] + [f"-- {sig}" for sig in sigs])
         is_semantic_view = (
             isinstance(table.metadata_json, dict)
             and table.metadata_json.get("type") == "semantic_view"

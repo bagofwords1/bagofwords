@@ -260,6 +260,15 @@
 [dir="rtl"] .markstream-vue .text-left { text-align: start; }
 [dir="rtl"] .markstream-vue .text-right { text-align: end; }
 
+/* 7a. markstream-vue tags every table cell with no explicit column alignment
+ *     as `.text-left`. The rule above only fires when the whole UI is RTL, so
+ *     a Hebrew/Arabic answer in an English UI got right-to-left cells pinned
+ *     to the left edge. `start` follows each cell's direction, which
+ *     useMarkdownAutoDir stamps (code-only cells take their table's
+ *     direction). `:is(th, td)` beats the library's
+ *     `.markstream-vue .text-left`, which loads after this sheet. */
+.markstream-vue :is(th, td).text-left { text-align: start; }
+
 /* 7b. Mixed-locale markdown: UI locale is LTR but the assistant answered
  *     in Hebrew/Arabic (or vice-versa). The <li>/<ol> can't see through
  *     nested `dir="auto"` descendants per the HTML spec's auto-directionality

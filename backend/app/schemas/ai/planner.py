@@ -108,6 +108,8 @@ class PlannerInput(BaseModel):
     available_steps_context: Optional[str] = None
     # Active recurring scheduled tasks for this report (rendered <scheduled_tasks> block)
     scheduled_tasks_context: Optional[str] = None
+    # Failures in this conversation's apps the agent has not seen (services/artifact_activity.py).
+    app_activity_context: Optional[str] = None
     # Rendered <notes> block (per-report agent scratchpad), injected near
     # last_observation. Populated in both the main loop and the knowledge harness.
     notes_context: Optional[str] = None
@@ -192,6 +194,11 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Org Sandbox settings: what create_data's generated code may do
+    # (`http`, `browser`, `lists`). See ai/code_execution/sandbox_helpers.py.
+    sandbox_web_fetch_enabled: bool = False
+    sandbox_browser_enabled: bool = False
+    sandbox_lists_enabled: bool = False
     # Org `enable_ml_training` (default on). Off: the code sandbox rejects
     # sklearn/scipy imports, so the planner must not promise or claim a model.
     ml_training_enabled: bool = True

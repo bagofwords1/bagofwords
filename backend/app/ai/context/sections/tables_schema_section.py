@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable
+from app.data_sources.routines import is_routine, routine_kind, routine_meta
 
 
 # Schema usage tracking models for context snapshots
@@ -337,6 +338,56 @@ def _render_source_metadata_xml(t: PromptTable) -> str:
         return ""
 
 
+# Said once per agent whose rendered schema holds a routine, not per routine.
+ROUTINES_NOTE = (
+    "<routine> entries are stored procedures and functions: the database's own "
+    "business logic, not tables. Never SELECT FROM a procedure and never EXEC/CALL "
+    "one (only read-only SELECTs run). When a question touches what a routine "
+    "computes (a metric definition, filters such as excluded statuses or test "
+    "accounts, a fiscal calendar), read its source with describe_tables(\"<routine "
+    "name>\") and apply the same logic in a SELECT over the underlying tables. A "
+    "function may be called inside a SELECT."
+)
+
+
+def _render_routine_xml(t: PromptTable, include_definition: bool = False) -> str:
+    """One stored procedure / function: its signature(s), and its source when
+    `include_definition` (describe_tables). The main schema context leaves the
+    source out so a large procedure never bloats every turn."""
+    block = routine_meta(t)
+    kind = routine_kind(t) or "procedure"
+    parts = [xml_tag("signature", xml_escape(sig)) for sig in (block.get("signatures") or [])]
+    if include_definition:
+        definition = block.get("definition")
+        if definition:
+            attrs = {"truncated": "true"} if block.get("definition_truncated") else None
+            parts.append(xml_tag("definition", xml_escape(definition), attrs))
+        else:
+            parts.append(xml_tag(
+                "definition",
+                "Source not visible to this connection's account. Tell the user an "
+                "admin can grant VIEW DEFINITION (or the engine's equivalent) to make "
+                "it readable. Meanwhile a function can still be called inside a SELECT "
+                "on sample inputs to observe what it returns.",
+                {"available": "false"},
+            ))
+    attrs = {"name": t.name, "kind": kind}
+    if getattr(t, "description", None):
+        attrs["description"] = t.description
+    if not block.get("definition_available", True):
+        attrs["source"] = "not_visible"
+    try:
+        if getattr(t, "referenced_instructions_count", None):
+            attrs["instructions"] = str(int(t.referenced_instructions_count))
+    except Exception:
+        pass
+    return xml_tag("routine", "\n".join(parts), attrs)
+
+
+def _routines_note_xml(tables) -> str:
+    return xml_tag("routines_note", xml_escape(ROUTINES_NOTE)) if any(is_routine(t) for t in tables or []) else ""
+
+
 class TablesSchemaContext(ContextSection):
     # "Agent" is the product name for a data source; the model-facing schema
     # context uses the same vocabulary as the roster/tools (<agents>/<agent>).
@@ -438,6 +489,8 @@ class TablesSchemaContext(ContextSection):
 
         def _render_table_xml(self, t: PromptTable) -> str:
             """Render a single table to XML."""
+            if is_routine(t):
+                return _render_routine_xml(t)
             col_parts = []
             for c in (t.columns or []):
                 attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
@@ -763,6 +816,9 @@ class TablesSchemaContext(ContextSection):
             presentation = _presentation_note_xml(self.tables)
             if presentation:
                 content_parts.append(presentation)
+            routines_note = _routines_note_xml(self.tables)
+            if routines_note:
+                content_parts.append(routines_note)
 
             # Check if we have multi-connection (more than one group, or the group isn't 'default')
             # File connections also count — they render as their own <connection>.
@@ -845,7 +901,7 @@ class TablesSchemaContext(ContextSection):
                     meta_parts.append(f"score: {score_str}")
                 if usage_str is not None:
                     meta_parts.append(f"usage: {usage_str}")
-                meta_parts.append(f"{cols_count} columns")
+                meta_parts.append(routine_kind(t) if is_routine(t) else f"{cols_count} columns")
                 meta_text = f"({', '.join(meta_parts)})" if meta_parts else None
 
                 attrs = {"n": t.name}
@@ -877,7 +933,7 @@ class TablesSchemaContext(ContextSection):
             payload = xml_tag("count", str(len(self.tables or []))) + xml_tag("top", ", ".join(first_five))
             return xml_tag(self.tag_name, payload, {"name": self.info.name, "type": self.info.type, "id": self.info.id})
 
-        def _render_topk_tables_full(self, top_k: int) -> str:
+        def _render_topk_tables_full(self, top_k: int, include_definitions: bool = False) -> str:
             """Render top K tables with full schema, grouped by connection if multi-connection."""
             # Cached relations are never sliced away by the cap. They rank first
             # (see schema_context_builder._cached_first), but this render path is
@@ -904,6 +960,8 @@ class TablesSchemaContext(ContextSection):
             has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
 
             def render_table(t):
+                if is_routine(t):
+                    return _render_routine_xml(t, include_definition=include_definitions)
                 col_parts = []
                 for c in (t.columns or []):
                     col_attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
@@ -1150,10 +1208,13 @@ class TablesSchemaContext(ContextSection):
                     for t in row if t is not None
                 ]
             for t in tables[:cap if cap > 0 else len(tables)]:
-                attrs = {
-                    "name": t.name,
-                    "cols": str(len(getattr(t, 'columns', []) or [])),
-                }
+                if is_routine(t):
+                    attrs = {"name": t.name, "kind": routine_kind(t)}
+                else:
+                    attrs = {
+                        "name": t.name,
+                        "cols": str(len(getattr(t, 'columns', []) or [])),
+                    }
                 if name_connections:
                     alias = alias_by_key.get(self._connection_key(t))
                     if alias:
@@ -1191,10 +1252,14 @@ class TablesSchemaContext(ContextSection):
             return xml_tag(self.tag_name, "".join(ds._render_digest() for ds in self.data_sources or []))
         return xml_tag(self.tag_name, "\n\n".join(ds.render() for ds in self.data_sources or []))
 
-    def render_combined(self, top_k_per_ds: int = 10, index_limit: int = 200, include_index: bool = True) -> str:
+    def render_combined(self, top_k_per_ds: int = 10, index_limit: int = 200, include_index: bool = True,
+                        include_routine_definitions: bool = False) -> str:
+        """`include_routine_definitions` adds each stored procedure's / function's
+        source to its <routine> entry (describe_tables). Off for the planner's
+        standing context, which carries signatures only."""
         ds_chunks: List[str] = []
         for ds in (self.data_sources or []):
-            sample_xml = ds._render_topk_tables_full(top_k_per_ds)
+            sample_xml = ds._render_topk_tables_full(top_k_per_ds, include_definitions=include_routine_definitions)
             index_xml = ds._render_names_index(index_limit) if include_index else ""
             # Render MCP tools for this data source
             mcp_xml = ds._render_mcp_tools_xml() if ds.mcp_tools else ""
@@ -1235,6 +1300,9 @@ class TablesSchemaContext(ContextSection):
             presentation = _presentation_note_xml(getattr(ds, 'tables', None))
             if presentation:
                 inner_parts.append(presentation)
+            routines_note = _routines_note_xml(getattr(ds, 'tables', None))
+            if routines_note:
+                inner_parts.append(routines_note)
             if sample_xml:
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:

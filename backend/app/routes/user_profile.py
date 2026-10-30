@@ -159,15 +159,21 @@ async def get_my_viewer_context(
 
     All artifact host surfaces (ArtifactFrame, /r/[id]) fetch this one shape;
     anonymous viewers never reach it (401) and render with current_user=null."""
-    membership = await _get_current_membership(db, current_user, organization)
+    return await viewer_context(db, current_user, organization)
+
+
+async def viewer_context(db: AsyncSession, user: User, organization: Organization) -> ViewerContextSchema:
+    """The viewer payload for ``user`` in ``organization`` (also what an
+    embedded artifact's session reports, app/routes/embed.py)."""
+    membership = await _get_current_membership(db, user, organization)
     return ViewerContextSchema(
-        id=str(current_user.id),
-        name=current_user.name,
-        email=current_user.email,
-        image_url=current_user.image_url,
+        id=str(user.id),
+        name=user.name,
+        email=user.email,
+        image_url=user.image_url,
         role=membership.role if membership else None,
         profile_attributes=(membership.profile_attributes if membership else None) or None,
-        groups=await _resolve_viewer_groups(db, str(current_user.id), str(organization.id)),
+        groups=await _resolve_viewer_groups(db, str(user.id), str(organization.id)),
     )
 
 

@@ -254,7 +254,11 @@ class ReadFileInput(BaseModel):
     )
     sheet: Optional[str] = Field(
         None,
-        description="For Excel / Google Sheets only: sheet name. Defaults to the first sheet.",
+        description=(
+            "For Excel / Google Sheets only: the sheet to read. Defaults to the "
+            "first sheet. A workbook read returns `sheets` (every sheet name in "
+            "the file) — read another one by passing its name here."
+        ),
     )
     max_rows: int = Field(
         default=1000,
@@ -391,6 +395,13 @@ class ReadFileOutput(BaseModel):
     rows_shown: Optional[int] = None
     col_count: Optional[int] = None
     truncated: bool = False
+    # Excel / Google Sheets: the sheet shown in `csv`, and every sheet in the
+    # workbook (in workbook order). Unset for non-workbook files.
+    sheet: Optional[str] = None
+    sheets: Optional[List[str]] = Field(
+        default=None,
+        description="Every sheet name in the workbook. Pass one as `sheet` to read it.",
+    )
     byte_count: Optional[int] = None  # for binary
     garbled: Optional[bool] = Field(
         default=None,
