@@ -2590,6 +2590,9 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        # Same gate as the submit_<list> tools (conversation switch,
+                        # sub-agent profile): create_data offers `lists` to code only then.
+                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
@@ -5516,6 +5519,7 @@ class AgentV2:
                             disabled_tools=sorted(self._disabled_tools),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+                            **self._sandbox_planner_flags(),
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
@@ -6796,6 +6800,9 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                                        # Same gate as the submit_<list> tools (conversation switch,
+                                        # sub-agent profile): create_data offers `lists` to code only then.
+                                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
@@ -8331,6 +8338,7 @@ class AgentV2:
             disabled_tools=sorted(self._disabled_tools),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+            **self._sandbox_planner_flags(),
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
@@ -8649,6 +8657,22 @@ class AgentV2:
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
             return {"decision": False, "conditions": []}
+
+    def _sandbox_planner_flags(self) -> dict:
+        """What create_data's generated code may do (org Sandbox settings), as
+        the planner should see it: `browser` needs a browser connection on
+        the report, `lists` needs a list this user can submit to (a
+        submit_<list> tool), `http` follows the conversation's web_fetch switch."""
+        from app.ai.code_execution.sandbox_helpers import sandbox_settings
+        from app.ai.tools.implementations._browser_common import get_browser_connection
+
+        sb = sandbox_settings(self.organization_settings)
+        routing = getattr(self, "_list_tool_routing", None) or {}
+        return {
+            "sandbox_web_fetch_enabled": sb.web_fetch and "web_fetch" not in self._disabled_tools,
+            "sandbox_browser_enabled": sb.browser and get_browser_connection({"report": self.report}) is not None,
+            "sandbox_lists_enabled": sb.lists and bool(routing),
+        }
 
     def _web_search_enabled(self) -> bool:
         """Effective gate for native, provider-executed web search.

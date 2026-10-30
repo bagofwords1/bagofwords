@@ -3102,6 +3102,10 @@
           "title": "Capacidades del agente",
           "description": "Qué puede hacer el agente al responder"
         },
+        "sandbox": {
+          "title": "Sandbox",
+          "description": "Qué puede hacer el código generado además de consultar datos. Las páginas y filas que procesa el código nunca pasan por el modelo."
+        },
         "learning": {
           "title": "Aprendizaje y memoria",
           "description": "Cómo aprende la IA de los usuarios, los comentarios y el uso"
@@ -3390,6 +3394,34 @@
         "sub_agent_allow_create_data": {
           "name": "Las subagentes pueden crear consultas",
           "description": "Permite que los subagentes creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = subagentes solo de investigación."
+        },
+        "enable_sandbox_web_fetch": {
+          "name": "Descarga web en el código",
+          "description": "Da al código generado un cliente `http` que descarga URL públicas en bloque. El código lee las páginas, no el modelo, así que extraer muchas páginas no consume tokens adicionales. Es independiente de Descarga web, que permite al propio agente leer una página."
+        },
+        "sandbox_web_fetch_max_urls": {
+          "name": "Máximo de URL por ejecución de código",
+          "description": "Cuántas URL puede descargar una ejecución del código generado. De 1 a 10.000."
+        },
+        "enable_sandbox_browser": {
+          "name": "Navegador en el código",
+          "description": "Da al código generado un navegador sin interfaz que puede controlar (abrir páginas, hacer clic, escribir, desplazarse, leer texto) para sitios que necesitan JavaScript. Usa la lista de URL permitidas de la conexión de navegador del agente; sin conexión de navegador no se ofrece."
+        },
+        "sandbox_browser_allow_mutating_requests": {
+          "name": "Permitir envío de formularios desde el código",
+          "description": "Permite que el navegador del código envíe solicitudes POST, PUT, PATCH y DELETE (enviar formularios, iniciar sesión, publicar). Desactivado: esas solicitudes se bloquean, así que hacer clic y escribir solo puede leer páginas y una ejecución repetida no puede cambiar nada en un sitio."
+        },
+        "sandbox_browser_max_pages": {
+          "name": "Máximo de páginas del navegador por ejecución",
+          "description": "Cuántas páginas puede cargar una ejecución del código generado. De 1 a 2.000."
+        },
+        "enable_sandbox_lists": {
+          "name": "Escribir en listas del agente desde el código",
+          "description": "Permite que el código generado envíe filas a las listas del agente de la conversación. Las filas se validan al enviarse y se guardan solo cuando la ejecución termina bien, así que una ejecución fallida o repetida no escribe nada. Al modelo solo le llegan los totales."
+        },
+        "sandbox_lists_max_rows": {
+          "name": "Máximo de filas de lista por ejecución",
+          "description": "Cuántas filas puede enviar a las listas del agente una ejecución del código generado. De 1 a 50.000."
         }
       }
     },

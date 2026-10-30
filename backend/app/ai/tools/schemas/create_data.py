@@ -133,5 +133,8 @@ class CreateDataOutput(BaseModel):
     # consumes), and the default values this run executed with.
     parameters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Declared ParamSpec dicts the generated code consumes")
     applied_params: Optional[Dict[str, Any]] = Field(default=None, description="Resolved default param values this run executed with")
+    # What the code did through the Sandbox helpers (URLs fetched, browser
+    # pages loaded, Agent List rows saved). Counts only.
+    sandbox_activity: Optional[Dict[str, Any]] = Field(default=None, description="Counts of web fetches, browser pages and list rows the generated code produced")
 
 
