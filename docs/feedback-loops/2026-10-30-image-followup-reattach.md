@@ -24,10 +24,6 @@ message with what it carried, e.g. `[attached: zebra.png (image/png, id=…)]`
 (`message_context_builder.py`, `_attachments_by_completion`), and `read_file`
 shows the image again.
 
-Prior art: opencode and hermes-agent both keep an image in the message it
-arrived with (never on the newest message). They bound old images by size or
-count, and the model re-reads one with a tool when needed.
-
 ## Loop A — deterministic (no external services)
 
 ```bash

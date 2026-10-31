@@ -84,7 +84,7 @@ def default_policy_for_hints(hints: Dict[str, bool]) -> Optional[str]:
 
     Only a tool the server marks read-only runs without asking; a destructive
     tool, or one with no hints at all, starts on "ask". Missing hints are
-    treated as write-capable — the same fail-safe Hermes and OpenClaw use.
+    treated as write-capable.
     Returns None for "allow" (the caller's default).
     """
     if hints.get("readOnlyHint") is True and hints.get("destructiveHint") is not True:
@@ -157,6 +157,9 @@ class McpClient(ToolProviderClient):
         # OAuth user_required mode: per-user access_token from
         # UserConnectionCredentials is fed in as a bearer token.
         access_token: Optional[str] = None,
+        # HTTP Basic (e.g. Atlassian email + API token).
+        username: Optional[str] = None,
+        password: Optional[str] = None,
         **_ignored,  # OAuth-app fields (authorize_url, token_url, client_id,
                      # client_secret, scopes, audience) live on the connection
                      # creds but are only used by the OAuth service, not the
@@ -171,12 +174,18 @@ class McpClient(ToolProviderClient):
         self.token = token or access_token
         self.api_key = api_key
         self.api_key_header = api_key_header or "X-API-Key"
+        self.username = username
+        self.password = password
 
     def _build_headers(self) -> Dict[str, str]:
         """Build request headers, merging any auth headers."""
         h = {}
         if self.token:
             h["Authorization"] = f"Bearer {self.token}"
+        elif self.username and self.password:
+            import base64
+            pair = f"{self.username}:{self.password}".encode("utf-8")
+            h["Authorization"] = "Basic " + base64.b64encode(pair).decode("ascii")
         if self.api_key:
             h[self.api_key_header] = self.api_key
         h.update(self.headers)

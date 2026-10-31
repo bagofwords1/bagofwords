@@ -259,6 +259,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "Buzón de AI",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (deshabilitada)",
+    "optChannelAppDeleted": "Aplicación eliminada",
     "optStatusActive": "Activo",
     "optStatusInactive": "Inactivo",
     "optStatusPending": "Pendiente de revisión",
@@ -3665,7 +3667,13 @@
       "failedConnect": "No se pudo conectar",
       "useExistingLabel": "Usar conexión existente",
       "selectExistingPlaceholder": "Seleccionar existente…",
-      "orCreateNew": "— o crear nueva —"
+      "orCreateNew": "— o crear nueva —",
+      "authBasic": "Correo + token de API",
+      "basicUsernameLabel": "Correo / usuario",
+      "basicUsernamePlaceholder": "tu@empresa.com",
+      "basicPasswordLabel": "Token de API",
+      "basicPasswordPlaceholder": "Pega tu token de API",
+      "basicHint": "Se envía como autenticación HTTP Basic. Para Bitbucket, usa el correo de tu cuenta de Atlassian y un token de API de Atlassian; un administrador de la organización debe habilitar el acceso por token de API en el servidor MCP de Rovo."
     },
     "weekStart": {
       "label": "Inicio de la semana laboral",
@@ -4173,6 +4181,24 @@
           "title": "Exporta el certificado del SMS Provider",
           "body": "El sitio usa un certificado autofirmado de forma predeterminada. Ejecuta esto en PowerShell en el SMS Provider y pega el resultado en SMS Provider certificate (PEM). Omite este paso si el certificado lo emite una CA en la que este servidor ya confía."
         }
+      ],
+      "github_repo": [
+        {
+          "title": "Crea un token de solo lectura",
+          "body": "En GitHub ve a Settings > Developer settings > Fine-grained tokens, elige el repositorio y concede Contents: Read-only (Metadata: Read-only se añade automáticamente). Los repositorios públicos no necesitan token."
+        }
+      ],
+      "gitlab_repo": [
+        {
+          "title": "Crea un token de solo lectura",
+          "body": "Crea un token de acceso de proyecto (Project > Settings > Access tokens) o un token de acceso personal con el alcance read_repository. Los proyectos públicos no necesitan token. Para GitLab autogestionado, completa también Servidor."
+        }
+      ],
+      "bitbucket_repo": [
+        {
+          "title": "Crea un token de API",
+          "body": "En tu cuenta de Atlassian ve a Security > API tokens > Create API token with scopes, elige Bitbucket y concede read:repository:bitbucket. Deja Usuario vacío. Para un token de acceso al repositorio, pon x-token-auth en Usuario."
+        }
       ]
     },
     "setupGuideCopyFailed": "Error al copiar — selecciona el texto",
@@ -4318,7 +4344,8 @@
     "tabReport": "Informe",
     "tabData": "Datos ({count})",
     "refreshedAt": "Actualizado {time}",
-    "madeWith": "Hecho con {brand}"
+    "madeWith": "Hecho con {brand}",
+    "fork": "Crear copia"
   },
   "errors": {
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
@@ -4448,6 +4475,7 @@
     "APPLICATION_NOT_FOUND": "Aplicación no encontrada",
     "APPLICATION_CAPABILITY_EXISTS": "Esta aplicación ya tiene esta función",
     "APPLICATION_AGENTS_INVALID": "Selecciona agentes existentes en esta organización",
+    "INSTRUCTION_APPLICATIONS_INVALID": "Selecciona aplicaciones existentes en esta organización",
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW"
   },

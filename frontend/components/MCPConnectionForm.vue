@@ -59,6 +59,7 @@
             <option v-if="authAllowed('none')" value="none">{{ $t('settings.mcpModal.authNone') }}</option>
             <option v-if="authAllowed('bearer')" value="bearer">{{ $t('settings.mcpModal.authBearer') }}</option>
             <option v-if="authAllowed('api_key')" value="api_key">{{ $t('settings.mcpModal.authApiKey') }}</option>
+            <option v-if="authAllowed('basic')" value="basic">{{ $t('settings.mcpModal.authBasic') }}</option>
             <option v-if="authAllowed('dcr')" value="dcr">{{ $t('data.mcpAuthDcr') }}</option>
             <option v-if="authAllowed('oauth_app')" value="oauth_app">{{ $t('data.mcpAuthOauthApp') }}</option>
           </select>
@@ -88,6 +89,18 @@
           <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.bearerLabel') }}</label>
           <input v-model="form.token" type="password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.bearerPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $t('data.mcpTokenSharedHint') }}</p>
+        </div>
+
+        <div v-if="form.auth_type === 'basic'" class="space-y-3" data-test="mcp-basic">
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.basicUsernameLabel') }}</label>
+            <input v-model="form.username" type="text" autocomplete="off" data-test="mcp-basic-username" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.basicUsernamePlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.mcpModal.basicPasswordLabel') }}</label>
+            <input v-model="form.password" type="password" autocomplete="new-password" data-test="mcp-basic-password" :placeholder="isEditMode ? $t('settings.mcpModal.unchanged') : $t('settings.mcpModal.basicPasswordPlaceholder')" class="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500" />
+          </div>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.mcpModal.basicHint') }}</p>
         </div>
 
         <div v-if="form.auth_type === 'api_key'" class="space-y-3">
@@ -333,6 +346,9 @@ const form = reactive({
   token: '',
   api_key: '',
   api_key_header: 'X-API-Key',
+  // HTTP Basic (auth_type === 'basic'), e.g. Atlassian email + API token
+  username: '',
+  password: '',
   // OAuth app fields (used when auth_type === 'oauth_app')
   authorize_url: '',
   token_url: '',
@@ -467,6 +483,8 @@ watch(() => props.editConnection, async (conn) => {
         form.token = ''
         form.api_key = ''
         form.api_key_header = config.api_key_header || 'X-API-Key'
+        form.username = ''
+        form.password = ''
         // OAuth app fields — non-secret values come back from the backend in
         // the `credentials_meta` blob so the admin can edit them without
         // re-entering everything. Secrets stay blank (unchanged-placeholder).
@@ -573,6 +591,7 @@ watch(() => ({ ...form }), () => { submitError.value = null })
 function buildCredentials(): Record<string, any> | undefined {
   if (form.auth_type === 'bearer' && form.token) return { token: form.token }
   if (form.auth_type === 'api_key' && form.api_key) return { api_key: form.api_key, api_key_header: form.api_key_header }
+  if (form.auth_type === 'basic' && form.username && form.password) return { username: form.username, password: form.password }
   if (form.auth_type === 'oauth_app') {
     // Don't send empty strings; backend wants either a complete OAuth app or
     // an updated subset (edit mode).

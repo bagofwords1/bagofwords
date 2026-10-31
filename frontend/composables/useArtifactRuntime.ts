@@ -162,6 +162,15 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
       try {
         const a = message.args || {}, method = message.method
         if (now.readOnly) throw Object.assign(new Error('Resources are unavailable in preview or view-as'),{code:'FORBIDDEN'})
+        if (method === 'signIn') {
+          // The frame supplies no URL. Only this BOW page chooses the return path.
+          if (window.self !== window.top) {
+            window.dispatchEvent(new CustomEvent('bow-sign-in-required'));
+          } else {
+            window.location.assign('/users/sign-in?redirect=' + encodeURIComponent(window.location.pathname + window.location.search));
+          }
+          send({result: null}); return;
+        }
         const segment = (value: unknown) => { if(typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value)) throw new Error('Invalid resource'); return encodeURIComponent(value) }
         let path: string, body: any, verb = 'POST'
         if(method === 'records') { const {resource,...payload}=a; path=`/collections/${segment(resource)}/records`; body=JSON.stringify(payload) }

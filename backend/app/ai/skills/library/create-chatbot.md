@@ -3,7 +3,7 @@ key: create-chatbot
 title: Build a chat assistant
 description: Use when building or editing an agent-powered chatbot artifact, embedded assistant, or branded chat widget for an ERP, ServiceNow, or another app.
 category: dashboard
-version: "1.0"
+version: "1.1"
 order: 27
 default_enabled: true
 modes: [chat]
@@ -135,3 +135,9 @@ verification output before editing again; an uploaded reference image is not
 proof of the current version's state. Finish with the artifact link, what works,
 and any remaining publishing or host setup. Do not promise an embed is ready
 until its real integration has been exercised.
+
+### Tool presentation and loading
+
+Use `ChatMessages` to preserve the chronological text/tool timeline during streaming and after reopening. Its `toolLabel={(tool) => ...}` prop optionally overrides display labels; leave it unset for agent-authored titles and operation fallbacks. This only renames presentation, never the tool operation or its arguments. Keep thinking hidden unless the user requests it. `ChatComposer` provides sign-in when required; do not replace it with inert sign-in text.
+
+Use `EChart` / `ChatResult` and `BowPdfViewer` for visuals: their optional libraries load when needed. Do not remove visuals to optimize a chatbot, fetch runtime scripts from external CDNs, or assume `echarts` is always eagerly loaded when generating code dynamically. Explicit direct uses in artifact source are preloaded for compatibility.

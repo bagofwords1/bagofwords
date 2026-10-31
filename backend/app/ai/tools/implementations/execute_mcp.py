@@ -732,6 +732,14 @@ Do not use when:
                 )
                 return
 
+        from app.services import mcp_cooldown
+        cooldown_key = (str(organization.id), str(getattr(user, "id", "system")), str(connection.id))
+        remaining = mcp_cooldown.remaining(cooldown_key)
+        if remaining:
+            yield ToolEndEvent(type="tool.end", payload=self._failure_payload(
+                data.tool_name, f"Rate limit: retry after {remaining} seconds", tool_input_schema))
+            return
+
         # Construct client and call tool
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "calling_tool"})
 
@@ -770,7 +778,8 @@ Do not use when:
             else:
                 result = await client.acall_tool(data.tool_name, data.arguments)
             logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
-        except BaseException as e:
+        except Exception as e:
+            mcp_cooldown.record(cooldown_key, str(e))
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)
             yield ToolEndEvent(
                 type="tool.end",
@@ -779,6 +788,7 @@ Do not use when:
             return
 
         if not result.get("success"):
+            mcp_cooldown.record(cooldown_key, result.get("error", ""))
             yield ToolEndEvent(
                 type="tool.end",
                 payload=self._failure_payload(data.tool_name, result.get("error", "Unknown error"), tool_input_schema),
@@ -1431,6 +1441,14 @@ Do not use when:
         """
         err = error or "Unknown error"
         summary = f"Tool '{tool_name}' failed: {err}"
+        from app.services.mcp_cooldown import retry_after
+        delay = retry_after(err)
+        if delay is not None:
+            return {
+                "output": {"success": False, "error_message": err, "retry_after_seconds": delay},
+                "observation": {"success": False, "retry_after_seconds": delay,
+                    "summary": summary + f". Wait at least {delay} seconds before retrying this connection. Use wait; do not fan out retries or change valid arguments to solve a rate limit."},
+            }
         resolved = input_schema
         if input_schema:
             # Render the FULL shape, not one flat level: nested objects, array

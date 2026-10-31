@@ -259,6 +259,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "תיבת דואר AI",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (מושבת)",
+    "optChannelAppDeleted": "יישום שנמחק",
     "optStatusActive": "פעיל",
     "optStatusInactive": "לא פעיל",
     "optStatusPending": "ממתין לבדיקה",
@@ -3665,7 +3667,13 @@
       "failedConnect": "החיבור נכשל",
       "useExistingLabel": "השתמש בחיבור קיים",
       "selectExistingPlaceholder": "בחר קיים…",
-      "orCreateNew": "— או צור חדש —"
+      "orCreateNew": "— או צור חדש —",
+      "authBasic": "אימייל + אסימון API",
+      "basicUsernameLabel": "אימייל / שם משתמש",
+      "basicUsernamePlaceholder": "you@company.com",
+      "basicPasswordLabel": "אסימון API",
+      "basicPasswordPlaceholder": "הדביקו את אסימון ה-API",
+      "basicHint": "נשלח כאימות HTTP Basic. עבור Bitbucket, השתמשו באימייל של חשבון Atlassian ובאסימון API של Atlassian; מנהל הארגון צריך לאפשר גישה באסימון API בשרת ה-MCP של Rovo."
     },
     "weekStart": {
       "label": "תחילת שבוע העבודה",
@@ -4173,6 +4181,24 @@
           "title": "ייצוא האישור של ה-SMS Provider",
           "body": "כברירת מחדל האתר משתמש באישור בחתימה עצמית. הריצו את הפקודה ב-PowerShell על ה-SMS Provider והדביקו את הפלט בשדה SMS Provider certificate (PEM). דלגו על השלב אם האישור הונפק על ידי CA שהשרת הזה כבר סומך עליה."
         }
+      ],
+      "github_repo": [
+        {
+          "title": "יצירת אסימון לקריאה בלבד",
+          "body": "ב-GitHub עברו אל Settings > Developer settings > Fine-grained tokens, בחרו את המאגר והעניקו Contents: Read-only (ההרשאה Metadata: Read-only נוספת אוטומטית). מאגרים ציבוריים לא צריכים אסימון."
+        }
+      ],
+      "gitlab_repo": [
+        {
+          "title": "יצירת אסימון לקריאה בלבד",
+          "body": "צרו אסימון גישה לפרויקט (Project > Settings > Access tokens) או אסימון גישה אישי עם ההרשאה read_repository. פרויקטים ציבוריים לא צריכים אסימון. עבור GitLab בניהול עצמי, מלאו גם את השרת."
+        }
+      ],
+      "bitbucket_repo": [
+        {
+          "title": "יצירת אסימון API",
+          "body": "בחשבון Atlassian שלכם עברו אל Security > API tokens > Create API token with scopes, בחרו Bitbucket והעניקו read:repository:bitbucket. השאירו את שם המשתמש ריק. עבור אסימון גישה למאגר, הזינו x-token-auth בשם המשתמש."
+        }
       ]
     },
     "setupGuideCopyFailed": "ההעתקה נכשלה — סמנו את הטקסט",
@@ -4318,7 +4344,8 @@
     "tabReport": "דוח",
     "tabData": "נתונים ({count})",
     "refreshedAt": "רוענן {time}",
-    "madeWith": "נוצר באמצעות {brand}"
+    "madeWith": "נוצר באמצעות {brand}",
+    "fork": "יצירת עותק"
   },
   "errors": {
     "saml_unavailable": "הגדרות ההתחברות הארגונית אינן זמינות. יש לפנות למנהל המערכת.",
@@ -4448,6 +4475,7 @@
     "APPLICATION_NOT_FOUND": "היישום לא נמצא",
     "APPLICATION_CAPABILITY_EXISTS": "יכולת זו כבר מוגדרת ביישום",
     "APPLICATION_AGENTS_INVALID": "יש לבחור סוכנים קיימים בארגון הזה",
+    "INSTRUCTION_APPLICATIONS_INVALID": "יש לבחור יישומים קיימים בארגון הזה",
     "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW"
   },

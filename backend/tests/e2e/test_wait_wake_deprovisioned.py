@@ -110,3 +110,34 @@ def test_cancel_waits_for_user_drops_only_that_users_jobs():
         assert ws.wait_service.cancel_waits_for_user("u1", "o1") == ["wait:r1:a"]
         assert ws.wait_service.cancel_waits_for_user("u1") == ["wait:r1:a", "wait:r2:b"]
     assert "wait:r3:c" not in removed and "sp:other" not in removed
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('surface', ['app', 'dashboard'])
+async def test_wait_wake_preserves_exact_originating_surface(surface):
+    """Agent-created completions have no creation API outside an LLM run."""
+    from app.models.completion import Completion
+    report_id, user_id, org_id = await _seed('active')
+    async with async_session_maker() as db:
+        head = Completion(report_id=report_id, user_id=user_id, role='user', status='success',
+                          prompt={'content':'Check later','platform':'artifact_chat','platform_context':{'surface':surface}}, completion={})
+        db.add(head)
+        await db.flush()
+        system = Completion(report_id=report_id, user_id=user_id, role='system', status='success',
+                            parent_id=head.id, prompt={}, completion={})
+        db.add(system)
+        await db.flush()
+        system_id=str(system.id)
+        # A newer unrelated turn must not determine the resumed surface.
+        db.add(Completion(report_id=report_id,user_id=user_id,role='user',status='success',prompt={'platform_context':{'surface':'dashboard' if surface=='app' else 'app'}}, completion={}))
+        await db.commit()
+    calls=[]
+    async def capture(*args, **kwargs): calls.append(kwargs)
+    with patch.object(ws,'claim_scheduled_run',lambda _:True), patch('app.services.machine_turn.run_machine_turn',capture):
+        await ws.run_wait_wake(job_id=f'wait:{report_id}:test',report_id=report_id,user_id=user_id,organization_id=org_id,
+                               reason='Continue',system_completion_id=system_id)
+    assert len(calls)==1
+    if surface=='app':
+        assert calls[0]['platform_context']['surface']=='app'
+        assert calls[0]['platform']=='artifact_chat'
+    else:
+        assert 'platform_context' not in calls[0]

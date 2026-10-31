@@ -244,6 +244,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "AI-brevlåda",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (disabled)",
+    "optChannelAppDeleted": "Deleted application",
     "optStatusActive": "Aktiv",
     "optStatusInactive": "Inaktiv",
     "optStatusPending": "Väntar på granskning",
@@ -3999,7 +4001,8 @@
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
-    "madeWith": "Skapad med {brand}"
+    "madeWith": "Skapad med {brand}",
+    "fork": "Skapa kopia"
   },
   "errors": {
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
@@ -4111,6 +4114,7 @@
     "APPLICATION_NOT_FOUND": "Application not found",
     "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
