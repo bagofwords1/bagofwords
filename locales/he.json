@@ -3665,7 +3665,13 @@
       "failedConnect": "החיבור נכשל",
       "useExistingLabel": "השתמש בחיבור קיים",
       "selectExistingPlaceholder": "בחר קיים…",
-      "orCreateNew": "— או צור חדש —"
+      "orCreateNew": "— או צור חדש —",
+      "authBasic": "אימייל + אסימון API",
+      "basicUsernameLabel": "אימייל / שם משתמש",
+      "basicUsernamePlaceholder": "you@company.com",
+      "basicPasswordLabel": "אסימון API",
+      "basicPasswordPlaceholder": "הדביקו את אסימון ה-API",
+      "basicHint": "נשלח כאימות HTTP Basic. עבור Bitbucket, השתמשו באימייל של חשבון Atlassian ובאסימון API של Atlassian; מנהל הארגון צריך לאפשר גישה באסימון API בשרת ה-MCP של Rovo."
     },
     "weekStart": {
       "label": "תחילת שבוע העבודה",

@@ -3745,7 +3745,13 @@
       "updated": "Connection updated",
       "connected": "MCP server connected",
       "failedUpdate": "Failed to update",
-      "failedConnect": "Failed to connect"
+      "failedConnect": "Failed to connect",
+      "authBasic": "Email + API token",
+      "basicUsernameLabel": "Email / username",
+      "basicUsernamePlaceholder": "you@company.com",
+      "basicPasswordLabel": "API token",
+      "basicPasswordPlaceholder": "Paste your API token",
+      "basicHint": "Sent as HTTP Basic auth. For Bitbucket, use your Atlassian account email and an Atlassian API token; an org admin must enable API-token access for the Rovo MCP server."
     },
     "piiTab": "PII Protection",
     "pii": {

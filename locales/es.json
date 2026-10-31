@@ -3665,7 +3665,13 @@
       "failedConnect": "No se pudo conectar",
       "useExistingLabel": "Usar conexión existente",
       "selectExistingPlaceholder": "Seleccionar existente…",
-      "orCreateNew": "— o crear nueva —"
+      "orCreateNew": "— o crear nueva —",
+      "authBasic": "Correo + token de API",
+      "basicUsernameLabel": "Correo / usuario",
+      "basicUsernamePlaceholder": "tu@empresa.com",
+      "basicPasswordLabel": "Token de API",
+      "basicPasswordPlaceholder": "Pega tu token de API",
+      "basicHint": "Se envía como autenticación HTTP Basic. Para Bitbucket, usa el correo de tu cuenta de Atlassian y un token de API de Atlassian; un administrador de la organización debe habilitar el acceso por token de API en el servidor MCP de Rovo."
     },
     "weekStart": {
       "label": "Inicio de la semana laboral",
