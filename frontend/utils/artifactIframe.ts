@@ -239,7 +239,8 @@ export function artifactLibPlan(opts: ArtifactIframeOptions): ArtifactLibPlan {
   return {
     // Direct/global consumers need synchronous compatibility. Shared EChart
     // components can also request this library after the initial render.
-    lazyCharts: !/echarts|\bEChart\b|\b(?:window|self|globalThis|eval|Function|this)\b|defaultView|contentWindow/i.test(opts.code || ''),
+    lazyCharts: !(/echarts|\bEChart\b/i.test(opts.code || '') ||
+      /\b(?:window|self|globalThis|eval|Function|this)\b|defaultView|contentWindow/.test(opts.code || '')),
     head: all.slice(0, all.length - 2),
     body: all.slice(all.length - 2),
     babelSrc: precompiledJs ? null : libUrl('babel-standalone.min.js'),
