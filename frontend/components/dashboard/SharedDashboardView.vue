@@ -452,7 +452,7 @@ function resumeAfterSignIn() {
 onMounted(() => window.addEventListener('focus', resumeAfterSignIn));
 onUnmounted(() => window.removeEventListener('focus', resumeAfterSignIn));
 const signInRequested = ref(false);
-const signInUrl = computed(() => '/users/sign-in?redirect=' + encodeURIComponent(api.pagePath));
+const signInUrl = computed(() => '/users/sign-in?app_sso=1&redirect=' + encodeURIComponent(api.pagePath));
 const requestSignIn = () => { signInRequested.value = true; };
 onMounted(() => window.addEventListener('bow-sign-in-required', requestSignIn));
 onUnmounted(() => window.removeEventListener('bow-sign-in-required', requestSignIn));

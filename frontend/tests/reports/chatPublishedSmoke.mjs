@@ -26,7 +26,7 @@ try{
   const signIn=page.getByRole('link',{name:'Sign in',exact:true});
   await page.screenshot({path:dir+'gate-after.png'});
   await signIn.click();
-  await page.waitForURL('**/users/sign-in?redirect=*');
+  await page.waitForURL('**/users/sign-in?*');
   assert.equal(new URL(page.url()).searchParams.get('redirect'),new URL(url).pathname);
   if(process.env.BOW_CHAT_EMAIL){
    await page.getByLabel('Email',{exact:true}).fill(process.env.BOW_CHAT_EMAIL);

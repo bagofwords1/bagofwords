@@ -230,6 +230,15 @@
 
   // Add this code to handle URL parameters
   onMounted(async () => {
+    // Only an explicit app sign-in click opts into this handoff. Consume it
+    // before any provider request so refresh/back after a failure cannot loop.
+    const target = safeRedirectTarget(route.query.redirect)
+    const appSignIn = route.query.app_sso === '1' && !!target && /^\/(?:d|r)\/[^/?#]+(?:[/?#]|$)/.test(target)
+    if (route.query.app_sso) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('app_sso')
+      window.history.replaceState(window.history.state, '', url.pathname + url.search + url.hash)
+    }
     try {
       const settings = await $fetch('/api/settings')
       if (settings?.oidc_providers?.length || settings?.saml_providers?.length) {
@@ -297,7 +306,7 @@
     // BOW with no visible sign-in step when the user already has a live
     // session at the provider.
     //
-    // It is scoped to that flow on purpose (`embeddedAuthorizeFlow`). Left
+    // It is scoped to OAuth consent or an explicit app sign-in click. Left
     // unscoped it fired on every visit, so signing out bounced the user here
     // and straight back into the provider, which — still holding its own
     // session — signed them in again without a prompt.
@@ -307,11 +316,12 @@
     // and ?local=true stays an escape hatch to the password form when the
     // provider is unreachable.
     if (
-      authMode.value === 'sso_only'
-      && embeddedAuthorizeFlow.value
+      ((authMode.value === 'sso_only' && embeddedAuthorizeFlow.value)
+        || (authMode.value !== 'local_only' && appSignIn))
       && !localOverride.value
       && !ldapEnabled.value
       && !route.query.error_code
+      && !route.query.error
       && ssoProviderCount.value === 1
     ) {
       const provider = oidcProviders.value[0]
