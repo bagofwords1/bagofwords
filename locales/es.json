@@ -4704,6 +4704,43 @@
       "stillFailing": "{failed} siguen fallando al ejecutarse de nuevo."
     }
   },
+  "artifactActivity": {
+    "title": "Actividad",
+    "inspect": "Inspeccionar",
+    "live": "En vivo",
+    "liveHint": "Lo que hace esta página aparece aquí al instante; la vista previa del agente se recoge cada pocos segundos.",
+    "refresh": "Actualizar",
+    "empty": "Todavía no hay nada registrado.",
+    "emptyFiltered": "Nada coincide con este filtro.",
+    "emptyHint": "Usa la aplicación: las solicitudes, flujos, filtros, clics y errores aparecen aquí, y el agente ve los fallos.",
+    "filterPlaceholder": "Filtrar",
+    "shown": "{shown} de {total}",
+    "noDetail": "Sin detalle registrado.",
+    "queries": "{n} consultas",
+    "rows": "{n} filas",
+    "filters": {
+      "all": "Todo",
+      "requests": "Solicitudes",
+      "streams": "Flujos",
+      "filters": "Filtros",
+      "clicks": "Clics",
+      "errors": "Errores"
+    },
+    "columns": {
+      "time": "Hora",
+      "source": "Origen",
+      "kind": "Tipo",
+      "event": "Evento",
+      "status": "Estado",
+      "duration": "Duración",
+      "version": "Ver."
+    },
+    "sources": {
+      "all": "Todos los orígenes",
+      "editor": "Editor",
+      "preview": "Vista previa"
+    }
+  },
   "filter": {
     "selectColumn": "Selecciona una columna",
     "visualization": "Visualización"

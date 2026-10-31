@@ -1,15 +1,19 @@
-"""``POST /api/artifacts/{id}/runtime/activity``: the editor's page broker
-sends what happened in the app (services/artifact_activity.py).
+"""The app activity log over HTTP (services/artifact_activity.py).
+
+* ``POST /api/artifacts/{id}/runtime/activity``: the editor's page broker
+  sends what happened in the app.
+* ``GET /api/artifacts/{id}/runtime/activity``: the editor reads it back
+  (the Activity log panel), newest first.
 
 App sessions only (``current_user``: embed sessions never reach it), and only
 someone who edits the artifact, so viewers and host applications are never
-recorded.
+recorded and never read it.
 """
 from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,18 +63,47 @@ async def _report_for(db, artifact, user, report_id: Optional[str]) -> Optional[
     return None
 
 
-@router.post("/activity")
-async def record_activity(artifact_id: str, body: ActivityBatch, db: AsyncSession = Depends(get_async_db),
-                          user: User = Depends(current_user)):
+async def _editing(db, artifact_id: str, user: User, report_id: Optional[str]) -> tuple:
+    """The artifact and the conversation the person edits it in; 404 for
+    anyone else (viewers are told nothing, as if the artifact did not exist)."""
     from app.models.artifact import Artifact
 
     artifact = await db.get(Artifact, artifact_id)
     if artifact is None or artifact.deleted_at is not None:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
-    report_id = await _report_for(db, artifact, user, body.report_id)
+    report_id = await _report_for(db, artifact, user, report_id)
     if report_id is None:
-        # Viewers are never recorded; said like a missing artifact.
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    return artifact, report_id
+
+
+@router.get("/activity")
+async def read_activity(artifact_id: str, report_id: Optional[str] = None,
+                        only_errors: bool = False, source: Optional[str] = None,
+                        limit: int = Query(100, ge=1, le=200),
+                        db: AsyncSession = Depends(get_async_db), user: User = Depends(current_user)):
+    """The log as the Activity log panel shows it: newest first, each event
+    with its time, source, version and a one-line description."""
+    artifact, rid = await _editing(db, artifact_id, user, report_id)
+    await admit(db, [str(artifact.id), str(user.id), "activity-read"], BATCHES_PER_MINUTE)
+    rows = await artifact_activity.recent(db, report_id=rid, artifact_id=str(artifact.id),
+                                          only_errors=only_errors, source=source, limit=limit)
+    return {
+        "events": [{
+            "id": e.id, "created_at": e.created_at.isoformat() + "Z" if e.created_at else None,
+            "kind": e.kind, "op": e.op, "source": e.source, "version": e.artifact_version, "status": e.status,
+            "error_code": e.error_code, "duration_ms": e.duration_ms, "failed": artifact_activity.is_failure(e),
+            "text": artifact_activity.describe(e), "detail": e.detail or {}, "session_id": e.session_id,
+        } for e in reversed(rows)],
+        "retention_days": artifact_activity.RETENTION_DAYS,
+        "keep_per_report": artifact_activity.KEEP_PER_REPORT,
+    }
+
+
+@router.post("/activity")
+async def record_activity(artifact_id: str, body: ActivityBatch, db: AsyncSession = Depends(get_async_db),
+                          user: User = Depends(current_user)):
+    artifact, report_id = await _editing(db, artifact_id, user, body.report_id)
     await admit(db, [str(artifact.id), str(user.id), "activity"], BATCHES_PER_MINUTE)
     stored = await artifact_activity.record(
         db, organization_id=str(artifact.organization_id), artifact_id=str(artifact.id), report_id=report_id,
