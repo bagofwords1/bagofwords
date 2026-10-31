@@ -4249,7 +4249,92 @@ class BrocadeConfig(BaseModel):
     login_scheme: Literal["Basic", "Custom_Basic"] = Field("Custom_Basic", title="Login scheme", description="Use Custom_Basic or Basic, as supported by your switch.")
 
 
+class GitRepoConfig(BaseModel):
+    """One repository, read-only: the agent lists, searches and reads its files.
+
+    Shared by the GitHub / GitLab / Bitbucket code connections. The repo is
+    cloned lazily into a local cache and refreshed when stale; nothing in it
+    is ever executed (see app.services.repo_cache).
+    """
+    repo: str = Field(
+        ...,
+        title="Repository",
+        description="owner/name (GitHub), group/project (GitLab) or workspace/repo (Bitbucket). A full https URL also works.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    branch: Optional[str] = Field(
+        None,
+        title="Branch",
+        description="Branch to read. Leave empty for the repository's default branch.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    host: Optional[str] = Field(
+        None,
+        title="Server (self-hosted)",
+        description="Only for GitHub Enterprise Server or self-managed GitLab, e.g. git.company.com. Leave empty for the cloud service.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Limit to paths",
+        description="Optional comma-separated globs (e.g. src/**, docs/**/*.md). Empty = whole repository.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    allow_secret_files: bool = Field(
+        False,
+        title="Allow secret-looking files",
+        description="Off by default: files like .env, *.pem, *.key and id_rsa are hidden from the agent.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_file_mb: int = Field(
+        5,
+        title="Max File Size (MB)",
+        description="Skip files larger than this when reading or searching.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description="'metadata' caches the file list for fast search; 'none' always lists live.",
+        json_schema_extra={"ui:type": "string", "ui:hidden": True},
+    )
+
+
+class GitTokenCredentials(BaseModel):
+    token: str = Field(
+        ...,
+        title="Access token",
+        description="A token with read access to the repository's contents.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class BitbucketTokenCredentials(BaseModel):
+    username: Optional[str] = Field(
+        None,
+        title="Username",
+        description="Leave empty for an Atlassian API token (x-bitbucket-api-token-auth); use 'x-token-auth' for a repository access token.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    token: str = Field(
+        ...,
+        title="API token",
+        description="Atlassian API token with the read:repository:bitbucket scope, or a repository access token.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class GitPublicCredentials(BaseModel):
+    """Public repository: no credentials."""
+    class Config:
+        extra = "allow"
+
+
 __all__ = [
+    "GitRepoConfig",
+    "GitTokenCredentials",
+    "BitbucketTokenCredentials",
+    "GitPublicCredentials",
     "SpectrumConfig",
     "SpectrumUserPassCredentials",
     "SpectrumTokenCredentials",

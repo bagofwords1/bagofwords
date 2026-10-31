@@ -122,6 +122,10 @@ const iconPath = computed(() => {
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
         azure_cost: 'azure_cost.svg',
+        // Code connections reuse the provider brand assets.
+        github_repo: 'github.svg',
+        gitlab_repo: 'gitlab.svg',
+        bitbucket_repo: 'bitbucket.svg',
         // Same brand asset as the monday MCP preset (CONNECTOR_ICON_FILE above).
         monday: 'monday.svg',
     };

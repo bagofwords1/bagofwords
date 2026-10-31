@@ -125,6 +125,10 @@ from app.schemas.data_sources.configs import (
     # Network Directory (local / mounted file share)
     NetworkDirConfig,
     NetworkDirCredentials,
+    GitRepoConfig,
+    GitTokenCredentials,
+    BitbucketTokenCredentials,
+    GitPublicCredentials,
     # Amazon S3
     S3Config,
     S3KeyCredentials,
@@ -1513,6 +1517,96 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # single source of truth for everyone (like a SharePoint library), so
         # the catalog is shared rather than per-user. Community tier (no license
         # gate) — a plain directory connector is core functionality.
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
+    # Code connections: one repository, read-only, served from a cached local
+    # clone (app.services.repo_cache) through the same file tools as a network
+    # share. Nothing in the repo is executed. Issues/PRs/pipelines are the
+    # separate GitHub / GitLab / Bitbucket MCP presets.
+    "github_repo": DataSourceRegistryEntry(
+        type="github_repo",
+        category="files",
+        title="GitHub (code)",
+        description=(
+            "Read, search and grep the code of one GitHub repository. The repo is "
+            "cloned read-only into a local cache and refreshed when stale; nothing "
+            "in it is ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create a read-only token",
+                body="In GitHub go to Settings > Developer settings > Fine-grained tokens, choose the repository, and grant Contents: Read-only (Metadata: Read-only is added automatically). Public repositories need no token.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Access token", schema=GitTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public repository", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.GitHubRepoClient",
+        version="beta",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
+    "gitlab_repo": DataSourceRegistryEntry(
+        type="gitlab_repo",
+        category="files",
+        title="GitLab (code)",
+        description=(
+            "Read, search and grep the code of one GitLab project (gitlab.com or "
+            "self-managed). Cloned read-only into a local cache; nothing in it is "
+            "ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create a read-only token",
+                body="Create a project access token (Project > Settings > Access tokens) or a personal access token with the read_repository scope. Public projects need no token. For self-managed GitLab, also fill in Server.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Access token", schema=GitTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public project", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.GitLabRepoClient",
+        version="beta",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
+    "bitbucket_repo": DataSourceRegistryEntry(
+        type="bitbucket_repo",
+        category="files",
+        title="Bitbucket (code)",
+        description=(
+            "Read, search and grep the code of one Bitbucket Cloud repository. "
+            "Cloned read-only into a local cache; nothing in it is ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create an API token",
+                body="In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="API token", schema=BitbucketTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public repository", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.BitbucketRepoClient",
+        version="beta",
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
