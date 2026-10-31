@@ -538,3 +538,23 @@ def test_preview_reads_authenticated_api_without_a_backend_listener(
             await preview.close()
 
     _run(read_preview())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("surface,allowed", [("app", True), ("bubble", False)])
+def test_browser_policy_distinguishes_app_from_dashboard_chat(
+    test_client, create_user, login_user, whoami, create_report, surface, allowed,
+):
+    from sqlalchemy import update
+    from app.services.artifact_verification_policy import browser_policy
+    report, token, org_id, user_id = _new_owner(create_user, login_user, whoami, create_report)
+    artifact_id = _save_artifact(test_client, report["id"], token, org_id)
+    # Hidden thread type is only created by the app/dashboard services.
+    async def mark_thread():
+        async with async_session_maker() as db:
+            await db.execute(update(Report).where(Report.id == report["id"]).values(report_type="artifact_chat"))
+            await db.commit()
+    _run(mark_thread())
+    ctx = _run(_runtime_context(report["id"], user_id, org_id))
+    ctx["platform_context"] = {"surface": surface}
+    assert _run(browser_policy(ctx, artifact_id)).artifact_preview is allowed

@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import select
 
+from app.services.conversation_surface import is_dashboard_chat
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,8 +30,7 @@ async def build_list_tools(db, report, user, organization, *, platform_context=N
     if report is None or user is None or organization is None:
         return [], {}
     # Dashboard viewer chat stays read-only; apps use the list permission checks below.
-    if (getattr(report, "report_type", "regular") == "artifact_chat"
-            and not (isinstance(platform_context, dict) and platform_context.get("surface") == "app")):
+    if is_dashboard_chat(report, platform_context):
         return [], {}
     ds_ids = [str(r[0]) for r in (await db.execute(
         select(report_data_source_association.c.data_source_id)

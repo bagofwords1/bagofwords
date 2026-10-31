@@ -62,7 +62,7 @@ def run_async(fn):
     return asyncio.run(_run())
 
 
-def drive(world, tool_name, tool_input, *, actor="admin", report_key="report", decision=None):
+def drive(world, tool_name, tool_input, *, actor="admin", report_key="report", decision=None, platform_context=None):
     """Run the tool as AgentV2 does (runtime_ctx with the shared session and a
     session maker). When the review card shows, answer it with ``decision``
     (``None`` asserts no card is shown). Returns (output, events, runtime_ctx)."""
@@ -78,7 +78,7 @@ def drive(world, tool_name, tool_input, *, actor="admin", report_key="report", d
         user = await db.get(User, world[actor]["user_id"])
         org = await db.get(Organization, world["org_id"])
         ctx = {"db": db, "session_maker": maker, "report": report, "user": user, "organization": org,
-               "mode": "training", "tool_call_id": str(uuid.uuid4())}
+               "mode": "training", "tool_call_id": str(uuid.uuid4()), "platform_context": platform_context}
         tool = ToolRegistry().get(tool_name)
         events = []
         async for ev in tool.run_stream(tool_input, ctx):

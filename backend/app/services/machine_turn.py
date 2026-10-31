@@ -38,6 +38,8 @@ async def run_machine_turn(
     meta: Optional[dict] = None,
     mode: Optional[str] = None,
     on_event=None,
+    platform=None,
+    platform_context=None,
 ):
     """Post a visible machine event on ``report`` and run the agent on
     ``instruction`` as a hidden trigger. Blocks until the agent turn ends;
@@ -46,8 +48,7 @@ async def run_machine_turn(
     ``on_event(event)`` (optional) is called with the event entry as soon as
     it is committed — before the agent runs — so a caller can link to it even
     if the run raises."""
-    from app.schemas.completion_schema import PromptSchema
-    from app.schemas.completion_v2_schema import CompletionCreate
+    from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
     from app.services.completion_service import CompletionService
 
     last = (
@@ -96,7 +97,7 @@ async def run_machine_turn(
             db=session,
             report_id=str(report.id),
             completion_data=CompletionCreate(
-                prompt=PromptSchema(content=instruction, mode=mode)
+                prompt=PromptSchema(content=instruction, mode=mode, platform=platform, platform_context=platform_context)
             ),
             current_user=user,
             organization=organization,

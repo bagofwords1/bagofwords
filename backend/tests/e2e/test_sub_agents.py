@@ -202,8 +202,8 @@ def live_client():
         yield client
 
 
-def _post_completion(client, report_id: str, prompt: str, headers: dict):
-    r = client.post(f"/api/reports/{report_id}/completions", json={"prompt": {"content": prompt, "widget_id": None, "step_id": None, "mentions": [{}]}}, headers=headers, params={"background": False})
+def _post_completion(client, report_id: str, prompt: str, headers: dict, **surface):
+    r = client.post(f"/api/reports/{report_id}/completions", json={"prompt": {"content": prompt, "widget_id": None, "step_id": None, "mentions": [{}], **surface}}, headers=headers, params={"background": False})
     assert r.status_code == 200, r.text
     return r.json()["completions"]
 
@@ -263,9 +263,10 @@ def _run(coro):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("app_surface", [False, True])
 def test_wave_fans_out_runs_children_hidden_and_fans_in(
     live_client, create_user, login_user, whoami, create_report, create_llm_provider_and_models,
-    monkeypatch, scripted_llm, set_visibility,
+    monkeypatch, scripted_llm, set_visibility, app_surface,
 ):
     """One planner response with N delegate calls → one wave with N children;
     children are hidden completions with parent links; each finishes through
@@ -281,8 +282,19 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
     report, headers, org_id, token = _env(create_user, login_user, whoami, create_report, create_llm_provider_and_models, monkeypatch)
     rid = report["id"]
 
+    surface = {}
+    if app_surface:
+        from sqlalchemy import update
+        from app.models.report import Report
+        # Hidden thread type is service-only; test the complete delegated lifecycle.
+        async def mark_app():
+            async with async_session_maker() as db:
+                await db.execute(update(Report).where(Report.id == rid).values(report_type="artifact_chat"))
+                await db.commit()
+        _run(mark_app())
+        surface = {"platform": "artifact_chat", "platform_context": {"surface": "app"}}
     test_client = live_client
-    completions = _post_completion(test_client, rid, "Paid orders dropped about 15% since mid-September. Why?", headers)
+    completions = _post_completion(test_client, rid, "Paid orders dropped about 15% since mid-September. Why?", headers, **surface)
     parent_sys = next(c for c in completions if c["role"] == "system")
     assert parent_sys["status"] == "success", parent_sys
 
@@ -392,6 +404,13 @@ def test_wave_fans_out_runs_children_hidden_and_fans_in(
                 child = await db.get(Completion, row.child_completion_id)
                 assert child.trigger_source == "sub_agent" and child.status in ("success", "error", "stopped")
                 assert row.envelope_json and row.envelope_json["exit_reason"] == row.exit_reason
+                if app_surface:
+                    child_head = await db.get(Completion, child.parent_id)
+                    assert child_head.prompt["platform_context"]["surface"] == "app"
+            if app_surface:
+                fan_in = next(c for c in comps if c["role"] == "system" and c.get("trigger_source") == "sub_agent_wave")
+                fan_in_head = await db.get(Completion, fan_in["parent_id"])
+                assert fan_in_head.prompt["platform_context"]["surface"] == "app"
             return True
     assert _run(_db_checks())
 

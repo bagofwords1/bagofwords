@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
+from app.services.conversation_surface import is_dashboard_chat
 from app.core.permissions_decorator import requires_permission
 from app.core.permission_resolver import user_can_access_data_source
 from app.models.artifact import ArtifactVersion
@@ -81,7 +82,8 @@ async def browser_policy(ctx, artifact_id=None):
             Report.id == str(report.id), Report.organization_id == str(org.id),
             Report.deleted_at.is_(None),
         ))).scalar_one_or_none()
-        if current is None or current.report_type == "artifact_chat":
+        platform_context = ctx.get("platform_context")
+        if current is None or is_dashboard_chat(current, platform_context):
             return policy
         access = dict(current_user=user, organization=org, db=db)
         if _enabled(config, "enable_artifact_verification", True):

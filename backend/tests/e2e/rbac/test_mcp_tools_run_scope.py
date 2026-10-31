@@ -214,6 +214,10 @@ def _app_conversation(test_client, org, who):
 @pytest.mark.parametrize('who', ['admin', 'member'])
 @pytest.mark.parametrize('target', ['shared', 'private'])
 def test_app_conversations_offer_and_execute_only_selected_agent_tools(test_client, org, planner, who, target):
+    user = org[who]
+    _ask(test_client, user["token"], org["org_id"], [org["agents"]["shared"]["ds_id"]], [])
+    regular_catalog = planner.tool_names[0]
+    planner.tool_names.clear()
     path, headers = _app_conversation(test_client, org, who)
     connection = org['agents'][target]['conn_id']
     planner.force_tool = ('execute_mcp', {'connection_id': connection, 'tool_name': 'echo',
@@ -225,7 +229,7 @@ def test_app_conversations_offer_and_execute_only_selected_agent_tools(test_clie
     offered = planner.tool_names[0]
     assert _native(offered, org['agents']['shared']['slug']), sorted(offered)
     assert not _native(offered, org['agents']['private']['slug'])
-    assert not {'create_artifact', 'edit_artifact', 'create_instruction', 'send_email'} & offered
+    assert offered == regular_catalog, {"missing": regular_catalog - offered, "extra": offered - regular_catalog}
     assert (connection in constructed) is (target == 'shared'), planner.tool_results
     if target == 'shared':
         assert any('Support lookup' in result for result in planner.tool_results), planner.tool_results
