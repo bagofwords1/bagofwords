@@ -97,6 +97,10 @@ from app.schemas.data_sources.configs import (
     # Azure Data Explorer
     AzureDataExplorerConfig,
     AzureDataExplorerCredentials,
+    # Azure Cost Management
+    AzureCostConfig,
+    AzureCostServicePrincipalCredentials,
+    AzureCostDefaultCredentials,
     # Databricks SQL
     DatabricksSqlConfig,
     DatabricksSqlCredentials,
@@ -1068,6 +1072,33 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system", "user"])  # system
         }),
         client_path=None,
+        version="beta",
+    ),
+    "azure_cost": DataSourceRegistryEntry(
+        type="azure_cost",
+        category="infra",
+        title="Azure Cost Management",
+        description="Analyze Azure spend by service, resource group, resource, tag and time, and forecast where the month will land.",
+        config_schema=AzureCostConfig,
+        # Service principal is the common case. The default chain covers
+        # deployments inside Azure (managed identity / workload identity),
+        # where no secret should be stored at all.
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Service Principal (Entra ID App)",
+                    schema=AzureCostServicePrincipalCredentials,
+                    scopes=["system", "user"],
+                ),
+                "managed_identity": AuthVariant(
+                    title="Managed Identity / Default Azure Credential",
+                    schema=AzureCostDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.azure_cost_client.AzureCostClient",
         version="beta",
     ),
     "aws_cloudwatch": DataSourceRegistryEntry(

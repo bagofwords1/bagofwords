@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Azure Cost Management">
+  <defs>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#114A8B"/>
+      <stop offset="1" stop-color="#0669BC"/>
+    </linearGradient>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3CCBF4"/>
+      <stop offset="1" stop-color="#2892DF"/>
+    </linearGradient>
+  </defs>
+  <path d="M32 6h26L31 86a4 4 0 0 1-3.8 2.7H8.5A4 4 0 0 1 4.7 83.4L28.2 8.7A4 4 0 0 1 32 6z" fill="url(#a)"/>
+  <path d="M70 60H30.6a1.8 1.8 0 0 0-1.2 3.2l25.3 23.6a4 4 0 0 0 2.7 1.1H80z" fill="#0078D4"/>
+  <path d="M64 8.7A4 4 0 0 0 60.2 6H31.5a4 4 0 0 1 3.8 2.7l23.5 74.7a4 4 0 0 1-3.8 5.3h28.7a4 4 0 0 0 3.8-5.3z" fill="url(#b)"/>
+  <circle cx="74" cy="72" r="18" fill="#FFB900" stroke="#fff" stroke-width="3"/>
+  <text x="74" y="79.5" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="22" fill="#fff">$</text>
+</svg>
