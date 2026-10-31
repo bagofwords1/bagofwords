@@ -191,6 +191,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Kubernetes | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
+| Microsoft Intune | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
