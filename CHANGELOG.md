@@ -1,5 +1,21 @@
 # Release Notes
 
+## Version 0.0.602 (October 31, 2026)
+- Added CrowdStrike Falcon as a read-only data source: hosts, alerts, incidents, vulnerabilities and IOCs (#1527)
+- Added Microsoft Intune as a read-only data source: devices, compliance, configuration profiles, apps and Autopilot (#1528)
+- Added Microsoft Configuration Manager (SCCM / MECM) as a read-only data source through the AdminService API (#1529)
+- Added Azure Cost Management as a data source, with spend by service, resource group and tag, and forecasts (#1531)
+- Added Connected applications: one registration per outside app for embedding and OAuth/MCP access, with a per-app agent limit (#1532) — Settings → Integrations
+- Added embedded agent chat with ready-made chat components and answers that include tables and charts (#1523)
+- Added Inspect in the app editor, showing each request, response and stream an app makes (#1532)
+- Added the model's thinking to embedded chat, hidden by default (#1532) — `showThinking={true}`
+- Added an automatic check that loads each app the agent creates or edits and reports problems back to it (#1523)
+- Added chatbot authoring, browse-web and scrape-with-code skills to the skill catalog (#1525, #1526)
+- Fixed stored result rows reaching the model in conversation history when "Allow LLM to see data" is off (#1523)
+- Fixed publishing failing when a query's required input has no stored value; each viewer's run fills it in (#1523)
+- Fixed uploaded images attaching to a later request instead of the one they were sent with (#1524)
+- Fixed published slide previews to serve only the release's own slide images (#1530)
+
 ## Version 0.0.601 (October 30, 2026)
 - Added embedding artifacts in host applications, with silent sign-in through a signed assertion, identity provider or Active Directory (#1514) — Settings → Integrations → Host applications, then the artifact's Embed tab
 - Added `bow.conversations`, so an embedded artifact lists and opens the viewer's own conversations (#1514)
