@@ -664,6 +664,8 @@ async def get_published_preview(
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(viewer_optional),
 ):
+    import re
+    import uuid as _uuid
     from pathlib import Path
 
     from fastapi.responses import FileResponse
@@ -675,14 +677,27 @@ async def get_published_preview(
     images = (release.content or {}).get("preview_images") or []
     if index < 0 or index >= len(images) or await _withheld_from(db, artifact, release, user, baked=True):
         raise dashboard_data.not_found()
+    # Build the base from a validated UUID, never a raw value: release.id is a
+    # DB-generated UUID, so parse it back through uuid.UUID() so only the 36
+    # hex/hyphen canonical chars can ever form the "release-<id>" segment (no
+    # separators, no traversal), independent of how `ref` resolved to it.
+    release_id = str(_uuid.UUID(str(release.id)))
     # Only the release's own copies (copy_dashboard writes them under
     # release-<id>/); a path it did not copy is not served.
-    own_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews" / f"release-{release.id}"
+    own_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews" / f"release-{release_id}"
+    # Defence-in-depth: the copy engine writes these as slide-<n>.png (the
+    # pptx_executor glob that produces them). Collapse the stored value to a
+    # bare basename and require that exact shape, so no directory component
+    # from it (e.g. a "../../main.py" the copy engine refused and left as-is)
+    # can reach the filesystem — before safe_join re-checks containment.
+    name = Path(str(images[index]).removeprefix(f"pptx_previews/release-{release_id}/")).name
+    if not re.fullmatch(r"slide-\d+\.png", name):
+        raise dashboard_data.not_found()
     try:
-        path = safe_join(own_dir, str(images[index]).removeprefix(f"pptx_previews/release-{release.id}/"))
+        path = safe_join(own_dir, name)
     except UnsafePathError:
         raise dashboard_data.not_found()
-    if not path.is_file() or path.suffix.lower() != ".png":
+    if not path.is_file():
         raise dashboard_data.not_found()
     return FileResponse(path=str(path), media_type="image/png")
 
