@@ -51,7 +51,10 @@ class ReadArtifactActivityTool(Tool):
                 "Use it FIRST when the user says the app doesn't work, shows an error, or 'does nothing', before "
                 "reading or editing code; failures not yet shown to you also appear automatically in <app_activity>. "
                 "Each line names the app version it ran on (vN): a failure on an older version may already be fixed. "
-                "Pass event_id for one event's detail (message, stack). Kept for 7 days."
+                "Pass event_id for one event's detail (message, stack) and, for requests and streams marked "
+                "has_payload, what it carried: the request, the response and the stream's events (payload), or "
+                "only their shape (payload_shape: keys, types, row counts) when the organization hides data from "
+                "you or the event is another person's. Events are kept 7 days, payloads 24 hours."
             ),
             category="research",
             version="1.0.0",
@@ -88,12 +91,17 @@ class ReadArtifactActivityTool(Tool):
             yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(), "observation": {"summary": out.error}})
             return
         report_id = str(report.id)
+        # Payloads are private to whose session made them, and data-gated
+        # like step results: the org's "allow the model to see data" switch.
+        user = (hub.user if hub else runtime_ctx.get("user"))
+        user_id = str(user.id) if user is not None and getattr(user, "id", None) else None
+        allow_data = _allow_llm_see_data(hub.organization_settings if hub else runtime_ctx.get("organization_settings"))
         lock = getattr(hub, "_db_lock", None)
         if lock is not None:
             async with lock:
-                result = await self._read(db, report_id, data, artifact_activity)
+                result = await self._read(db, report_id, data, artifact_activity, user_id, allow_data)
         else:
-            result = await self._read(db, report_id, data, artifact_activity)
+            result = await self._read(db, report_id, data, artifact_activity, user_id, allow_data)
         out = ReadArtifactActivityOutput(**result)
         if out.event:
             summary = f"Activity event: {out.event.get('line')}"
@@ -105,8 +113,20 @@ class ReadArtifactActivityTool(Tool):
         yield ToolEndEvent(type="tool.end", payload={"output": out.model_dump(), "observation": observation})
 
     @staticmethod
-    async def _read(db, report_id, data, service):
+    async def _read(db, report_id, data, service, user_id=None, allow_data=True):
         return await service.read(
             db, report_id=report_id, artifact_id=await _artifact_id(db, report_id, data.artifact_id),
             since_minutes=data.since_minutes, kinds=data.kinds, only_errors=data.only_errors,
-            source=data.source, event_id=await _event_id(db, report_id, data.event_id), limit=data.limit)
+            source=data.source, event_id=await _event_id(db, report_id, data.event_id), limit=data.limit,
+            user_id=user_id, allow_data=allow_data)
+
+
+def _allow_llm_see_data(organization_settings) -> bool:
+    """The org's switch, read the way the history builder reads it; off when
+    the settings cannot be read (never "yes" by accident)."""
+    try:
+        config = getattr(organization_settings, "config", organization_settings) or {}
+        value = config.get("allow_llm_see_data", {})
+        return bool(value.get("value", True)) if isinstance(value, dict) else bool(value)
+    except Exception:
+        return False

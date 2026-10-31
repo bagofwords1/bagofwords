@@ -90,14 +90,39 @@
                         </tr>
                         <tr v-if="expanded === e.id" class="bg-surface-subtle/60" data-testid="artifact-inspect-detail">
                             <td colspan="7" class="px-4 py-2">
-                                <div class="flex flex-wrap gap-x-6 gap-y-1 text-2xs text-ink-muted mb-1.5">
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-2xs text-ink-muted mb-1.5">
+                                    <div class="flex items-center gap-0.5 me-2" role="tablist">
+                                        <UButton v-for="x in tabs(e)" :key="x.value" size="2xs" :variant="tab === x.value ? 'soft' : 'ghost'"
+                                                 :color="tab === x.value ? 'indigo' : 'gray'" :data-testid="`artifact-inspect-tab-${x.value}`"
+                                                 @click.stop="tab = x.value">{{ x.label }}</UButton>
+                                    </div>
                                     <span v-if="e.op"><span class="text-ink-subtle">op</span> <span class="font-mono text-ink">{{ e.op }}</span></span>
                                     <span v-if="e.error_code"><span class="text-ink-subtle">error_code</span> <span class="font-mono text-red-700 dark:text-red-400">{{ e.error_code }}</span></span>
                                     <span v-if="e.session_id"><span class="text-ink-subtle">session</span> <span class="font-mono">{{ e.session_id.slice(0, 8) }}</span></span>
                                     <span v-if="e.created_at"><span class="text-ink-subtle">at</span> <span class="font-mono">{{ e.created_at }}</span></span>
+                                    <span v-if="e.has_payload && !e.payload_mine" class="inline-flex items-center gap-1 text-ink-subtle" data-testid="artifact-inspect-private">
+                                        <Icon name="heroicons:lock-closed" class="w-3 h-3" />{{ $t('artifactActivity.privateTo', { name: e.user_name || $t('artifactActivity.someoneElse') }) }}
+                                    </span>
                                 </div>
-                                <pre v-if="e.detail && Object.keys(e.detail).length" class="font-mono text-2xs text-ink-2 whitespace-pre-wrap break-words max-h-40 overflow-auto" dir="ltr">{{ JSON.stringify(e.detail, null, 2) }}</pre>
-                                <p v-else class="text-2xs text-ink-subtle">{{ $t('artifactActivity.noDetail') }}</p>
+                                <template v-if="tab === 'detail'">
+                                    <pre v-if="e.detail && Object.keys(e.detail).length" class="font-mono text-2xs text-ink-2 whitespace-pre-wrap break-words max-h-48 overflow-auto" dir="ltr">{{ pretty(e.detail) }}</pre>
+                                    <p v-else class="text-2xs text-ink-subtle">{{ $t('artifactActivity.noDetail') }}</p>
+                                </template>
+                                <template v-else>
+                                    <p v-if="payloadOf(e) === 'loading'" class="text-2xs text-ink-subtle">{{ $t('artifactActivity.loadingPayload') }}</p>
+                                    <p v-else-if="payloadOf(e) === 'error'" class="text-2xs text-red-600 dark:text-red-400">{{ $t('artifactActivity.payloadUnavailable') }}</p>
+                                    <template v-else-if="tab === 'stream' && Array.isArray((payloadOf(e) as any)?.stream)">
+                                        <ol class="font-mono text-2xs text-ink-2 max-h-56 overflow-auto space-y-0.5" dir="ltr" data-testid="artifact-inspect-stream">
+                                            <li v-for="(ev, i) in (payloadOf(e) as any).stream" :key="i" class="flex gap-2">
+                                                <span class="nums text-ink-subtle w-6 text-end shrink-0">{{ i + 1 }}</span>
+                                                <span class="shrink-0 px-1 rounded-sm" :class="kindClass(ev.type === 'error' ? 'error' : ev.type === 'completed' ? 'filter' : 'stream')">{{ ev.type }}</span>
+                                                <span class="min-w-0 break-words whitespace-pre-wrap" dir="auto">{{ streamLine(ev) }}</span>
+                                            </li>
+                                        </ol>
+                                    </template>
+                                    <pre v-else class="font-mono text-2xs text-ink-2 whitespace-pre-wrap break-words max-h-56 overflow-auto" dir="ltr"
+                                         :data-testid="`artifact-inspect-${tab}`">{{ pretty((payloadOf(e) as any)?.[tab]) }}</pre>
+                                </template>
                             </td>
                         </tr>
                     </template>
@@ -116,10 +141,13 @@ const emit = defineEmits<{ (e: 'close'): void }>();
 const { t } = useI18n();
 const { getErrorMessage } = useErrorMessage();
 
+type Payload = { request?: any, response?: any, stream?: any[] };
 type Row = {
     id: string, created_at: string | null, kind: string, op: string | null, source: string, version: number | null,
     status: string | null, error_code: string | null, duration_ms: number | null, failed: boolean,
-    detail: Record<string, any> | null, session_id?: string | null,
+    detail: Record<string, any> | null, session_id?: string | null, user_name?: string | null,
+    // What the call carried: private to whose session made it (this page's own rows carry it inline).
+    has_payload?: boolean, payload_mine?: boolean, payload?: Payload | null,
 };
 
 const loading = ref(false);
@@ -253,7 +281,52 @@ function when(iso: string | null) {
     return sameDay ? time : `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-function toggle(id: string) { expanded.value = expanded.value === id ? null : id; }
+const tab = ref<'detail' | 'request' | 'response' | 'stream'>('detail');
+const payloads = ref<Record<string, Payload | 'loading' | 'error'>>({});
+
+function toggle(id: string) {
+    expanded.value = expanded.value === id ? null : id;
+    tab.value = 'detail';
+    const row = rows.value.find(r => r.id === id);
+    if (expanded.value && row?.has_payload && row.payload_mine && !row.payload && !payloads.value[id]) loadPayload(row);
+}
+
+/** A history row's payload, fetched when its row is opened (the server
+ *  answers only for the reader's own events). */
+async function loadPayload(row: Row) {
+    payloads.value[row.id] = 'loading';
+    try {
+        const { data, error } = await useMyFetch(
+            `/api/artifacts/${encodeURIComponent(props.artifactId)}/runtime/activity/${encodeURIComponent(row.id)}/payload`,
+            { query: { report_id: props.reportId } });
+        if (error.value) throw error.value;
+        const body: any = data.value || {};
+        payloads.value[row.id] = { request: body.request, response: body.response, stream: body.stream };
+    } catch {
+        payloads.value[row.id] = 'error';
+    }
+}
+
+function payloadOf(e: Row): Payload | 'loading' | 'error' | null {
+    return e.payload || payloads.value[e.id] || null;
+}
+function tabs(e: Row) {
+    const p = payloadOf(e);
+    const has = (k: keyof Payload) => !!(p && typeof p === 'object' && p[k] !== undefined && p[k] !== null);
+    return [
+        { value: 'detail' as const, label: t('artifactActivity.tabs.detail'), on: true },
+        { value: 'request' as const, label: t('artifactActivity.tabs.request'), on: has('request') },
+        { value: 'response' as const, label: t('artifactActivity.tabs.response'), on: has('response') },
+        { value: 'stream' as const, label: t('artifactActivity.tabs.stream'), on: has('stream') },
+    ].filter(x => x.on);
+}
+function pretty(v: any) { try { return JSON.stringify(v, null, 2); } catch { return String(v); } }
+function streamLine(ev: any) {
+    if (!ev || typeof ev !== 'object') return String(ev);
+    const { type, ...rest } = ev;
+    if (typeof rest.text === 'string' && Object.keys(rest).length <= 2) return rest.text;
+    return pretty(rest).replace(/\s+/g, ' ').slice(0, 400);
+}
 
 async function load() {
     loading.value = true;
@@ -281,6 +354,7 @@ function push(event: ActivityEvent) {
         id: `live-${++liveSeq}`, created_at: new Date().toISOString(), kind: event.kind, op: event.op || null,
         source: 'editor', version: props.version ?? null, status: event.status || null, error_code: event.error_code || null,
         duration_ms: event.duration_ms ?? null, failed: isFailed(event), detail: event.detail || null,
+        has_payload: !!event.payload, payload_mine: !!event.payload, payload: event.payload || null,
     });
     if (liveRows.value.length > 200) liveRows.value.splice(0, liveRows.value.length - 200);
 }
