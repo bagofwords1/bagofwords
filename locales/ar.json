@@ -1397,6 +1397,15 @@
       "failed": "تعذّر قراءة العنصر",
       "read": "قراءة العنصر"
     },
+    "readArtifactActivity": {
+      "reading": "جارٍ فحص نشاط التطبيق…",
+      "checked": "تم فحص نشاط التطبيق",
+      "checkedErrors": "تم فحص أخطاء التطبيق",
+      "checkedEvent": "تم فحص حدث في التطبيق",
+      "events": "{n} حدث | {n} أحداث",
+      "none": "لا أحداث بعد",
+      "failed": "{n} فشل | {n} فشلت"
+    },
     "readExcelRange": {
       "readFailed": "فشلت القراءة"
     },

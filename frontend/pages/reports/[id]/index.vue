@@ -1093,6 +1093,7 @@ import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import ReadArtifactActivityTool from '~/components/tools/ReadArtifactActivityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
 import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import AddParameterTool from '~/components/tools/AddParameterTool.vue'
@@ -3015,6 +3016,8 @@ function getToolComponent(toolName: string) {
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool
+		case 'read_artifact_activity':
+			return ReadArtifactActivityTool
 		case 'read_query':
 			return ReadQueryTool
 		case 'run_query':

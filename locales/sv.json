@@ -1397,6 +1397,15 @@
       "failed": "Det gick inte att läsa artefakten",
       "read": "Läs artefakt"
     },
+    "readArtifactActivity": {
+      "reading": "Kontrollerar appaktivitet…",
+      "checked": "Appaktivitet kontrollerad",
+      "checkedErrors": "Appfel kontrollerade",
+      "checkedEvent": "Apphändelse kontrollerad",
+      "events": "{n} händelse | {n} händelser",
+      "none": "inga händelser än",
+      "failed": "{n} misslyckad | {n} misslyckade"
+    },
     "readExcelRange": {
       "readFailed": "Läsningen misslyckades"
     },
