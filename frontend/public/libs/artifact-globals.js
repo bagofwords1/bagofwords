@@ -2342,6 +2342,7 @@
     return { id: m.id, role: m.role, text: m.text == null ? '' : String(m.text), status: m.status,
       created_at: m.created_at != null ? m.created_at : null,
       thinking: typeof m.thinking === 'string' ? m.thinking : '',
+      timeline: Array.isArray(m.timeline) ? m.timeline : [],
       steps: Array.isArray(m.steps) ? m.steps : [],
       tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
       results_incomplete: !!m.results_incomplete };
