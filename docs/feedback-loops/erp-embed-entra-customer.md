@@ -124,7 +124,7 @@ Playwright package's default browser revision is unavailable.
    Azure SQL delegated scope, not merely Fabric REST permissions.
    Refresh the user's accessible schema, then activate the intended tables
    in each agent. Discovery alone leaves newly discovered tables inactive.
-   We activated one Power BI table and one Fabric table, and probed constants.
+   We activated one Power BI table and two Fabric tables, and probed constants.
 5. Create a confidential BOW OAuth client with Entra exchange enabled for
    the ERP client ID, and a host application in signed-assertion mode.
 6. Launch the ERP with environment variables below. The callback must be
@@ -160,11 +160,14 @@ python -m tools.agent.embed.erp_entra
 - Selecting a customer updated the advisory host-context banner immediately.
 - Live Power BI from the widget: both demo users returned `OBO_Probe = 1`.
   Demo1 also returned its own `USERPRINCIPALNAME()` in the widget.
-- Live Fabric from the cross-site widget: demo1 returned `OBO_Probe = 1`
-  after refreshing Fabric access and activating a table. Demo2's Fabric
-  credential passed the direct client probe, but its failed earlier schema
-  discovery still needed its own Refresh access; Fabric chat was not counted
-  as passed for demo2. Schema recovery is per user, not shared by account.
+- Live Fabric from the cross-site widget: **both users returned `OBO_Probe = 1`**.
+  After the ODBC repair, refreshed access separately for each user. Actual
+  per-user discovery contained `dbo.finance` and `dbo.sales` for demo1, but
+  only `dbo.sales` for demo2. Initially only finance was activated, so Fabric
+  was correctly absent from demo2's chat context. Activated sales too and
+  started a fresh conversation: demo2's widget query then passed. This is
+  evidence of per-user schema filtering, not proof of row-level security.
+  The final demo2 result is `media/pr/erp-embed-entra/13-demo2-fabric.png`.
 - Downstream identity probes using each real user's OBO-provisioned credential
   and BOW's actual connection clients: **4/4 passed** — Power BI and Fabric
   each returned probe=1 and the correct demo1/demo2 account. No business rows
