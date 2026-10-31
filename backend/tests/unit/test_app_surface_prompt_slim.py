@@ -105,6 +105,11 @@ def test_an_app_conversation_is_offered_no_artifact_tool():
     app = artifact_chat_tool_allowlist(APP)
     assert not {t for t in app if "artifact" in t or t.startswith("browser_")}
     assert {"create_data", "run_query", "read_query", "describe_tables", "inspect_data"} <= app
+    agent_tools = {"execute_mcp", "search_tools", "call_tool",
+                   "list_mcp_resources", "read_mcp_resource", "submit_list"}
+    assert agent_tools <= app
+    assert not agent_tools & ARTIFACT_CHAT_TOOL_ALLOWLIST
+    assert not {"create_artifact", "edit_artifact", "create_instruction", "send_email"} & app
     # The dashboard bubble keeps its tools, read_artifact included.
     for ctx in (BUBBLE, None, {**APP, "surface": "bubble"}):
         assert artifact_chat_tool_allowlist(ctx) == ARTIFACT_CHAT_TOOL_ALLOWLIST

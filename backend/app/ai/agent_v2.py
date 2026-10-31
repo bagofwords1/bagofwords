@@ -540,12 +540,15 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 
 
 def artifact_chat_tool_allowlist(platform_context) -> set:
-    """The viewer-chat tools for one message. An app's conversation
-    (platform_context surface "app") answers data questions only: it drops
-    read_artifact, whose guidance is about editing an artifact, and its own
-    report holds no artifact to read. The dashboard bubble keeps it."""
+    """App conversations can use their selected agents' MCP tools and lists.
+    Dashboard viewer chat stays read/query-only. Gateways still enforce agent
+    scope, viewer permissions, and per-tool restrictions.
+    """
     if isinstance(platform_context, dict) and platform_context.get("surface") == "app":
-        return ARTIFACT_CHAT_TOOL_ALLOWLIST - {"read_artifact"}
+        return (ARTIFACT_CHAT_TOOL_ALLOWLIST - {"read_artifact"}) | {
+            "execute_mcp", "search_tools", "call_tool",
+            "list_mcp_resources", "read_mcp_resource", "submit_list",
+        }
     return ARTIFACT_CHAT_TOOL_ALLOWLIST
 
 
@@ -9114,7 +9117,9 @@ class AgentV2:
                 return
         try:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
-            descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
+            descriptors, routing = await build_list_tools(
+                self.db, self.report, user, self.organization, platform_context=self.platform_context
+            )
             if not descriptors:
                 if stale:
                     logger.info("[agent] list tools refreshed: none remain")

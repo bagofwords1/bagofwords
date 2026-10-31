@@ -98,7 +98,11 @@ class SubmitListTool(Tool):
                     select(report_data_source_association.c.data_source_id)
                     .where(report_data_source_association.c.report_id == report_id)
                 )).all()}
-            read_only_chat = getattr(report, "report_type", "regular") == "artifact_chat"
+            platform_context = runtime_ctx.get("platform_context")
+            read_only_chat = (
+                getattr(report, "report_type", "regular") == "artifact_chat"
+                and not (isinstance(platform_context, dict) and platform_context.get("surface") == "app")
+            )
             if (read_only_chat or str(lst.data_source_id) not in attached
                     or not await can_submit_to_list(db, user, organization, ds, lst)):
                 yield self._fail(lst.id, lst.name, str(lst.data_source_id),

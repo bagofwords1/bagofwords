@@ -188,3 +188,46 @@ def test_create_data_does_not_ask_the_model_to_restate_the_question(test_client,
     assert "interpreted_prompt" in schema.get("properties", {})
     assert "user_prompt" not in schema.get("properties", {})
     assert "user_prompt" not in (schema.get("required") or [])
+
+
+def _app_conversation(test_client, org, who):
+    from tests.e2e.dashboards.dashboard_setup import publish
+
+    headers = {"Authorization": f"Bearer {org['admin']['token']}", "X-Organization-Id": org['org_id']}
+    report = test_client.post('/api/reports', headers=headers, json={
+        'title': 'Support app', 'files': [], 'data_sources': [org['agents']['shared']['ds_id']]}).json()
+    created = test_client.post('/api/artifacts', headers=headers, json={
+        'report_id': report['id'], 'title': 'Support',
+        'content': {'code': '<div>Support</div>', 'visualization_ids': []}})
+    assert created.status_code == 200, created.text
+    aid = created.json()['artifact_id']
+    publish(aid)
+    shared = test_client.put(f'/api/artifacts/{aid}/sharing', headers=headers, json={'visibility': 'internal'})
+    assert shared.status_code == 200, shared.text
+    viewer = {"Authorization": f"Bearer {org[who]['token']}", "X-Organization-Id": org['org_id']}
+    base = f'/api/artifacts/{aid}/runtime/conversations'
+    thread = test_client.post(base, headers=viewer, json={})
+    assert thread.status_code == 201, thread.text
+    return f"{base}/{thread.json()['id']}/messages", viewer
+
+
+@pytest.mark.parametrize('who', ['admin', 'member'])
+@pytest.mark.parametrize('target', ['shared', 'private'])
+def test_app_conversations_offer_and_execute_only_selected_agent_tools(test_client, org, planner, who, target):
+    path, headers = _app_conversation(test_client, org, who)
+    connection = org['agents'][target]['conn_id']
+    planner.force_tool = ('execute_mcp', {'connection_id': connection, 'tool_name': 'echo',
+                                         'arguments': {'message': 'Support lookup'}, 'title': 'Read source'})
+    constructed = []
+    with _provider(constructed):
+        response = test_client.post(path, headers=headers, json={'text': 'Read the support source.'})
+    assert response.status_code == 200, response.text
+    offered = planner.tool_names[0]
+    assert _native(offered, org['agents']['shared']['slug']), sorted(offered)
+    assert not _native(offered, org['agents']['private']['slug'])
+    assert not {'create_artifact', 'edit_artifact', 'create_instruction', 'send_email'} & offered
+    assert (connection in constructed) is (target == 'shared'), planner.tool_results
+    if target == 'shared':
+        assert any('Support lookup' in result for result in planner.tool_results), planner.tool_results
+    else:
+        assert any('not found' in result.lower() for result in planner.tool_results), planner.tool_results
