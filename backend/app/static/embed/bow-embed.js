@@ -23,6 +23,7 @@
  *       context: { customerId: 'C-1042' },    // advisory: what the user is looking at
  *     })
  *     embed.on('authenticated', ({ user }) => {})
+ *     embed.on('unavailable', ({ reason }) => {})  // not_published | not_found | denied | not_allowed | failed (retry)
  *     embed.updateContext({ customerId: 'C-1043' })
  *     embed.logout()      // on your sign-out or user switch
  *     embed.destroy()
@@ -178,6 +179,12 @@
         state.status = data.status;
         if (data.status === 'authenticated') { state.user = data.user || null; emit('authenticated', { user: state.user }); }
         else emit('authRequired', { status: data.status, message: data.error || null });
+      }
+      else if (type === 'unavailable') {
+        // Signed in, but the artifact cannot be shown (not published, gone,
+        // not shared, not embeddable here). Not a sign-in problem.
+        state.status = 'unavailable';
+        emit('unavailable', { reason: data.reason || null, message: data.message || null });
       }
     }
 

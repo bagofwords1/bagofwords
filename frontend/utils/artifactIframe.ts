@@ -15,10 +15,13 @@
  */
 
 /**
- * Cache-buster for /libs/artifact-globals.js. The file is served without a
- * content hash, so a browser can pair a cached OLD runtime with NEW artifact
- * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
- * gains or changes a global.
+ * The sandbox runtime version. It must equal the backend's
+ * ARTIFACT_RUNTIME_VERSION and it decides the legacy vs themed look, so bumping
+ * it re-skins artifacts. When artifact-globals.js gains or changes a global, do
+ * not bump it: change the revision= token on the globals URL in
+ * artifactPageLibs below and in public/mcp-artifact-app.html (e.g. chat-1 ->
+ * chat-2), so a browser never pairs a cached OLD runtime with NEW artifact code
+ * ("DataTable is not defined"). Production builds also add a content hash h=.
  */
 export const ARTIFACT_GLOBALS_VERSION = '11'; // v11: themed design system (setTheme/useTheme, token utilities, Icon/Sparkline/Delta/PageHeader…, className merge); v10: FilterSelect single-select mode; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
@@ -161,8 +164,8 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('echarts-5.min.js'),
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
-    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=motion-1`),
-    libUrl('artifact-sdk.js', 'v=2'),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-ui-2`),
+    libUrl('artifact-sdk.js', 'v=5'),
   ];
 }
 

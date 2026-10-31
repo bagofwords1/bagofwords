@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -70,7 +71,8 @@ async def _session_schema(db: AsyncSession, host: HostApplication, user: User, t
 
     organization = await db.get(Organization, str(host.organization_id))
     viewer = await viewer_context(db, user, organization)
-    return EmbedSessionSchema(token=token, expires_at=expires_at,
+    expires_in = max(0, int((expires_at - datetime.utcnow()).total_seconds()))
+    return EmbedSessionSchema(token=token, expires_at=expires_at, expires_in=expires_in,
                               user={"id": str(user.id), "name": user.name, "email": user.email},
                               host_application=host.public_id, organization_id=str(host.organization_id),
                               viewer=viewer.model_dump())

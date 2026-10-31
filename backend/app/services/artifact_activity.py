@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, or_, select, update
 
 from app.models.artifact_activity import KINDS, SOURCES, ArtifactActivityEvent
 
@@ -138,13 +138,43 @@ async def prune(db, *, report_id: Optional[str] = None, artifact_id: Optional[st
             column == str(value), ArtifactActivityEvent.created_at <= cutoff))
 
 
+async def mark_shown(db, *, session_id: str, completion_id: str, seqs: Optional[Iterable[int]] = None,
+                     match: Optional[Callable[[Optional[dict]], bool]] = None) -> None:
+    """Stamp one session's unstamped events as shown in ``completion_id`` (only
+    those with a ``seq`` in ``seqs``, or all of them), so ``context_section``
+    skips them. With ``seqs``, ``match`` also selects error/console events
+    without a seq (0) by their ``detail``. One UPDATE."""
+    unstamped = (ArtifactActivityEvent.session_id == str(session_id)[:64],
+                 ArtifactActivityEvent.shown_in_completion_id.is_(None))
+    q = update(ArtifactActivityEvent).where(*unstamped)
+    if seqs is not None:
+        seqs = sorted({int(s) for s in seqs if s})
+        ids = []
+        if match is not None:
+            rows = (await db.execute(select(ArtifactActivityEvent.id, ArtifactActivityEvent.detail).where(
+                *unstamped, ArtifactActivityEvent.seq == 0,
+                ArtifactActivityEvent.kind.in_(("error", "console"))))).all()
+            ids = [row.id for row in rows if match(row.detail)]
+        if not seqs and not ids:
+            return
+        q = q.where(or_(ArtifactActivityEvent.seq.in_(seqs), ArtifactActivityEvent.id.in_(ids)))
+    await db.execute(q.values(shown_in_completion_id=str(completion_id)))
+    await db.commit()
+
+
 # ── reading ────────────────────────────────────────────────────────────────
 
 def line(e: ArtifactActivityEvent) -> str:
-    """One compact, readable line for the agent."""
-    d = e.detail or {}
+    """One compact, readable line for the agent: when, who, which version, what."""
     when = e.created_at.strftime("%H:%M:%S") if e.created_at else ""
     who = "preview" if e.source == "preview" else "editor"
+    version = f" v{e.artifact_version}" if e.artifact_version is not None else ""
+    return f"{when} {who}{version} {describe(e)}".strip()
+
+
+def describe(e: ArtifactActivityEvent) -> str:
+    """What happened, in a few words (the part of ``line`` after its prefix)."""
+    d = e.detail or {}
     if e.kind == "click":
         text = f"clicked {d.get('target') or 'an element'}"
     elif e.kind == "request":
@@ -173,8 +203,7 @@ def line(e: ArtifactActivityEvent) -> str:
             text += f" failed{': ' + d['message'] if d.get('message') else ''}"
     else:  # error / console
         text = f"{e.kind}: {d.get('message') or e.error_code or 'unknown'}"
-    version = f" v{e.artifact_version}" if e.artifact_version is not None else ""
-    return f"{when} {who}{version} {text}".strip()
+    return text
 
 
 def is_failure(e: ArtifactActivityEvent) -> bool:

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.ai.tools.base import Tool
 from app.models.file import File
 from app.models.report_file_association import report_file_association
@@ -953,6 +954,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         return profile
 
+    @with_automatic_artifact_check
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateArtifactInput(**tool_input)
         # Repair budget: leave headroom under the runner's 300s hard timeout

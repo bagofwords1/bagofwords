@@ -1953,6 +1953,1195 @@
   try { if (document.fonts && document.fonts.ready) document.fonts.ready.then(function() { setTimeout(window.resizeAllCharts, 50); }); } catch (e) {}
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Chat building blocks — ChatResult, ChatMessage, useConversation
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Generated chat apps compose these instead of re-implementing the stream
+  // handling and the result rendering. They reference each other (and EChart /
+  // DataTable) through this closure, so an app that defines its own ChatResult
+  // only changes its own usage.
+
+  var _EChart = window.EChart;
+  var _DataTable = window.DataTable;
+  var _Icon = window.Icon;
+  var _LoadingSpinner = window.LoadingSpinner;
+  function _chatCls(base, extra) {
+    if (LEGACY) return extra ? base + ' ' + extra : base;
+    return _mergeClasses(base, extra);
+  }
+  var CHAT = LEGACY ? {
+    result: 'space-y-2',
+    title: 'text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400',
+    note: 'text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    result: 'space-y-2',
+    title: 'text-[11px] font-medium uppercase tracking-eyebrow text-ink-3',
+    note: 'text-xs text-ink-3'
+  };
+
+  // Note texts; apps pass `labels` in their own language. {shown}/{total} are
+  // filled in.
+  var _CHAT_LABELS = {
+    rowsShown: 'Showing {shown} of {total} rows',
+    columnsShown: '{shown} of {total} columns',
+    partial: 'Partial table',
+    incomplete: 'Some results of this answer could not be shown',
+    inProgress: 'Answer in progress...',
+    steps: 'Steps',
+    failed: 'The answer failed',
+    stopped: 'The answer was stopped',
+    olderMessages: 'Load earlier messages',
+    jumpToLatest: 'Jump to latest',
+    send: 'Send',
+    stop: 'Stop',
+    unavailable: 'Chat is not available here',
+    authRequired: 'Sign in to chat',
+    conversations: 'Conversations',
+    newConversation: 'New chat',
+    rename: 'Rename',
+    archive: 'Archive',
+    archiveConfirm: 'Archive this conversation?',
+    cancel: 'Cancel'
+  };
+  function _chatFill(template, vars) {
+    return String(template).replace(/\{(shown|total)\}/g, function(_, k) { return vars && vars[k] != null ? String(vars[k]) : ''; });
+  }
+  function _chatLabels(labels) {
+    var src = {};
+    for (var k in _CHAT_LABELS) src[k] = labels && typeof labels[k] === 'string' ? labels[k] : _CHAT_LABELS[k];
+    return {
+      rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
+      columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
+      partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
+      steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
+      olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest),
+      send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired),
+      conversations: _chatFill(src.conversations), newConversation: _chatFill(src.newConversation), rename: _chatFill(src.rename),
+      archive: _chatFill(src.archive), archiveConfirm: _chatFill(src.archiveConfirm), cancel: _chatFill(src.cancel)
+    };
+  }
+  function _chatUnique(values) { return Array.from(new Set(values)); }
+
+  // The chart option for a result's hint, or null when there is no hint or the
+  // hint does not fit the result: the type must be known, x / every y / series
+  // must name a column, y must be non-empty and there must be rows. A hint with
+  // aggregate 'count' draws the number of rows per x (and series; y is
+  // ignored). Nulls as in EChartsVisual: x is bucketed as String(v ?? ''), a
+  // null or '' series is dropped, a pie skips a null category. It counts rows,
+  // not numeric values as EChartsVisual does. Any other aggregate, or count on
+  // a scatter, draws nothing.
+  var _CHAT_CHART_TYPES = ['bar', 'line', 'area', 'pie', 'scatter'];
+  function _chatCountOption(c, rows, columns) {
+    var key = function(v) { return String(v == null ? '' : v); };
+    var xs = _chatUnique(rows.map(function(x) { return key(x[c.x]); }));
+    var count = function(list, v) { var n = 0; list.forEach(function(x) { if (key(x[c.x]) === v) n++; }); return n; };
+    if (c.type === 'pie') {
+      var named = rows.filter(function(x) { return x[c.x] != null; });
+      return { tooltip: {}, series: [{ type: 'pie', data: _chatUnique(named.map(function(x) { return key(x[c.x]); })).map(function(v) { return { name: v, value: count(named, v) }; }) }] };
+    }
+    var t = c.type === 'area' ? 'line' : c.type;
+    var lines = c.series
+      ? _chatUnique(rows.map(function(x) { return key(x[c.series]); })).filter(Boolean).map(function(g) { return { name: g, rows: rows.filter(function(x) { return key(x[c.series]) === g; }) }; })
+      : [{ name: (columns.find(function(k) { return k.field === c.y[0]; }) || {}).headerName || c.y[0], rows: rows }];
+    return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: xs }, yAxis: { type: 'value', minInterval: 1 },
+      series: lines.map(function(l) {
+        return { name: l.name, type: t, areaStyle: c.type === 'area' ? {} : undefined,
+          data: xs.map(function(v) { var n = count(l.rows, v); return n ? n : null; }) };
+      }) };
+  }
+  function _chatResultOption(r) {
+    if (!r || typeof r !== 'object') return null;
+    var c = r.chart;
+    if (!c || typeof c !== 'object' || _CHAT_CHART_TYPES.indexOf(c.type) === -1) return null;
+    var columns = Array.isArray(r.columns) ? r.columns.filter(function(k) { return k && typeof k === 'object'; }) : [];
+    var fields = {};
+    columns.forEach(function(k) { if (typeof k.field === 'string') fields[k.field] = true; });
+    if (!Array.isArray(c.y) || !c.y.length || !fields[c.x]) return null;
+    for (var i = 0; i < c.y.length; i++) if (!fields[c.y[i]]) return null;
+    if (c.series && !fields[c.series]) return null;
+    var rows = Array.isArray(r.rows) ? r.rows.filter(function(x) { return x && typeof x === 'object'; }) : [];
+    if (!rows.length) return null;
+    if (c.aggregate != null) return c.aggregate === 'count' && c.type !== 'scatter' ? _chatCountOption(c, rows, columns) : null;
+    if (c.type === 'pie') return { tooltip: {}, series: [{ type: 'pie', data: rows.map(function(x) { return { name: String(x[c.x]), value: x[c.y[0]] }; }) }] };
+    if (c.type === 'scatter') return { tooltip: {}, xAxis: { type: 'value' }, yAxis: { type: 'value' }, series: [{ type: 'scatter', data: rows.map(function(x) { return [x[c.x], x[c.y[0]]]; }) }] };
+    var xs = _chatUnique(rows.map(function(x) { return x[c.x]; }));
+    var t = c.type === 'area' ? 'line' : c.type;
+    var lines = c.series
+      ? _chatUnique(rows.map(function(x) { return x[c.series]; })).map(function(g) { return { name: String(g), col: c.y[0], rows: rows.filter(function(x) { return x[c.series] === g; }) }; })
+      : c.y.map(function(col) { return { name: (columns.find(function(k) { return k.field === col; }) || {}).headerName || col, col: col, rows: rows }; });
+    return { tooltip: { trigger: 'axis' }, legend: {}, xAxis: { type: 'category', data: xs }, yAxis: { type: 'value' },
+      series: lines.map(function(l) {
+        return { name: l.name, type: t, areaStyle: c.type === 'area' ? {} : undefined,
+          data: xs.map(function(v) { var row = l.rows.find(function(x) { return x[c.x] === v; }); return row ? row[l.col] : null; }) };
+      }) };
+  }
+
+  // The truncation note: rows (and columns when they differ) shown of the
+  // total, or "partial table" when only long cells were cut.
+  function _chatResultNote(r, L) {
+    if (!r || typeof r !== 'object' || !r.truncated) return null;
+    L = L || _chatLabels();
+    var rows = Array.isArray(r.rows) ? r.rows.length : 0;
+    var columns = Array.isArray(r.columns) ? r.columns.length : 0;
+    var rowCount = typeof r.row_count === 'number' ? r.row_count : rows;
+    var columnCount = typeof r.column_count === 'number' ? r.column_count : columns;
+    if (rows < rowCount || columns < columnCount) {
+      var note = L.rowsShown({ shown: rows, total: rowCount });
+      if (columns !== columnCount) note += ', ' + L.columnsShown({ shown: columns, total: columnCount });
+      return note;
+    }
+    return L.partial;
+  }
+
+  // <ChatResult result={r} height={260} pageSize={10} labels={...} className />
+  var _CHAT_NO_ROWS = [];
+  var ChatResult = React.memo(function ChatResult(props) {
+    props = props || {};
+    var r = props.result;
+    var ok = !!r && typeof r === 'object';
+    var option = React.useMemo(function() { return ok ? _chatResultOption(r) : null; }, [r]);
+    var columns = React.useMemo(function() {
+      if (!ok || !Array.isArray(r.columns)) return [];
+      return r.columns.filter(function(k) { return k && typeof k === 'object'; }).map(function(k) { return { field: k.field, headerName: k.headerName, dtype: k.type }; });
+    }, [r]);
+    var rows = ok && Array.isArray(r.rows) ? r.rows : _CHAT_NO_ROWS;
+    if (!ok) return null;
+    var note = _chatResultNote(r, _chatLabels(props.labels));
+    var title = typeof r.title === 'string' || typeof r.title === 'number' ? String(r.title) : '';
+    return h('div', { 'data-testid': 'bow-chat-result', className: _chatCls(CHAT.result, props.className) }, [
+      title ? h('div', { key: 't', dir: 'auto', 'data-testid': 'bow-chat-result-title', className: CHAT.title }, title) : null,
+      option ? h(_EChart, { key: 'c', option: option, height: props.height || 260 }) : null,
+      h(_DataTable, { key: 'd', rows: rows, columns: columns, pageSize: props.pageSize != null ? props.pageSize : 10, density: 'compact' }),
+      note ? h('p', { key: 'n', dir: 'auto', 'data-testid': 'bow-chat-result-note', className: CHAT.note }, note) : null
+    ]);
+  });
+  window.ChatResult = ChatResult;
+
+  // Every text block gets its own direction (a Hebrew paragraph next to an
+  // English one); code stays left-to-right.
+  var _CHAT_DIR_AUTO = { p: 1, h1: 1, h2: 1, h3: 1, h4: 1, h5: 1, h6: 1, ul: 1, ol: 1, li: 1, table: 1, th: 1, td: 1, blockquote: 1 };
+  function _chatWithDir(node) {
+    if (Array.isArray(node)) return node.map(_chatWithDir);
+    if (!React.isValidElement(node)) return node;
+    var extra = null;
+    if (typeof node.type === 'string') {
+      if (_CHAT_DIR_AUTO[node.type]) extra = { dir: 'auto' };
+      else if (node.type === 'pre') extra = { dir: 'ltr' };
+    }
+    var kids = node.props ? node.props.children : undefined;
+    if (kids === undefined) return extra ? React.cloneElement(node, extra) : node;
+    // Children are passed back the way they came (separate arguments), so the
+    // walk adds no key requirements of its own.
+    var args = [node, extra].concat(Array.isArray(kids) ? kids.map(_chatWithDir) : [_chatWithDir(kids)]);
+    return React.cloneElement.apply(React, args);
+  }
+  // Markdown through bow.markdown, with a direction per block; null without it.
+  function _chatMarkdown(text) {
+    var bw = window.bow;
+    if (!text || !bw || typeof bw.markdown !== 'function') return null;
+    try { return _chatWithDir(bw.markdown(text)); } catch (e) { return null; }
+  }
+  // The direction of a text: its first strong character (Hebrew, Arabic, Syriac
+  // as in _RTL_CHARS -> 'rtl'; Latin, Greek, Cyrillic -> 'ltr'), or null when it
+  // has none (digits, punctuation, Markdown marks).
+  var _CHAT_STRONG = new RegExp(_RTL_CHARS.source + '|[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF\\u0370-\\u03FF\\u0400-\\u04FF]');
+  var _CHAT_RTL_ONE = new RegExp(_RTL_CHARS.source);
+  function _chatDirOf(text) {
+    var m = _CHAT_STRONG.exec(text == null ? '' : String(text));
+    return m ? (_CHAT_RTL_ONE.test(m[0]) ? 'rtl' : 'ltr') : null;
+  }
+  function _chatLabelOf(v) { return typeof v === 'string' || typeof v === 'number' ? String(v) : ''; }
+  var _CHAT_RUNNING = { running: 1, in_progress: 1, started: 1 };
+  var _CHAT_SUCCESS = { success: 1, completed: 1, done: 1 };
+  var _CHAT_FAILED = { error: 1, stopped: 1, cancelled: 1, canceled: 1, failed: 1 };
+  var CHAT_MSG = LEGACY ? {
+    root: 'space-y-2',
+    user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100',
+    text: 'text-slate-800 dark:text-slate-100',
+    tools: 'space-y-1 text-xs text-slate-500 dark:text-slate-400',
+    steps: 'text-xs text-slate-500 dark:text-slate-400',
+    muted: 'flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    root: 'space-y-2',
+    user: 'ms-auto w-fit max-w-[85%] whitespace-pre-wrap rounded-card px-3 py-2 bg-surface-2 text-ink',
+    text: 'text-ink',
+    tools: 'space-y-1 text-xs text-ink-3',
+    steps: 'text-xs text-ink-3',
+    muted: 'flex items-center gap-2 text-xs text-ink-3'
+  };
+
+  // <ChatMessage message={m} showTools showResults labels={...} className />
+  var ChatMessage = React.memo(function ChatMessage(props) {
+    props = props || {};
+    var m = props.message;
+    var ok = !!m && typeof m === 'object';
+    var role = ok && m.role === 'user' ? 'user' : 'assistant';
+    var text = ok && m.text != null ? String(m.text) : '';
+    var body = React.useMemo(function() {
+      return !ok || role === 'user' ? null : _chatMarkdown(text);
+    }, [ok, role, text]);
+    // The agent's narration before the answer (messages() `steps`).
+    var stepsIn = ok && role !== 'user' && Array.isArray(m.steps) ? m.steps : null;
+    var steps = React.useMemo(function() {
+      return (stepsIn || []).filter(function(x) { return typeof x === 'string' && x.trim(); });
+    }, [stepsIn]);
+    if (!ok) return null;
+    var L = _chatLabels(props.labels);
+    var status = m.status == null ? '' : String(m.status);
+    var running = status === 'in_progress';
+    var rootProps = { 'data-testid': 'bow-chat-message', 'data-role': role, 'data-status': status, 'aria-busy': running, className: _chatCls(CHAT_MSG.root, props.className) };
+    if (role === 'user') {
+      return h('div', rootProps, h('p', { dir: 'auto', 'data-testid': 'bow-chat-text', className: CHAT_MSG.user }, text));
+    }
+    // The reply's own direction places the steps toggle, the tools, the markers
+    // and the indicator on its start side; each text block keeps dir="auto".
+    var dir = _chatDirOf(text) || _chatDirOf(steps.join('\n'));
+    if (dir) rootProps.dir = dir;
+    var kids = [];
+    if (steps.length) {
+      // Collapsed: the answer stays the message; the steps are there on request.
+      kids.push(h('details', { key: 'steps', 'data-testid': 'bow-chat-steps', className: CHAT_MSG.steps }, [
+        h('summary', { key: 's', className: 'cursor-pointer select-none' }, h('span', { dir: 'auto', 'data-testid': 'bow-chat-steps-label' }, L.steps)),
+        h('div', { key: 'l', className: 'mt-1 space-y-1 border-s ps-2' }, steps.map(function(x, i) {
+          return h('div', { key: i, dir: 'auto', 'data-testid': 'bow-chat-step' },
+            _chatMarkdown(x) || h('p', { className: 'whitespace-pre-wrap' }, x));
+        }))
+      ]));
+    }
+    if (text) {
+      kids.push(h('div', { key: 'text', 'data-testid': 'bow-chat-text', className: CHAT_MSG.text },
+        body || h('p', { dir: 'auto', className: 'whitespace-pre-wrap' }, text)));
+    }
+    var tools = props.showTools === false || !Array.isArray(m.tools) ? [] : m.tools.filter(function(t) {
+      return t && typeof t === 'object' && (_chatLabelOf(t.title) || _chatLabelOf(t.name));
+    });
+    if (tools.length) {
+      kids.push(h('ul', { key: 'tools', 'data-testid': 'bow-chat-tools', className: CHAT_MSG.tools }, tools.map(function(t, i) {
+        var s = String(t.status || '');
+        var mark = _CHAT_RUNNING[s] ? h(_LoadingSpinner, { size: 12 })
+          : _CHAT_SUCCESS[s] ? h(_Icon, { name: 'check', size: 12 })
+          : _CHAT_FAILED[s] ? h(_Icon, { name: 'x', size: 12 }) : null;
+        return h('li', { key: t.id != null ? 'id-' + t.id : 'i-' + i, dir: 'auto', 'data-testid': 'bow-chat-tool', 'data-status': s, className: 'flex items-center gap-1.5' },
+          [mark ? h('span', { key: 'm', className: 'inline-flex shrink-0' }, mark) : null, h('span', { key: 'l' }, _chatLabelOf(t.title) || _chatLabelOf(t.name))]);
+      })));
+    }
+    var results = props.showResults === false || !Array.isArray(m.results) ? [] : m.results;
+    results.forEach(function(r, i) {
+      kids.push(h(ChatResult, { key: 'r-' + (r && r.id != null ? r.id : i), result: r, labels: props.labels }));
+    });
+    if (props.showResults !== false && m.results_incomplete) {
+      kids.push(h('p', { key: 'inc', dir: 'auto', 'data-testid': 'bow-chat-incomplete', className: CHAT.note }, L.incomplete));
+    }
+    // A failed or stopped answer says so (also with no text, as history loads it).
+    var ended = status === 'error' ? L.failed : status === 'stopped' ? L.stopped : '';
+    if (ended) {
+      kids.push(h('p', { key: 'ended', dir: 'auto', 'data-testid': 'bow-chat-ended', 'data-status': status, className: CHAT.note }, ended));
+    }
+    if (running) {
+      kids.push(h('div', { key: 'busy', 'data-testid': 'bow-chat-typing', role: 'status', className: CHAT_MSG.muted },
+        [h(_LoadingSpinner, { key: 's', size: 16 }), h('span', { key: 't', dir: 'auto' }, L.inProgress)]));
+    }
+    return h('div', rootProps, kids);
+  });
+  window.ChatMessage = ChatMessage;
+
+  // ── useConversation ─────────────────────────────────────────────────────────
+  // const chat = useConversation({conversationId, title, agents, historyLimit})
+  // -> {messages, conversations, conversationId, policy, loading, sending,
+  //     answering, error, hasOlder, loadingOlder, send, stop, select,
+  //     newConversation, reload, loadOlder, rename, archive}
+  // conversations: [{id, title, created_at, updated_at, in_progress}]; rename
+  // and archive are optimistic and revert on failure. Opened without a
+  // conversationId, it reopens the newest conversation still answering.
+  // messages have the bow.conversations.messages() item shape. One answer runs
+  // at a time; history is re-read after each answer that reached the server and
+  // merged with the server page as the truth; leaving a running answer keeps it
+  // running on the server (only stop() stops it). `answering` is `sending` or
+  // an answer of the open conversation still in progress (also one left
+  // running and come back to); stop() stops either. loadOlder() puts the page
+  // before the oldest loaded one first; only conversation loads and loadOlder()
+  // move its cursor.
+  var _CHAT_REFRESH_MS = 5000;
+  var _CHAT_REFRESH_MAX = 24;
+  var _CHAT_INITIAL = { messages: [], conversations: [], conversationId: null, policy: null, loading: false, sending: false, error: null, hasOlder: false, loadingOlder: false };
+
+  // Error objects of a failed rename or archive (the conversation list's own
+  // failures), and the number of ChatThreads mounted per hook instance (keyed
+  // by its stable rename function): ChatThreads shows those errors, and
+  // ChatMessages leaves them to it while one is mounted.
+  var _chatListErrors = typeof WeakSet === 'function' ? new WeakSet() : null;
+  var _chatThreadsMounted = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function _chatListError(e) { var err = _chatError(e); if (_chatListErrors) _chatListErrors.add(err); return err; }
+  function _chatIsListError(err) { return !!err && typeof err === 'object' && !!_chatListErrors && _chatListErrors.has(err); }
+  function _chatConv() { var b = window.bow; return b && b.conversations ? b.conversations : null; }
+  function _chatError(e, fallback) {
+    return { code: (e && e.code) || fallback || 'UNAVAILABLE', message: (e && e.message) || String(e || 'Request failed') };
+  }
+  function _chatItems(res) { return res && Array.isArray(res.items) ? res.items : []; }
+  function _chatCursor(res) { return res && res.next_before != null ? res.next_before : null; }
+  // Sending, or an answer of the open conversation is still in progress.
+  function _chatAnswering(state) {
+    return !!state.sending || state.messages.some(function(m) { return m && m.role === 'assistant' && m.status === 'in_progress'; });
+  }
+  function _chatIsLocal(m) { return !!m && typeof m.id === 'string' && m.id.indexOf('local-') === 0; }
+  function _chatNormalize(m) {
+    if (!m || typeof m !== 'object') return null;
+    return { id: m.id, role: m.role, text: m.text == null ? '' : String(m.text), status: m.status,
+      created_at: m.created_at != null ? m.created_at : null,
+      steps: Array.isArray(m.steps) ? m.steps : [],
+      tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
+      results_incomplete: !!m.results_incomplete };
+  }
+  function _chatSameResult(a, b) {
+    // Result payloads are bounded JSON. Preserve chart identity only when all
+    // content matches, including changed redaction, labels and chart options.
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    var keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every(function(k) {
+      return _chatHas(b, k) && _chatSameResult(a[k], b[k]);
+    });
+  }
+  function _chatHas(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  // The fetched page is the truth (D-3). Optimistic local-* items it covers are
+  // dropped: (a) a local user item with the same trimmed text as an unclaimed
+  // fetched user item (one-to-one, newest first), (b) any local item followed by
+  // a local item the page holds, (c) a local assistant right after a user item
+  // dropped by (a). Kept server items before the first covered item go before
+  // the page; every other kept item after it. A fetched in_progress never
+  // replaces a status in `held` (the run's own completed or stop). Result
+  // objects with identical content are kept, so unchanged charts do not reset.
+  function _chatMerge(local, fetched, held) {
+    local = Array.isArray(local) ? local : [];
+    held = held || {};
+    var page = (Array.isArray(fetched) ? fetched : []).map(_chatNormalize).filter(Boolean);
+    var inPage = {}, localById = {};
+    page.forEach(function(f) { inPage[f.id] = true; });
+    local.forEach(function(l) { if (l && !_chatIsLocal(l)) localById[l.id] = l; });
+    var covered = local.map(function(l) { return !!l && inPage[l.id] === true; });
+    // (a)
+    var claimed = {}, dropA = {};
+    page.forEach(function(f, j) { if (f.role === 'user' && localById[f.id]) claimed[j] = true; });
+    for (var i = local.length - 1; i >= 0; i--) {
+      var l = local[i];
+      if (!_chatIsLocal(l) || l.role !== 'user') continue;
+      var t = String(l.text == null ? '' : l.text).trim();
+      for (var j = page.length - 1; j >= 0; j--) {
+        if (claimed[j] || page[j].role !== 'user' || page[j].text.trim() !== t) continue;
+        claimed[j] = true; dropA[i] = true; covered[i] = true;
+        break;
+      }
+    }
+    // (b) and (c)
+    var laterInPage = false;
+    for (var k = local.length - 1; k >= 0; k--) {
+      if (_chatIsLocal(local[k]) && laterInPage) covered[k] = true;
+      if (local[k] && inPage[local[k].id] === true) laterInPage = true;
+    }
+    for (var n = 1; n < local.length; n++) {
+      if (dropA[n - 1] && _chatIsLocal(local[n]) && local[n].role === 'assistant') covered[n] = true;
+    }
+    var firstCovered = covered.indexOf(true);
+    if (firstCovered === -1) firstCovered = local.length;
+    var before = [], after = [];
+    local.forEach(function(l, idx) {
+      if (!l || covered[idx]) return;
+      if (idx < firstCovered && !_chatIsLocal(l)) before.push(l); else after.push(l);
+    });
+    var merged = page.map(function(f) {
+      var l = localById[f.id];
+      if (f.status === 'in_progress' && _chatHas(held, f.id)) {
+        if (l) return l;
+        var kept = {}; for (var key in f) kept[key] = f[key];
+        kept.status = held[f.id];
+        return kept;
+      }
+      if (l && l.results.length && f.results.length) {
+        var reused = f.results.map(function(fr) {
+          var lr = l.results.find(function(x) { return x && fr && x.id === fr.id; });
+          return lr && _chatSameResult(lr, fr) ? lr : fr;
+        });
+        var out = {}; for (var k2 in f) out[k2] = f[k2];
+        out.results = reused;
+        return out;
+      }
+      return f;
+    });
+    return before.concat(merged, after);
+  }
+
+  // An older page goes before every current message; ids already present are
+  // dropped. The same array when nothing is added.
+  function _chatPrepend(messages, fetched) {
+    var have = {};
+    messages.forEach(function(m) { if (m) have[m.id] = true; });
+    var add = (Array.isArray(fetched) ? fetched : []).map(_chatNormalize).filter(function(m) {
+      if (!m || have[m.id]) return false;
+      have[m.id] = true;
+      return true;
+    });
+    return add.length ? add.concat(messages) : messages;
+  }
+
+  function _chatNormalizeConv(x) {
+    return { id: x.id, title: x.title, created_at: x.created_at != null ? x.created_at : null,
+      updated_at: x.updated_at != null ? x.updated_at : null, in_progress: !!x.in_progress };
+  }
+  // The same array when the item already has that flag (or is not listed).
+  function _chatWithFlag(list, id, flag) {
+    var at = list.findIndex(function(x) { return x && x.id === id; });
+    if (at === -1 || list[at].in_progress === flag) return list;
+    var out = list.slice(), item = {};
+    for (var k in list[at]) item[k] = list[at][k];
+    item.in_progress = flag;
+    out[at] = item;
+    return out;
+  }
+  // Post-step of every action (rule 21): the open conversation's flag is
+  // derived from its own state; the same state when nothing changes.
+  function _chatSyncCurrent(state) {
+    if (state.conversationId == null) return state;
+    var list = _chatWithFlag(state.conversations, state.conversationId, _chatAnswering(state));
+    if (list === state.conversations) return state;
+    var s = {}; for (var k in state) s[k] = state[k];
+    s.conversations = list;
+    return s;
+  }
+  function _chatReduce(state, a) { return _chatSyncCurrent(_chatStep(state, a)); }
+
+  function _chatStep(state, a) {
+    switch (a.type) {
+      case 'apply': {
+        var next = {}; for (var k in state) next[k] = state[k];
+        if (a.patch) for (var p in a.patch) next[p] = a.patch[p];
+        if (a.items) {
+          next.messages = next.messages.map(function(m) {
+            if (!m || !_chatHas(a.items, m.id)) return m;
+            var u = {}; for (var mk in m) u[mk] = m[mk];
+            var patch = a.items[m.id];
+            for (var pk in patch) u[pk] = patch[pk];
+            return u;
+          });
+        }
+        if (a.append) next.messages = next.messages.concat(a.append);
+        return next;
+      }
+      case 'created': {
+        var c = _chatNormalizeConv(a.conversation);
+        var listed = state.conversations.some(function(x) { return x && x.id === c.id; });
+        var s1 = {}; for (var k1 in state) s1[k1] = state[k1];
+        if (!listed) s1.conversations = [c].concat(state.conversations);
+        s1.conversationId = c.id;
+        return s1;
+      }
+      case 'listed': {
+        // Rule 25: keep created ids the page does not hold yet; never an
+        // archived id; a pending rename's title wins.
+        var archived = a.archived || {}, renames = a.renames || {}, fetchedIds = {};
+        var page = a.conversations.filter(function(x) { return x && typeof x === 'object' && !_chatHas(archived, x.id); }).map(function(x) {
+          var n = _chatNormalizeConv(x);
+          if (_chatHas(renames, n.id)) n.title = renames[n.id];
+          fetchedIds[n.id] = true;
+          return n;
+        });
+        var kept = state.conversations.filter(function(x) { return x && _chatHas(a.keep || {}, x.id) && !fetchedIds[x.id] && !_chatHas(archived, x.id); });
+        var s4 = {}; for (var k5 in state) s4[k5] = state[k5];
+        s4.conversations = kept.concat(page);
+        return s4;
+      }
+      case 'retitle': {
+        var changed = false;
+        var list = state.conversations.map(function(x) {
+          if (!x || x.id !== a.id) return x;
+          if (x.title === a.title && (a.updated_at == null || x.updated_at === a.updated_at)) return x;
+          changed = true;
+          var y = {}; for (var ky in x) y[ky] = x[ky];
+          y.title = a.title;
+          if (a.updated_at != null) y.updated_at = a.updated_at;
+          return y;
+        });
+        if (!changed) return state;
+        var s6 = {}; for (var k7 in state) s6[k7] = state[k7];
+        s6.conversations = list;
+        return s6;
+      }
+      case 'unlist': {
+        var rest = state.conversations.filter(function(x) { return !x || x.id !== a.id; });
+        if (rest.length === state.conversations.length) return state;
+        var s7 = {}; for (var k8 in state) s7[k8] = state[k8];
+        s7.conversations = rest;
+        return s7;
+      }
+      case 'relist': {
+        if (state.conversations.some(function(x) { return x && x.id === a.item.id; })) return state;
+        var back = state.conversations.slice();
+        back.splice(Math.min(a.index, back.length), 0, a.item);
+        var s8 = {}; for (var k9 in state) s8[k9] = state[k9];
+        s8.conversations = back;
+        return s8;
+      }
+      case 'switch': {
+        // Rule 22 (D-30): the left conversation keeps its flag when its answer
+        // still runs (streaming when left, or a server answer in progress),
+        // then the patch opens the next one; the post-step syncs only that one.
+        var s9 = {}; for (var k10 in state) s9[k10] = state[k10];
+        if (state.conversationId != null) {
+          var still = !!a.wasStreaming || state.messages.some(function(m) {
+            return m && m.role === 'assistant' && m.status === 'in_progress' && !_chatIsLocal(m);
+          });
+          s9.conversations = _chatWithFlag(state.conversations, state.conversationId, still);
+        }
+        for (var p9 in a.patch) s9[p9] = a.patch[p9];
+        return s9;
+      }
+      case 'load': {
+        var s2 = {}; for (var k3 in state) s2[k3] = state[k3];
+        s2.messages = a.messages.map(_chatNormalize).filter(Boolean);
+        if (a.patch) for (var p2 in a.patch) s2[p2] = a.patch[p2];
+        return s2;
+      }
+      case 'prepend': {
+        var s5 = {}; for (var k6 in state) s5[k6] = state[k6];
+        s5.messages = _chatPrepend(state.messages, a.fetched);
+        if (a.patch) for (var p5 in a.patch) s5[p5] = a.patch[p5];
+        return s5;
+      }
+      case 'merge': {
+        var s3 = {}; for (var k4 in state) s3[k4] = state[k4];
+        s3.messages = _chatMerge(state.messages, a.fetched, a.held);
+        return s3;
+      }
+      default: return state;
+    }
+  }
+
+  function _chatInitialState(opts) {
+    var s = {}; for (var k in _CHAT_INITIAL) s[k] = _CHAT_INITIAL[k];
+    if (!_chatConv()) { s.error = { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' }; return s; }
+    s.loading = true;
+    s.conversationId = opts && opts.conversationId ? opts.conversationId : null;
+    return s;
+  }
+
+  // The per-hook controller: refs and callbacks, created once per mount.
+  function _chatController(dispatch, opts) {
+    var hl = opts && typeof opts.historyLimit === 'number' && opts.historyLimit > 0 ? Math.floor(opts.historyLimit) : 30;
+    var c = {
+      opts: opts || {}, initialId: opts && opts.conversationId ? opts.conversationId : null, limit: hl,
+      run: null, gen: 0, mounted: false, load: null, policyWait: null, convId: null, policy: null, create: null,
+      held: {}, readSeq: 0, readFloor: 0, timer: null, count: 0, seq: 0, createdIds: {},
+      errSeq: 0, errShown: false, before: null, olderLoad: null, messages: [], conversations: [],
+      renames: {}, renameSeq: 0, confirmed: {}, confirmedSeq: {}, archived: {}, listTimer: null, listCount: 0, olderErr: null, touched: false
+    };
+    // `errSeq` counts every applied change of `error` (set or clear);
+    // `errShown` mirrors whether one is shown now.
+    function put(action, gen) {
+      if (!c.mounted || (gen !== undefined && gen !== c.gen)) return false;
+      // A queued send resumes when the history promise resolves, before
+      // React necessarily commits its render. Check the history just loaded.
+      if (action.type === 'load') c.messages = action.messages.map(_chatNormalize).filter(Boolean);
+      else if (action.patch && Array.isArray(action.patch.messages)) c.messages = action.patch.messages;
+      dispatch(action);
+      if (action.patch && _chatHas(action.patch, 'error')) { c.errSeq++; c.errShown = !!action.patch.error; }
+      return true;
+    }
+    function noop() {}
+    function cancelTimer() { if (c.timer !== null) { clearTimeout(c.timer); c.timer = null; } }
+    function raiseFloor() { c.readFloor = ++c.readSeq; }
+    function endRun(run, patch) {
+      if (c.run !== run) return;
+      c.run = null;
+      var p = { sending: false }; if (patch) for (var k in patch) p[k] = patch[k];
+      put({ type: 'apply', patch: p }, run.gen);
+    }
+
+    // A tagged re-read (rule 12): applied only in its generation, when nothing
+    // newer was applied or sent since it was issued, and while no other run is
+    // active.
+    // `onError` (reload only) receives a rejection that the same checks did not drop.
+    function reread(convId, run, onError) {
+      var conv = _chatConv();
+      if (!conv || !convId) return Promise.resolve(false);
+      var tag = ++c.readSeq, gen = c.gen;
+      function current() { return gen === c.gen && tag > c.readFloor && (c.run === null || c.run === run) && c.mounted; }
+      var skipped = {};
+      return Promise.resolve().then(function() {
+        // Left (or unmounted) before the request went out: send nothing.
+        if (gen !== c.gen || !c.mounted) return skipped;
+        return conv.messages(convId, { limit: c.limit });
+      }).then(function(res) {
+        if (res === skipped || !current()) return false;
+        c.readFloor = tag;
+        var held = {}; for (var k in c.held) held[k] = c.held[k];
+        put({ type: 'merge', fetched: _chatItems(res), held: held }, gen);
+        return true;
+      }, function(e) {
+        if (onError && current()) onError(e);
+        return false;
+      });
+    }
+
+    // A list page through the 'listed' rules (rule 25).
+    // `issued` is c.renameSeq when the list request went out. A pending rename
+    // always wins; a confirmed one wins over lists issued before it and is
+    // dropped once a list issued after it applies. The list's titles are the
+    // last saved ones, unless a rename confirmed after the list was issued.
+    function listed(res, issued) {
+      if (issued === undefined) issued = c.renameSeq;
+      for (var r in c.renames) if (c.renames[r].confirmed && c.renames[r].seq <= issued) delete c.renames[r];
+      _chatItems(res).forEach(function(x) {
+        if (!x || x.id == null || (c.confirmedSeq[x.id] || 0) > issued) return;
+        c.confirmed[x.id] = x.title;
+        c.confirmedSeq[x.id] = 0;
+      });
+      var renames = {};
+      for (var id in c.renames) renames[id] = c.renames[id].title;
+      var archived = {}; for (var x in c.archived) archived[x] = true;
+      put({ type: 'listed', conversations: _chatItems(res), keep: c.createdIds, archived: archived, renames: renames });
+    }
+    function cancelList() { if (c.listTimer !== null) { clearTimeout(c.listTimer); c.listTimer = null; } }
+
+    function startLoad() {
+      var conv = _chatConv();
+      if (!conv) return;
+      var gen = c.gen, id = c.initialId;
+      c.count = 0;
+      c.listCount = 0;
+      if (id) c.convId = id;
+      // The first applied error wins while it (or a later error) is still shown;
+      // once select, newConversation or a send cleared it, a later one applies.
+      // The policy and the list do not belong to one conversation, so their
+      // errors apply in any generation while mounted; the initial history's
+      // error only in its own generation.
+      var reported = false;
+      function report(e, g) {
+        if (reported && c.errShown) return;
+        if (put({ type: 'apply', patch: { error: _chatError(e) } }, g)) reported = true;
+      }
+      var policyWait = Promise.resolve().then(function() { return conv.policy(); }).then(function(p) {
+        c.policy = p || null;
+        put({ type: 'apply', patch: { policy: c.policy } });
+        return c.policy;
+      }, function(e) { report(e); throw e; });
+      c.policyWait = policyWait;
+      var load = policyWait.then(function(p) {
+        if (p && p.available === false) return null;
+        var issued;
+        var tasks = [Promise.resolve().then(function() { issued = c.renameSeq; return conv.list({ limit: 20 }); }).then(function(res) {
+          // Keep conversations created meanwhile that this page does not hold yet.
+          listed(res, issued);
+          // Rule 27 (OD-10): opened without a conversation and nothing done yet:
+          // reopen the newest conversation whose answer still runs. select()
+          // takes over `loading` (this load's own loading:false is dropped).
+          if (id || gen !== c.gen || c.convId !== null || c.run !== null || c.touched) return;
+          var running = _chatItems(res).find(function(x) { return x && x.in_progress === true && x.id != null; });
+          if (running) c.select(running.id);
+        }, function(e) { report(e); })];
+        if (id) {
+          tasks.push(Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
+            if (put({ type: 'load', messages: _chatItems(res), patch: { hasOlder: _chatCursor(res) !== null } }, gen)) c.before = _chatCursor(res);
+          }, function(e) {
+            if (gen === c.gen && e && e.code === 'NOT_FOUND' && c.convId === id) {
+              c.convId = null;
+              put({ type: 'apply', patch: { conversationId: null } }, gen);
+            }
+            report(e, gen);
+          }));
+        }
+        return Promise.all(tasks);
+      }).then(null, noop).then(function() {
+        if (c.policyWait === policyWait) c.policyWait = null;
+        if (c.load === load) c.load = null;
+        put({ type: 'apply', patch: { loading: false } }, gen);
+      });
+      c.load = load;
+    }
+
+    // Leave the active run (rule 8, MR-11): it never dispatches again and only
+    // its local stream is aborted. The answer keeps running on the server
+    // (only stop() stops it); coming back loads it in progress (rule 13).
+    // Returns whether the run was streaming (its answer keeps running).
+    function leave() {
+      var run = c.run;
+      var wasStreaming = !!run && run.phase === 'streaming' && !run.terminal;
+      if (run) {
+        if (!run.terminal) run.terminal = 'left';
+        c.run = null;
+        run.controller.abort();
+      }
+      c.gen++;
+      return wasStreaming;
+    }
+
+    function serverStop(run) {
+      if (run.stopSent || !run.messageId || !run.convId) return;
+      run.stopSent = true;
+      var conv = _chatConv();
+      Promise.resolve().then(function() {
+        if (!conv) throw { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' };
+        return conv.stop(run.convId, run.messageId);
+      }).catch(function(e) {
+        if (!c.mounted || run.gen !== c.gen) return;
+        if (c.held[run.messageId] === 'stopped') delete c.held[run.messageId];
+        var items = {};
+        c.messages.forEach(function(m) {
+          if ((m.id === run.assistantId || m.id === run.messageId) && (m.status === 'stopped' || m.status === 'in_progress')) {
+            items[m.id] = { id: run.messageId, status: 'in_progress' };
+          }
+        });
+        // Restore the Stop control even if the following history request also
+        // fails. A new conversation/generation must never see this failure.
+        put({ type: 'apply', items: items, patch: { error: _chatError(e) } }, run.gen);
+        if (c.run === null) return reread(run.convId, null);
+      }).catch(noop);
+      // After the stop request is posted, so the host sees the stop first.
+      Promise.resolve().then(noop).then(function() { run.controller.abort(); });
+    }
+
+    function applyEvent(run, ev) {
+      if (!ev || typeof ev !== 'object') return;
+      if (run.terminal) {
+        if (ev.type === 'started' && run.stopWanted && !run.messageId && ev.message_id != null) {
+          run.messageId = String(ev.message_id);
+          if (run.terminal === 'stopped' && run.gen === c.gen) c.held[run.messageId] = 'stopped';
+          serverStop(run);
+        }
+        return;
+      }
+      var items = {};
+      switch (ev.type) {
+        case 'started':
+          if (run.messageId || ev.message_id == null) return;
+          run.messageId = String(ev.message_id);
+          items[run.userLocalId] = { status: 'success' };
+          if (run.assistantId === run.assistantLocalId) {
+            items[run.assistantLocalId] = { id: run.messageId };
+            run.assistantId = run.messageId;
+          }
+          run.started = true;
+          break;
+        case 'text_delta':
+        case 'text': {
+          var block = ev.block == null ? '_' : String(ev.block);
+          if (!_chatHas(run.blocks, block)) { run.order.push(block); run.blocks[block] = ''; }
+          var piece = ev.text == null ? '' : String(ev.text);
+          run.blocks[block] = ev.type === 'text' ? piece : run.blocks[block] + piece;
+          // As messages() reads it back: the last block with text is the
+          // answer, the earlier ones its steps (so nothing moves on the re-read).
+          var said = run.order.map(function(b) { return run.blocks[b]; }).filter(Boolean);
+          items[run.assistantId] = { text: said.length ? said[said.length - 1] : '', steps: said.slice(0, -1) };
+          break;
+        }
+        case 'tool': {
+          var tool = { name: ev.name, title: ev.title, status: ev.status };
+          if (ev.id != null) tool = { id: ev.id, name: ev.name, title: ev.title, status: ev.status };
+          var at = ev.id != null ? run.tools.findIndex(function(t) { return t.id === ev.id; }) : -1;
+          run.tools = run.tools.slice();
+          if (at >= 0) run.tools[at] = tool; else run.tools.push(tool);
+          items[run.assistantId] = { tools: run.tools };
+          break;
+        }
+        case 'result': {
+          var r = {}; for (var k in ev) if (k !== 'type') r[k] = ev[k];
+          if (r.id != null && run.results.some(function(x) { return x.id === r.id; })) return;
+          run.results = run.results.concat([r]);
+          items[run.assistantId] = { results: run.results };
+          break;
+        }
+        case 'completed': {
+          var status = ev.status || 'success';
+          run.terminal = 'completed';
+          c.held[run.assistantId] = status;
+          items[run.assistantId] = { status: status, results_incomplete: !!ev.results_incomplete };
+          break;
+        }
+        default: return;
+      }
+      put({ type: 'apply', items: items }, run.gen);
+    }
+
+    function failRun(run, e, code) {
+      run.terminal = 'error';
+      var items = {};
+      items[run.assistantId] = { status: 'error' };
+      items[run.userLocalId] = { status: run.started ? 'success' : 'error' };
+      put({ type: 'apply', items: items, patch: { error: code ? { code: code, message: 'The answer ended early' } : _chatError(e) } }, run.gen);
+    }
+
+    function startCreate(run, text) {
+      var conv = _chatConv(), o = c.opts || {};
+      var rec = { gen: run.gen, promise: null };
+      rec.promise = Promise.resolve().then(function() {
+        return conv.create({ title: o.title || text.slice(0, 80), agents: o.agents });
+      }).then(function(created) {
+        if (rec.gen === c.gen && c.mounted && created && created.id != null) {
+          c.convId = created.id;
+          c.createdIds[created.id] = true;
+          c.confirmed[created.id] = created.title;
+          c.confirmedSeq[created.id] = 0;
+          dispatch({ type: 'created', conversation: created });
+        }
+        return created;
+      });
+      c.create = rec;
+      function clear() { if (c.create === rec) c.create = null; }
+      rec.promise.then(clear, clear);
+      return rec;
+    }
+
+    async function runSend(run, text) {
+      var waits = [c.load, c.policyWait].filter(Boolean);
+      if (waits.length) await Promise.all(waits).then(noop, noop);
+      if (run.gen !== c.gen || run.terminal) return;
+      if (_chatAnswering({ messages: c.messages })) { endRun(run); return; }
+      if (c.policy && c.policy.available === false) {
+        endRun(run, { error: { code: 'FORBIDDEN', message: c.policy.reason || 'not available' } });
+        return;
+      }
+      var conv = _chatConv();
+      var user = { id: run.userLocalId, role: 'user', text: text, status: 'pending', created_at: null, steps: [], tools: [], results: [], results_incomplete: false };
+      var assistant = { id: run.assistantLocalId, role: 'assistant', text: '', status: 'in_progress', created_at: null, steps: [], tools: [], results: [], results_incomplete: false };
+      put({ type: 'apply', append: [user, assistant] }, run.gen);
+      var convId = c.convId;
+      if (!convId) {
+        run.phase = 'creating';
+        var created = null;
+        var pending = c.create && c.create.gen === c.gen ? c.create : null;
+        if (pending) created = await pending.promise.then(function(v) { return v; }, function() { return null; });
+        if (!created && !run.terminal) {
+          var rec = startCreate(run, text);
+          try { created = await rec.promise; } catch (e) {
+            if (!run.terminal && c.run === run) {
+              run.terminal = 'error';
+              var failed = {};
+              failed[run.userLocalId] = { status: 'error' };
+              failed[run.assistantLocalId] = { status: 'error' };
+              put({ type: 'apply', items: failed }, run.gen);
+              endRun(run, { error: _chatError(e) });
+            }
+            return;
+          }
+        }
+        if (!created || created.id == null) {
+          // An adopted create failed after this run was stopped or left, or a
+          // create resolved without an id.
+          if (!run.terminal && c.run === run) { failRun(run, { code: 'UNAVAILABLE', message: 'The conversation could not be created' }); endRun(run); }
+          return;
+        }
+        convId = created.id;
+      }
+      run.convId = convId;
+      if (run.terminal) return;
+      run.phase = 'streaming';
+      var error = null;
+      try {
+        var stream = conv.send(convId, text, { signal: run.controller.signal });
+        for await (var ev of stream) applyEvent(run, ev);
+      } catch (e) { error = e; }
+      var ours = run.controller.signal.aborted;
+      // Left or unmounted (also after `completed`): no re-read, no dispatch.
+      if (run.terminal === 'left' || run.gen !== c.gen || !c.mounted) return;
+      if (run.terminal === 'stopped') {
+        // The stopped run's own re-read, when nothing replaced it meanwhile.
+        if (run.gen === c.gen && c.run === null) await reread(convId, run);
+        return;
+      }
+      if (error && !ours && !run.terminal) {
+        failRun(run, error);
+        if (run.messageId) await reread(convId, run);
+        endRun(run);
+        return;
+      }
+      if (!run.terminal) failRun(run, null, 'INTERRUPTED');
+      run.phase = 'rereading';
+      await reread(convId, run);
+      run.phase = 'done';
+      endRun(run);
+    }
+
+    c.send = function(text) {
+      c.touched = true;
+      var t = text == null ? '' : String(text).trim();
+      if (!t || c.run || !c.mounted || _chatAnswering({ messages: c.messages })) return Promise.resolve();
+      if (!_chatConv()) {
+        put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } });
+        return Promise.resolve();
+      }
+      if (c.policy && c.policy.available === false) {
+        put({ type: 'apply', patch: { error: { code: 'FORBIDDEN', message: c.policy.reason || 'not available' } } });
+        return Promise.resolve();
+      }
+      var run = { gen: c.gen, convId: null, messageId: null, controller: new AbortController(), phase: 'queued',
+        terminal: null, stopWanted: false, stopSent: false, started: false,
+        userLocalId: 'local-' + (++c.seq), assistantLocalId: 'local-' + (++c.seq), assistantId: null,
+        blocks: {}, order: [], tools: [], results: [] };
+      run.assistantId = run.assistantLocalId;
+      c.run = run;
+      cancelTimer();
+      c.count = 0;
+      raiseFloor();
+      put({ type: 'apply', patch: { sending: true, error: null } });
+      // Whatever happens inside, the run ends (never leaves `sending` stuck).
+      return runSend(run, t).then(noop, noop).then(function() { endRun(run); });
+    };
+
+    // Rule 26: no run of its own, but the open conversation's newest server
+    // answer is still in progress (left running and come back to): stop that
+    // one by its id. It shows 'stopped' at once (held against a lagging
+    // re-read); a tagged re-read after the stop brings the server's status.
+    function stopReturned() {
+      var conv = _chatConv(), id = c.convId, target = null;
+      for (var i = c.messages.length - 1; i >= 0; i--) {
+        var m = c.messages[i];
+        if (m && m.role === 'assistant' && m.status === 'in_progress' && m.id != null && !_chatIsLocal(m) && c.held[m.id] !== 'stopped') { target = m; break; }
+      }
+      if (!conv || !id || !target || !c.mounted) return Promise.resolve();
+      var gen = c.gen, items = {};
+      c.held[target.id] = 'stopped';
+      cancelTimer();
+      items[target.id] = { status: 'stopped' };
+      put({ type: 'apply', items: items });
+      // Restore locally too: the history request may also fail while offline.
+      return Promise.resolve().then(function() { return conv.stop(id, target.id); }).then(noop, function(e) {
+        if (gen !== c.gen) return;
+        if (c.held[target.id] === 'stopped') delete c.held[target.id];
+        var retryItems = {};
+        retryItems[target.id] = { status: 'in_progress' };
+        put({ type: 'apply', items: retryItems, patch: { error: _chatError(e) } }, gen);
+      }).then(function() {
+        if (gen === c.gen && c.run === null) return reread(id, null);
+      }).then(noop, noop);
+    }
+
+    c.stop = function() {
+      var run = c.run;
+      if (!run) return stopReturned();
+      if (run.terminal || (run.phase !== 'queued' && run.phase !== 'creating' && run.phase !== 'streaming')) return Promise.resolve();
+      run.terminal = 'stopped';
+      run.stopWanted = true;
+      c.run = null;
+      var items = {};
+      if (run.phase === 'creating') {
+        items[run.userLocalId] = { status: 'stopped' };
+        items[run.assistantId] = { status: 'stopped' };
+      } else if (run.phase === 'streaming') {
+        items[run.assistantId] = { status: 'stopped' };
+        if (!run.started) items[run.userLocalId] = { status: 'success' };
+      }
+      put({ type: 'apply', items: items, patch: { sending: false } }, run.gen);
+      if (run.phase === 'streaming' && run.messageId) {
+        c.held[run.messageId] = 'stopped';
+        serverStop(run);
+      }
+      return Promise.resolve();
+    };
+
+    function resetFor(convId) {
+      var wasStreaming = leave();
+      cancelTimer();
+      c.count = 0;
+      c.listCount = 0;
+      c.held = {};
+      raiseFloor();
+      c.convId = convId;
+      c.before = null;
+      c.olderLoad = null;
+      c.olderErr = null;
+      return wasStreaming;
+    }
+
+    c.select = function(id) {
+      if (!c.mounted) return Promise.resolve();
+      c.touched = true;
+      var conv = _chatConv();
+      if (!conv) { put({ type: 'apply', patch: { error: { code: 'UNAVAILABLE', message: 'Conversations are unavailable here' } } }); return Promise.resolve(); }
+      var wasStreaming = resetFor(id);
+      var gen = c.gen;
+      put({ type: 'switch', wasStreaming: wasStreaming, patch: { sending: false, conversationId: id, messages: [], error: null, loading: true, hasOlder: false, loadingOlder: false } });
+      var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit }); }).then(function(res) {
+        if (put({ type: 'load', messages: _chatItems(res), patch: { hasOlder: _chatCursor(res) !== null } }, gen)) c.before = _chatCursor(res);
+      }, function(e) {
+        put({ type: 'apply', patch: { error: _chatError(e) } }, gen);
+      }).then(function() {
+        if (c.load === load) c.load = null;
+        put({ type: 'apply', patch: { loading: false } }, gen);
+      });
+      c.load = load;
+      return load;
+    };
+
+    c.newConversation = function() {
+      if (!c.mounted) return;
+      c.touched = true;
+      var wasStreaming = resetFor(null);
+      c.load = null;
+      put({ type: 'switch', wasStreaming: wasStreaming, patch: { sending: false, conversationId: null, messages: [], error: null, loading: false, hasOlder: false, loadingOlder: false } });
+    };
+
+    // Rule 19: optimistic; the latest rename of an id wins; a failure reverts.
+    c.rename = function(id, title) {
+      var conv = _chatConv();
+      var t = String(title == null ? '' : title).trim().slice(0, 200);
+      if (!t || !id || !c.mounted || !conv) return Promise.resolve();
+      var seq = ++c.renameSeq;
+      c.renames[id] = { seq: seq, title: t };
+      put({ type: 'retitle', id: id, title: t });
+      return Promise.resolve().then(function() { return conv.rename(id, t); }).then(function(res) {
+        var saved = res && res.title != null ? res.title : t;
+        if (seq > (c.confirmedSeq[id] || 0)) { c.confirmed[id] = saved; c.confirmedSeq[id] = seq; }
+        var entry = c.renames[id];
+        // A later rename is still pending or confirmed: it decides the title.
+        if (entry && entry.seq > seq) return;
+        // This one, or a later one that failed and reverted: the saved title shows.
+        if (!entry && c.confirmedSeq[id] !== seq) return;
+        c.renames[id] = { seq: seq, title: saved, confirmed: true };
+        put({ type: 'retitle', id: id, title: saved, updated_at: res && res.updated_at });
+      }, function(e) {
+        var entry = c.renames[id];
+        if (!entry || entry.seq !== seq) return;
+        // Back to the last saved title (a list's or a rename's), never an
+        // earlier unsaved one; a saved rename keeps guarding against older lists.
+        delete c.renames[id];
+        if (_chatHas(c.confirmed, id)) {
+          if (c.confirmedSeq[id] > 0) c.renames[id] = { seq: c.confirmedSeq[id], title: c.confirmed[id], confirmed: true };
+          put({ type: 'retitle', id: id, title: c.confirmed[id] });
+        }
+        put({ type: 'apply', patch: { error: _chatListError(e) } });
+      }).then(noop, noop);
+    };
+
+    // Rule 20: optimistic removal (the open one becomes a new conversation
+    // first); an archived id never comes back from a list; a failure restores.
+    c.archive = function(id) {
+      var conv = _chatConv();
+      if (!id || !c.mounted || !conv || c.archived[id]) return Promise.resolve();
+      c.touched = true;
+      if (id === c.convId) c.newConversation();
+      c.archived[id] = true;
+      var index = c.conversations.findIndex(function(x) { return x && x.id === id; });
+      var item = index === -1 ? null : c.conversations[index];
+      put({ type: 'unlist', id: id });
+      return Promise.resolve().then(function() { return conv.archive(id); }).then(noop, function(e) {
+        delete c.archived[id];
+        if (item) put({ type: 'relist', item: item, index: index });
+        put({ type: 'apply', patch: { error: _chatListError(e) } });
+      }).then(noop, noop);
+    };
+
+    // Rule 23: while another conversation is in progress, re-read the list
+    // every 5 s, at most _CHAT_REFRESH_MAX times per reset.
+    c.checkList = function(conversations, conversationId) {
+      if (!c.mounted || c.listTimer !== null || c.listCount >= _CHAT_REFRESH_MAX) return;
+      if (!conversations.some(function(x) { return x && x.id !== conversationId && x.in_progress; })) return;
+      c.listTimer = setTimeout(function() {
+        c.listTimer = null;
+        c.listCount += 1;
+        var conv = _chatConv();
+        if (!conv || !c.mounted) return;
+        var issued = c.renameSeq;
+        Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, function() {
+          c.checkList(c.conversations, c.convId);
+        });
+      }, _CHAT_REFRESH_MS);
+    };
+
+    // Rule 17: the page before the oldest loaded one, put first. Generation
+    // only (not a tagged re-read: it never replaces anything); allowed while
+    // an answer runs.
+    c.loadOlder = function() {
+      var conv = _chatConv();
+      if (!conv || !c.mounted || !c.convId || c.before === null || c.olderLoad !== null) return Promise.resolve();
+      var gen = c.gen, id = c.convId, before = c.before;
+      put({ type: 'apply', patch: { loadingOlder: true } });
+      var load = Promise.resolve().then(function() { return conv.messages(id, { limit: c.limit, before: before }); }).then(function(res) {
+        if (gen !== c.gen || !c.mounted) return;
+        c.before = _chatCursor(res);
+        var patch = { hasOlder: c.before !== null, loadingOlder: false };
+        // Clears the error of a failed earlier attempt, when nothing changed
+        // `error` since (errSeq, as reload does).
+        if (c.olderErr !== null && c.olderErr === c.errSeq) patch.error = null;
+        c.olderErr = null;
+        put({ type: 'prepend', fetched: _chatItems(res), patch: patch }, gen);
+      }, function(e) {
+        if (put({ type: 'apply', patch: { error: _chatError(e), loadingOlder: false } }, gen)) c.olderErr = c.errSeq;
+      }).then(function() {
+        if (c.olderLoad === load) c.olderLoad = null;
+      });
+      c.olderLoad = load;
+      return load;
+    };
+
+    c.reload = function() {
+      var conv = _chatConv();
+      if (!conv || !c.mounted) return Promise.resolve();
+      // A failure sets `error` in this generation; a reload without one clears
+      // it, unless anything else changed `error` while the reload was in flight.
+      var gen = c.gen, failed = false, errSeq = c.errSeq;
+      function fail(e) { failed = true; put({ type: 'apply', patch: { error: _chatError(e) } }, gen); }
+      var issued = c.renameSeq;
+      var tasks = [Promise.resolve().then(function() { return conv.list({ limit: 20 }); }).then(function(res) { listed(res, issued); }, fail)];
+      if (c.convId && !c.run) tasks.push(reread(c.convId, null, fail));
+      return Promise.all(tasks).then(function() {
+        if (!failed && c.errSeq === errSeq) put({ type: 'apply', patch: { error: null } }, gen);
+      }).then(noop, noop);
+    };
+
+    // Rule 13: re-read a conversation whose answer still runs on the server.
+    c.check = function(messages) {
+      if (!c.mounted || c.run || c.timer !== null || !c.convId || c.count >= _CHAT_REFRESH_MAX) return;
+      if (!messages.some(function(m) { return m && m.role === 'assistant' && m.status === 'in_progress'; })) return;
+      c.timer = setTimeout(function() {
+        c.timer = null;
+        c.count += 1;
+        var gen = c.gen, id = c.convId;
+        if (!c.run && id) reread(id, null).then(function(applied) {
+          if (!applied && gen === c.gen && id === c.convId) c.check(c.messages);
+        });
+      }, _CHAT_REFRESH_MS);
+    };
+
+    c.mount = function() {
+      c.mounted = true;
+      startLoad();
+    };
+    c.unmount = function() {
+      leave();
+      cancelTimer();
+      cancelList();
+      c.held = {};
+      raiseFloor();
+      c.mounted = false;
+    };
+    return c;
+  }
+
+  function useConversation(opts) {
+    // React is read here, at render time (not captured when this file loads).
+    var st = React.useReducer(_chatReduce, opts, _chatInitialState);
+    var state = st[0], dispatch = st[1];
+    var ref = React.useRef(null);
+    if (!ref.current) ref.current = _chatController(dispatch, opts);
+    var c = ref.current;
+    c.opts = opts || {};
+    c.messages = state.messages;
+    c.conversations = state.conversations;
+    React.useEffect(function() {
+      c.mount();
+      return c.unmount;
+    }, []);
+    React.useEffect(function() { c.check(state.messages); }, [state.messages, state.sending]);
+    React.useEffect(function() { c.checkList(state.conversations, state.conversationId); }, [state.conversations, state.conversationId]);
+    return {
+      messages: state.messages, conversations: state.conversations, conversationId: state.conversationId,
+      policy: state.policy, loading: state.loading, sending: state.sending, answering: _chatAnswering(state), error: state.error,
+      hasOlder: state.hasOlder, loadingOlder: state.loadingOlder,
+      send: c.send, stop: c.stop, select: c.select, newConversation: c.newConversation, reload: c.reload,
+      loadOlder: c.loadOlder, rename: c.rename, archive: c.archive
+    };
+  }
+  window.useConversation = useConversation;
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Motion: usePresence, Modal, Drawer, Tabs
   // ═══════════════════════════════════════════════════════════════════════════
   // Hand-written `{open && <div className="fixed inset-0 …">}` cannot animate
@@ -2321,6 +3510,519 @@
     });
     return h('div', { className: _join('min-w-0', props.containerClassName) }, [bar, h('div', { key: 'panels', className: 'pt-4' }, panels)]);
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Chat components — ChatMessages, ChatComposer, ChatThreads, ChatSuggestions (compose with useConversation)
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Each takes the hook's object as `chat`. They reach ChatMessage, Icon,
+  // LoadingSpinner, Modal and Drawer through this closure (captured here, after
+  // the owner's definitions), so an app's own function of one of those names
+  // does not change them.
+  var _Modal = window.Modal, _Drawer = window.Drawer;
+  var _CHAT_BOTTOM_PX = 40;
+  var CHAT_LIST = LEGACY ? {
+    root: 'min-h-0 flex-1 overflow-y-auto',
+    inner: 'space-y-4 p-4',
+    older: 'mx-auto flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
+    jump: 'pointer-events-auto mb-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 shadow dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200',
+    error: 'text-sm text-red-600 dark:text-red-400'
+  } : {
+    root: 'min-h-0 flex-1 overflow-y-auto',
+    inner: 'space-y-4 p-4',
+    older: 'mx-auto flex items-center gap-2 rounded-chip border border-line px-3 py-1 text-xs text-ink-2 hover:bg-surface-2 disabled:opacity-60',
+    jump: 'pointer-events-auto mb-2 inline-flex items-center gap-1.5 rounded-chip border border-line bg-surface px-3 py-1 text-xs text-ink-2 shadow-lift',
+    error: 'text-sm text-red-600 dark:text-red-400'
+  };
+
+  // The element that scrolls the list (D-18): the list itself when it
+  // overflows; the document only when the list has no height of its own (its
+  // box is as tall as its content: an app that gave it none), its own styles
+  // are in place (overflow-y auto: before the Tailwind classes apply its box
+  // always follows its content) and the document overflows; else the list.
+  // A short list with a fixed height never moves the page around it.
+  // Re-resolved at every check.
+  function _chatScroller(el, inner) {
+    if (!el) return null;
+    if (el.scrollHeight > el.clientHeight + 1 || !el.getClientRects().length) return el;
+    // Padding the app put on the list is part of its box, not of its content.
+    var cs = getComputedStyle(el);
+    var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    if (!inner || el.clientHeight - pad > inner.offsetHeight + 1) return el;
+    var oy = cs.overflowY;
+    if (oy !== 'auto' && oy !== 'scroll') return el;
+    var d = document.scrollingElement;
+    return d && d.scrollHeight > d.clientHeight + 1 ? d : el;
+  }
+  // How far the transcript's end is below the view's end. With the document as
+  // the scroller that is the list's own bottom (its padding included), not the
+  // page's: content after the list never counts, so following an answer never
+  // scrolls past it.
+  function _chatGap(sc, list) {
+    if (sc === document.scrollingElement) return list ? list.getBoundingClientRect().bottom - sc.clientHeight : 0;
+    return sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+  }
+  function _chatEdge(sc) { return sc === document.scrollingElement ? 0 : sc.getBoundingClientRect().top; }
+  function _chatRows(inner) { return inner ? inner.querySelectorAll(':scope > [data-testid="bow-chat-row"]') : []; }
+
+  // <ChatMessages chat={chat} empty={node} labels={...} showTools showResults className />
+  // Opens at the newest message, follows the answer only while the user is at
+  // the bottom (within 40 px), otherwise keeps the row at the top of the view
+  // where it is (growth above or below it, older pages). It records that row
+  // on every scroll and restores it after every content change (D-17), with
+  // the browser's own scroll anchoring off.
+  function ChatMessages(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var labelsKey = JSON.stringify(props.labels || null);
+    var labels = React.useMemo(function() { return props.labels; }, [labelsKey]);
+    var rootRef = React.useRef(null), innerRef = React.useRef(null);
+    var atBottom = React.useRef(true), anchor = React.useRef(null), jumping = React.useRef(false);
+    // The position the component itself last scrolled to: the scroll event that
+    // follows is its own, not the user's (content that grew meanwhile, e.g. late
+    // styles, must not read as the user leaving the bottom).
+    var own = React.useRef(null);
+    // The last position seen on a scroll event, and the jump's fallback timer.
+    var lastTop = React.useRef(null), jumpTimer = React.useRef(null);
+    var _oe = React.useState(null), olderError = _oe[0], setOlderError = _oe[1];
+    var prev = React.useRef(null);
+    var _jump = React.useState(false), showJump = _jump[0], setJump = _jump[1];
+    var _unseen = React.useState(false), unseen = _unseen[0], setUnseen = _unseen[1];
+
+    function record(sc) {
+      var edge = _chatEdge(sc), rows = _chatRows(innerRef.current);
+      anchor.current = null;
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i].getBoundingClientRect();
+        if (r.bottom > edge + 1) { anchor.current = { id: rows[i].getAttribute('data-message-id'), offset: r.top - edge }; return; }
+      }
+    }
+    function measure(sc) {
+      var seen = lastTop.current;
+      lastTop.current = sc.scrollTop;
+      if (own.current !== null && Math.abs(sc.scrollTop - own.current) < 1) return;
+      own.current = null;
+      var at = _chatGap(sc, rootRef.current) <= _CHAT_BOTTOM_PX;
+      // During the smooth scroll of Jump to latest the view moves down; a
+      // scroll up meanwhile is the user's and ends the jump.
+      if (jumping.current) {
+        if (!at && (seen === null || sc.scrollTop >= seen)) return;
+        jumping.current = false;
+      }
+      atBottom.current = at;
+      record(sc);
+      setJump(!at);
+      if (at) setUnseen(false);
+    }
+    // At the bottom: stay there. Otherwise: put the anchored row back where it was.
+    function stick() {
+      var sc = _chatScroller(rootRef.current, innerRef.current);
+      if (!sc) return;
+      if (atBottom.current) {
+        if (sc !== document.scrollingElement) sc.scrollTop = sc.scrollHeight;
+        else { var gap = _chatGap(sc, rootRef.current); if (gap > 0.5) sc.scrollTop += gap; }
+        own.current = sc.scrollTop;
+        return;
+      }
+      var a = anchor.current;
+      if (!a) return;
+      var rows = _chatRows(innerRef.current);
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].getAttribute('data-message-id') !== a.id) continue;
+        var delta = rows[i].getBoundingClientRect().top - _chatEdge(sc) - a.offset;
+        if (Math.abs(delta) >= 0.5) { sc.scrollTop += delta; own.current = sc.scrollTop; }
+        return;
+      }
+    }
+
+    React.useEffect(function() {
+      var el = rootRef.current;
+      if (!el) return;
+      function onScroll() { var sc = _chatScroller(el, innerRef.current); if (sc) measure(sc); }
+      el.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('scroll', onScroll, { passive: true });
+      var ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(function() { stick(); }) : null;
+      if (ro) { ro.observe(el); if (innerRef.current) ro.observe(innerRef.current); }
+      return function() {
+        el.removeEventListener('scroll', onScroll);
+        window.removeEventListener('scroll', onScroll);
+        if (ro) ro.disconnect();
+        if (jumpTimer.current !== null) { clearTimeout(jumpTimer.current); jumpTimer.current = null; }
+      };
+    }, [!!chat]);
+
+    var messages = chat && Array.isArray(chat.messages) ? chat.messages : [];
+    var cur = chat ? { id: chat.conversationId, loading: !!chat.loading, sending: !!chat.sending, messages: messages,
+      loadingOlder: !!chat.loadingOlder, error: chat.error || null } : null;
+    React.useLayoutEffect(function() {
+      if (!cur) return;
+      var p = prev.current;
+      prev.current = cur;
+      // Opening a conversation, a finished load and the user's own send go to the bottom.
+      if (!p || p.id !== cur.id || (p.loading && !cur.loading) || (!p.sending && cur.sending)) {
+        atBottom.current = true;
+        jumping.current = false;
+        setJump(false);
+        setUnseen(false);
+      } else if (!atBottom.current && (p.messages !== cur.messages || cur.sending)) {
+        setUnseen(true);
+      }
+      // An error that ended an older load shows by its button (the user is at
+      // the top), until `error` changes.
+      if (p && p.loadingOlder && !cur.loadingOlder && cur.error && cur.error !== p.error) setOlderError(cur.error);
+      else if (olderError && cur.error !== olderError) setOlderError(null);
+      stick();
+    });
+
+    if (!chat) return null;
+    var L = _chatLabels(labels);
+    var kids = [];
+    if (chat.hasOlder) {
+      kids.push(h('button', { key: 'older', type: 'button', dir: 'auto', 'data-testid': 'bow-chat-older', className: CHAT_LIST.older,
+        disabled: !!chat.loadingOlder, onClick: function() { if (typeof chat.loadOlder === 'function') chat.loadOlder(); } },
+        [chat.loadingOlder ? h(_LoadingSpinner, { key: 's', size: 12 }) : null, h('span', { key: 'l' }, L.olderMessages)]));
+    }
+    var olderShown = !!olderError && chat.error === olderError;
+    if (olderShown) {
+      kids.push(h('p', { key: 'older-error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-older-error', className: _join(CHAT_LIST.error, 'text-center') },
+        _chatLabelOf(olderError.message) || _chatLabelOf(olderError.code)));
+    }
+    messages.forEach(function(m, i) {
+      if (!m || typeof m !== 'object') return;
+      kids.push(h('div', { key: m.id != null ? 'm-' + m.id : 'i-' + i, 'data-testid': 'bow-chat-row', 'data-message-id': m.id },
+        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults })));
+    });
+    if (chat.loading && !messages.length) {
+      kids.push(h('div', { key: 'loading', 'data-testid': 'bow-chat-loading', className: 'flex justify-center py-6' }, h(_LoadingSpinner, { size: 20 })));
+    }
+    if (!chat.loading && !messages.length) {
+      kids.push(h('div', { key: 'empty', 'data-testid': 'bow-chat-empty' }, props.empty == null ? null : props.empty));
+    }
+    var listed = _chatIsListError(chat.error) && !!_chatThreadsMounted && typeof chat.rename === 'function' && (_chatThreadsMounted.get(chat.rename) || 0) > 0;
+    if (chat.error && !olderShown && !listed) {
+      kids.push(h('p', { key: 'error', role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-error', className: CHAT_LIST.error },
+        _chatLabelOf(chat.error.message) || _chatLabelOf(chat.error.code)));
+    }
+    var jump = showJump ? h('div', { key: 'jump', className: 'pointer-events-none sticky bottom-0 flex h-0 items-end justify-center' },
+      h('button', { type: 'button', dir: 'auto', 'data-testid': 'bow-chat-jump', 'data-unseen': unseen ? 'true' : undefined, className: CHAT_LIST.jump,
+        onClick: function() {
+          var sc = _chatScroller(rootRef.current, innerRef.current);
+          atBottom.current = true;
+          jumping.current = true;
+          setJump(false);
+          setUnseen(false);
+          if (sc) {
+            var top = sc === document.scrollingElement ? sc.scrollTop + Math.max(0, _chatGap(sc, rootRef.current)) : sc.scrollHeight;
+            try { sc.scrollTo({ top: top, behavior: 'smooth' }); } catch (e) { sc.scrollTop = top; }
+          }
+          if (jumpTimer.current !== null) clearTimeout(jumpTimer.current);
+          jumpTimer.current = setTimeout(function() { jumpTimer.current = null; jumping.current = false; }, 1000);
+        } }, [h(_Icon, { key: 'i', name: 'arrow-down', size: 14 }), h('span', { key: 'l' }, L.jumpToLatest)])) : null;
+    return h('div', { ref: rootRef, role: 'log', 'aria-busy': !!chat.sending, 'data-testid': 'bow-chat-messages',
+      className: _chatCls(CHAT_LIST.root, props.className), style: { overflowAnchor: 'none' } },
+      [h('div', { key: 'inner', ref: innerRef, className: CHAT_LIST.inner }, kids), jump]);
+  }
+  window.ChatMessages = ChatMessages;
+
+  var CHAT_INPUT = LEGACY ? {
+    wrap: 'relative rounded-xl border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-blue-500/40 dark:border-slate-700 dark:bg-slate-900',
+    input: 'block w-full resize-none bg-transparent py-2.5 ps-3 pe-11 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60 dark:text-slate-100',
+    button: 'absolute bottom-1.5 end-1.5 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white disabled:opacity-40',
+    note: 'mt-1 text-xs text-slate-500 dark:text-slate-400'
+  } : {
+    wrap: 'relative rounded-card border border-line bg-surface focus-within:ring-2 focus-within:ring-accent/40',
+    input: 'block w-full resize-none bg-transparent py-2.5 ps-3 pe-11 text-sm text-ink outline-none placeholder:text-ink-3 disabled:cursor-not-allowed disabled:opacity-60',
+    button: 'absolute bottom-1.5 end-1.5 inline-flex h-8 w-8 items-center justify-center rounded-control bg-accent text-accent-ink disabled:opacity-40',
+    note: 'mt-1 text-xs text-ink-3'
+  };
+
+  // <ChatComposer chat={chat} placeholder dir labels autoFocus maxRows className />
+  // Enter sends (not while an IME composition is open, not while answering),
+  // Shift+Enter adds a line; Stop replaces Send while chat.answering. Its
+  // direction: `dir` as given, else dir="auto" with text and the
+  // placeholder's direction while empty (dir="auto" on an empty field is ltr).
+  function ChatComposer(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var _d = React.useState(''), draft = _d[0], setDraft = _d[1];
+    // The draft as of the last change, cleared synchronously on submit: two
+    // Enter keydowns in one task would both read the same render's `draft`.
+    var draftRef = React.useRef('');
+    var composing = React.useRef(false);
+    var inputRef = React.useRef(null);
+    // When this composer last sent: Stop takes Send's place at once, so the
+    // second click of a double click (or a double tap) would stop the question.
+    var sentAt = React.useRef(-Infinity);
+    var maxRows = typeof props.maxRows === 'number' && props.maxRows > 0 ? Math.floor(props.maxRows) : 6;
+    React.useLayoutEffect(function() {
+      var el = inputRef.current;
+      if (!el) return;
+      el.style.height = 'auto';
+      var cs = getComputedStyle(el);
+      var lh = parseFloat(cs.lineHeight) || 20;
+      var edges = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      // One row: no inline height, so the row follows its styles (they may
+      // arrive after this runs).
+      if (el.scrollHeight <= el.clientHeight + 1) { el.style.height = ''; el.style.overflowY = 'hidden'; return; }
+      var max = maxRows * lh + edges, full = el.scrollHeight + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0);
+      el.style.height = Math.min(full, max) + 'px';
+      el.style.overflowY = full > max + 1 ? 'auto' : 'hidden';
+    });
+    React.useEffect(function() { if (props.autoFocus && inputRef.current) inputRef.current.focus(); }, []);
+    if (!chat) return null;
+    var L = _chatLabels(props.labels);
+    var unavailable = !!((chat.policy && chat.policy.available === false) || (chat.error && chat.error.code === 'UNAVAILABLE' && !window.bow));
+    var answering = !!chat.answering;
+    function submit() {
+      var text = draftRef.current.trim();
+      if (!text || answering || unavailable || typeof chat.send !== 'function') return;
+      draftRef.current = '';
+      sentAt.current = performance.now();
+      chat.send(text);
+      setDraft('');
+      if (inputRef.current) inputRef.current.focus();
+    }
+    function onKeyDown(e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.nativeEvent.isComposing || e.keyCode === 229 || composing.current) return;
+      e.preventDefault();
+      submit();
+    }
+    var dir = props.dir ? props.dir : draft ? 'auto' : (_chatDirOf(props.placeholder) || undefined);
+    var button = answering
+      ? h('button', { key: 'stop', type: 'button', 'data-testid': 'bow-chat-stop', 'aria-label': L.stop, title: L.stop, className: CHAT_INPUT.button,
+          onClick: function(e) {
+            // A pointer click (detail >= 1) right after this composer's send, or
+            // any multi-click, is the rest of the Send click. Keyboard activation
+            // (detail 0) always stops.
+            if (e.detail > 1 || (e.detail >= 1 && performance.now() - sentAt.current < 500)) return;
+            if (typeof chat.stop === 'function') chat.stop();
+          } }, h(_Icon, { name: 'square', size: 14 }))
+      : h('button', { key: 'send', type: 'submit', 'data-testid': 'bow-chat-send', 'aria-label': L.send, title: L.send, className: CHAT_INPUT.button,
+          disabled: !draft.trim() || unavailable,
+          // Also on click: a sandboxed frame without allow-forms never submits the form.
+          onClick: function(e) { e.preventDefault(); submit(); } }, h(_Icon, { name: 'arrow-up', size: 16 }));
+    var reason = unavailable ? ((chat.policy && chat.policy.reason) === 'auth_required' ? L.authRequired : L.unavailable) : null;
+    return h('form', { 'data-testid': 'bow-chat-composer', className: _chatCls('', props.className),
+      onSubmit: function(e) { e.preventDefault(); submit(); } }, [
+      h('div', { key: 'w', className: CHAT_INPUT.wrap }, [
+        h('textarea', { key: 't', ref: inputRef, rows: 1, 'data-testid': 'bow-chat-input', dir: dir, value: draft,
+          placeholder: props.placeholder, 'aria-label': props.placeholder || L.send, disabled: unavailable, className: CHAT_INPUT.input,
+          onChange: function(e) { draftRef.current = e.target.value; setDraft(e.target.value); },
+          onKeyDown: onKeyDown,
+          onCompositionStart: function() { composing.current = true; },
+          onCompositionEnd: function() { composing.current = false; } }),
+        button
+      ]),
+      reason ? h('p', { key: 'r', dir: 'auto', 'data-testid': 'bow-chat-unavailable', className: CHAT_INPUT.note }, reason) : null
+    ]);
+  }
+  window.ChatComposer = ChatComposer;
+
+  var _CHAT_NARROW_PX = 640;
+  var CHAT_THREADS = LEGACY ? {
+    root: 'flex w-64 shrink-0 flex-col overflow-y-auto border-e border-slate-200 dark:border-slate-700',
+    head: 'flex items-center justify-between gap-2 px-3 py-2',
+    title: 'text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400',
+    button: 'inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800',
+    list: 'space-y-0.5 px-2 pb-2',
+    item: 'group flex items-center gap-1 rounded-lg',
+    on: 'bg-slate-100 dark:bg-slate-800',
+    select: 'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2 py-1.5 text-start text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800',
+    action: 'inline-flex h-7 w-7 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-700',
+    input: 'min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100',
+    confirm: 'rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white',
+    cancel: 'rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200'
+  } : {
+    root: 'flex w-64 shrink-0 flex-col overflow-y-auto border-e border-line',
+    head: 'flex items-center justify-between gap-2 px-3 py-2',
+    title: 'text-xs font-medium uppercase tracking-eyebrow text-ink-3',
+    button: 'inline-flex items-center gap-1.5 rounded-control px-2 py-1 text-xs text-ink-2 hover:bg-surface-2',
+    list: 'space-y-0.5 px-2 pb-2',
+    item: 'group flex items-center gap-1 rounded-control',
+    on: 'bg-surface-2',
+    select: 'flex min-w-0 flex-1 items-center gap-2 rounded-control px-2 py-1.5 text-start text-sm text-ink-2 hover:bg-surface-2',
+    action: 'inline-flex h-7 w-7 items-center justify-center rounded-control text-ink-3 hover:bg-surface-2 hover:text-ink',
+    input: 'min-w-0 flex-1 rounded-control border border-line bg-surface px-2 py-1 text-sm text-ink outline-none',
+    confirm: 'rounded-control bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink',
+    cancel: 'rounded-control border border-line px-3 py-1.5 text-sm text-ink-2'
+  };
+  // Hidden until hover or focus on other rows; always shown on the open one
+  // and on screens without hover. Focusable either way.
+  var _CHAT_ACTIONS_HIDDEN = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100';
+
+  function _useNarrow(watch) {
+    var q = '(max-width: ' + (_CHAT_NARROW_PX - 1) + 'px)';
+    var mq = typeof window.matchMedia === 'function' ? window.matchMedia(q) : null;
+    var _n = React.useState(!!(mq && mq.matches)), narrow = _n[0], setNarrow = _n[1];
+    React.useEffect(function() {
+      if (!watch || !mq) return;
+      var on = function() { setNarrow(mq.matches); };
+      on();
+      if (mq.addEventListener) mq.addEventListener('change', on); else mq.addListener(on);
+      return function() { if (mq.removeEventListener) mq.removeEventListener('change', on); else mq.removeListener(on); };
+    }, [watch]);
+    return watch && narrow;
+  }
+
+  // <ChatThreads chat={chat} labels mode="auto|list|drawer" className />
+  // The viewer's conversations: select, new, rename inline, archive (confirmed
+  // in a Modal; the focus then moves to the next thread), a spinner while an
+  // answer runs. mode="auto" shows a toggle that opens a Drawer below 640 px.
+  function ChatThreads(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    var mode = props.mode === 'list' || props.mode === 'drawer' ? props.mode : 'auto';
+    var narrow = _useNarrow(mode === 'auto');
+    var asDrawer = mode === 'drawer' || narrow;
+    var _o = React.useState(false), open = _o[0], setOpen = _o[1];
+    var _e = React.useState(null), editing = _e[0], setEditing = _e[1];
+    var _v = React.useState(''), value = _v[0], setValue = _v[1];
+    var _c = React.useState(null), confirmId = _c[0], setConfirmId = _c[1];
+    var listRef = React.useRef(null), newRef = React.useRef(null), inputRef = React.useRef(null);
+    var committed = React.useRef(false);
+    // After an archive: {id, index}; the focus goes to the row now at that index,
+    // else the one before, else New (the archive button left with its row).
+    var focusNext = React.useRef(null);
+    var conversations = chat && Array.isArray(chat.conversations) ? chat.conversations.filter(function(x) { return x && typeof x === 'object'; }) : [];
+    React.useEffect(function() {
+      var f = focusNext.current;
+      if (!f || conversations.some(function(x) { return x.id === f.id; })) return;
+      focusNext.current = null;
+      var root = listRef.current;
+      var buttons = root ? root.querySelectorAll('[data-testid="bow-chat-thread-select"]') : [];
+      var target = buttons[f.index] || buttons[f.index - 1] || newRef.current;
+      if (target) try { target.focus(); } catch (e) {}
+    });
+    React.useEffect(function() { if (editing && inputRef.current) { inputRef.current.focus(); inputRef.current.select(); } }, [editing]);
+    var key = chat && typeof chat.rename === 'function' ? chat.rename : null;
+    React.useEffect(function() {
+      if (!key || !_chatThreadsMounted) return;
+      _chatThreadsMounted.set(key, (_chatThreadsMounted.get(key) || 0) + 1);
+      return function() { _chatThreadsMounted.set(key, (_chatThreadsMounted.get(key) || 1) - 1); };
+    }, [key]);
+    if (!chat) return null;
+    var L = _chatLabels(props.labels);
+    // A failed rename or archive shows here, where the user acted (inside the
+    // Drawer when it is open, beside its toggle when it is closed).
+    var listError = _chatIsListError(chat.error) ? chat.error : null;
+    function alertLine(k) {
+      return listError ? h('p', { key: k, role: 'alert', dir: 'auto', 'data-testid': 'bow-chat-threads-error', className: _join(CHAT_LIST.error, 'px-3 py-1') },
+        _chatLabelOf(listError.message) || _chatLabelOf(listError.code)) : null;
+    }
+
+    function startEdit(x) { committed.current = false; setValue(x.title == null ? '' : String(x.title)); setEditing(x.id); }
+    function commit(x) {
+      if (committed.current) return;
+      committed.current = true;
+      var t = value.trim();
+      setEditing(null);
+      if (t && t !== String(x.title == null ? '' : x.title) && typeof chat.rename === 'function') chat.rename(x.id, t);
+    }
+    function pick(id) {
+      if (id !== chat.conversationId || chat.loading) { if (typeof chat.select === 'function') chat.select(id); }
+      setOpen(false);
+    }
+    function confirmArchive() {
+      var id = confirmId;
+      setConfirmId(null);
+      if (!id) return;
+      focusNext.current = { id: id, index: conversations.findIndex(function(x) { return x.id === id; }) };
+      if (typeof chat.archive === 'function') chat.archive(id);
+    }
+
+    var rows = conversations.map(function(x) {
+      var on = x.id === chat.conversationId;
+      var title = _chatLabelOf(x.title);
+      var kids;
+      if (editing === x.id) {
+        kids = [h('input', { key: 'in', ref: inputRef, 'data-testid': 'bow-chat-thread-input', dir: 'auto', maxLength: 120, value: value,
+          'aria-label': L.rename, className: CHAT_THREADS.input,
+          onChange: function(e) { setValue(e.target.value); },
+          onBlur: function() { commit(x); },
+          onKeyDown: function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); commit(x); }
+            else if (e.key === 'Escape') {
+              // Not the Drawer's Escape: only the edit ends.
+              e.preventDefault();
+              e.stopPropagation();
+              committed.current = true;
+              setEditing(null);
+            }
+          } })];
+      } else {
+        kids = [
+          h('button', { key: 's', type: 'button', 'data-testid': 'bow-chat-thread-select', 'aria-current': on ? 'true' : undefined,
+            className: CHAT_THREADS.select, onClick: function() { pick(x.id); } },
+            h('span', { dir: 'auto', className: 'min-w-0 flex-1 truncate' }, title)),
+          x.in_progress ? h('span', { key: 'b', 'data-testid': 'bow-chat-thread-busy', role: 'status', 'aria-label': L.inProgress, className: 'inline-flex shrink-0' },
+            h(_LoadingSpinner, { size: 12 })) : null,
+          h('span', { key: 'a', className: _join('flex shrink-0 items-center gap-0.5 transition-opacity', on ? '' : _CHAT_ACTIONS_HIDDEN) }, [
+            h('button', { key: 'r', type: 'button', 'data-testid': 'bow-chat-thread-rename', 'aria-label': L.rename, title: L.rename,
+              className: CHAT_THREADS.action, onClick: function() { startEdit(x); } }, h(_Icon, { name: 'pencil', size: 14 })),
+            h('button', { key: 'x', type: 'button', 'data-testid': 'bow-chat-thread-archive', 'aria-label': L.archive, title: L.archive,
+              className: CHAT_THREADS.action, onClick: function() { setConfirmId(x.id); } }, h(_Icon, { name: 'archive', size: 14 }))
+          ])
+        ];
+      }
+      return h('li', { key: x.id, 'data-testid': 'bow-chat-thread', 'data-id': x.id, 'data-active': on ? 'true' : 'false',
+        'data-in-progress': x.in_progress ? 'true' : 'false', className: _join(CHAT_THREADS.item, on ? CHAT_THREADS.on : '') }, kids);
+    });
+    var body = h('div', { key: 'body', ref: listRef }, [
+      h('div', { key: 'h', className: CHAT_THREADS.head }, [
+        h('span', { key: 't', dir: 'auto', className: CHAT_THREADS.title }, L.conversations),
+        h('button', { key: 'n', ref: newRef, type: 'button', 'data-testid': 'bow-chat-new', className: CHAT_THREADS.button,
+          onClick: function() { if (typeof chat.newConversation === 'function') chat.newConversation(); setOpen(false); } },
+          [h(_Icon, { key: 'i', name: 'plus', size: 14 }), h('span', { key: 'l', dir: 'auto' }, L.newConversation)])
+      ]),
+      alertLine('err'),
+      h('ul', { key: 'u', 'data-testid': 'bow-chat-threads', className: CHAT_THREADS.list }, rows)
+    ]);
+    var modal = h(_Modal, { key: 'confirm', open: !!confirmId, size: 'sm', title: L.archiveConfirm, onClose: function() { setConfirmId(null); },
+      footer: [
+        h('button', { key: 'c', type: 'button', 'data-testid': 'bow-chat-archive-cancel', className: CHAT_THREADS.cancel, onClick: function() { setConfirmId(null); } }, L.cancel),
+        h('button', { key: 'a', type: 'button', 'data-testid': 'bow-chat-archive-confirm', className: CHAT_THREADS.confirm, onClick: confirmArchive }, L.archive)
+      ] });
+    if (asDrawer) {
+      return h('div', { 'data-testid': 'bow-chat-threads-root', className: _chatCls('shrink-0', props.className) }, [
+        h('button', { key: 'toggle', type: 'button', 'data-testid': 'bow-chat-threads-toggle', 'aria-expanded': open ? 'true' : 'false',
+          className: CHAT_THREADS.button, onClick: function() { setOpen(true); } },
+          [h(_Icon, { key: 'i', name: 'messages-square', size: 16 }), h('span', { key: 'l', dir: 'auto' }, L.conversations)]),
+        open ? null : alertLine('err-closed'),
+        h(_Drawer, { key: 'drawer', open: open, side: 'start', width: 320, title: L.conversations, padding: 'none', onClose: function() { setOpen(false); } }, body),
+        modal
+      ]);
+    }
+    return h('div', { 'data-testid': 'bow-chat-threads-root', className: _chatCls(CHAT_THREADS.root, props.className) }, [body, modal]);
+  }
+  window.ChatThreads = ChatThreads;
+
+  var CHAT_SUGGEST = LEGACY ? {
+    root: 'flex flex-wrap gap-2',
+    item: 'rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800'
+  } : {
+    root: 'flex flex-wrap gap-2',
+    item: 'rounded-chip border border-line bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-surface-2 disabled:opacity-50'
+  };
+
+  // <ChatSuggestions chat={chat} items={['…', {label, text}]} className />
+  // Starter questions: a click sends one (never on mount); shown only while
+  // the conversation is loaded, empty and available.
+  function ChatSuggestions(props) {
+    props = props || {};
+    var chat = props.chat && typeof props.chat === 'object' ? props.chat : null;
+    if (!chat || chat.loading || (Array.isArray(chat.messages) && chat.messages.length) || (chat.policy && chat.policy.available === false)) return null;
+    var items = (Array.isArray(props.items) ? props.items : []).map(function(x) {
+      if (typeof x === 'string') return { label: x, text: x };
+      if (!x || typeof x !== 'object') return null;
+      var label = _chatLabelOf(x.label) || _chatLabelOf(x.text), text = _chatLabelOf(x.text) || _chatLabelOf(x.label);
+      return { label: label, text: text };
+    }).filter(function(x) { return x && x.text.trim() && x.label.trim(); });
+    if (!items.length) return null;
+    return h('div', { 'data-testid': 'bow-chat-suggestions', className: _chatCls(CHAT_SUGGEST.root, props.className) }, items.map(function(it, i) {
+      return h('button', { key: i, type: 'button', dir: 'auto', 'data-testid': 'bow-chat-suggestion', disabled: !!chat.sending, className: CHAT_SUGGEST.item,
+        onClick: function() { if (typeof chat.send === 'function') chat.send(it.text); } }, it.label);
+    }));
+  }
+  window.ChatSuggestions = ChatSuggestions;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoOverlay — ⓘ popovers for custom markup via data-bow-viz / data-bow-calc

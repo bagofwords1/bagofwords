@@ -4784,6 +4784,43 @@
       "stillFailing": "{failed} still failed when run again."
     }
   },
+  "artifactActivity": {
+    "title": "Activity",
+    "inspect": "Inspect",
+    "live": "Live",
+    "liveHint": "What this page does appears here as it happens; the agent's preview is picked up every few seconds.",
+    "refresh": "Refresh",
+    "empty": "Nothing recorded yet.",
+    "emptyFiltered": "Nothing matches this filter.",
+    "emptyHint": "Use the app: requests, streams, filters, clicks and errors appear here, and the agent sees the failures.",
+    "filterPlaceholder": "Filter",
+    "shown": "{shown} of {total}",
+    "noDetail": "No detail recorded.",
+    "queries": "{n} queries",
+    "rows": "{n} rows",
+    "filters": {
+      "all": "All",
+      "requests": "Requests",
+      "streams": "Streams",
+      "filters": "Filters",
+      "clicks": "Clicks",
+      "errors": "Errors"
+    },
+    "columns": {
+      "time": "Time",
+      "source": "Source",
+      "kind": "Kind",
+      "event": "Event",
+      "status": "Status",
+      "duration": "Duration",
+      "version": "Ver."
+    },
+    "sources": {
+      "all": "All sources",
+      "editor": "Editor",
+      "preview": "Preview"
+    }
+  },
   "filter": {
     "selectColumn": "Select column",
     "visualization": "Visualization"
@@ -6919,6 +6956,13 @@
       "signedOut": "You're signed out.",
       "popupBlocked": "The sign-in window was blocked. Allow pop-ups for this page and try again.",
       "notFramed": "This link only works inside the application it was embedded in."
+    },
+    "unavailable": {
+      "notPublished": "This hasn't been published yet. It will appear here once it's published.",
+      "notFound": "This isn't available. It may not be published yet, or it was removed.",
+      "denied": "You don't have access to this. Ask its owner to share it with you.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "failed": "This couldn't be loaded. Try again in a moment."
     },
     "signin": {
       "working": "Signing you in…",

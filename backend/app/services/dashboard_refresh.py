@@ -194,8 +194,11 @@ async def _record_failure(db, artifact_id: str, release_id: str | None, error: s
     return recorded.rowcount == 1
 
 
-def _result(status: str, *, error=None, reason=None, last_run_at=None, steps=0) -> dict:
-    return {"status": status, "error": error, "reason": reason, "last_run_at": last_run_at, "steps_total": steps}
+def _result(status: str, *, error=None, reason=None, last_run_at=None, steps=0, waiting=()) -> dict:
+    """`waiting`: the labels of the steps left unrun, waiting for a viewer's
+    input (dashboard_publish.run_release_copies) -- the owner is told."""
+    return {"status": status, "error": error, "reason": reason, "last_run_at": last_run_at, "steps_total": steps,
+            "steps_needing_input": len(waiting), "steps_needing_input_labels": list(waiting)}
 
 
 def _history_error(error) -> tuple[str | None, str | None]:
@@ -269,13 +272,14 @@ async def refresh(db, artifact: Artifact, run_user: User, organization, *, trigg
         fire_and_forget.spawn(ThumbnailService().regenerate_for_release(release_id))
     if result["status"] in ("success", "failed"):
         await _audit(db, audit_service, organization_id, user_id, artifact_id, trigger, result["status"],
-                     result["error"])
+                     result["error"], result["steps_needing_input_labels"])
     return result
 
 
 async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_user: User, organization) -> dict:
     from app.models.step_user_result import StepUserResult
     from app.services.dashboard_publish import _ABANDONED, run_release_copies
+    from app.services.dashboard_runs import needs_input_names
 
     release_id = str(release.id)
     results: list = []
@@ -301,6 +305,7 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
     if live is None or str(live.published_release_id or "") != release_id:
         await db.rollback()
         return _result("skipped", reason="replaced")  # published meanwhile: never write an old release
+    waiting = [step.title or str(step.id) for step, data, _ in results if needs_input_names(data)]
     for step, data, params in results:
         step.data = data
         step.applied_params = dict(params) if params else None
@@ -316,16 +321,19 @@ async def _run_and_write(db, artifact_id: str, release: ArtifactRelease, run_use
     # unconditionally; anyone else gets them only where the policy allows.
     release.run_by = str(run_user.id)
     await db.commit()
-    return _result("success", last_run_at=now, steps=len(results))
+    return _result("success", last_run_at=now, steps=len(results), waiting=waiting)
 
 
-async def _audit(db, audit_service, organization_id, user_id, artifact_id, trigger, status, error) -> None:
+async def _audit(db, audit_service, organization_id, user_id, artifact_id, trigger, status, error,
+                 waiting: list) -> None:
     """The audit row, after the refresh committed; it never fails the refresh."""
     with contextlib.suppress(Exception):
         await audit_service.log(db=db, organization_id=organization_id, action="dashboard.refreshed",
                                 user_id=user_id,
                                 resource_type="artifact", resource_id=artifact_id,
                                 details={"trigger": trigger, "status": status,
+                                         "steps_needing_input": len(waiting),
+                                         "steps_needing_input_labels": list(waiting),
                                          **({"error": error[:500]} if error else {})})
 
 
