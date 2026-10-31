@@ -56,6 +56,13 @@ DATA_SOURCES = [
     #                    "account_name": "customer1", "username": "admin",
     #                    "password": "Secret123!"}}
     "appdynamics",
+    # Remote mode: CrowdStrike ships no emulator/container for the Falcon API,
+    # so integrations.json points at either a real tenant (API client with read
+    # scopes) or the SDK-shaped simulator:
+    # `tools/crowdstrike/docker-compose.yaml` (mock_falcon.py) —
+    #   {"crowdstrike": {"enabled": true, "base_url": "http://localhost:8095",
+    #                    "client_id": "bow_api", "client_secret": "FalconSecret123!"}}
+    "crowdstrike",
     # Remote mode: no Aria Operations appliance can run in CI (OVA, needs ESXi
     # + a Broadcom entitlement), so integrations.json points at either a live
     # appliance or the spec-shaped simulator:

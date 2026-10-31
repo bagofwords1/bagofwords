@@ -52,6 +52,8 @@ from app.schemas.data_sources.configs import (
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
+    CrowdStrikeConfig,
+    CrowdStrikeApiClientCredentials,
     KubernetesConfig,
     KubernetesAccessFileCredentials,
     ZabbixTokenCredentials,
@@ -854,6 +856,21 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "AppdynamicsClient".
         client_path="app.data_sources.clients.appdynamics_client.AppDynamicsClient",
+        version="beta",
+    ),
+    "crowdstrike": DataSourceRegistryEntry(
+        type="crowdstrike",
+        category="infra",
+        title="CrowdStrike Falcon",
+        description="Endpoint security platform. Query hosts, alerts, incidents, CrowdScore, Spotlight vulnerabilities, prevention policies and custom IOCs via the Falcon API (read-only).",
+        config_schema=CrowdStrikeConfig,
+        credentials_auth=AuthOptions(default="api_client", by_auth={
+            # OAuth2 client credentials — the only auth the Falcon API accepts.
+            # Per-user scope = each user brings an API client scoped to what
+            # they may see.
+            "api_client": AuthVariant(title="API Client (OAuth)", schema=CrowdStrikeApiClientCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.crowdstrike_client.CrowdStrikeClient",
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(

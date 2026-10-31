@@ -187,6 +187,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Prometheus | Monitoring and observability |
 | AWS CloudWatch | Monitoring and observability |
 | VMware Aria Operations | Monitoring and observability |
+| CrowdStrike Falcon | Security |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
 | NetApp ONTAP | Infrastructure |
