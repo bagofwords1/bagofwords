@@ -34,7 +34,10 @@ queries, dashboard cards, record collections, or separate AI resource.
   `ChatComposer`, `ChatThreads`, and `ChatSuggestions`. Let them own sending,
   streaming, Stop, scrolling, history, and error states. Use `ChatMessage` and
   `ChatResult` for custom arrangements of messages and results. Style the shell
-  around these components rather than rebuilding their internals.
+  around these components rather than rebuilding their internals. Do not put
+  a click-to-dismiss handler on a wrapper around `ChatThreads`: its own menu
+  and selection clicks bubble and would close the history before it can be used.
+  Use an explicit history toggle or a separate backdrop instead.
 - On a deployment whose SDK lacks these components, use its documented
   `bow.conversations` methods and event shapes. Do not invent component props
   or copy APIs from a different runtime version. Keep stream blocks distinct,
@@ -43,6 +46,12 @@ queries, dashboard cards, record collections, or separate AI resource.
   a bounded height with a flex column and `min-h-0` on shrinking containers;
   messages scroll while the composer stays reachable. Closing a panel should
   preserve the conversation; an explicit Stop controls cancellation.
+- When the host uses `BOWEmbed.mount({mode: 'floating'})`, the host SDK owns
+  the launcher and open/close state. Build a responsive, full-height chat
+  surface inside that frame, without another floating button, fixed-position
+  panel, or local minimize control. Two launchers leave an empty outer panel
+  when the inner chat is minimized. Only build a launcher into the artifact
+  when the artifact itself owns the surrounding page and the user needs one.
 - Send only on a user action. Starter questions must work, and opening the app
   must not spend tokens. Preserve unsent input after errors. Show an unavailable
   policy reason instead of a usable composer when chat cannot run.
@@ -82,8 +91,10 @@ available model provider.
 
 For ERP/ServiceNow embedding, reuse BOW's host-application setup and generated
 embed snippet. The integration must allow the host origin and the published
-artifact. Use its configured identity flow: a backend-signed host assertion
-mapped to an existing BOW user, or the supported IdP/SSO flow. Signing keys stay
+artifact. Take the embed reference from that snippet; a saved artifact version
+ID is not the published artifact's identity. Use its configured identity flow:
+a backend-signed host assertion mapped to an existing BOW user, or the
+supported IdP/SSO flow. Signing keys stay
 on the host backend, outside artifact code. Do not silently provision users or
 synchronize groups. OBO to a downstream system depends on that connector's
 configuration; an embed login alone does not establish delegated access.

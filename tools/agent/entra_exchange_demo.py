@@ -27,7 +27,7 @@ AUDIENCE = str(UUID(os.environ["BOW_ENTRA_CLIENT_ID"]))
 EXTERNAL_SECRET = os.environ.get("EXTERNAL_ENTRA_SECRET") or getpass.getpass("External Entra secret: ")
 CLIENT = os.environ["BOW_CLIENT_ID"]
 SECRET = os.environ.get("BOW_CLIENT_SECRET") or getpass.getpass("BOW custom app secret: ")
-CALLBACK = "http://localhost:3000/entra/callback"
+CALLBACK = os.environ.get("ENTRA_CALLBACK_URL", "http://localhost:3000/entra/callback")
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT}/oauth2/v2.0"
 SESSIONS = {}
 PAGE = """<!doctype html><html><head><title>External Entra → BOW</title>
@@ -127,6 +127,12 @@ async def callback(request: Request):
                 f"Microsoft sign-in succeeded.\nBOW exchange succeeded (HTTP 200).\nAuthenticated BOW API request: HTTP {identity.status_code}.\nToken lifetime: {result.json()['expires_in']} seconds."
             )
             if identity.status_code == 200:
+                s["user"] = identity.json()
+                # BOW has verified this exact access token's signature, tenant,
+                # audience and external caller before issuing its API token.
+                # Retain the immutable subject for a host assertion, not email.
+                import jwt
+                s["subject"] = jwt.decode(assertion, options={"verify_signature": False})["oid"]
                 s["status"] += "\nUser: " + identity.json().get("email", "")
     return RedirectResponse("/", status_code=303)
 
