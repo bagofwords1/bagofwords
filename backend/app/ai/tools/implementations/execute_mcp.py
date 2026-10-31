@@ -49,6 +49,9 @@ _PROTECTED_RESULT_SHARE = 0.5
 _CHARS_PER_TOKEN = 2
 # Fallback for the one path that wants a budget when none was computed.
 _MAX_INLINE_CHARS = 500_000
+
+# Files saved from one tool result; the rest are reported, not saved.
+_MAX_ATTACHED_FILES = 10
 # Floor for a result too big for the window: the shape has to survive, or the
 # agent cannot write a reader for the file without opening it first.
 _MIN_PREVIEW_ROWS = 3
@@ -417,7 +420,29 @@ def _result_summary(tool_name: str, content_type: str, output: Dict[str, Any]) -
         summary += f" → {output['row_count']} rows (inline)"
     else:
         summary += f" → {content_type} result"
-    return summary
+    return summary + _files_summary(output)
+
+
+def _files_summary(output: Dict[str, Any]) -> str:
+    """Tell the agent about files the tool returned, saved or not."""
+    out = ""
+    attached = output.get("attached_files") or []
+    if attached:
+        listed = ", ".join(
+            f"{f['file_name']} ({f['mime_type']}, file_id={f['file_id']})" for f in attached
+        )
+        out += (
+            f" The tool also returned {len(attached)} file(s), saved to this"
+            f" session: {listed}. Open one with read_file(file_id=…) — images"
+            " and PDFs are shown to you as pictures."
+        )
+    dropped = output.get("dropped_files") or []
+    if dropped:
+        listed = ", ".join(
+            f"{d['mime_type']}{' ' + d['uri'] if d.get('uri') else ''} ({d['reason']})" for d in dropped
+        )
+        out += f" {len(dropped)} returned file(s) could NOT be saved: {listed}."
+    return out
 
 
 class ExecuteMCPTool(Tool):
@@ -915,24 +940,45 @@ Do not use when:
         # it into a session File so the analysis stack can use it — same path as
         # read_mcp_resource / uploaded files. Sets session_file_id for the agent
         # to pass to inspect_data / create_data.
-        if not output.get("file_id"):
+        # Every file is attached, alongside the data artifact above — a tool
+        # that returns text AND a file (GitHub's "downloaded" note + the file
+        # body) must not lose the file because the text already took file_id.
+        binaries = result.get("binaries") or []
+        if binaries:
             import base64
             from ._file_tool_common import attach_drive_file_to_session, ext_for_mime
-            for b in (result.get("binaries") or []):
-                if not b.get("blob_b64") or not ext_for_mime(b.get("mime_type")):
+            attached: list = []
+            dropped: list = []
+            for idx, b in enumerate(binaries):
+                mime = b.get("mime_type") or "application/octet-stream"
+                uri = b.get("uri")
+                if len(attached) >= _MAX_ATTACHED_FILES:
+                    dropped.append({"mime_type": mime, "uri": uri, "reason": "too many files in one result"})
                     continue
                 try:
-                    raw = base64.b64decode(b["blob_b64"], validate=False)
+                    raw = base64.b64decode(b.get("blob_b64") or "", validate=False)
                 except Exception:
+                    dropped.append({"mime_type": mime, "uri": uri, "reason": "invalid base64"})
                     continue
-                name = (str(b.get("uri") or data.tool_name).rstrip("/").split("/")[-1]) or data.tool_name
+                if not ext_for_mime(mime):
+                    dropped.append({"mime_type": mime, "uri": uri, "bytes": len(raw),
+                                    "reason": "file type cannot be opened here"})
+                    continue
+                base = (str(uri or "").rstrip("/").split("/")[-1]) or data.tool_name
+                name = base if uri or len(binaries) == 1 else f"{base}_{idx + 1}"
                 sid = await attach_drive_file_to_session(
-                    runtime_ctx, filename=name, content_bytes=raw, mime_type=b.get("mime_type"),
+                    runtime_ctx, filename=name, content_bytes=raw, mime_type=mime,
                 )
                 if sid:
-                    output["file_id"] = sid
-                    output["session_file_id"] = sid
-                    break
+                    attached.append({"file_id": sid, "file_name": name, "mime_type": mime})
+                else:
+                    dropped.append({"mime_type": mime, "uri": uri, "bytes": len(raw),
+                                    "reason": "could not be saved (empty or over the size cap)"})
+            if attached:
+                output["attached_files"] = attached
+                output["session_file_id"] = attached[0]["file_id"]
+            if dropped:
+                output["dropped_files"] = dropped
 
         # Audit
         await log_tool_audit(
@@ -965,6 +1011,8 @@ Do not use when:
                     # read it without re-running the call.
                     "media": output.get("media"),
                     "file_name": output.get("file_name"),
+                    "attached_files": output.get("attached_files"),
+                    "dropped_files": output.get("dropped_files"),
                     "tabular_path": output.get("tabular_path"),
                     "candidate_paths": output.get("candidate_paths"),
                     "record_shape": output.get("record_shape"),
