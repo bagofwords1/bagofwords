@@ -119,6 +119,7 @@ const iconPath = computed(() => {
         intune: 'intune.png',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
+        azure_cost: 'azure_cost.svg',
         // Same brand asset as the monday MCP preset (CONNECTOR_ICON_FILE above).
         monday: 'monday.svg',
     };

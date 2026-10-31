@@ -130,6 +130,12 @@ DATA_SOURCES = [
     # authenticates with the service-account access file exactly the way a
     # customer connection does. `{"kubernetes": {"enabled": true, "container": true}}`.
     "kubernetes",
+    # Remote mode: Azure Cost Management has no emulator, so this runs only
+    # against a live tenant configured in integrations.json (skips otherwise):
+    #   {"azure_cost": {"enabled": true, "scope": "/subscriptions/<id>",
+    #                   "tenant_id": "...", "client_id": "...", "client_secret": "..."}}
+    # For a deeper probe of the live API shape see verify_azure_cost.py.
+    "azure_cost",
 ]
 
 

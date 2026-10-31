@@ -175,6 +175,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | ServiceNow | Business app |
 | Monday data | Business app |
 | AWS Cost Explorer | Business app |
+| Azure Cost Management | Business app |
 | PostHog | Business app |
 | Priority ERP | Business app |
 | Outlook Mail | Business app |

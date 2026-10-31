@@ -1899,6 +1899,39 @@ class AzureDataExplorerConfig(BaseModel):
     database: str = Field(..., title="Database", description="Database name", json_schema_extra={"ui:type": "string"})
 
 
+# Azure Cost Management — the Azure counterpart of AWS Cost Explorer.
+class AzureCostServicePrincipalCredentials(BaseModel):
+    tenant_id: str = Field(..., title="Tenant ID", description="Microsoft Entra ID (Azure AD) tenant ID.", json_schema_extra={"ui:type": "string"})
+    client_id: str = Field(..., title="Client ID", description="Application (client) ID of the app registration.", json_schema_extra={"ui:type": "string"})
+    client_secret: str = Field(..., title="Client Secret", description="Client secret of the app registration. Grant the app the Cost Management Reader role on the scope.", json_schema_extra={"ui:type": "password"})
+
+
+class AzureCostDefaultCredentials(BaseModel):
+    """No stored secret — azure-identity's DefaultAzureCredential resolves a
+    managed identity, workload identity, or AZURE_* environment variables."""
+    class Config:
+        extra = 'allow'
+
+
+class AzureCostConfig(BaseModel):
+    scope: str = Field(
+        ...,
+        title="Scope",
+        description=(
+            "What to report on. A subscription ID, or a scope path such as "
+            "/subscriptions/<id>, /subscriptions/<id>/resourceGroups/<name>, "
+            "/providers/Microsoft.Management/managementGroups/<id>, or a billing scope "
+            "like /providers/Microsoft.Billing/billingAccounts/<id>."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    cost_type: Literal["ActualCost", "AmortizedCost"] = Field(
+        "ActualCost",
+        title="Default cost view",
+        description="Actual cost matches your invoice. Amortized cost spreads reservation and savings plan purchases across their term.",
+    )
+
+
 # PostHog
 class PostHogCredentials(BaseModel):
     api_key: str = Field(
