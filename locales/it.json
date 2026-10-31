@@ -3999,7 +3999,8 @@
     "tabReport": "Report",
     "tabData": "Dati ({count})",
     "refreshedAt": "Aggiornato {time}",
-    "madeWith": "Realizzato con {brand}"
+    "madeWith": "Realizzato con {brand}",
+    "fork": "Crea copia"
   },
   "errors": {
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",

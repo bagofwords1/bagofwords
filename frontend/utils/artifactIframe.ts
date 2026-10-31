@@ -164,8 +164,8 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('echarts-5.min.js'),
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
-    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-ui-2`),
-    libUrl('artifact-sdk.js', 'v=5'),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-ui-3`),
+    libUrl('artifact-sdk.js', 'v=6'),
   ];
 }
 
@@ -228,6 +228,7 @@ export interface ArtifactLibPlan {
   pdfSrc: string | null;
   /** The usable precompiled artifact JS, or null (Babel compiles in-iframe). */
   precompiledJs: string | null;
+  lazyCharts: boolean;
 }
 
 /** Which libs the page iframe will load for these options. */
@@ -236,6 +237,9 @@ export function artifactLibPlan(opts: ArtifactIframeOptions): ArtifactLibPlan {
   const precompiledJs = usablePrecompiled(opts);
   const all = artifactPageLibs({ reactBuild, babel: false, pdf: false });
   return {
+    // Direct/global consumers need synchronous compatibility. Shared EChart
+    // components can also request this library after the initial render.
+    lazyCharts: !/echarts|\bEChart\b|\b(?:window|self|globalThis|eval|Function|this)\b|defaultView|contentWindow/i.test(opts.code || ''),
     head: all.slice(0, all.length - 2),
     body: all.slice(all.length - 2),
     babelSrc: precompiledJs ? null : libUrl('babel-standalone.min.js'),
@@ -248,7 +252,7 @@ export function artifactLibPlan(opts: ArtifactIframeOptions): ArtifactLibPlan {
 export function inlineableArtifactLibs(opts: ArtifactIframeOptions): string[] {
   if ((opts.mode ?? 'page') !== 'page') return [];
   const plan = artifactLibPlan(opts);
-  return [...plan.head, ...plan.body];
+  return [...plan.head.filter((u) => !plan.lazyCharts || !u.includes('echarts-')), ...plan.body];
 }
 
 // Runs one lib's source as a classic script element inserted right after the
@@ -517,7 +521,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   // Preload hints let the iframe fetch every src-loaded script in parallel;
   // the tags below still execute strictly in order.
   const preloads = [...plan.head, ...(plan.babelSrc ? [plan.babelSrc] : []), ...plan.body, ...(plan.pdfSrc ? [plan.pdfSrc] : [])]
-    .filter((u) => inline[u] === undefined)
+    .filter((u) => inline[u] === undefined && (!plan.lazyCharts || !u.includes('echarts-')))
     .map((href) => `<link rel="preload" as="script" href="${href}">`).join('\n  ');
   const [tailwindSrc, tailwindCfgSrc, reactSrc, reactDomSrc, echartsSrc, lucideSrc] = plan.head;
   const [globalsSrc, sdkSrc] = plan.body;
@@ -543,7 +547,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   ${tag(reactSrc)}
   ${tag(reactDomSrc)}
   ${plan.precompiledJs ? precompiledLoaderScript(plan.precompiledJs) : `<script src="${plan.babelSrc}">${SC}`}
-  ${tag(echartsSrc)}
+  ${plan.lazyCharts ? '' : tag(echartsSrc)}
   ${tag(lucideSrc)}
   ${plan.pdfSrc ? `<script src="${plan.pdfSrc}">${SC}` : ''}
   <link rel="stylesheet" href="${libUrl('artifact-fonts.css', `v=${ARTIFACT_GLOBALS_VERSION}`)}">
@@ -570,7 +574,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
       }
     });
   ${SC}
-  <script>window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
+  <script>window.__BOW_OPTIONAL_LIBS__=${JSON.stringify({echarts: libUrl("echarts-5.min.js"), pdfjsLib: libUrl("pdf.min.js")})};window.ARTIFACT_DATA = ${embeddedData};window.__BOW_RUNTIME_NONCE__="${runtimeNonce}";window.__BOW_FIXTURE_MODE__=${!!opts.fixtureMode};${SC}
   ${tag(globalsSrc)}
   ${tag(sdkSrc)}
   ${anyInline ? `<script>try { delete window.__bowRunLib; } catch (e) {}${SC}` : ''}

@@ -4380,7 +4380,8 @@
     "tabReport": "Report",
     "tabData": "Data ({count})",
     "refreshedAt": "Refreshed {time}",
-    "madeWith": "Made with {brand}"
+    "madeWith": "Made with {brand}",
+    "fork": "Fork"
   },
   "errors": {
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",

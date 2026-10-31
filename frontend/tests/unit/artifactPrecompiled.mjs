@@ -81,7 +81,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>`;
 const DATA = {report: {title: 'Parity'}, visualizations: [{id: 'v1', rows: [{v: 1}, {v: 4}, {v: 9}, {v: 16}]}]};
 
-const browser = await chromium.launch({headless: true});
+const browser = await chromium.launch({headless: true, executablePath: process.env.PW_CHROMIUM_PATH || undefined});
 const libCache = new Map();
 const libText = (pathname) => {
   if (!libCache.has(pathname)) libCache.set(pathname, fs.readFileSync(new URL('public' + pathname, root), 'utf8'));

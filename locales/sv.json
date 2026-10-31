@@ -3999,7 +3999,8 @@
     "tabReport": "Rapport",
     "tabData": "Data ({count})",
     "refreshedAt": "Uppdaterad {time}",
-    "madeWith": "Skapad med {brand}"
+    "madeWith": "Skapad med {brand}",
+    "fork": "Skapa kopia"
   },
   "errors": {
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",

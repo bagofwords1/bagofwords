@@ -3999,7 +3999,8 @@
     "tabReport": "التقرير",
     "tabData": "البيانات ({count})",
     "refreshedAt": "تم التحديث {time}",
-    "madeWith": "صُنع باستخدام {brand}"
+    "madeWith": "صُنع باستخدام {brand}",
+    "fork": "إنشاء نسخة"
   },
   "errors": {
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",

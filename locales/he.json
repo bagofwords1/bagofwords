@@ -4318,7 +4318,8 @@
     "tabReport": "דוח",
     "tabData": "נתונים ({count})",
     "refreshedAt": "רוענן {time}",
-    "madeWith": "נוצר באמצעות {brand}"
+    "madeWith": "נוצר באמצעות {brand}",
+    "fork": "יצירת עותק"
   },
   "errors": {
     "saml_unavailable": "הגדרות ההתחברות הארגונית אינן זמינות. יש לפנות למנהל המערכת.",

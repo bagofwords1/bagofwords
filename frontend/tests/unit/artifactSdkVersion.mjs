@@ -8,8 +8,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SDK_VERSION = '5';
-const SDK_SHA256 = '1e432897fcc36d2ab9eb731885cf9552213fb25bbfc3151b5d3f846c83c37f02';
+const SDK_VERSION = '6';
+const SDK_SHA256 = 'ce4a446c14260a61008cf2c172387dd588bc0f1c3a0fd5b14734b7785920d67e';
 const BUMP = 'artifact-sdk.js changed: bump v= in utils/artifactIframe.ts and update SDK_SHA256 and the v= pin here';
 
 const frontend = new URL('../../', import.meta.url);

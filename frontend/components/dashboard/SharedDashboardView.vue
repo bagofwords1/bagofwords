@@ -30,162 +30,19 @@
     </div>
 
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
-        <!-- Top Bar -->
-        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative flex items-center">
-            <!-- Left: Back to app (absolute; fits inside the start content gutter) -->
-            <a
-                href="/"
-                class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
-            >
-                <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5 rtl-flip" />
-                <span class="hidden sm:inline">{{ t('dashboardCollab.access.backToApp') }}</span>
-            </a>
-
-            <!-- Center: Tab Menu + Refreshed. Tabs keep the dashboard content
-                 padding on the start side; the end side flexes against the
-                 in-flow action cluster so nothing can overlap it. -->
-            <div class="h-full flex-1 min-w-0 flex items-center">
-                <div class="w-full min-w-0 flex items-center justify-between gap-2 ps-11 sm:ps-[200px] pe-2 sm:pe-4">
-                    <!-- Tab Menu -->
-                    <div class="flex items-center gap-1 flex-shrink-0">
-                        <button
-                            @click="activeTab = 'report'"
-                            :class="[
-                                'px-3 py-1.5 text-xs font-medium rounded transition-colors',
-                                activeTab === 'report'
-                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                            ]"
-                        >
-                            {{ $t('sharedReport.tabReport') }}
-                        </button>
-                        <button
-                            v-if="showDataTab"
-                            @click="activeTab = 'data'"
-                            :class="[
-                                'px-3 py-1.5 text-xs font-medium rounded transition-colors',
-                                activeTab === 'data'
-                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white'
-                                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                            ]"
-                        >
-                            {{ $t('sharedReport.tabData', { count: visualizationsData.length }) }}
-                        </button>
-                    </div>
-
-                    <!-- Refreshed text (hidden on mobile where the bar is too
-                         crowded; truncates instead of overlapping the actions) -->
-                    <span v-if="runError" class="hidden sm:inline min-w-0 text-2xs text-red-400 truncate max-w-[300px]" :title="runError">
-                        {{ runError }}
-                    </span>
-                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 min-w-0 text-2xs text-ink-muted">
-                        <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin flex-shrink-0" />
-                        <span class="truncate">Refreshing...</span>
-                    </span>
-                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline min-w-0 text-2xs text-ink-muted truncate">
-                        {{ $t('sharedReport.refreshedAt', { time: formatTime(lastRefreshedAt) }) }}
-                    </span>
-                </div>
-            </div>
-
-            <!-- Right: Run + Fork + Edit Report + Close (in normal flow so the
-                 bar always reserves the cluster's width — no overlap however
-                 many buttons are visible) -->
-            <div class="flex-shrink-0 h-full pe-2 sm:pe-4 flex items-center gap-1 sm:gap-2">
-                <!-- Who else is editing (collab01): editors only -->
-                <PresenceAvatars v-if="presenceEnabled" :others="presenceOthers" class="hidden sm:flex" />
-                <!-- Run button: signed-in non-owner viewers re-run the dashboard's
-                     queries into their own per-user results (whose credentials run
-                     is the owner's share setting; never touches the shared data).
-                     The draft page's bar has its own "Run as me". -->
-                <button
-                    v-if="canRun && source !== 'draft'"
-                    @click="handleRun"
-                    :disabled="isRunning"
-                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
-                    title="Re-run this dashboard's queries for you"
-                >
-                    <Icon name="heroicons:arrow-path" :class="['w-3.5 h-3.5', isRunning ? 'animate-spin' : '']" />
-                    <span class="hidden sm:inline">{{ isRunning ? 'Running...' : 'Run' }}</span>
-                </button>
-                <!-- Export PDF: server-side render of the shared snapshot,
-                     same ReportPdfService pipeline as the emailed dashboard
-                     share. Hidden for doc artifacts (no server renderer) and
-                     when the snapshot is withheld (backend refuses anyway). -->
-<!-- One button for both exports, from the same availability list the
-                     in-app viewer uses. Hidden when the snapshot is withheld: the
-                     file would carry that data past every gate we have. -->
-                <ExportMenu
-                    :options="availableExports"
-                    :busy="isExportingPdf || isExportingHtml || isExportingPptx"
-                    variant="subtle"
-                    @select="handleExport"
-                />
-                                <!-- Fork button -->
-                <button
-                    v-if="forkEligibility?.can_fork"
-                    @click="handleFork"
-                    :disabled="isForking"
-                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
-                >
-                    <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
-                    <span class="hidden sm:inline">{{ isForking ? 'Forking...' : 'Fork' }}</span>
-                </button>
-                <span
-                    v-else-if="forkEligibility && !forkEligibility.can_fork"
-                    class="text-2xs text-gray-300 dark:text-gray-600 cursor-default"
-                    :title="forkReasonLabel"
-                >
-                    <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5 inline" />
-                </span>
-                <!-- View analytics (collab01): the existing artifact analytics,
-                     for whoever holds the `analytics` capability -->
-                <button
-                    v-if="hasCap('analytics')"
-                    type="button"
-                    data-testid="analytics-button"
-                    @click="analyticsOpen = true"
-                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
-                    :title="$t('artifactResources.analytics')"
-                >
-                    <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
-                    <span class="hidden sm:inline">{{ $t('artifactResources.analytics') }}</span>
-                </button>
-                <NuxtLink
-                    v-if="source === 'report' && isOwner && editPath"
-                    :to="editPath"
-                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors"
-                >
-                    <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
-                    <span class="hidden sm:inline">Edit Report</span>
-                </NuxtLink>
-                <!-- A dashboard's editors (collab01): Edit opens their own
-                     conversation on it -- the one they have, else a new copy
-                     of the draft (the named draft on screen, if any) -->
-                <button
-                    v-else-if="source !== 'report' && hasCap('edit')"
-                    type="button"
-                    data-testid="edit-in-my-conversation"
-                    @click="handleEdit"
-                    :disabled="isOpeningEditor"
-                    class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50"
-                    :title="$t('dashboardCollab.page.editInMyConversation')"
-                >
-                    <Icon :name="isOpeningEditor ? 'heroicons:arrow-path' : 'heroicons:pencil-square'" :class="['w-3.5 h-3.5', isOpeningEditor ? 'animate-spin' : '']" />
-                    <span class="hidden sm:inline">{{ $t('dashboardCollab.page.editInMyConversation') }}</span>
-                </button>
-                <button
-                    @click="showTopBar = false"
-                    class="p-1 text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                >
-                    <Icon name="heroicons:x-mark" class="w-4 h-4" />
-                </button>
-            </div>
+        <div v-if="showTopBar && reportLoaded" class="absolute top-3 end-3 z-dropdown">
+            <UDropdown :items="appMenuItems" :popper="{ placement: 'bottom-end' }">
+                <UButton color="white" variant="ghost" icon="i-heroicons-ellipsis-vertical"
+                    :aria-label="t('artifactFrame.more')" data-testid="app-menu" />
+            </UDropdown>
         </div>
 
+        <div v-if="signInRequested" class="absolute bottom-4 inset-x-4 z-overlay rounded-lg border border-line bg-surface p-4 text-center">
+            <a :href="signInUrl" target="_blank" rel="noopener" class="text-accent underline">{{ t('dashboardCollab.access.signIn') }}</a>
+        </div>
         <!-- The draft page: which version is previewed, and what to do with it -->
         <DraftVersionBar
-            v-if="source === 'draft' && showTopBar && reportLoaded && dashboardMeta"
+            v-if="source === 'draft' && showTopBar && showVersionDetails && reportLoaded && dashboardMeta"
             :meta="dashboardMeta"
             :capabilities="capabilities"
             :changes-open="changesOpen"
@@ -282,7 +139,7 @@
                 <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <div class="text-center">
                         <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Loading...</p>
+                        <p>{{ t('agentFlyout.loading') }}</p>
                     </div>
                 </div>
 
@@ -409,7 +266,7 @@ const embedCredential = useEmbedCredential();
 const inHostApplication = computed(() => !!embedCredential.value);
 // Start downloading the artifact iframe's libraries now, in parallel with the
 // page's data requests (see utils/artifactLibs.ts).
-ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
+ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }).filter(u => !u.includes('echarts-')));
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
 // `unavailable`: inside a host application the artifact could not be opened;
@@ -570,7 +427,44 @@ const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversatio
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-const showTopBar = ref(!embedded && !inHostApplication.value);
+const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
+const showVersionDetails = ref(false);
+const signInRequested = ref(false);
+const signInUrl = computed(() => '/users/sign-in?redirect=' + encodeURIComponent(api.pagePath));
+const requestSignIn = () => { signInRequested.value = true; };
+onMounted(() => window.addEventListener('bow-sign-in-required', requestSignIn));
+onUnmounted(() => window.removeEventListener('bow-sign-in-required', requestSignIn));
+const appMenuItems = computed(() => {
+    const items: any[] = [{ label: t('dashboardCollab.access.backToApp'), to: '/' }];
+    if (showDataTab.value && visualizationsData.value.length) items.push({
+        label: activeTab.value === 'data' ? t('sharedReport.tabReport') : t('sharedReport.tabData', { count: visualizationsData.value.length }),
+        click: () => { activeTab.value = activeTab.value === 'data' ? 'report' : 'data'; },
+    });
+    if (canRun.value && props.source !== 'draft') items.push({
+        label: t('queries.run'), disabled: isRunning.value, click: handleRun,
+    });
+    for (const option of availableExports.value) items.push({
+        label: option.label,
+        disabled: isExportingPdf.value || isExportingHtml.value || isExportingPptx.value,
+        click: () => handleExport(option.format),
+    });
+    if (forkEligibility.value?.can_fork) items.push({
+        label: t('sharedReport.fork'), disabled: isForking.value, click: handleFork,
+    });
+    if (hasCap('analytics')) items.push({
+        label: t('artifactResources.analytics'), click: () => { analyticsOpen.value = true; },
+    });
+    if (props.source !== 'report' && hasCap('edit')) items.push({
+        label: t('dashboardCollab.page.editInMyConversation'), disabled: isOpeningEditor.value, click: handleEdit,
+    });
+    if (props.source === 'report' && isOwner.value && editPath.value) items.push({
+        label: t('common.edit'), to: editPath.value,
+    });
+    if (props.source === 'draft') items.push({
+        label: t('dashboardCollab.page.history'), click: () => { showVersionDetails.value = !showVersionDetails.value; },
+    });
+    return [items];
+});
 // The host page moved to another record: the artifact gets the new context.
 watch(() => props.hostContext, () => { if (artifactIframeLoaded.value) pushArtifactData(); }, { deep: true });
 // A silent renewal for the same viewer keeps this view (the gate remounts it
@@ -600,6 +494,7 @@ const isRefreshingOnView = ref(false);
 const isRunning = ref(false);
 const showingAuthorData = ref(false);
 const runError = ref<string | null>(null);
+watch(runError, error => { if (error) toast.add({ title: error, color: 'red' }); });
 // Newest per-viewer result timestamp seen while loading step data
 const viewerLastRunAt = ref<Date | null>(null);
 // True when the backend hid the owner's snapshot from this viewer

@@ -3999,7 +3999,8 @@
     "tabReport": "Отчёт",
     "tabData": "Данные ({count})",
     "refreshedAt": "Обновлено {time}",
-    "madeWith": "Сделано с помощью {brand}"
+    "madeWith": "Сделано с помощью {brand}",
+    "fork": "Создать копию"
   },
   "errors": {
     "saml_unavailable": "Настройки SSO недоступны. Обратитесь к администратору.",
