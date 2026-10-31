@@ -2077,7 +2077,9 @@ class AgentV2:
         transcript's own tool results, bounded by Transcript's retention —
         adding them here too sent the last steps' pages twice per request. The
         legacy planner / non-transcript prompt have no other channel, so they
-        keep both. User uploads only ever ride this channel.
+        keep both. User uploads reach the prompt builder through this field;
+        on the transcript path it anchors them to the original ask and clears
+        the provider side channel so they cannot move to the latest result.
         """
         rides_transcript = False
         if tool_images:
