@@ -190,6 +190,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | CrowdStrike Falcon | Security |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
+| Microsoft Configuration Manager (SCCM) | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
 | Microsoft Intune | Infrastructure |

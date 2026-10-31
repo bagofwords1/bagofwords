@@ -117,6 +117,14 @@ DATA_SOURCES = [
     # against a live account configured in integrations.json (skips otherwise):
     #   {"monday": {"enabled": true, "api_token": "..."}}
     "monday",
+    # Remote mode: Configuration Manager needs Windows Server + SQL + AD, so no
+    # container exists. Point integrations.json at a real lab (e.g. Microsoft's
+    # "Configuration Manager current branch" Azure quickstart template) or the
+    # protocol simulator `tools/mecm/mock_adminservice.py` (HTTPS + real NTLM):
+    #   {"mecm": {"enabled": true, "server_url": "localhost:8443",
+    #             "username": "CONTOSO\\svc_bow", "password": "Passw0rd!",
+    #             "ca_certificate": "-----BEGIN CERTIFICATE-----\n..."}}
+    "mecm",
     # Container mode (testcontainers k3s): the k3s admin kubeconfig is used ONLY
     # to seed tools/kubernetes/{rbac.yaml,manifests}; the client under test then
     # authenticates with the service-account access file exactly the way a

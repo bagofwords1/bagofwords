@@ -3836,6 +3836,20 @@
           "title": "Incollalo qui sotto e testa la connessione",
           "body": "Incolla tutto l'output nel campo File di accesso al cluster, poi fai clic su Testa connessione."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Concedi all'account l'accesso in lettura in Configuration Manager",
+          "body": "Nella console vai su Administration > Security > Administrative Users, aggiungi l'account (o il suo gruppo AD) e assegnagli il ruolo Read-only Analyst. I suoi ambiti di sicurezza e le sue raccolte decidono cosa può vedere Bag of Words."
+        },
+        {
+          "title": "Verifica che il servizio di amministrazione risponda",
+          "body": "Da una macchina aggiunta al dominio, esegui questo comando sul tuo SMS Provider. Dovrebbe elencare il tuo sito."
+        },
+        {
+          "title": "Esporta il certificato dell'SMS Provider",
+          "body": "Per impostazione predefinita il sito usa un certificato autofirmato. Esegui questo comando in PowerShell sull'SMS Provider e incolla l'output in SMS Provider certificate (PEM). Salta questo passaggio se il certificato proviene da una CA già considerata attendibile da questo server."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copia non riuscita — seleziona il testo",
