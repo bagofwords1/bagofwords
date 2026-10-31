@@ -47,6 +47,7 @@ async def run_wait_wake(
     organization_id: str,
     reason: str,
     attempt: int = 1,
+    system_completion_id: str | None = None,
 ) -> None:
     """APScheduler callback: resume the agent on ``report_id``.
 
@@ -82,6 +83,9 @@ async def run_wait_wake(
             logger.warning("wait wake %s: user %s deactivated or left org; dropping", job_id, user_id)
             return
 
+        from app.services.conversation_surface import parent_app_surface
+        surface = await parent_app_surface(db, system_completion_id)
+
         wake_prompt = (
             f"[Automatic resume after a scheduled wait] The wait you requested has "
             f"elapsed. Resume the task now: {reason}\n"
@@ -102,6 +106,7 @@ async def run_wait_wake(
                 instruction=wake_prompt,
                 # Structured fields for locale-aware frontend rendering.
                 meta={"reason": reason[:200]},
+                **surface,
             )
         except Exception as e:
             logger.error("wait wake %s: resume failed: %s", job_id, e)
@@ -119,6 +124,7 @@ class WaitService:
         reason: str,
         delay_minutes: int,
         attempt: int = 1,
+        system_completion_id: str | None = None,
     ) -> dict:
         """Register a one-shot resume job. Returns {job_id, wake_at (ISO UTC)}."""
         token = uuid.uuid4().hex[:12]
@@ -137,6 +143,7 @@ class WaitService:
                 "organization_id": organization_id,
                 "reason": reason,
                 "attempt": int(attempt),
+                "system_completion_id": system_completion_id,
             },
             replace_existing=True,
             misfire_grace_time=3600,  # if the worker was down, still resume within an hour

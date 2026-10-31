@@ -151,6 +151,7 @@ class WaitTool(Tool):
                 organization_id=str(organization.id),
                 reason=data.reason,
                 delay_minutes=data.delay_minutes,
+                system_completion_id=getattr(runtime_ctx.get("system_completion"), "id", None),
             )
         except Exception as e:
             logger.exception("Failed to arm wait: %s", e)

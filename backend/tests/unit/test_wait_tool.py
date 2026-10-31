@@ -183,3 +183,14 @@ def test_wake_callable_is_module_level_and_serializable():
     ref = obj_to_ref(run_wait_wake)
     assert ref == "app.services.wait_service:run_wait_wake"
     assert ref_to_obj(ref) is run_wait_wake
+
+@pytest.mark.asyncio
+async def test_wait_job_keeps_the_originating_turn_identity():
+    """Exercise tool → service → scheduler; the durable job retains the turn."""
+    jobs=[]
+    from app.services.wait_service import scheduler
+    with patch.object(scheduler,'add_job',lambda **kw:jobs.append(kw)):
+        events=await _collect(WaitTool(), {'delay_minutes':2,'reason':'Retry provider'},
+                              _ctx(system_completion=SimpleNamespace(id='originating-turn')))
+    assert _end_payload(events)['observation']['success'] is True
+    assert jobs[0]['kwargs']['system_completion_id']=='originating-turn'

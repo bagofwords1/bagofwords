@@ -279,6 +279,7 @@ if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
     return h('div', {className: 'bow-md'}, blocks);
   }
   window.bow = {
+    auth: { signIn: function() { return request('signIn', {}); } },
     version: 1, data: data, markdown: markdown,
     context: { get: function () { return contextValue || {viewer: (window.ARTIFACT_DATA || {}).current_user || null, mode: window.__BOW_RUNTIME_NONCE__ ? 'live' : 'preview', resources: window.__BOW_FIXTURE_MODE__ ? fixtureDefinitions().map(function(d){return {name:d.name,kind:d.kind,operations:['read','create','update','delete']};}) : []}; }, subscribe: function(fn){contextListeners.push(fn);return function(){var i=contextListeners.indexOf(fn);if(i>=0)contextListeners.splice(i,1);};} },
     records: {collection: function (resource) { return {

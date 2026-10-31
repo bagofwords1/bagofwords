@@ -314,7 +314,25 @@ def _tool_title(te: dict, redaction) -> Optional[str]:
     """A tool's title as shown (the stream's ``tool`` line and history
     ``tools[]``): display-redacted; None when the redactor could not be loaded
     (``Redaction.title``)."""
-    return redaction.title((te.get("arguments_json") or {}).get("title"), te.get("id"))
+    args = te.get("arguments_json") or {}
+    title = args.get("title")
+    if not isinstance(title, str) or not title.strip():
+        operation = args.get("tool_name") if te.get("tool_name") == "execute_mcp" else te.get("tool_name")
+        title = str(operation or "Tool").replace("_", " ").strip().capitalize()
+        result = te.get("result_json")
+        connection = result.get("connection_name") if isinstance(result, dict) else None
+        if connection:
+            title += f" · {connection}"
+    return redaction.title(title, te.get("id"))
+
+
+def _tool_detail(te, redaction):
+    if te.get("status") not in ("error", "failed"):
+        return None
+    result = te.get("result_json")
+    result = result if isinstance(result, dict) else {}
+    value = te.get("error_message") or result.get("error_message") or result.get("error")
+    return redaction.title(str(value)[:500], te.get("id")) if value else None
 
 
 def _expected_steps(blocks) -> list[Optional[str]]:
@@ -332,8 +350,20 @@ def _tools(blocks, redaction) -> list[dict]:
     for b in sorted(blocks or [], key=lambda b: (b.get("block_index") or 0)):
         te = b.get("tool_execution")
         if te:
-            out.append({"name": te.get("tool_name"), "title": _tool_title(te, redaction),
-                        "status": te.get("status") or b.get("status")})
+            out.append({"id": str(b.get("id")), "name": te.get("tool_name"), "title": _tool_title(te, redaction),
+                        "status": te.get("status") or b.get("status"), "detail": _tool_detail(te, redaction)})
+    return out
+
+
+def timeline(blocks, redaction) -> list[dict]:
+    """Public ordered blocks, with the same redaction as legacy tool summaries."""
+    out = []
+    for b in sorted(blocks or [], key=lambda b: b.get("block_index") or 0):
+        key = str(b.get("id"))
+        if b.get("content"):
+            out.append({"id": key, "type": "text", "text": b["content"]})
+        if b.get("tool_execution"):
+            out.append({"type": "tool", **_tools([b], redaction)[0]})
     return out
 
 
@@ -368,6 +398,7 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
             "created_at": c["created_at"].isoformat() if hasattr(c.get("created_at"), "isoformat") else c.get("created_at"),
             "text": ((c.get("prompt") or {}).get("content") or "") if role == "user" else _texts(c.get("completion_blocks"))[0],
             **({"thinking": _thinking(c.get("completion_blocks")),
+                "timeline": timeline(c.get("completion_blocks"), redaction),
                 "steps": _texts(c.get("completion_blocks"))[1], "tools": _tools(c.get("completion_blocks"), redaction)}
                if role == "assistant" else {}),
         })
@@ -698,10 +729,9 @@ async def ndjson(sse: AsyncIterator, *, thread_id: str, organization_id: str) ->
         if isinstance(op, dict):
             return [line(op)]
         if isinstance(op, _ToolLine):
-            title = (op.te.get("arguments_json") or {}).get("title")
-            shown = _tool_title(op.te, await redaction_once()) if isinstance(title, str) and title else title
+            shown = _tool_title(op.te, await redaction_once())
             return [line({"type": "tool", "id": op.block_id, "name": op.te.get("tool_name"), "title": shown,
-                          "status": op.status})]
+                          "status": op.status, "detail": _tool_detail(op.te, await redaction_once())})]
         return (await tool_lookup(op.te_id))[0]
 
     task = asyncio.create_task(pump())

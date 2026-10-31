@@ -84,7 +84,7 @@ def default_policy_for_hints(hints: Dict[str, bool]) -> Optional[str]:
 
     Only a tool the server marks read-only runs without asking; a destructive
     tool, or one with no hints at all, starts on "ask". Missing hints are
-    treated as write-capable — the same fail-safe Hermes and OpenClaw use.
+    treated as write-capable.
     Returns None for "allow" (the caller's default).
     """
     if hints.get("readOnlyHint") is True and hints.get("destructiveHint") is not True:

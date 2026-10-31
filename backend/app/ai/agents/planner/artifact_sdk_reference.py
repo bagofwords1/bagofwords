@@ -91,7 +91,9 @@ const {items, next_before} = await bow.conversations.list({limit: 20, before}); 
 const conv = await bow.conversations.create({title}); // {id,title,agents}; agents:[ids] only to narrow on request
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
 const history = await bow.conversations.messages(conv.id, {limit: 30, before}); // {items,next_before}: oldest first, as
-//   chat.messages; results?:[...] and tools?:[...] only on assistant items: render tool.title || tool.name, never the object.
+//   chat.messages; timeline:[{type:"text",id,text}|{type:"tool",id,name,title,status,detail}] is chronological.
+//   Prefer ChatMessages/ChatMessage; toolLabel(tool) can customize display names without changing calls.
+//   Legacy text/steps/tools remain for compatibility. Do not render tools after all text when using timeline.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
   // thinking_delta {block,text}: append reasoning; thinking {block,text}: replace that reasoning block (including empty text).
   // started {message_id}; tool {id,name,title,status}; text_delta {block,text}: append; text {block,text}: replace that block;
@@ -102,6 +104,7 @@ for await (const event of bow.conversations.send(conv.id, userText, {signal: abo
   //   re-read messages() and render its results for that message.
 }
 await bow.conversations.stop(conv.id, messageId); // the started event's message_id
+// bow.auth.signIn() requests sign-in through the host; ChatComposer provides this action when auth_required.
 // Send only on a user action. Render assistant text (Markdown) with {bow.markdown(text)}, user text as plain text,
 // results with <ChatResult result={r}/>; never re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that

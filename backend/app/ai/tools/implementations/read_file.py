@@ -1101,7 +1101,9 @@ class ReadFileTool(Tool):
             return (
                 f"'{file_id}' is not a file attached to this conversation, and no "
                 "file source is attached to this agent. Pass a file id from the "
-                "<files> block."
+                "<files> block. A repository path from MCP search is not a conversation file id: "
+                "use that connector's get-file/content tool with the repository and path. "
+                "Use read_file only for an actual returned file_id; do not retry the same unresolved path."
             )
         choices = describe_file_connections(attached)
         if _looks_like_session_file_id(file_id):

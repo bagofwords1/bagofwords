@@ -126,7 +126,7 @@ export async function start(env, {code, opts, auto = {}, viewport = {width: 1000
     if (Date.now() > end) throw new Error('the artifact never signalled');
     await sleep(25);
   }
-  assert.deepEqual(await page.evaluate(() => window.__msgs.slice()), ['ARTIFACT_READY']);
+  assert.deepEqual(await page.evaluate(() => window.__msgs.slice()), ['ARTIFACT_READY'], consoleErrors.join('\n'));
   const frame = page.frame({name});
   const taken = new Set();
   const s = {

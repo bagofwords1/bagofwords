@@ -1713,8 +1713,9 @@
     var containerRef = React.useRef(null);
     var _s = React.useState('loading'); var status = _s[0], setStatus = _s[1];
     var height = props.height || 520;
+    var _lib = React.useState(0), lib = _lib[0], setLib = _lib[1];
     React.useEffect(function() {
-      if (typeof pdfjsLib === 'undefined') { setStatus('nolib'); return; }
+      if (typeof pdfjsLib === 'undefined') { var inactive = false; _loadOptional('pdfjsLib').then(function(){if(!inactive)setLib(function(n){return n+1;});}).catch(function(){if(!inactive)setStatus('nolib');}); return function(){inactive=true;}; }
       var cancelled = false;
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/libs/pdf.worker.min.js'; } catch (e) {}
       function toBytes(dataUri) {
@@ -1757,7 +1758,7 @@
         seq.then(function() { if (!cancelled) setStatus('ready'); }).catch(function() { if (!cancelled) setStatus('error'); });
       }).catch(function() { if (!cancelled) setStatus('error'); });
       return function() { cancelled = true; };
-    }, [props.src]);
+    }, [props.src, lib]);
     if (status === 'nolib' || status === 'error') return h('div', { style: { height: height } }, _bowPdfCard(props.src, props.filename));
     return h('div', { className: 'relative w-full rounded-control border border-line bg-surface-2 overflow-y-auto', style: { height: height, padding: 8 } }, [
       status === 'loading' ? h('div', { key: 'ld', className: 'absolute inset-0 flex items-center justify-center text-ink-3 text-sm' }, h(window.LoadingSpinner, { size: 28 })) : null,
@@ -1858,6 +1859,23 @@
     return false;
   }
 
+  // Optional runtimes are fetched once, only when a component needs them.
+  var _optionalLoads = {};
+  function _loadOptional(name) {
+    if (window[name]) return Promise.resolve();
+    if (_optionalLoads[name]) return _optionalLoads[name];
+    var url = (window.__BOW_OPTIONAL_LIBS__ || {})[name];
+    if (!url) return Promise.reject(new Error('Library unavailable'));
+    _optionalLoads[name] = new Promise(function(resolve, reject) {
+      var script = document.createElement('script');
+      script.src = url;
+      script.onload = function() { if (window[name]) resolve(); else reject(new Error('Library unavailable')); };
+      script.onerror = function() { delete _optionalLoads[name]; reject(new Error('Library unavailable')); };
+      document.head.appendChild(script);
+    });
+    return _optionalLoads[name];
+  }
+
   // <EChart option height className viz rows calc palette /> — palette: array of
   // colors overriding the theme's chart palette for this chart only.
   window.EChart = function(props) {
@@ -1898,6 +1916,11 @@
     React.useEffect(function() {
       if (!ref.current) return;
       var el = ref.current;
+      if (!window.echarts) {
+        var cancelled = false;
+        _loadOptional('echarts').then(function() { if (!cancelled) { _applyTheme(); setGen(function(v){return v+1;}); } }).catch(function() { if (!cancelled) el.textContent = 'Chart unavailable'; });
+        return function() { cancelled = true; };
+      }
       var chart = echarts.init(el, 'bow', { renderer: props.renderer || 'canvas' });
       chartRef.current = chart;
       appliedRef.current = { full: null, shape: null };
@@ -1935,8 +1958,8 @@
       appliedRef.current = { full: full, shape: shape };
       if (shape !== null && shape === last.shape) chart.setOption(safeOption(opt), { notMerge: false });
       else chart.setOption(safeOption(opt), true);
-    }, [props.option]);
-    var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' });
+    }, [props.option, gen]);
+    var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' }, !window.echarts ? h(_LoadingSpinner, {size:20}) : null);
     if (!props.viz) return chart;
     return h('div', { className: 'relative', style: { width: '100%' } }, [
       h('div', { key: 'info', className: 'absolute top-2 end-2 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })),
@@ -1994,6 +2017,7 @@
     steps: 'Steps',
     thinking: 'Thinking',
     failed: 'The answer failed',
+    toolDetails: 'Details',
     stopped: 'The answer was stopped',
     olderMessages: 'Load earlier messages',
     jumpToLatest: 'Jump to latest',
@@ -2018,7 +2042,7 @@
       rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
-      steps: _chatFill(src.steps), thinking: _chatFill(src.thinking), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
+      steps: _chatFill(src.steps), thinking: _chatFill(src.thinking), failed: _chatFill(src.failed), toolDetails: _chatFill(src.toolDetails), stopped: _chatFill(src.stopped),
       olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest),
       send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired),
       conversations: _chatFill(src.conversations), newConversation: _chatFill(src.newConversation), rename: _chatFill(src.rename),
@@ -2210,7 +2234,8 @@
         h('div', { key: 't', dir: 'auto', className: 'mt-1 whitespace-pre-wrap border-s ps-2' }, m.thinking)
       ]));
     }
-    if (steps.length) {
+    var ordered = Array.isArray(m.timeline) && m.timeline.length ? m.timeline : null;
+    if (!ordered && steps.length) {
       // Collapsed: the answer stays the message; the steps are there on request.
       kids.push(h('details', { key: 'steps', 'data-testid': 'bow-chat-steps', className: CHAT_MSG.steps }, [
         h('summary', { key: 's', className: 'cursor-pointer select-none' }, h('span', { dir: 'auto', 'data-testid': 'bow-chat-steps-label' }, L.steps)),
@@ -2220,14 +2245,14 @@
         }))
       ]));
     }
-    if (text) {
+    if (!ordered && text) {
       kids.push(h('div', { key: 'text', 'data-testid': 'bow-chat-text', className: CHAT_MSG.text },
         body || h('p', { dir: 'auto', className: 'whitespace-pre-wrap' }, text)));
     }
     var tools = props.showTools === false || !Array.isArray(m.tools) ? [] : m.tools.filter(function(t) {
       return t && typeof t === 'object' && (_chatLabelOf(t.title) || _chatLabelOf(t.name));
     });
-    if (tools.length) {
+    if (!ordered && tools.length) {
       kids.push(h('ul', { key: 'tools', 'data-testid': 'bow-chat-tools', className: CHAT_MSG.tools }, tools.map(function(t, i) {
         var s = String(t.status || '');
         var mark = _CHAT_RUNNING[s] ? h(_LoadingSpinner, { size: 12 })
@@ -2237,6 +2262,22 @@
           [mark ? h('span', { key: 'm', className: 'inline-flex shrink-0' }, mark) : null, h('span', { key: 'l' }, _chatLabelOf(t.title) || _chatLabelOf(t.name))]);
       })));
     }
+    if (ordered) ordered.forEach(function(block, i) {
+      if (block.type === 'text' && block.text) {
+        kids.push(h('div', {key:'block-'+i, 'data-testid':'bow-chat-text', className:CHAT_MSG.text},
+          _chatMarkdown(block.text) || h('p', {dir:'auto', className:'whitespace-pre-wrap'}, block.text)));
+      } else if (block.type === 'tool' && props.showTools !== false) {
+        var label = typeof props.toolLabel === 'function' ? props.toolLabel(block) : null;
+        label = _chatLabelOf(label) || _chatLabelOf(block.title) || _chatLabelOf(block.name);
+        var state = String(block.status || '');
+        kids.push(h('div', {key:'block-'+i, dir:'auto', 'data-testid':'bow-chat-tool', 'data-status':state,
+          className:_chatCls(CHAT_MSG.tools, 'flex items-center gap-1.5')}, [
+          _CHAT_RUNNING[state] ? h(_LoadingSpinner,{key:'s',size:12}) : h(_Icon,{key:'s',name:_CHAT_SUCCESS[state]?'check':_CHAT_FAILED[state]?'x':'minus',size:12}),
+          h('span',{key:'l'},label),
+          block.detail ? h('details',{key:'d',className:'text-xs'},[h('summary',{key:'s'},L.toolDetails),h('p',{key:'p'},block.detail)]) : null
+        ]));
+      }
+    });
     var results = props.showResults === false || !Array.isArray(m.results) ? [] : m.results;
     results.forEach(function(r, i) {
       kids.push(h(ChatResult, { key: 'r-' + (r && r.id != null ? r.id : i), result: r, labels: props.labels }));
@@ -2723,6 +2764,10 @@
         return;
       }
       var items = {};
+      function recordBlock(value) {
+        var index = run.timeline.findIndex(function(b) { return b.id === value.id && b.type === value.type; });
+        if (index < 0) run.timeline.push(value); else run.timeline[index] = value;
+      }
       switch (ev.type) {
         case 'started':
           if (run.messageId || ev.message_id == null) return;
@@ -2742,6 +2787,7 @@
           run.blocks[block] = ev.type === 'text' ? piece : run.blocks[block] + piece;
           // As messages() reads it back: the last block with text is the
           // answer, the earlier ones its steps (so nothing moves on the re-read).
+          recordBlock({id:block, type:'text', text:run.blocks[block]});
           var said = run.order.map(function(b) { return run.blocks[b]; }).filter(Boolean);
           items[run.assistantId] = { text: said.length ? said[said.length - 1] : '', steps: said.slice(0, -1) };
           break;
@@ -2756,8 +2802,9 @@
           break;
         }
         case 'tool': {
-          var tool = { name: ev.name, title: ev.title, status: ev.status };
-          if (ev.id != null) tool = { id: ev.id, name: ev.name, title: ev.title, status: ev.status };
+          var tool = { name: ev.name, title: ev.title, status: ev.status, detail: ev.detail };
+          if (ev.id != null) tool = { id: ev.id, name: ev.name, title: ev.title, status: ev.status, detail: ev.detail };
+          recordBlock(Object.assign({type:'tool', id:ev.id == null ? 'tool-'+run.tools.length : ev.id}, tool));
           var at = ev.id != null ? run.tools.findIndex(function(t) { return t.id === ev.id; }) : -1;
           run.tools = run.tools.slice();
           if (at >= 0) run.tools[at] = tool; else run.tools.push(tool);
@@ -2780,6 +2827,7 @@
         }
         default: return;
       }
+      if (items[run.assistantId]) items[run.assistantId].timeline = run.timeline.slice();
       put({ type: 'apply', items: items }, run.gen);
     }
 
@@ -2897,7 +2945,7 @@
       var run = { gen: c.gen, convId: null, messageId: null, controller: new AbortController(), phase: 'queued',
         terminal: null, stopWanted: false, stopSent: false, started: false,
         userLocalId: 'local-' + (++c.seq), assistantLocalId: 'local-' + (++c.seq), assistantId: null,
-        blocks: {}, order: [], thoughts: {}, thoughtOrder: [], tools: [], results: [] };
+        timeline: [], blocks: {}, order: [], thoughts: {}, thoughtOrder: [], tools: [], results: [] };
       run.assistantId = run.assistantLocalId;
       c.run = run;
       cancelTimer();
@@ -3712,7 +3760,7 @@
     messages.forEach(function(m, i) {
       if (!m || typeof m !== 'object') return;
       kids.push(h('div', { key: m.id != null ? 'm-' + m.id : 'i-' + i, 'data-testid': 'bow-chat-row', 'data-message-id': m.id },
-        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults, showThinking: props.showThinking })));
+        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults, showThinking: props.showThinking, toolLabel: props.toolLabel })));
     });
     if (chat.loading && !messages.length) {
       kids.push(h('div', { key: 'loading', 'data-testid': 'bow-chat-loading', className: 'flex justify-center py-6' }, h(_LoadingSpinner, { size: 20 })));
@@ -3835,7 +3883,9 @@
           onCompositionEnd: function() { composing.current = false; } }),
         button
       ]),
-      reason ? h('p', { key: 'r', dir: 'auto', 'data-testid': 'bow-chat-unavailable', className: CHAT_INPUT.note }, reason) : null
+      reason ? h('p', { key: 'r', dir: 'auto', 'data-testid': 'bow-chat-unavailable', className: CHAT_INPUT.note },
+        chat.policy && chat.policy.reason === 'auth_required' && window.bow && bow.auth
+          ? h('button', {type:'button', className:'underline cursor-pointer', onClick:function(){ bow.auth.signIn().catch(function(){}); }}, reason) : reason) : null
     ]);
   }
   window.ChatComposer = ChatComposer;

@@ -3999,7 +3999,8 @@
     "tabReport": "Rapport",
     "tabData": "Données ({count})",
     "refreshedAt": "Actualisé {time}",
-    "madeWith": "Créé avec {brand}"
+    "madeWith": "Créé avec {brand}",
+    "fork": "Créer une copie"
   },
   "errors": {
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",

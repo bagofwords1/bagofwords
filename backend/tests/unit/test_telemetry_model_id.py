@@ -36,7 +36,7 @@ from app.core.telemetry import telemetry_model_id
     ("granite-3.3-8b-instruct", "granite-3.3-8b-instruct"),
     ("pixtral-large-latest", "pixtral-large-latest"),
     ("starcoder2:15b", "starcoder2-15b"),
-    ("hermes3:8b", "hermes3-8b"),
+    ("dolphin3:8b", "dolphin3-8b"),
     ("text-embedding-3-small", "text-embedding-3-small"),
     ("nomic-embed-text", "nomic-embed"),
     ("bge-m3", "bge-m3"),

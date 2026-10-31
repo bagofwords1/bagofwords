@@ -213,7 +213,7 @@ _MODEL_FAMILIES = (
     "granite", "olmo", "falcon", "exaone", "hunyuan", "ernie", "internlm",
     "baichuan", "sonar", "palmyra", "reka", "starcoder", "doubao",
     # Community fine-tunes (Ollama / vLLM)
-    "hermes", "dolphin", "zephyr", "vicuna", "wizardlm", "openchat",
+    "dolphin", "zephyr", "vicuna", "wizardlm", "openchat",
     "smollm", "tulu",
     # Embedding models
     "text-embedding", "nomic-embed", "snowflake-arctic-embed", "bge", "e5",
