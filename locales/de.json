@@ -1397,6 +1397,15 @@
       "failed": "Artefakt konnte nicht gelesen werden",
       "read": "Artefakt lesen"
     },
+    "readArtifactActivity": {
+      "reading": "App-Aktivität wird geprüft…",
+      "checked": "App-Aktivität geprüft",
+      "checkedErrors": "App-Fehler geprüft",
+      "checkedEvent": "App-Ereignis geprüft",
+      "events": "{n} Ereignis | {n} Ereignisse",
+      "none": "noch keine Ereignisse",
+      "failed": "{n} fehlgeschlagen | {n} fehlgeschlagen"
+    },
     "readExcelRange": {
       "readFailed": "Lesen fehlgeschlagen"
     },

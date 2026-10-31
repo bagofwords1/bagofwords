@@ -1421,6 +1421,15 @@
       "failed": "קריאת הפריט נכשלה",
       "read": "קרא פריט"
     },
+    "readArtifactActivity": {
+      "reading": "בודק את פעילות האפליקציה…",
+      "checked": "נבדקה פעילות האפליקציה",
+      "checkedErrors": "נבדקו שגיאות האפליקציה",
+      "checkedEvent": "נבדק אירוע באפליקציה",
+      "events": "אירוע {n} | {n} אירועים",
+      "none": "אין עדיין אירועים",
+      "failed": "{n} נכשל | {n} נכשלו"
+    },
     "readExcelRange": {
       "readFailed": "הקריאה נכשלה"
     },

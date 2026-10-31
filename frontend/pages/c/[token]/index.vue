@@ -297,6 +297,7 @@ import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ManageArtifactResourcesTool from '~/components/tools/ManageArtifactResourcesTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import ReadArtifactActivityTool from '~/components/tools/ReadArtifactActivityTool.vue'
 import CreateDocTool from '~/components/tools/CreateDocTool.vue'
 import EditDocTool from '~/components/tools/EditDocTool.vue'
 import WriteCsvTool from '~/components/tools/WriteCsvTool.vue'
@@ -629,6 +630,8 @@ function getToolComponent(toolName: string) {
             return EditArtifactTool
         case 'read_artifact':
             return ReadArtifactTool
+        case 'read_artifact_activity':
+            return ReadArtifactActivityTool
         case 'create_doc':
             return CreateDocTool
         case 'edit_doc':

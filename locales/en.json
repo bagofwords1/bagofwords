@@ -1519,6 +1519,15 @@
       "failed": "Failed to read artifact",
       "read": "Read Artifact"
     },
+    "readArtifactActivity": {
+      "reading": "Checking app activity…",
+      "checked": "Checked app activity",
+      "checkedErrors": "Checked app errors",
+      "checkedEvent": "Checked app event",
+      "events": "{n} event | {n} events",
+      "none": "no events yet",
+      "failed": "{n} failed | {n} failed"
+    },
     "readExcelRange": {
       "readFailed": "Read failed"
     },
