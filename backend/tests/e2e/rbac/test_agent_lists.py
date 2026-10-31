@@ -75,7 +75,7 @@ def run_async(fn):
     return asyncio.run(_run())
 
 
-def submit(world, records, *, actor="admin", report_key="report", list_id=None, tool_call_id=None):
+def submit(world, records, *, actor="admin", report_key="report", list_id=None, tool_call_id=None, platform_context=None):
     """Execute the submit_list gateway exactly as AgentV2 does after rewriting submit_<list>."""
     from app.ai.tools.implementations.submit_list import SubmitListTool
     from app.models.organization import Organization
@@ -87,7 +87,7 @@ def submit(world, records, *, actor="admin", report_key="report", list_id=None, 
         user = await db.get(User, world[actor]["user_id"])
         org = await db.get(Organization, world["org_id"])
         ctx = {"db": db, "session_maker": maker, "report": report, "user": user, "organization": org,
-               "tool_call_id": tool_call_id or str(uuid.uuid4())}
+               "tool_call_id": tool_call_id or str(uuid.uuid4()), "platform_context": platform_context}
         events = []
         async for e in SubmitListTool().run_stream(
             {"list_id": list_id or world["list"]["id"], "records": records}, ctx
@@ -244,7 +244,7 @@ def test_deleted_list_disappears_and_its_tool_is_not_registered(test_client, wor
 
 # ── S3: runtime registration ───────────────────────────────────────────────
 
-def _build(world, actor="admin", report_key="report"):
+def _build(world, actor="admin", report_key="report", platform_context=None):
     from app.ai.tools.list_tool_registry import build_list_tools
     from app.models.organization import Organization
     from app.models.report import Report
@@ -254,7 +254,7 @@ def _build(world, actor="admin", report_key="report"):
         report = await db.get(Report, world[report_key]["id"])
         user = await db.get(User, world[actor]["user_id"])
         org = await db.get(Organization, world["org_id"])
-        return await build_list_tools(db, report, user, org)
+        return await build_list_tools(db, report, user, org, platform_context=platform_context)
     return run_async(_fn)
 
 
@@ -1203,3 +1203,35 @@ def test_files_only_report_reads_its_saved_rows_back_through_the_bow_source(file
     resolved, keys = run_async(_fn)
     assert resolved == [w["list"]["table_name"]]
     assert keys == ["folder_a", "folder_b"]
+
+
+@pytest.mark.parametrize("actor,opt_in,allowed", [
+    ("admin", False, True), ("viewer", False, False), ("viewer", True, True),
+])
+def test_app_chat_lists_preserve_submission_permissions(world, create_report, test_client, actor, opt_in, allowed):
+    from sqlalchemy import update
+    from app.models.report import Report
+
+    if opt_in:
+        updated = test_client.put(
+            _url(world, f"/{world['list']['id']}"),
+            headers=_h(world["admin"]["token"], world["org_id"]),
+            json={"name": "Contracts", "description": "Customer contracts",
+                  "fields": world["list"]["fields"], "key_field": "counterparty",
+                  "allow_viewer_submissions": True})
+        assert updated.status_code == 200, updated.text
+    world["app_report"] = create_report(
+        title="App chat", user_token=world[actor]["token"],
+        org_id=world["org_id"], data_sources=[world["agent"]["id"]])
+    # Service-only report type; reproduce the report created by the app runtime.
+    async def mark_app(db, maker):
+        await db.execute(update(Report).where(Report.id == world["app_report"]["id"])
+                         .values(report_type="artifact_chat"))
+        await db.commit()
+    run_async(mark_app)
+    context = {"surface": "app"}
+    descriptors, _ = _build(world, actor=actor, report_key="app_report", platform_context=context)
+    assert bool(descriptors) is allowed
+    result = submit(world, [_record()], actor=actor, report_key="app_report", platform_context=context)
+    assert result["output"]["success"] is allowed
+    assert _rows_count_via_db(world) == int(allowed)

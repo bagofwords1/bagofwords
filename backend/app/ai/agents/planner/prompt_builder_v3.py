@@ -474,11 +474,8 @@ class PromptBuilderV3:
         # cache-friendly.
         language_text = language_directive_body(getattr(planner_input, "locale", None))
 
-        # Artifact building (dashboards, apps, documents) and its authoring
-        # reference. An app conversation answers a person's data question with
-        # data tools only and never builds, so it gets none of it.
-        app_surface = PromptBuilder._is_app_surface(planner_input)
-        builder_sections_text = "" if app_surface else (
+        # App conversations use the regular agent tools and their guidance.
+        builder_sections_text = (
             'DASHBOARDS\n'
             '- **Cold start** (no relevant viz in past_observations): build ONE wide master table covering the metrics and dimensions the dashboard needs — not several narrow pre-aggregated queries. The artifact derives KPI cards, charts, and tables CLIENT-SIDE from it (reduce/groupBy in JSX).\n'
             "- **Filters = server-side parameters (DEFAULT).** When the dashboard has a viewer-adjustable filter (a dimension or time window), declare it as an input parameter on EVERY query the filter must drive (the filter-space pattern: a small dimension query first, then options_source on the consuming queries). Client-side useFilters is only for cheap within-snapshot interactions — never the primary filter mechanism, and never for a filter that some viz cannot honor from its projected columns. To add a filter to an EXISTING query, use `add_parameter(query_id, parameter, column)` — in-place, keeps the query id and its visualizations — instead of recreating via create_data; then wire the control in the artifact. To see a parameterized query's result for particular values (answering in chat, or checking a slice before wiring it), call `run_query(query_id, params={...})` — it never changes the query's defaults or what other viewers see.\n"
@@ -492,7 +489,7 @@ class PromptBuilderV3:
             '- "report", "analysis", "write-up", "memo", "root cause", "summarize in a doc" → `create_doc`: YOU author polished markdown with citations for every number, embedding live charts via `{viz:<uuid>}` — create the data FIRST, then the doc (structure and mermaid rules are in the tool\'s description). "dashboard", "monitor", "track" → `create_artifact`. Genuinely ambiguous → dashboard, with the written summary in your final message. Write docs in the user\'s language. Edit docs with `edit_doc` (read_artifact first unless the current markdown is in context).\n'
             '\n'
         )
-        builder_example_text = "" if app_surface else (
+        builder_example_text = (
             '- (past_observations holds a wide master-table viz) "great create a dashboard" → create_artifact with the existing viz_id — DO NOT call create_data first.\n'
         )
 
@@ -575,8 +572,6 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 - "Active users are users who logged in in the last 30 days." → create_data with that definition.
 - "Hi" → text only: "Hi! What would you like to look into today?"
 {builder_example_text}"""
-        if app_surface:
-            return system
         from app.ai.agents.planner.artifact_authoring import build_artifact_authoring_reference
         system += "\n\n" + build_artifact_authoring_reference()
         return system

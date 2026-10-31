@@ -85,7 +85,7 @@ def _rows(world, lst):
     return r.json()["rows"]
 
 
-def _run_code(world, actor, submit_calls, *, before_commit=None, pages=()):
+def _run_code(world, actor, submit_calls, *, before_commit=None, pages=(), platform_context=None):
     """What create_data does around a successful run: load the lists this
     user may write to, let the code submit, then save."""
     from app.ai.code_execution.sandbox_helpers import PageTextStore
@@ -100,7 +100,7 @@ def _run_code(world, actor, submit_calls, *, before_commit=None, pages=()):
         report = await db.get(Report, world["report"]["id"])
         user = await db.get(User, world[actor]["user_id"])
         org = await db.get(Organization, world["org_id"])
-        lists = await load_sandbox_lists(db, report, user, org)
+        lists = await load_sandbox_lists(db, report, user, org, platform_context=platform_context)
         sink = SandboxListSink(lists=lists, max_rows=1000)
         outs = [sink.submit(name, recs) for name, recs in submit_calls]
         if before_commit:
@@ -111,6 +111,7 @@ def _run_code(world, actor, submit_calls, *, before_commit=None, pages=()):
         saved = await commit_sandbox_submissions(
             db, sink.take(), report=report, user=user, organization=org,
             tool_execution_id=str(uuid.uuid4()), extra_sources=texts.to_sources(),
+            platform_context=platform_context,
         )
         return [l.slug for l in lists], outs, saved
 
@@ -212,3 +213,27 @@ def test_sandbox_settings_are_off_for_a_new_org_and_admins_can_turn_them_on(worl
                             headers=_h(world["viewer"]["token"], world["org_id"]),
                             json={"config": {"enable_sandbox_browser": {"value": True}}})
     assert r.status_code == 403
+
+
+@pytest.mark.parametrize("surface,allowed", [("app", True), ("bubble", False)])
+def test_sandbox_lists_follow_the_conversation_surface(world, surface, allowed):
+    from sqlalchemy import update
+    from app.models.report import Report
+    lst = _make_list(world)
+
+    # Runtime-only hidden report type, unavailable in the public report-create schema.
+    async def mark_thread(db):
+        await db.execute(update(Report).where(Report.id == world["report"]["id"])
+                         .values(report_type="artifact_chat"))
+        await db.commit()
+    run_async(mark_thread)
+    calls = [(lst["slug"], [{"company": "Acme", "employees": 42}])]
+    if allowed:
+        slugs, _, saved = _run_code(world, "admin", calls, platform_context={"surface": surface})
+        assert slugs == [lst["slug"]]
+        assert saved["inserted"] == 1
+    else:
+        from app.services.agent_lists.sandbox_sink import SandboxListError
+        with pytest.raises(SandboxListError):
+            _run_code(world, "admin", calls, platform_context={"surface": surface})
+        assert _rows(world, lst) == []

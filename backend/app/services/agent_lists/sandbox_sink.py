@@ -13,12 +13,14 @@ write to a list again later.
 """
 from __future__ import annotations
 
+
 import logging
 import threading
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services.conversation_surface import is_dashboard_chat
 from app.services.agent_lists.records import (
     MAX_RECORDS_PER_CALL,
     normalize_flat_records,
@@ -204,7 +206,7 @@ def _last_per_key(lst, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [r for r in out if r is not None]
 
 
-async def load_sandbox_lists(db, report, user, organization) -> List[SandboxList]:
+async def load_sandbox_lists(db, report, user, organization, *, platform_context=None) -> List[SandboxList]:
     """Lists the acting user may submit to in this report — the same set the
     planner gets as submit_<slug> tools (attached agents, view access,
     can_submit_to_list, never in a read-only artifact chat)."""
@@ -213,7 +215,7 @@ async def load_sandbox_lists(db, report, user, organization) -> List[SandboxList
     from app.models.agent_list import AgentList
     from app.ai.tools.list_tool_registry import build_list_tools
 
-    _descriptors, routing = await build_list_tools(db, report, user, organization)
+    _descriptors, routing = await build_list_tools(db, report, user, organization, platform_context=platform_context)
     ids = [r["list_id"] for r in routing.values()]
     if not ids:
         return []
@@ -237,6 +239,7 @@ async def commit_sandbox_submissions(
     organization,
     tool_execution_id: Optional[str],
     extra_sources: Optional[List[Any]] = None,
+    platform_context=None,
 ) -> Dict[str, Any]:
     """Save what a successful run queued. Access is re-checked at write time.
 
@@ -255,7 +258,7 @@ async def commit_sandbox_submissions(
                                "rejected": 0, "errors": []}
     if not pending:
         return summary
-    if report is not None and getattr(report, "report_type", "regular") == "artifact_chat":
+    if is_dashboard_chat(report, platform_context):
         summary["errors"].append("lists are read-only in this conversation; nothing was saved")
         summary["rejected"] = sum(len(v) for v in pending.values())
         return summary

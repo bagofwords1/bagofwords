@@ -7,9 +7,10 @@ and nothing is deleted until they approve. Only the rows shown on the card
 are deleted, so a row added while the card is open is kept.
 
 Same gate as the REST delete: MANAGE on the owning agent, which must be
-attached to the report. Not offered to sub-agents or in shared-artifact chat.
+attached to the report. Not offered to sub-agents or in dashboard viewer chat.
 """
 from __future__ import annotations
+
 
 import logging
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
@@ -18,6 +19,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 
+from app.services.conversation_surface import is_dashboard_chat
 from app.ai.tools.base import Tool
 from app.ai.tools.implementations._list_tool_common import (
     find_list,
@@ -136,7 +138,8 @@ class DeleteListRowsTool(Tool):
         if not all([db, organization, user, report]):
             yield ToolErrorEvent(type="tool.error", payload={"error": "delete_list_rows requires an active report.", "code": "MISSING_CONTEXT"})
             return
-        if getattr(report, "report_type", "regular") == "artifact_chat":
+        platform_context = runtime_ctx.get("platform_context")
+        if is_dashboard_chat(report, platform_context):
             yield _end(DeleteListRowsOutput(success=False, status="permission_denied"),
                        "Rows cannot be deleted from a shared-artifact conversation.")
             return

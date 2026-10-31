@@ -11,6 +11,7 @@ the full schema (atomic: invalid -> nothing written, path-qualified errors),
 verifies evidence quotes against text read in this report, and upserts rows.
 """
 import logging
+from app.services.conversation_surface import is_dashboard_chat
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -98,7 +99,8 @@ class SubmitListTool(Tool):
                     select(report_data_source_association.c.data_source_id)
                     .where(report_data_source_association.c.report_id == report_id)
                 )).all()}
-            read_only_chat = getattr(report, "report_type", "regular") == "artifact_chat"
+            platform_context = runtime_ctx.get("platform_context")
+            read_only_chat = is_dashboard_chat(report, platform_context)
             if (read_only_chat or str(lst.data_source_id) not in attached
                     or not await can_submit_to_list(db, user, organization, ds, lst)):
                 yield self._fail(lst.id, lst.name, str(lst.data_source_id),

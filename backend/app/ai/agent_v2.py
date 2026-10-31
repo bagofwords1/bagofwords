@@ -14,6 +14,8 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.services.conversation_surface import is_app_conversation, is_dashboard_chat
+
 from app.data_sources.clients.base import Capability
 
 logger = logging.getLogger(__name__)
@@ -539,16 +541,6 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 }
 
 
-def artifact_chat_tool_allowlist(platform_context) -> set:
-    """The viewer-chat tools for one message. An app's conversation
-    (platform_context surface "app") answers data questions only: it drops
-    read_artifact, whose guidance is about editing an artifact, and its own
-    report holds no artifact to read. The dashboard bubble keeps it."""
-    if isinstance(platform_context, dict) and platform_context.get("surface") == "app":
-        return ARTIFACT_CHAT_TOOL_ALLOWLIST - {"read_artifact"}
-    return ARTIFACT_CHAT_TOOL_ALLOWLIST
-
-
 # Tools that never read the turn's context view or hub; they skip the pre-tool
 # context rebuild. Anything not listed keeps it.
 _CONTEXT_FREE_TOOLS = frozenset({
@@ -976,7 +968,7 @@ class AgentV2:
 
         # Build browser candidates respecting registry mode/platform constraints.
         # Live eligibility is resolved before each planner step below.
-        if getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
+        if not is_dashboard_chat(self.report, self.platform_context):
             available_capabilities.add("artifact_preview")
 
         # Start with all available tools for the planner to see, filtered by mode and platform
@@ -1037,15 +1029,13 @@ class AgentV2:
         ):
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
 
-        # Shared-artifact viewer chat runs read/query-only: no artifact or
-        # dashboard mutations, no comms, no automation, no agent-scope tools
-        # (the roster is a server-synced hard scope — see ArtifactChatService).
-        # Keyed on the report's own type so no caller can forget to pass it.
-        if getattr(self.report, 'report_type', 'regular') == 'artifact_chat':
-            _chat_tools = artifact_chat_tool_allowlist(self.platform_context)
+        # Only dashboard viewer chat is read/query-only. Apps use the same
+        # catalog as regular agent chat; permissions and configured gates below
+        # still apply.
+        if is_dashboard_chat(self.report, self.platform_context):
             all_catalog_dicts = [
                 t for t in all_catalog_dicts
-                if t['name'] in _chat_tools
+                if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
             ]
 
         # The conversation's API settings (report.follow_ups /
@@ -1068,7 +1058,9 @@ class AgentV2:
         self._sub_agents_enabled = bool(
             _sub_agents_enabled(self.organization_settings)
             and not self._is_sub_agent
-            and getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
+            and (getattr(self.report, 'report_type', 'regular') in ('regular', 'test')
+                 or (getattr(self.report, 'report_type', 'regular') == 'artifact_chat'
+                     and is_app_conversation(self.platform_context)))
             and "delegate" not in self._disabled_tools
         )
         if not self._sub_agents_enabled:
@@ -9114,7 +9106,9 @@ class AgentV2:
                 return
         try:
             user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
-            descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
+            descriptors, routing = await build_list_tools(
+                self.db, self.report, user, self.organization, platform_context=self.platform_context
+            )
             if not descriptors:
                 if stale:
                     logger.info("[agent] list tools refreshed: none remain")

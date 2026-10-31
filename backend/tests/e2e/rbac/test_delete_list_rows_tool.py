@@ -161,3 +161,23 @@ def test_keys_on_a_list_without_a_key_field_are_refused(test_client, world):
     res, events, _ = drive(world, "delete_list_rows", {"list_id": out["list_id"], "keys": ["Acme Corp"]})
     assert res["status"] == "invalid" and res["errors"]
     assert not cards(events)
+
+
+@pytest.mark.parametrize("surface,allowed", [("app", True), ("bubble", False)])
+def test_artifact_chat_deletion_uses_the_surface_and_still_requires_confirmation(test_client, world, filled, surface, allowed):
+    from sqlalchemy import update
+    from app.models.report import Report
+    from tests.e2e.rbac.test_list_schema_tools import run_async
+
+    # Hidden conversation types are created by the runtime service, not the reports API.
+    async def mark_thread(db, maker):
+        await db.execute(update(Report).where(Report.id == world["report"]["id"])
+                         .values(report_type="artifact_chat"))
+        await db.commit()
+    run_async(mark_thread)
+    out, events, _ = drive(
+        world, "delete_list_rows", {"list_id": filled["list_id"], "all": True},
+        platform_context={"surface": surface}, decision={"approved": True})
+    assert out["success"] is allowed
+    assert bool(cards(events)) is allowed
+    assert len(rows_of(test_client, world, filled)) == (0 if allowed else len(COMPANIES))

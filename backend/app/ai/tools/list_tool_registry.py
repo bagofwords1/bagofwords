@@ -14,10 +14,12 @@ from typing import Any, Dict, List, Tuple
 
 from sqlalchemy import select
 
+from app.services.conversation_surface import is_dashboard_chat
+
 logger = logging.getLogger(__name__)
 
 
-async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
+async def build_list_tools(db, report, user, organization, *, platform_context=None) -> Tuple[List[Dict[str, Any]], Dict[str, Dict[str, str]]]:
     from app.models.data_source import DataSource
     from app.models.report_data_source_association import report_data_source_association
     from app.services.agent_lists.access import viewable_agent_ids
@@ -27,8 +29,8 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
 
     if report is None or user is None or organization is None:
         return [], {}
-    # Shared-artifact viewer chat is read-only by contract (ArtifactChatService).
-    if getattr(report, "report_type", "regular") == "artifact_chat":
+    # Dashboard viewer chat stays read-only; apps use the list permission checks below.
+    if is_dashboard_chat(report, platform_context):
         return [], {}
     ds_ids = [str(r[0]) for r in (await db.execute(
         select(report_data_source_association.c.data_source_id)

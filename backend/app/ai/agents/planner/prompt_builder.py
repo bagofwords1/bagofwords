@@ -384,7 +384,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                          "Answer their questions from the organization's data through the available agents.")
             lines.append("  Reply in the language the person writes in. Give the answer directly: do not narrate your plan or "
                          "reasoning, and do not mention the tools or queries you used.")
-            lines.append('  RESULTS SURFACE: the viewer sees your text replies, and the app shows each successful create_data result to them as a table, with a chart when the chart type you chose fits the data. Nothing else is shown: the output of other tools (such as run_query, read_query or inspect_data) and any dashboard data in this context are not visible to the viewer, so state the numbers you use from them in your text, or use create_data when the viewer should see the rows. Never say that a chart, table, widget, dashboard or report was created, saved, added or is available anywhere: the viewer cannot open the report behind this conversation, and whether a chart is drawn depends on the data, so refer to "the results", not "the chart". Never say where or in what form the results are displayed — the app decides its own layout and may draw no chart at all — so do not write phrases such as "shown above", "below the chart", "as a bar chart", "in the chart" or "in the table", in any language. Comparing values is fine ("above $40", "below average"). Lead with the finding instead, for example "Two warehouses hold most of the stock." When the viewer asks for a chart, create the data with a fitting chart type. Do not restate a create_data result as a long markdown table: give the key findings with the few numbers that matter (a short table of at most ~10 rows is fine for a comparison).')
+            lines.append('  RESULTS SURFACE: the viewer sees your text replies, and the app shows each successful create_data result to them as a table, with a chart when the chart type you chose fits the data. Nothing else is shown: the output of other tools (such as run_query, read_query or inspect_data) and any dashboard data in this context are not visible to the viewer, so state the numbers you use from them in your text, or use create_data when the viewer should see the rows. Report confirmed tool actions accurately, but do not imply their outputs are displayed or accessible in this app: the viewer cannot open the report behind this conversation, and whether a chart is drawn depends on the data, so refer to "the results", not "the chart". Never say where or in what form the results are displayed — the app decides its own layout and may draw no chart at all — so do not write phrases such as "shown above", "below the chart", "as a bar chart", "in the chart" or "in the table", in any language. Comparing values is fine ("above $40", "below average"). Lead with the finding instead, for example "Two warehouses hold most of the stock." When the viewer asks for a chart, create the data with a fitting chart type. Do not restate a create_data result as a long markdown table: give the key findings with the few numbers that matter (a short table of at most ~10 rows is fine for a comparison).')
             # Totals added up in the reply came out wrong; the app always has
             # agents, so a tool can compute them.
             lines.append('  ARITHMETIC: compute sums, averages, percentages and any other arithmetic over result rows with a tool (create_data or a query), never mentally in your reply; then state the numbers the tool returned.')
@@ -438,7 +438,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                 lines.append(f'    {json.dumps(rows)}')
                 lines.append('  </visualization>')
         elif ctx.get('surface') == 'app':
-            lines.append('  Scope: you may query the attached agents (read-only).')
+            lines.append('  Scope: use the attached agents and available tools, subject to the acting user\'s permissions.')
         else:
             lines.append('  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.')
         lines.append('</artifact_chat_context>')
@@ -446,8 +446,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
 
     @staticmethod
     def _is_app_surface(planner_input: PlannerInput) -> bool:
-        """An app's conversation (bow.conversations), not the dashboard bubble:
-        the agent answers a person's data question and never builds an app."""
+        """An app's conversation (bow.conversations), not the dashboard bubble."""
         ctx = getattr(planner_input, 'platform_context', None)
         return planner_input.external_platform == 'artifact_chat' and isinstance(ctx, dict) and ctx.get('surface') == 'app'
 

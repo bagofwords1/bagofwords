@@ -84,9 +84,11 @@ agent's behavior merely to customize one app.
 
 Tool restrictions must be enforced by the server. Hiding tool progress or asking
 the model not to use a tool does not restrict access. Artifact conversations
-currently expose a read/query tool subset; do not promise arbitrary MCP tools,
-write actions, or Completion API options without verifying support on this
-surface. Never call model providers directly from generated browser code.
+use the same tool catalog as regular agent chat, subject to the selected agents,
+viewer permissions, connector capabilities, and disabled-tool settings. Dashboard
+viewer chat remains read/query-only. Verify the required tools and permissions
+before promising an integration or write action. Never call model providers
+directly from generated browser code.
 
 ### Branding, embedding, and identity
 

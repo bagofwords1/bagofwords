@@ -454,7 +454,10 @@ class SubAgentService:
             if (claimed.rowcount or 0) != 1:
                 return
             await db.refresh(row)
+            from app.services.conversation_surface import parent_app_surface
+            surface = await parent_app_surface(db, wave.parent_completion_id)
             prompt = PromptSchema(
+                **surface,
                 content=_child_prompt(row),
                 mode="subagent",
                 model_id=str(row.model_id) if row.model_id else None,
@@ -985,9 +988,12 @@ async def run_fan_in(wave_id: str) -> None:
             except Exception:
                 pass
 
+        from app.services.conversation_surface import parent_app_surface
+        surface = await parent_app_surface(db, wave.parent_completion_id)
         try:
             await run_machine_turn(
                 db, report=report, user=user, organization=organization,
+                **surface,
                 summary=summary[:300], trigger_source="sub_agent_wave", message_type="sub_agent_wave_done",
                 instruction=instruction, meta=meta, mode=(wave.parent_mode or None), on_event=_on_event,
             )

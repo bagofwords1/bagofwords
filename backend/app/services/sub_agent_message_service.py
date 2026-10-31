@@ -143,6 +143,8 @@ class SubAgentMessageService:
         )
         db.add(event)
         await db.flush()
+        from app.services.conversation_surface import parent_app_surface
+        surface = await parent_app_surface(db, wave.parent_completion_id)
         db.add(Completion(
             parent_id=event.id,
             report_id=wave.report_id, user_id=wave.user_id, role='user', status='queued',
@@ -152,7 +154,7 @@ class SubAgentMessageService:
                     'with message_sub_agent(kind="answer", recipient=sender, reply_to=message_id). '
                     'Use the user’s existing instructions. If only the user can decide, ask them and tell the child '
                     'to finish with the uncertainty. Do not claim the investigation is finished.',
-                    'mode': wave.parent_mode or 'chat'},
+                    'mode': wave.parent_mode or 'chat', **surface},
         ))
 
     async def receive(self, db, *, organization_id, report_id, recipient):

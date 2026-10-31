@@ -101,7 +101,7 @@ def test_a_conversation_message_is_told_which_results_the_viewer_sees(name):
 APP_LINES = {
     TITLE: '  App: "Sales overview"',
     "  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.":
-        "  Scope: you may query the attached agents (read-only).",
+        "  Scope: use the attached agents and available tools, subject to the acting user's permissions.",
 }
 
 

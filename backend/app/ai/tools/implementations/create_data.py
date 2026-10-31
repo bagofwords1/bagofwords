@@ -1466,6 +1466,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 async with async_session_maker() as _db:
                     _lists = await load_sandbox_lists(
                         _db, runtime_ctx.get("report"), runtime_ctx.get("user"), runtime_ctx.get("organization"),
+                        platform_context=runtime_ctx.get("platform_context"),
                     )
                 if _lists:
                     lists_sink = SandboxListSink(lists=_lists, max_rows=sb.max_list_rows)
@@ -1520,6 +1521,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         organization=runtime_ctx.get("organization"),
                         tool_execution_id=runtime_ctx.get("tool_call_id"),
                         extra_sources=helpers.page_texts.to_sources(),
+                        platform_context=runtime_ctx.get("platform_context"),
                     )
         except Exception as e:
             logger.exception("create_data: saving list rows from code failed")
