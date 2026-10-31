@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.603 (October 31, 2026)
+- Added scoping instructions to a connected application, so a rule applies only in conversations started from that app (#1542) — instruction editor → Channels
+- Added a sign-in screen with the app's title for chat apps opened by signed-out viewers (#1540)
+- Changed embedded chat to show tool activity beside the text it belongs to, with readable labels and error detail (#1540)
+- Changed the published app menu to a single compact menu, hidden when the app is embedded (#1540)
+- Fixed chat apps losing their tools when the agent resumes after a wait (#1540)
+- Fixed channel-scoped instructions loading on the wrong channel when the same question was asked on two channels within a few minutes (#1542)
+- Fixed embedded chat waiting on chart libraries it doesn't use (#1540)
+
 ## Version 0.0.602 (October 31, 2026)
 - Added CrowdStrike Falcon as a read-only data source: hosts, alerts, incidents, vulnerabilities and IOCs (#1527)
 - Added Microsoft Intune as a read-only data source: devices, compliance, configuration profiles, apps and Autopilot (#1528)
