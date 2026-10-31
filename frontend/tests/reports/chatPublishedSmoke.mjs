@@ -11,22 +11,20 @@ fs.mkdirSync(dir,{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:process.env.PW_CHROMIUM_PATH||undefined});
 const context=await browser.newContext({viewport:{width:1280,height:800},recordVideo:process.env.CHAT_VIDEO?{dir:dir+'video',size:{width:1280,height:800}}:undefined});
 const page=await context.newPage();
+page.setDefaultTimeout(15000);
 const errors=[];page.on('pageerror',e=>errors.push(String(e)));
 try{
  await page.goto(url);
  const chat=page.frameLocator('iframe');
- await chat.getByRole('heading',{name:'Support',exact:true}).waitFor();
+ if(process.env.CHAT_BASELINE) await chat.getByRole('heading',{name:'Support',exact:true}).waitFor();
  if(process.env.CHAT_BASELINE){await page.screenshot({path:dir+'page-before.png'});console.log('Captured baseline');}
  else{
-  await page.getByTestId('app-menu').waitFor();
-  const signIn=chat.getByRole('button',{name:'Sign in to chat'});
-  await signIn.waitFor();
-  await page.screenshot({path:dir+'page-after.png'});
-  await page.getByTestId('app-menu').click();
-  await page.getByRole('menu').waitFor();
-  assert.ok(!(await page.getByRole('menu').innerText()).includes('Edit in my conversation'));
-  await page.screenshot({path:dir+'menu-viewer.png'});
-  await page.keyboard.press('Escape');
+  await page.getByTestId('app-sign-in-gate').waitFor();
+  await page.getByRole('heading',{name:'Support',exact:true}).waitFor();
+  assert.equal(await page.locator('iframe').count(),0);
+  assert.equal(await page.getByTestId('app-menu').count(),0);
+  const signIn=page.getByRole('link',{name:'Sign in',exact:true});
+  await page.screenshot({path:dir+'gate-after.png'});
   await signIn.click();
   await page.waitForURL('**/users/sign-in?redirect=*');
   assert.equal(new URL(page.url()).searchParams.get('redirect'),new URL(url).pathname);
@@ -49,14 +47,54 @@ try{
    assert.equal(await embedded.getByTestId('app-menu').count(),0);
    await page.screenshot({path:dir+'embedded.png'});
    const anonymous=await browser.newContext({viewport:{width:1280,height:800}});
+   anonymous.setDefaultTimeout(15000);
    try {
     const guest=await anonymous.newPage();await guest.goto(`http://127.0.0.1:${server.address().port}`);
     await guest.getByRole('button',{name:'Support',exact:true}).click();
     const host=guest.frameLocator('iframe[title="Support app"]');
-    await host.frameLocator('iframe').getByRole('button',{name:'Sign in to chat'}).click();
+    await host.getByTestId('app-sign-in-gate').waitFor();
+    assert.equal(await host.locator('iframe').count(),0);
+    await guest.screenshot({path:dir+'gate-embedded.png'});
     const link=host.getByRole('link',{name:'Sign in',exact:true});await link.waitFor();
     assert.equal(await link.getAttribute('target'),'_blank');
     assert.equal(new URL(await link.getAttribute('href'),url).searchParams.get('redirect'),new URL(url).pathname);
+    await guest.goto(url);
+    await guest.evaluate(()=>localStorage.setItem('bow.locale','he'));await guest.reload();
+    await guest.getByTestId('app-sign-in-gate').waitFor();
+    assert.equal(await guest.locator('html').getAttribute('dir'),'rtl');
+    await guest.screenshot({path:dir+'gate-he.png'});
+    // A public read-only artifact still opens anonymously: replace only its
+    // content response, leaving the real public metadata/access path intact.
+    await guest.route('**/api/d/*/content',async route=>{
+     const response=await route.fetch();const body=await response.json();
+     body.content.code='<script type="text/babel">function App(){return <h1>Public overview</h1>} ReactDOM.createRoot(document.getElementById("root")).render(<App/>);</script>';
+     body.compiled_js=null;body.compiled_hash=null;
+     await route.fulfill({response,json:body});
+    });
+    await guest.reload();
+    await guest.frameLocator('iframe').getByRole('heading',{name:'Public overview'}).waitFor({timeout:15000});
+    assert.equal(await guest.getByTestId('app-sign-in-gate').count(),0);
+    if(process.env.BOW_CHAT_EMAIL){
+     await guest.unroute('**/api/d/*/content');
+     await guest.evaluate(()=>localStorage.removeItem('bow.locale'));
+     await guest.goto(`http://127.0.0.1:${server.address().port}`);
+     await guest.getByRole('button',{name:'Support',exact:true}).click();
+     const embeddedGate=guest.frameLocator('iframe[title="Support app"]');
+     const popupPromise=guest.waitForEvent('popup');
+     await embeddedGate.getByRole('link',{name:'Sign in',exact:true}).click();
+     const popup=await popupPromise;
+     await popup.getByLabel('Email',{exact:true}).fill(process.env.BOW_CHAT_EMAIL);
+     await popup.getByLabel('Password',{exact:true}).fill(process.env.BOW_CHAT_PASSWORD);
+     await popup.getByRole('button',{name:'Sign in',exact:true}).click();
+     await popup.waitForURL(url);await popup.close();
+     // Browser focus delivery differs headless; exercise the real focus handler.
+     const appFrame=guest.frames().find(frame=>frame.url().includes('/d/'));
+     await appFrame.evaluate(()=>window.dispatchEvent(new Event('focus')));
+     await embeddedGate.frameLocator('iframe').getByRole('heading',{name:'Support',exact:true}).waitFor({timeout:15000});
+     assert.equal(await embeddedGate.getByTestId('app-sign-in-gate').count(),0);
+    }
+
+
    } finally {await anonymous.close();}
 
   }finally{await new Promise(resolve=>server.close(resolve));}

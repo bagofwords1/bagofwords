@@ -1,23 +1,31 @@
 <template>
-    <!-- Access error overlay -->
-    <div v-if="accessError" class="h-dvh w-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-        <div class="text-center max-w-md mx-auto px-6">
-            <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 mx-auto mb-4 text-ink-muted" />
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                {{ accessError === 'login' ? t('dashboardCollab.access.signInTitle') : t('dashboardCollab.access.deniedTitle') }}
-            </h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-                {{ accessError === 'login' ? t('dashboardCollab.access.signInBody') : t('dashboardCollab.access.deniedBody') }}
-            </p>
-            <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=${api.pagePath}`"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+    <!-- Identity is resolved before mounting an app that owns conversations. -->
+    <main v-if="accessError === 'login' || requiresAppSignIn" data-testid="app-sign-in-gate"
+        class="min-h-dvh w-full bg-surface flex items-center justify-center px-6 py-12">
+        <div class="w-full max-w-sm text-center">
+            <div class="mx-auto mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-surface-subtle text-ink-muted">
+                <Icon name="heroicons:lock-closed" class="h-5 w-5" aria-hidden="true" />
+            </div>
+            <h1 class="text-2xl font-semibold tracking-tight text-ink break-words">{{ signInAppTitle }}</h1>
+            <p class="mt-3 text-sm text-ink-muted">{{ t('dashboardCollab.access.signInBody') }}</p>
+            <UButton :to="signInUrl" :target="isFramed ? '_blank' : undefined" rel="noopener"
+                color="black" size="lg" block class="mt-7" @click="signInOpened = true">
                 {{ t('dashboardCollab.access.signIn') }}
-            </a>
-            <a v-else href="/"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                {{ t('dashboardCollab.access.goHome') }}
-            </a>
+            </UButton>
         </div>
+    </main>
+    <div v-else-if="accessError === 'denied'" class="min-h-dvh w-full flex items-center justify-center bg-surface">
+        <div class="text-center max-w-sm mx-auto px-6">
+            <Icon name="heroicons:shield-exclamation" class="w-8 h-8 mx-auto mb-4 text-ink-muted" />
+            <h2 class="text-lg font-semibold text-ink mb-2">{{ t('dashboardCollab.access.deniedTitle') }}</h2>
+            <p class="text-sm text-ink-muted mb-6">{{ t('dashboardCollab.access.deniedBody') }}</p>
+            <UButton to="/" color="white">{{ t('dashboardCollab.access.goHome') }}</UButton>
+        </div>
+    </div>
+
+    <div v-else-if="!identityResolved && !unavailable" class="min-h-dvh w-full bg-surface flex items-center justify-center"
+        role="status" :aria-label="t('agentFlyout.loading')">
+        <Icon name="heroicons:arrow-path" class="h-5 w-5 animate-spin text-ink-muted" />
     </div>
 
     <!-- Embedded in a conversation's Dashboard tab: the version it names is gone. -->
@@ -264,9 +272,7 @@ const embedCredential = useEmbedCredential();
 // Inside a host application: the host's chrome surrounds the artifact, so no
 // bars of our own; the signed-in user is the host's.
 const inHostApplication = computed(() => !!embedCredential.value);
-// Start downloading the artifact iframe's libraries now, in parallel with the
-// page's data requests (see utils/artifactLibs.ts).
-ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }).filter(u => !u.includes('echarts-')));
+
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
 // `unavailable`: inside a host application the artifact could not be opened;
@@ -429,6 +435,22 @@ const unavailable = ref(false);
 // Top bar state
 const showTopBar = ref(!embedded && !inHostApplication.value && (typeof window === 'undefined' || window.self === window.top));
 const showVersionDetails = ref(false);
+const identityResolved = ref(false);
+const requiresAppSignIn = computed(() => identityResolved.value && ownConversations.value && !viewerContext.value && !inHostApplication.value);
+const signInAppTitle = computed(() => artifact.value?.title && artifact.value.title !== 'Untitled Artifact'
+    ? artifact.value.title : report.value?.title || t('dashboardCollab.access.signInTitle'));
+const isFramed = typeof window !== 'undefined' && window.self !== window.top;
+const signInOpened = ref(false);
+// A sign-in opened from an ERP runs in a separate tab. Reload once on
+// return so the auth provider reads the new cookie (its token ref is stale).
+// Cancelled sign-in simply returns to this gate; there is no redirect loop.
+function resumeAfterSignIn() {
+    if (!signInOpened.value || !isFramed) return;
+    signInOpened.value = false;
+    window.location.reload();
+}
+onMounted(() => window.addEventListener('focus', resumeAfterSignIn));
+onUnmounted(() => window.removeEventListener('focus', resumeAfterSignIn));
 const signInRequested = ref(false);
 const signInUrl = computed(() => '/users/sign-in?redirect=' + encodeURIComponent(api.pagePath));
 const requestSignIn = () => { signInRequested.value = true; };
@@ -1842,7 +1864,7 @@ async function forwardToDashboard(): Promise<boolean> {
 onMounted(async () => {
     if (await forwardToDashboard()) return;
     // Load report and artifact in parallel first (viewer identity alongside —
-    // it gates nothing; anonymous viewers just get current_user=null)
+    // chat apps use it to gate rendering; public dashboards remain anonymous)
     // A dashboard's content is read after its answer (which names the
     // version on screen, or sends an unpublished one to its draft).
     if (props.source === 'report') {
@@ -1854,9 +1876,17 @@ onMounted(async () => {
     } else {
         await Promise.all([loadReport(), fetchViewerContext()]);
         if (accessError.value || !dashboardMeta.value) return;
-        // A dashboard's queries don't depend on its content — read both at once.
-        initialQueries = { artifactId: undefined, promise: fetchQueriesWithSteps() };
         await loadArtifact();
+    }
+
+    identityResolved.value = true;
+    // Public reading is still allowed; BOW conversations always require identity.
+    // Do not mount app code or fetch its query data behind the sign-in gate.
+    if (requiresAppSignIn.value || accessError.value) return;
+    // Download core libraries in parallel with data, only after the gate opens.
+    ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }).filter(u => !u.includes('echarts-')));
+    if (props.source !== 'report') {
+        initialQueries = { artifactId: undefined, promise: fetchQueriesWithSteps() };
     }
 
     // Load visualization data with artifact filter (if artifact exists)
@@ -1890,7 +1920,7 @@ onMounted(async () => {
         runtime: artifactRuntime()
     }));
 
-    // The iframe libraries were requested at setup, in parallel with the data
+    // The iframe libraries were requested after identity, in parallel with the data
     // above; usually they are already here. Waiting before flipping the flags
     // keeps the Loading state up instead of an empty frame.
     if (artifact.value) {
