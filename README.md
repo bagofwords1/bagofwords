@@ -189,9 +189,9 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | VMware Aria Operations | Monitoring and observability |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
+| Microsoft Configuration Manager (SCCM) | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
-| Microsoft Configuration Manager (SCCM) | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
