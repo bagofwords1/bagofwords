@@ -52,7 +52,8 @@ def _source(value):
 
 
 class HostApplicationCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    application_id: Optional[str] = None
+    name: str = Field(min_length=1, max_length=255)
     allowed_origins: List[str] = Field(default_factory=list)
     identity_mode: IdentityMode = "assertion"
     identity_source: Optional[str] = None
@@ -80,7 +81,7 @@ class HostApplicationCreate(BaseModel):
 class HostApplicationUpdate(BaseModel):
     """Partial update; ``revision`` must match the row the caller edited."""
     revision: int
-    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     allowed_origins: Optional[List[str]] = None
     identity_mode: Optional[IdentityMode] = None
     identity_source: Optional[str] = None

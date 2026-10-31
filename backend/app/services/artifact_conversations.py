@@ -304,6 +304,12 @@ def _texts(blocks) -> tuple[str, list[str]]:
     return (said[-1] if said else ""), said[:-1]
 
 
+def _thinking(blocks) -> str:
+    """Persisted reasoning, in block order, separate from answer/narration."""
+    ordered = sorted(blocks or [], key=lambda b: b.get("block_index") or 0)
+    return "\n\n".join(b["reasoning"] for b in ordered if b.get("reasoning"))
+
+
 def _tool_title(te: dict, redaction) -> Optional[str]:
     """A tool's title as shown (the stream's ``tool`` line and history
     ``tools[]``): display-redacted; None when the redactor could not be loaded
@@ -361,7 +367,8 @@ async def messages(db, thread: Report, organization, user, *, limit: int, before
             "id": str(c.get("id")), "role": role, "status": c.get("status"),
             "created_at": c["created_at"].isoformat() if hasattr(c.get("created_at"), "isoformat") else c.get("created_at"),
             "text": ((c.get("prompt") or {}).get("content") or "") if role == "user" else _texts(c.get("completion_blocks"))[0],
-            **({"steps": _texts(c.get("completion_blocks"))[1], "tools": _tools(c.get("completion_blocks"), redaction)}
+            **({"thinking": _thinking(c.get("completion_blocks")),
+                "steps": _texts(c.get("completion_blocks"))[1], "tools": _tools(c.get("completion_blocks"), redaction)}
                if role == "assistant" else {}),
         })
     assistant = [m for m in items if m["role"] == "assistant"]
@@ -505,10 +512,13 @@ class _Translator:
                 self.expected[te["id"]] = te.get("created_step_id") or self.expected.get(te["id"])
                 if self.message_id and te.get("created_step_id") not in self.sent:
                     ops.append(_Lookup(te["id"]))
-        elif kind == "block.delta.token" and data.get("field") == "content" and data.get("token"):
-            ops.append({"type": "text_delta", "block": data.get("block_id"), "text": str(data["token"])})
-        elif kind == "block.delta.text" and data.get("field") == "content" and data.get("text"):
-            ops.append({"type": "text", "block": data.get("block_id"), "text": str(data["text"])})
+        elif kind in ("block.delta.token", "block.delta.text") and data.get("field") in ("content", "reasoning"):
+            delta = kind == "block.delta.token"
+            value = data.get("token" if delta else "text")
+            if value is not None:
+                channel = "thinking" if data["field"] == "reasoning" else "text"
+                ops.append({"type": channel + ("_delta" if delta else ""),
+                            "block": data.get("block_id"), "text": str(value)})
         elif kind == "completion.finished" and not self.finishing:
             self.finishing = True
             self.first_status = data.get("status") or "success"
@@ -583,7 +593,7 @@ class _Translator:
 
 async def ndjson(sse: AsyncIterator, *, thread_id: str, organization_id: str) -> AsyncIterator[bytes]:
     """The completion's SSE stream as the artifact SDK's NDJSON events:
-    started, tool, text_delta, text, result, then completed (exactly once,
+    started, tool, text_delta, text, thinking_delta, thinking, result, then completed (exactly once,
     last) or error. Nothing follows completed or error.
 
     A ``result`` is a successful create_data of this message, loaded from the

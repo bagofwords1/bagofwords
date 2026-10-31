@@ -73,6 +73,12 @@ class Embed:
 
     def attribute(self, person, value, key="employee_id"):
         membership_id = self.corpus.cast.people[person].membership_id
+        if membership_id is None:  # the org creator's membership is created implicitly
+            members = self.client.get(f"/api/organizations/{self.corpus.cast.org_id}/members",
+                                      headers=self.admin)
+            assert members.status_code == 200, members.text
+            membership_id = next(m["id"] for m in members.json()
+                                 if m["user_id"] == self.corpus.cast.id(person))
         r = self.client.put(f"/api/organizations/{self.corpus.cast.org_id}/members/{membership_id}",
                             json={"custom_attributes": {key: value}}, headers=self.admin)
         assert r.status_code == 200, r.text
@@ -280,6 +286,52 @@ def test_an_assertion_is_good_once(embed):
     assert embed.session(host, assertion=assertion).status_code == 200
     again = embed.session(host, assertion=assertion)
     assert again.status_code == 401 and again.json()["error_code"] == "embed.assertion_replayed"
+
+
+@pytest.mark.parametrize("person", ["admin", "member"])
+def test_schema_upgrade_preserves_embed_sessions_keys_and_replay_protection(embed, published, person):
+    """Live credentials and artifact admission survive the schema transition."""
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine
+    from tests.fixtures.dashboard_corpus.alembic_at import script_directory
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    subject = f"employee-{uuid.uuid4().hex}"
+    embed.attribute(person, subject)
+    host = embed.create()
+    # Released hosts had no application agent ceiling.
+    updated = embed.client.patch(f"/api/connected_applications/{host['id']}",
+                                 json={"agent_ids": None}, headers=embed.admin)
+    assert updated.status_code == 200, updated.text
+    assert embed.allow(published, host).status_code == 200
+    assertion = sign(host["private_key"], aud=host["public_id"], sub=subject)
+    issued = embed.session(host, assertion=assertion)
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["token"]
+    engine = create_engine(sync_test_url())
+    try:
+        with engine.begin() as conn:
+            migration = script_directory().get_revision("connapps01").module
+            with Operations.context(MigrationContext.configure(conn)):
+                migration.downgrade()
+                migration.upgrade()
+    finally:
+        engine.dispose()
+
+    status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(token))
+    assert status.status_code == 200, status.text
+    assert status.json()["user"]["id"] == embed.corpus.cast.id(person)
+    artifact = embed.client.get(f"/api/d/{published}", headers=bearer(token))
+    assert artifact.status_code == 200, artifact.text
+    replayed = embed.session(host, assertion=assertion)
+    assert replayed.status_code == 401 and replayed.json()["error_code"] == "embed.assertion_replayed"
+    fresh = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub=subject))
+    assert fresh.status_code == 200, fresh.text
+    disabled = embed.client.patch(f"/api/connected_applications/{host['id']}",
+                                  json={"enabled": False}, headers=embed.admin)
+    assert disabled.status_code == 200
+    assert embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(token)).status_code == 401
 
 
 def test_a_subject_two_members_share_signs_in_no_one(embed):

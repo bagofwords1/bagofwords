@@ -1987,6 +1987,7 @@
     incomplete: 'Some results of this answer could not be shown',
     inProgress: 'Answer in progress...',
     steps: 'Steps',
+    thinking: 'Thinking',
     failed: 'The answer failed',
     stopped: 'The answer was stopped',
     olderMessages: 'Load earlier messages',
@@ -2012,7 +2013,7 @@
       rowsShown: function(vars) { return _chatFill(src.rowsShown, vars); },
       columnsShown: function(vars) { return _chatFill(src.columnsShown, vars); },
       partial: _chatFill(src.partial), incomplete: _chatFill(src.incomplete), inProgress: _chatFill(src.inProgress),
-      steps: _chatFill(src.steps), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
+      steps: _chatFill(src.steps), thinking: _chatFill(src.thinking), failed: _chatFill(src.failed), stopped: _chatFill(src.stopped),
       olderMessages: _chatFill(src.olderMessages), jumpToLatest: _chatFill(src.jumpToLatest),
       send: _chatFill(src.send), stop: _chatFill(src.stop), unavailable: _chatFill(src.unavailable), authRequired: _chatFill(src.authRequired),
       conversations: _chatFill(src.conversations), newConversation: _chatFill(src.newConversation), rename: _chatFill(src.rename),
@@ -2169,7 +2170,7 @@
     muted: 'flex items-center gap-2 text-xs text-ink-3'
   };
 
-  // <ChatMessage message={m} showTools showResults labels={...} className />
+  // <ChatMessage message={m} showTools showResults showThinking={false} labels={...} className />
   var ChatMessage = React.memo(function ChatMessage(props) {
     props = props || {};
     var m = props.message;
@@ -2197,6 +2198,13 @@
     var dir = _chatDirOf(text) || _chatDirOf(steps.join('\n'));
     if (dir) rootProps.dir = dir;
     var kids = [];
+    // Opt-in display only: the API still delivers thinking to the viewer.
+    if (props.showThinking === true && typeof m.thinking === 'string' && m.thinking.trim()) {
+      kids.push(h('details', { key: 'thinking', 'data-testid': 'bow-chat-thinking', className: CHAT_MSG.steps }, [
+        h('summary', { key: 's', className: 'cursor-pointer select-none', dir: 'auto' }, L.thinking),
+        h('div', { key: 't', dir: 'auto', className: 'mt-1 whitespace-pre-wrap border-s ps-2' }, m.thinking)
+      ]));
+    }
     if (steps.length) {
       // Collapsed: the answer stays the message; the steps are there on request.
       kids.push(h('details', { key: 'steps', 'data-testid': 'bow-chat-steps', className: CHAT_MSG.steps }, [
@@ -2287,6 +2295,7 @@
     if (!m || typeof m !== 'object') return null;
     return { id: m.id, role: m.role, text: m.text == null ? '' : String(m.text), status: m.status,
       created_at: m.created_at != null ? m.created_at : null,
+      thinking: typeof m.thinking === 'string' ? m.thinking : '',
       steps: Array.isArray(m.steps) ? m.steps : [],
       tools: Array.isArray(m.tools) ? m.tools : [], results: Array.isArray(m.results) ? m.results : [],
       results_incomplete: !!m.results_incomplete };
@@ -2732,6 +2741,15 @@
           items[run.assistantId] = { text: said.length ? said[said.length - 1] : '', steps: said.slice(0, -1) };
           break;
         }
+        case 'thinking_delta':
+        case 'thinking': {
+          var thoughtBlock = ev.block == null ? '_' : String(ev.block);
+          if (!_chatHas(run.thoughts, thoughtBlock)) { run.thoughtOrder.push(thoughtBlock); run.thoughts[thoughtBlock] = ''; }
+          var thought = ev.text == null ? '' : String(ev.text);
+          run.thoughts[thoughtBlock] = ev.type === 'thinking' ? thought : run.thoughts[thoughtBlock] + thought;
+          items[run.assistantId] = { thinking: run.thoughtOrder.map(function(b) { return run.thoughts[b]; }).filter(Boolean).join('\n\n') };
+          break;
+        }
         case 'tool': {
           var tool = { name: ev.name, title: ev.title, status: ev.status };
           if (ev.id != null) tool = { id: ev.id, name: ev.name, title: ev.title, status: ev.status };
@@ -2874,7 +2892,7 @@
       var run = { gen: c.gen, convId: null, messageId: null, controller: new AbortController(), phase: 'queued',
         terminal: null, stopWanted: false, stopSent: false, started: false,
         userLocalId: 'local-' + (++c.seq), assistantLocalId: 'local-' + (++c.seq), assistantId: null,
-        blocks: {}, order: [], tools: [], results: [] };
+        blocks: {}, order: [], thoughts: {}, thoughtOrder: [], tools: [], results: [] };
       run.assistantId = run.assistantLocalId;
       c.run = run;
       cancelTimer();
@@ -3689,7 +3707,7 @@
     messages.forEach(function(m, i) {
       if (!m || typeof m !== 'object') return;
       kids.push(h('div', { key: m.id != null ? 'm-' + m.id : 'i-' + i, 'data-testid': 'bow-chat-row', 'data-message-id': m.id },
-        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults })));
+        h(ChatMessage, { message: m, labels: labels, showTools: props.showTools, showResults: props.showResults, showThinking: props.showThinking })));
     });
     if (chat.loading && !messages.length) {
       kids.push(h('div', { key: 'loading', 'data-testid': 'bow-chat-loading', className: 'flex justify-center py-6' }, h(_LoadingSpinner, { size: 20 })));

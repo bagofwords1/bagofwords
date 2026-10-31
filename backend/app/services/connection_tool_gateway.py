@@ -168,6 +168,10 @@ class ConnectionToolGateway:
         user-resolved ``effective_policy``.
         """
         data_source_ids = [str(i) for i in (data_source_ids or [])]
+        from app.services.connected_application_service import agent_ceiling
+        ceiling = await agent_ceiling(db, organization.id)
+        if ceiling is not None:
+            data_source_ids = [i for i in data_source_ids if i in ceiling]
         if not data_source_ids:
             return []
 

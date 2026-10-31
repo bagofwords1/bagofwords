@@ -8,6 +8,7 @@ Short-lived: see ``RETENTION_DAYS`` / ``KEEP_PER_REPORT`` in the service.
 """
 from sqlalchemy import JSON, Column, ForeignKey, Index, Integer, String
 
+from app.ee.encryption import EncryptedJSON
 from app.models.base import BaseSchema
 
 SOURCES = ("editor", "preview")
@@ -39,4 +40,26 @@ class ArtifactActivityEvent(BaseSchema):
         Index("ix_artifact_activity_report_created", "report_id", "created_at"),
         Index("ix_artifact_activity_artifact_created", "artifact_id", "created_at"),
         Index("ix_artifact_activity_created", "created_at"),
+    )
+
+
+class ArtifactActivityPayload(BaseSchema):
+    """What an event carried: the request the app made, what came back, the
+    stream's events. Private to the person whose session produced it
+    (``user_id``), encrypted at rest like step results, redacted for PII on
+    the way in, bounded, and kept for ``PAYLOAD_RETENTION_HOURS`` only
+    (services/artifact_activity.py). The agent sees it only through the
+    org's data gate (shape only when the model may not see data)."""
+    __tablename__ = "artifact_activity_payloads"
+
+    event_id = Column(String(36), ForeignKey("artifact_activity_events.id", ondelete="CASCADE"), nullable=False,
+                      unique=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    user_id = Column(String(36), nullable=False)
+    request = Column(EncryptedJSON(none_as_null=True), nullable=True)
+    response = Column(EncryptedJSON(none_as_null=True), nullable=True)
+    stream = Column(EncryptedJSON(none_as_null=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_artifact_activity_payloads_created", "created_at"),
     )

@@ -122,7 +122,7 @@ async def list_messages(artifact_id: str, conversation_id: str, request: Request
 async def send_message(artifact_id: str, conversation_id: str, body: MessageCreate, request: Request,
                        db: AsyncSession = Depends(get_async_db), user: Optional[User] = Depends(viewer_optional)):
     """A message, answered by the conversation's agents. Streams NDJSON
-    (started, tool, text_delta, text, result, then completed or error;
+    (started, tool, text_delta, text, thinking_delta, thinking, result, then completed or error;
     completed adds results_incomplete: true when some results are missing)."""
     from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
     from app.services.completion_service import CompletionService

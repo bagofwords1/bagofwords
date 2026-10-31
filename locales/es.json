@@ -4435,7 +4435,12 @@
     "conversation.unavailable": "Las conversaciones no están activadas aquí.",
     "conversation.agent_forbidden": "No puedes usar ese agente aquí.",
     "conversation.limit": "Demasiados mensajes. Espera un momento e inténtalo de nuevo.",
-    "conversation.no_agents": "No tienes ningún agente disponible aquí. Pregunta al propietario qué agentes puede usar esta app."
+    "conversation.no_agents": "No tienes ningún agente disponible aquí. Pregunta al propietario qué agentes puede usar esta app.",
+    "APPLICATION_NOT_FOUND": "Aplicación no encontrada",
+    "APPLICATION_CAPABILITY_EXISTS": "Esta aplicación ya tiene esta función",
+    "APPLICATION_AGENTS_INVALID": "Selecciona agentes existentes en esta organización",
+    "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW"
   },
   "email": {
     "dashboardShare": {
@@ -4753,7 +4758,17 @@
       "all": "Todos los orígenes",
       "editor": "Editor",
       "preview": "Vista previa"
-    }
+    },
+    "tabs": {
+      "detail": "Detalle",
+      "request": "Solicitud",
+      "response": "Respuesta",
+      "stream": "Flujo"
+    },
+    "privateTo": "Privado de {name}",
+    "someoneElse": "otra persona",
+    "loadingPayload": "Cargando…",
+    "payloadUnavailable": "No disponible: puede haber caducado (los contenidos se conservan 24 horas) o pertenecer a otra persona."
   },
   "filter": {
     "selectColumn": "Selecciona una columna",
@@ -6960,8 +6975,8 @@
       "intro": "Elige las aplicaciones que pueden mostrar este tablero. Las personas lo ven allí como ellas mismas, con la sesión de esa aplicación, y solo si ya pueden verlo aquí.",
       "privateWarning": "Solo tú puedes ver este tablero. Compártelo (Acceso) para que lo vean las personas de la otra aplicación.",
       "embeddableIn": "Se puede insertar en",
-      "noHosts": "Aún no hay aplicaciones configuradas. Pide a un administrador que agregue una en Configuración → Integraciones → Aplicaciones anfitrionas.",
-      "noHostsAdmin": "Aún no hay aplicaciones configuradas. Agrega la primera aquí.",
+      "noHosts": "Pide a un administrador que configure una aplicación conectada para la integración web.",
+      "noHostsAdmin": "No hay aplicaciones configuradas para la integración web. Abre Aplicaciones conectadas para configurar una y luego actualiza esta lista.",
       "newHost": "Nueva aplicación anfitriona",
       "snippet": "Código",
       "snippetFor": "Código para {name}",
@@ -7025,5 +7040,33 @@
     "deleteConfirm": "¿Eliminar {name}? Sus inserciones dejan de funcionar y se cierra la sesión de todos.",
     "backendExample": "Ejemplo de backend",
     "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:"
+  },
+  "connectedApps": {
+    "title": "Aplicaciones conectadas",
+    "subtitle": "Registra aplicaciones externas una sola vez. Configura la integración, el acceso OAuth y los agentes que puede usar cada aplicación.",
+    "add": "Añadir aplicación",
+    "configuration": "Configuración de la aplicación",
+    "general": "General y acceso",
+    "embedding": "Integración web",
+    "oauth": "API y MCP (OAuth)",
+    "agents": "Agentes permitidos",
+    "agentHelp": "El acceso de la aplicación se limita a los permisos del usuario y a los agentes seleccionados en el artefacto. Por sí solo no concede acceso.",
+    "selectedAgents": "Solo los agentes seleccionados",
+    "allAgents": "Todos los agentes accesibles para el usuario",
+    "noAgents": "No hay agentes disponibles. Crea un agente primero.",
+    "empty": "Aún no hay aplicaciones conectadas. Añade tu ERP, portal o cliente MCP.",
+    "createHelp": "Selecciona los agentes permitidos y configura la integración web, OAuth o ambos. Las aplicaciones nuevas no tienen agentes permitidos.",
+    "disableHelp": "Desactivar finaliza las sesiones OAuth y de integración existentes. Al reactivar, los usuarios deberán iniciar sesión de nuevo.",
+    "deleteConfirm": "¿Eliminar {name}? Se detendrán OAuth y la integración web y finalizarán las sesiones existentes.",
+    "saved": "Aplicación guardada",
+    "embeddingHelp": "Elige los orígenes web permitidos y cómo identifica la aplicación a sus usuarios. Las credenciales de integración son distintas de las credenciales OAuth.",
+    "configureEmbedding": "Configurar integración web",
+    "configureOAuth": "Configurar OAuth",
+    "manage": "Administrar aplicaciones y autenticación",
+    "refresh": "Actualizar aplicaciones",
+    "embedHelp": "Aquí solo aparecen aplicaciones con integración web configurada. Configura la identidad, OAuth y el intercambio de tokens Entra en Aplicaciones conectadas.",
+    "enabled": "Activada",
+    "embeddingEmpty": "La integración web no está configurada",
+    "oauthEmpty": "OAuth no está configurado"
   }
 }

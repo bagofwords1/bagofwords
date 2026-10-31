@@ -115,8 +115,7 @@ import WhatsAppIntegrationModal from '~/components/WhatsAppIntegrationModal.vue'
 import GoogleChatIntegrationModal from '~/components/GoogleChatIntegrationModal.vue'
 import EmailIntegrationModal from '~/components/EmailIntegrationModal.vue'
 import ExcelAddinModal from '~/components/ExcelAddinModal.vue'
-import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
-import HostApplicationsPanel from '~/components/embed/HostApplicationsPanel.vue'
+import ConnectedApplicationsPanel from '~/components/embed/ConnectedApplicationsPanel.vue'
 import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
@@ -165,10 +164,7 @@ async function fetchSignupDomains() {
 const mcpEnabled = ref(false)
 const mcpUpdating = ref(false)
 
-// OAuth clients
-const oauthClientCount = ref(0)
-// Host applications (embedded artifacts)
-const hostAppCount = ref(0)
+const applicationCount = ref(0)
 
 const { settings, fetchSettings } = useOrgSettings()
 
@@ -179,8 +175,7 @@ const WhatsApp = markRaw(WhatsAppIntegrationModal)
 const GoogleChat = markRaw(GoogleChatIntegrationModal)
 const Email = markRaw(EmailIntegrationModal)
 const Excel = markRaw(ExcelAddinModal)
-const OAuth = markRaw(OAuthClientsModal)
-const HostApps = markRaw(HostApplicationsPanel)
+const Applications = markRaw(ConnectedApplicationsPanel)
 
 // Build the integrations list that drives both panes. Each entry carries the
 // component to render inline in the right pane (the former modal contents).
@@ -272,27 +267,9 @@ const integrations = computed(() => {
   })
 
   items.push({
-    key: 'oauth',
-    name: t('settings.integrations.oauthName'),
-    iconType: 'uicon',
-    icon: 'i-heroicons-key',
-    connected: oauthClientCount.value > 0,
-    kind: 'component',
-    component: OAuth,
-    props: {},
-    onUpdated: fetchOAuthClientCount,
-  })
-
-  items.push({
-    key: 'host_apps',
-    name: t('hostApps.title'),
-    iconType: 'uicon',
-    icon: 'i-heroicons-window',
-    connected: hostAppCount.value > 0,
-    kind: 'component',
-    component: HostApps,
-    props: {},
-    onUpdated: fetchHostAppCount,
+    key: 'connected_apps', name: t('connectedApps.title'), iconType: 'uicon',
+    icon: 'i-heroicons-squares-plus', connected: applicationCount.value > 0,
+    kind: 'component', component: Applications, props: {}, onUpdated: fetchApplicationCount,
   })
 
   return items
@@ -367,28 +344,16 @@ async function toggleMcp(value: boolean) {
   }
 }
 
-async function fetchOAuthClientCount() {
-  try {
-    const res = await useMyFetch('/api/oauth/clients')
-    const clients = (res.data.value as any[]) || []
-    oauthClientCount.value = clients.length
-  } catch (e) {
-    oauthClientCount.value = 0
-  }
-}
-
-async function fetchHostAppCount() {
-  const res = await useMyFetch('/api/host_applications')
-  hostAppCount.value = ((res.data.value as any[]) || []).length
+async function fetchApplicationCount() {
+  const res = await useMyFetch('/api/connected_applications')
+  applicationCount.value = ((res.data.value as any[]) || []).length
 }
 
 onMounted(() => {
-  fetchHostAppCount()
-  // ?open=host_apps (from an artifact's Embed tab) opens that pane.
-  if (useRoute().query.open === 'host_apps') selectedKey.value = 'host_apps'
+  fetchApplicationCount()
+  if (['host_apps', 'oauth', 'connected_apps'].includes(String(useRoute().query.open))) selectedKey.value = 'connected_apps'
   fetchIntegrations()
   loadMcpState()
-  fetchOAuthClientCount()
   fetchSignupDomains()
 })
 </script>

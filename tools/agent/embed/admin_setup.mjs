@@ -1,10 +1,10 @@
-// Admin side of the embed loop, through the real UI: sign in, add a host
-// application in Settings → Integrations (key shown once), then allow it on a
+// Admin side of the embed loop, through the real UI: sign in, register a Connected
+// application with embedding in Settings → Integrations (key shown once), then allow it on a
 // dashboard from the dashboard's Settings → Embed tab and read the snippet.
 //
 //   node tools/agent/embed/admin_setup.mjs <report_id> <out_dir>
 // Env: BOW_URL (http://localhost:3000), ADMIN_EMAIL, ADMIN_PASSWORD,
-//      ERP_ORIGIN (http://localhost:4173), KEY_OUT (where the private key goes).
+//      AGENT_NAME (required, exact agent label), ERP_ORIGIN (http://localhost:4173), KEY_OUT (where the private key goes).
 import { createRequire } from 'node:module'
 import { mkdirSync, writeFileSync } from 'node:fs'
 const require = createRequire(new URL('../../../frontend/package.json', import.meta.url))
@@ -29,12 +29,18 @@ await page.fill('#password', process.env.ADMIN_PASSWORD)
 await page.click('button[type=submit]')
 await page.waitForURL((u) => !u.pathname.startsWith('/users/sign-in'), { timeout: 30000 })
 
-// 1. Settings → Integrations → Host applications
-await page.goto(`${BOW}/settings/integrations?open=host_apps`)
-await page.getByTestId('host-apps').waitFor()
-await shot('01-host-apps-empty')
+// 1. Settings → Integrations → Connected applications → Embedding
+if (!process.env.AGENT_NAME) throw new Error('AGENT_NAME is required: new applications allow no agents')
+await page.goto(`${BOW}/settings/integrations?open=connected_apps`)
+await page.getByTestId('connected-applications').waitFor()
+await shot('01-connected-apps')
+await page.getByTestId('application-add').click()
+await field('application-new-name').fill('Chinook Back Office')
+await page.getByTestId('application-create').click()
+await page.getByRole('checkbox', { name: process.env.AGENT_NAME, exact: true }).check()
+await page.getByTestId('application-save').click()
+await page.getByRole('button', { name: 'Embedding', exact: true }).click()
 await page.getByTestId('host-app-add').click()
-await field('host-app-name').fill('Chinook Back Office')
 await field('host-app-origins').fill(ERP)
 await field('host-app-issuer').fill('chinook-backoffice')
 await field('host-app-source').selectOption('member_attribute:')

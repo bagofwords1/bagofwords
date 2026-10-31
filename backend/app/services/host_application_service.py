@@ -153,6 +153,9 @@ class HostApplicationService:
             public_key=public_pem, key_fingerprint=fingerprint, epoch=1, revision=1,
             created_by_user_id=str(user.id),
         )
+        if payload.application_id:
+            from app.services.connected_application_service import attach_application
+            host.application = await attach_application(db, organization.id, payload.application_id, HostApplication)
         db.add(host)
         await db.commit()
         await db.refresh(host)
@@ -193,6 +196,9 @@ class HostApplicationService:
             # Disabling, or changing who may sign in and how, ends every session.
             host.epoch = int(host.epoch or 1) + 1
         host.revision = int(host.revision or 1) + 1
+        if payload.enabled is False:
+            from app.services.connected_application_service import revoke_credentials
+            await revoke_credentials(db, host.application)
         await db.commit()
         await db.refresh(host)
         return host, private_pem
