@@ -1,0 +1,24 @@
+# Mock DX NetOps Spectrum OneClick Web Services API (24.3 shapes) — see
+# mock_oneclick.py. A real OneClick/SpectroSERVER cannot run here (Broadcom
+# entitlement; licensed Docker tarballs), so this serves the exact surface
+# SpectrumClient touches.
+#
+#   docker compose up -d
+#   curl -s -u bow_api:'Spectrum!2024' http://localhost:8880/spectrum/restful/landscapes
+#   curl -s -u bow_api:'Spectrum!2024' -H 'Accept: application/json' \
+#        'http://localhost:8880/spectrum/restful/devices?attr=0x1006e&attr=0x12d7f&throttlesize=5'
+services:
+  spectrum-oneclick-mock:
+    image: python:3.13-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_oneclick.py:/srv/mock_oneclick.py:ro
+    command: sh -c "pip install --quiet fastapi uvicorn && python mock_oneclick.py"
+    environment:
+      SPECTRUM_MOCK_PORT: "8880"
+      # Pin the incident start (epoch ms) for deterministic runs:
+      # SPECTRUM_MOCK_INCIDENT_START: "1793330400000"
+      # Override the invented interface relation handle (ASSUMPTION 5):
+      # SPECTRUM_MOCK_IF_RELATION: "0x10006"
+    ports:
+      - "8880:8880"

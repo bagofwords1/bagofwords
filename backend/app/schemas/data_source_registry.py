@@ -62,6 +62,9 @@ from app.schemas.data_sources.configs import (
     AppDynamicsUserPassCredentials,
     AriaOperationsConfig,
     AriaOperationsUserPassCredentials,
+    SpectrumConfig,
+    SpectrumUserPassCredentials,
+    SpectrumTokenCredentials,
     AppDynamicsApiClientCredentials,
     ElasticsearchConfig,
     ElasticsearchApiKeyCredentials,
@@ -1014,6 +1017,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # Explicit path: dynamic resolution would derive "AriaOperationsClient"
         # correctly today, but the explicit path is the contract.
         client_path="app.data_sources.clients.aria_operations_client.AriaOperationsClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
+    "spectrum": DataSourceRegistryEntry(
+        type="spectrum",
+        category="infra",
+        title="DX NetOps Spectrum",
+        description="Broadcom DX NetOps Spectrum (CA Spectrum) network fault management: device and interface inventory, current alarms with root-cause/symptom links, event history and topology (connectivity, associations) via the OneClick Web Services API — for network RCA.",
+        config_schema=SpectrumConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # Basic auth with a LOCAL Spectrum user works on every supported
+            # version (also with SAML/SSO on); bearer tokens are minted by an
+            # admin in OneClick → Token Configuration from 24.3.10. Both are
+            # static credentials — no token endpoint, nothing to refresh.
+            # Per-user scope = each analyst's own Spectrum login, so Spectrum's
+            # own landscape/role security applies.
+            "userpass": AuthVariant(title="Username + Password", schema=SpectrumUserPassCredentials, scopes=["system", "user"]),
+            "token": AuthVariant(title="Bearer Token", schema=SpectrumTokenCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.spectrum_client.SpectrumClient",
         version="beta",
         requires_license="enterprise",
     ),
