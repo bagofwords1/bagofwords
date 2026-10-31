@@ -246,6 +246,11 @@ class McpClient(ToolProviderClient):
 
                 # Determine content type from result
                 data = self._extract_result_data(result)
+                binaries = self._extract_binaries(result)
+                if data is None and binaries:
+                    # Files only: give the data artifact a pointer rather than a
+                    # bare null, so the agent knows to look at the saved files.
+                    data = f"Tool returned {len(binaries)} file(s); they are attached to this session."
                 content_type = self._detect_content_type(data)
 
                 is_error = bool(getattr(result, "isError", False))
@@ -266,7 +271,7 @@ class McpClient(ToolProviderClient):
                     "content_type": content_type,
                     # File blobs a tool returned (EmbeddedResource/blob), surfaced
                     # so execute_mcp can materialize them into session files.
-                    "binaries": self._extract_binaries(result),
+                    "binaries": binaries,
                     "error": error_msg,
                     "parse_skipped": parse_skipped,
                     "size_chars": len(data) if isinstance(data, str) else None,
@@ -281,66 +286,123 @@ class McpClient(ToolProviderClient):
                 "error": msg,
             }
 
+    @staticmethod
+    def _parse_text(text: Any) -> Any:
+        """JSON-parse a text payload when it is JSON; otherwise return it as-is."""
+        if not isinstance(text, str):
+            return text
+        if _over_parse_cap(text):
+            # Parsing multiplies this several times over in Python objects, and
+            # a DataFrame built from it again. Hand back the raw string: the
+            # caller still writes every byte to a file, so nothing is lost.
+            logger.warning(
+                "MCP result of %d chars exceeds the %d-char parse cap; "
+                "returning it unparsed.",
+                len(text), MAX_PARSE_CHARS,
+            )
+            return text
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return text
+
+    @staticmethod
+    def _block_part(block) -> Any:
+        """What one content block contributes to the tool's result data.
+
+        Returns the parsed payload, a one-line note for content the agent must
+        reach another way, or None for a file blob (those travel separately via
+        ``_extract_binaries`` and are saved as session files). Never drops a
+        block silently: an unknown shape comes back as a visible note, because a
+        result that quietly lost its content reads exactly like a tool that
+        returned nothing.
+        """
+        block_type = getattr(block, "type", None)
+
+        # Embedded resource: a file the tool returned inline. GitHub's
+        # get_file_contents sends the file body this way, next to a short
+        # "successfully downloaded" text block.
+        resource = getattr(block, "resource", None)
+        if resource is not None:
+            text = getattr(resource, "text", None)
+            if text is not None:
+                return McpClient._parse_text(text)
+            if getattr(resource, "blob", None) is not None:
+                return None
+            uri = getattr(resource, "uri", None)
+            return f"[MCP content dropped: embedded resource with no text or blob (uri={uri})]"
+
+        # Image / audio: base64 media. Saved as a session file, not inlined —
+        # base64 in the result data costs tokens and no model can read it.
+        if block_type in ("image", "audio") or (
+            getattr(block, "data", None) is not None and getattr(block, "mimeType", None)
+            and not hasattr(block, "text")
+        ):
+            return None
+
+        if hasattr(block, "text"):
+            return McpClient._parse_text(block.text)
+
+        # Top-level blob (non-standard but seen in the wild) → saved as a file.
+        if getattr(block, "blob", None) is not None:
+            return None
+
+        # Resource link: the tool points at a resource instead of embedding it.
+        uri = getattr(block, "uri", None)
+        if block_type == "resource_link" or uri:
+            details = [f"uri={uri}"]
+            for attr, label in (("name", "name"), ("mimeType", "mimeType")):
+                val = getattr(block, attr, None)
+                if val:
+                    details.append(f"{label}={val}")
+            return (
+                f"[MCP resource link: {', '.join(details)} — fetch it with "
+                f"read_mcp_resource(uri='{uri}')]"
+            )
+
+        return f"[MCP content dropped: unsupported block type={block_type or type(block).__name__}]"
+
     def _extract_result_data(self, result) -> Any:
-        """Extract usable data from an MCP CallToolResult."""
+        """Extract usable data from an MCP CallToolResult.
+
+        One payload comes back as itself (parsed JSON or a string); several
+        text parts are joined into one text; mixed parts come back as a list.
+        File blobs (embedded resources, images, audio) are not part of the data
+        — ``_extract_binaries`` hands them to execute_mcp to save as files.
+        """
         if not hasattr(result, "content") or not result.content:
             return None
 
-        # If single text content, return as string
-        if len(result.content) == 1:
-            content = result.content[0]
-            if hasattr(content, "text"):
-                # Try to parse as JSON
-                import json
-                if _over_parse_cap(content.text):
-                    # Parsing multiplies this several times over in Python
-                    # objects, and a DataFrame built from it again. Hand back
-                    # the raw string: the caller still writes every byte to a
-                    # file, so nothing is lost — it just isn't parsed here.
-                    logger.warning(
-                        "MCP result of %d chars exceeds the %d-char parse cap; "
-                        "returning it unparsed.",
-                        len(content.text), MAX_PARSE_CHARS,
-                    )
-                    return content.text
-                try:
-                    return json.loads(content.text)
-                except (json.JSONDecodeError, TypeError):
-                    return content.text
-
-        # Multiple content blocks — return as list
-        parts = []
-        for content in result.content:
-            if hasattr(content, "text"):
-                import json
-                if _over_parse_cap(content.text):
-                    parts.append(content.text)
-                    continue
-                try:
-                    parts.append(json.loads(content.text))
-                except (json.JSONDecodeError, TypeError):
-                    parts.append(content.text)
-            elif hasattr(content, "data"):
-                parts.append(content.data)
+        parts = [p for p in (self._block_part(c) for c in result.content) if p is not None]
+        if not parts:
+            return None
+        if len(parts) == 1:
+            return parts[0]
+        if all(isinstance(p, str) for p in parts):
+            return "\n\n".join(parts)
         return parts
 
     @staticmethod
     def _extract_binaries(result) -> List[Dict[str, Any]]:
         """Pull file blobs out of a tool result's content blocks.
 
-        Tools return files as an EmbeddedResource whose `.resource` is a
-        BlobResourceContents (base64 `blob` + `mimeType` + `uri`), or — less
-        commonly — as a content block with a top-level `blob`. Returns a list of
-        {blob_b64, mime_type, uri} for execute_mcp to materialize.
+        Covers an EmbeddedResource whose `.resource` is a BlobResourceContents
+        (base64 `blob` + `mimeType` + `uri`), image/audio content (base64
+        `data` + `mimeType`), and a content block with a top-level `blob`.
+        Returns a list of {blob_b64, mime_type, uri} for execute_mcp to
+        materialize.
         """
         out: List[Dict[str, Any]] = []
         for c in (getattr(result, "content", None) or []):
             res = getattr(c, "resource", None)
-            blob = getattr(res, "blob", None) if res is not None else getattr(c, "blob", None)
+            src = res if res is not None else c
+            blob = getattr(src, "blob", None)
+            if not blob and res is None and getattr(c, "type", None) in ("image", "audio"):
+                blob = getattr(c, "data", None)
             if not blob:
                 continue
-            mime = getattr(res, "mimeType", None) if res is not None else getattr(c, "mimeType", None)
-            uri = getattr(res, "uri", None) if res is not None else getattr(c, "uri", None)
+            mime = getattr(src, "mimeType", None)
+            uri = getattr(src, "uri", None)
             out.append({
                 "blob_b64": blob,
                 "mime_type": mime or "application/octet-stream",

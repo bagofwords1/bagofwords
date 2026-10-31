@@ -162,30 +162,34 @@
           </button>
         </div>
 
-        <MCPConnectionForm
-          v-if="selectedDataSource?.type === 'mcp'"
-          :prefill="mcpPrefill"
-          @saved="handleToolProviderSaved"
-          @cancel="backToSelect"
-        />
-        <CustomAPIConnectionForm
-          v-else-if="selectedDataSource?.type === 'custom_api'"
-          :prefill="customApiPrefill"
-          @saved="handleToolProviderSaved"
-          @cancel="backToSelect"
-        />
-        <BrowserConnectionForm
-          v-else-if="selectedDataSource?.type === 'browser'"
-          @saved="handleToolProviderSaved"
-          @cancel="backToSelect"
-        />
-        <IntegrationConnectionForm
-          v-else-if="isGenericIntegration(selectedDataSource?.type)"
-          :integration-type="selectedDataSource?.type"
-          :integration-title="selectedDataSource?.title"
-          @saved="handleToolProviderSaved"
-          @cancel="backToSelect"
-        />
+        <!-- Tool-provider forms scroll inside the modal; without this a tall
+             form (e.g. MCP with Advanced open) spills past the bottom. -->
+        <div v-if="isToolProviderForm" class="min-h-0 overflow-y-auto -mx-1 px-1" data-test="tool-form-scroll">
+          <MCPConnectionForm
+            v-if="selectedDataSource?.type === 'mcp'"
+            :prefill="mcpPrefill"
+            @saved="handleToolProviderSaved"
+            @cancel="backToSelect"
+          />
+          <CustomAPIConnectionForm
+            v-else-if="selectedDataSource?.type === 'custom_api'"
+            :prefill="customApiPrefill"
+            @saved="handleToolProviderSaved"
+            @cancel="backToSelect"
+          />
+          <BrowserConnectionForm
+            v-else-if="selectedDataSource?.type === 'browser'"
+            @saved="handleToolProviderSaved"
+            @cancel="backToSelect"
+          />
+          <IntegrationConnectionForm
+            v-else-if="isGenericIntegration(selectedDataSource?.type)"
+            :integration-type="selectedDataSource?.type"
+            :integration-title="selectedDataSource?.title"
+            @saved="handleToolProviderSaved"
+            @cancel="backToSelect"
+          />
+        </div>
         <template v-else>
           <div class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
             <div class="min-w-0 px-6 py-6 md:px-8 md:max-h-[65vh] md:overflow-y-auto">
@@ -542,6 +546,10 @@ function uiFormFor(type: string | undefined): string {
 function isGenericIntegration(type: string | undefined): boolean {
   return uiFormFor(type) === 'integration'
 }
+const isToolProviderForm = computed(() => {
+  const t = selectedDataSource.value?.type
+  return t === 'mcp' || t === 'custom_api' || t === 'browser' || isGenericIntegration(t)
+})
 
 // Connections that should skip the schema-indexing step on save. Anything
 // without an admin-side catalog (tool providers + per-user catalogs).
