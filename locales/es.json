@@ -4739,7 +4739,17 @@
       "all": "Todos los orígenes",
       "editor": "Editor",
       "preview": "Vista previa"
-    }
+    },
+    "tabs": {
+      "detail": "Detalle",
+      "request": "Solicitud",
+      "response": "Respuesta",
+      "stream": "Flujo"
+    },
+    "privateTo": "Privado de {name}",
+    "someoneElse": "otra persona",
+    "loadingPayload": "Cargando…",
+    "payloadUnavailable": "No disponible: puede haber caducado (los contenidos se conservan 24 horas) o pertenecer a otra persona."
   },
   "filter": {
     "selectColumn": "Selecciona una columna",

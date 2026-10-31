@@ -4759,7 +4759,17 @@
       "all": "כל המקורות",
       "editor": "עורך",
       "preview": "תצוגה מקדימה"
-    }
+    },
+    "tabs": {
+      "detail": "פירוט",
+      "request": "בקשה",
+      "response": "תשובה",
+      "stream": "זרם"
+    },
+    "privateTo": "פרטי של {name}",
+    "someoneElse": "מישהו אחר",
+    "loadingPayload": "טוען…",
+    "payloadUnavailable": "לא זמין: ייתכן שפג תוקפו (התכנים נשמרים 24 שעות) או שהוא שייך למישהו אחר."
   },
   "filter": {
     "selectColumn": "בחר עמודה",

@@ -108,6 +108,145 @@ def test_the_editor_reads_the_log_back_newest_first(corpus, corpus_rows, test_cl
     assert test_client.get(path(aid), headers=as_(corpus, "other_org")).status_code in (403, 404)
 
 
+BIG_RESPONSE = {"columns": [{"field": "name"}, {"field": "total"}],
+                "rows": [{"name": f"customer {i} with a long name " * 3, "total": i} for i in range(1500)]}
+STREAM = [{"type": "started", "message_id": "m1"}, {"type": "text_delta", "block": 0, "text": "Iron Maiden leads"},
+          {"type": "result", "id": "r1", "columns": [{"field": "artist"}], "rows": [{"artist": "Iron Maiden"}]},
+          {"type": "completed", "status": "success"}]
+
+
+def with_payload(session=None):
+    return batch(
+        {"kind": "request", "op": "records.query", "status": "ok", "duration_ms": 58, "seq": 1,
+         "detail": {"resource": "orders", "action": "query"},
+         "payload": {"request": {"method": "records", "resource": "orders", "action": "query", "filters": {"region": "north"}},
+                     "response": {"columns": [{"field": "id"}], "rows": [{"id": 1}, {"id": 2}]}}},
+        {"kind": "request", "op": "records.query", "status": "ok", "duration_ms": 900, "seq": 2,
+         "detail": {"resource": "customers", "action": "query"}, "payload": {"response": BIG_RESPONSE}},
+        {"kind": "stream", "op": "conversations.send", "status": "completed", "duration_ms": 1300, "seq": 3,
+         "payload": {"request": {"method": "conversationSend", "text": "who leads?"}, "stream": STREAM}},
+        {"kind": "click", "seq": 4, "detail": {"target": "button 'Send'"}, "payload": {"request": {"never": "stored"}}},
+        session=session)
+
+
+def grant_edit(test_client, corpus, aid, person):
+    r = test_client.put(f"/api/artifacts/{aid}/sharing", json={"visibility": "internal",
+                        "editor_user_ids": [corpus.cast.id(person)]}, headers=as_(corpus, "owner"))
+    assert r.status_code == 200, r.text
+
+
+def test_payloads_are_stored_bounded_encrypted_and_private_to_their_owner(corpus, corpus_rows, test_client):
+    aid = own(corpus_rows, corpus, DASH)
+    publish(aid)
+    grant_edit(test_client, corpus, aid, "member")
+    owner, member = as_(corpus, "owner"), as_(corpus, "member")
+    assert test_client.post(path(aid), json=with_payload(), headers=owner).json()["stored"] == 4
+
+    rows = test_client.get(path(aid), headers=owner).json()["events"]
+    by_seq = {e["text"]: e for e in rows}
+    small = next(e for e in rows if e["op"] == "records.query" and e["duration_ms"] == 58)
+    big = next(e for e in rows if e["op"] == "records.query" and e["duration_ms"] == 900)
+    stream = next(e for e in rows if e["kind"] == "stream")
+    click = next(e for e in rows if e["kind"] == "click")
+    assert small["has_payload"] and small["payload_mine"] and stream["has_payload"]
+    assert not click["has_payload"]  # clicks carry nothing, whatever the client sends
+
+    got = test_client.get(f"{path(aid)}/{small['id']}/payload", headers=owner).json()
+    assert got["request"]["filters"] == {"region": "north"} and got["response"]["rows"] == [{"id": 1}, {"id": 2}]
+    assert got["stream"] is None
+    got = test_client.get(f"{path(aid)}/{stream['id']}/payload", headers=owner).json()
+    assert [e["type"] for e in got["stream"]] == ["started", "text_delta", "result", "completed"]
+    assert got["stream"][1]["text"] == "Iron Maiden leads" and got["stream"][2]["rows"] == 1  # a result keeps its count
+    bounded = test_client.get(f"{path(aid)}/{big['id']}/payload", headers=owner).json()["response"]
+    assert bounded["truncated"]["rows_total"] == 1500 and 0 < bounded["truncated"]["rows_kept"] < 1500
+    assert len(json.dumps(bounded)) <= artifact_activity.MAX_PAYLOAD_CHARS
+
+    # Encrypted at rest like step results: with encryption active the raw
+    # column holds ciphertext envelopes, never the words.
+    from app.ee.encryption.types import encryption_active, is_encrypted_envelope
+    with corpus_rows.engine.begin() as conn:
+        raw = conn.execute(text("select request, response, stream from artifact_activity_payloads")).fetchall()
+    assert raw
+    if encryption_active():
+        assert all("north" not in str(r) and "Iron Maiden" not in str(r) for r in raw)
+        assert all(is_encrypted_envelope(json.loads(c)) for r in raw for c in r if c is not None)
+
+    # A co-editor sees the events, and that a payload exists and whose it is, never the payload.
+    theirs = test_client.get(path(aid), headers=member).json()["events"]
+    row = next(e for e in theirs if e["id"] == small["id"])
+    assert row["has_payload"] and not row["payload_mine"] and row["user_name"]
+    assert test_client.get(f"{path(aid)}/{small['id']}/payload", headers=member).status_code == 404
+    # And theirs is theirs: the owner cannot read it either.
+    test_client.post(path(aid), json=with_payload(), headers=member)
+    mine = next(e for e in test_client.get(path(aid), headers=member).json()["events"] if e["payload_mine"])
+    assert test_client.get(f"{path(aid)}/{mine['id']}/payload", headers=member).status_code == 200
+    assert test_client.get(f"{path(aid)}/{mine['id']}/payload", headers=owner).status_code == 404
+    assert test_client.get(f"{path(aid)}/{small['id']}/payload", headers=as_(corpus, "anonymous")).status_code == 401
+
+
+def test_payloads_expire_after_a_day_while_their_events_stay(corpus, corpus_rows, test_client):
+    aid = own(corpus_rows, corpus, DASH)
+    owner = as_(corpus, "owner")
+    test_client.post(path(aid), json=with_payload(), headers=owner)
+    old = (datetime.utcnow() - timedelta(hours=artifact_activity.PAYLOAD_RETENTION_HOURS + 1)).isoformat(sep=" ")
+    with corpus_rows.engine.begin() as conn:
+        assert conn.execute(text("select count(*) from artifact_activity_payloads")).scalar_one() == 3
+        conn.execute(text("update artifact_activity_payloads set created_at = :t"), {"t": old})
+    test_client.post(path(aid), json=batch({"kind": "click", "detail": {"target": "button 'Next'"}}), headers=owner)  # prunes
+    with corpus_rows.engine.begin() as conn:
+        assert conn.execute(text("select count(*) from artifact_activity_payloads")).scalar_one() == 0
+        assert conn.execute(text("select count(*) from artifact_activity_events")).scalar_one() == 5
+    assert all(not e["has_payload"] for e in test_client.get(path(aid), headers=owner).json()["events"])
+
+
+def test_the_agent_gets_a_payload_only_as_the_owner_and_the_data_gate_allow(corpus, corpus_rows, test_client):
+    from app.ai.tools.implementations.read_artifact_activity import ReadArtifactActivityTool
+    from app.models.report import Report
+    from app.models.user import User
+
+    aid = own(corpus_rows, corpus, DASH)
+    report_id = report_of(corpus_rows, aid)
+    publish(aid)
+    grant_edit(test_client, corpus, aid, "member")
+    test_client.post(path(aid), json=with_payload(), headers=as_(corpus, "owner"))
+    stream_id = next(e["id"] for e in test_client.get(path(aid), headers=as_(corpus, "owner")).json()["events"]
+                     if e["kind"] == "stream")
+
+    async def call(person, settings, **args):
+        async with async_session_maker() as db:
+            report = await db.get(Report, report_id)
+            user = await db.get(User, corpus.cast.id(person))
+            out = None
+            ctx = {"db": db, "report": report, "user": user, "organization_settings": settings}
+            async for event in ReadArtifactActivityTool().run_stream(args, ctx):
+                if event.type == "tool.end":
+                    out = event.payload["output"]
+            return out
+
+    allowed, hidden = {"allow_llm_see_data": {"value": True}}, {"allow_llm_see_data": {"value": False}}
+    listed = run(call("owner", allowed))["events"]
+    assert sum(1 for e in listed if e.get("has_payload")) == 3
+    # The owner, data allowed: the payload itself.
+    event = run(call("owner", allowed, event_id=stream_id))["event"]
+    assert event["payload"]["request"]["text"] == "who leads?" and event["payload"]["stream"][1]["text"] == "Iron Maiden leads"
+    # Data hidden from the model: the shape only, as for step results.
+    event = run(call("owner", hidden, event_id=stream_id))["event"]
+    assert "payload" not in event
+    assert event["payload_shape"]["request"] == {"method": "str(16)", "text": "str(10)"}
+    assert event["payload_shape"]["stream"] == {"events": 4, "types": {"started": 1, "text_delta": 1, "result": 1, "completed": 1},
+                                                "text_chars": 17, "ended": "completed"}
+    # Another editor's turn: shape, and that it is not theirs -- whatever the gate says.
+    event = run(call("member", allowed, event_id=stream_id))["event"]
+    assert "payload" not in event and event["payload_private"] is True and event["payload_shape"]["stream"]["events"] == 4
+    # The automatic section says where a payload exists.
+    async def section():
+        async with async_session_maker() as db:
+            return await artifact_activity.context_section(db, report_id=report_id, mark=False)
+    test_client.post(path(aid), json=batch({**FAILED_SEND, "payload": {"response": {"http_status": 403, "body": {"error_code": "x"}}}}),
+                     headers=as_(corpus, "owner"))
+    assert "+payload" in run(section())
+
+
 def test_readers_anonymous_callers_and_embed_sessions_are_never_recorded(corpus, corpus_rows, test_client):
     aid = own(corpus_rows, corpus, DASH)
     publish(aid)

@@ -1,8 +1,8 @@
 # Next work: app conversation policy and artifact activity
 
 Status: **§1 (conversation policy), §2 (activity log), §3 (preview evidence) and
-§4 (agent context) are implemented**, and §5 ships as the Inspect pane (see §5);
-"Ask BOW about this" and the "Fix with BOW" toast are not started. As-built notes for §2–§4 are in
+§4 (agent context) are implemented**, and §5 ships as the Inspect pane with request / response / stream
+payloads (see §5, §5.1); "Ask BOW about this" and the "Fix with BOW" toast are not started. As-built notes for §2–§4 are in
 §2.3 below. Written 2026-10-29 on
 `ai/exciting-goodall-m7toth` as the follow-up to `docs/design/embedded-artifacts.md`.
 
@@ -265,12 +265,51 @@ with counts (All, Requests, Streams, Filters, Clicks, Errors), a source
 select and a text filter; a row expands to its redacted detail JSON, op,
 error_code, session and timestamp. **Live:** the page broker's `onActivity`
 pushes this page's own events into the pane at once (before the batch reaches
-the server); the agent's preview events are picked up by a 10 s poll. It reads
+the server); the agent's preview events are picked up by a 10 s poll. **Parameterized queries** are requests too: each `/api/queries/{id}/run` a
+filter change triggers is logged as `queries.run` with the query's title, row
+count, duration and any error (`runParamQueries`), next to the SDK calls
+(`conversations.*`, `records.*`, `files.*`, `ai.*`) the broker already logs. It reads
 `GET /api/artifacts/{id}/runtime/activity` (`routes/artifact_activity.py`),
 behind the same editor-only gate as the POST. Not yet: "Ask BOW about this".
 Evidence: `media/pr/embedded-artifacts/94-inspect-pane.png`,
 `95-inspect-errors-detail.png`; flow: `tools/agent/embed/activity_log_panel.mjs`
 (29 rows, 3 under Errors, one more row the moment the app is used).
+
+### 5.1 Payloads: request, response, stream (as built)
+
+Every `request` and `stream` event can carry what the call carried, in a side
+table `artifact_activity_payloads` (one optional row per event; migration
+`payload01`):
+
+- **Captured in the broker** (`useArtifactRuntime.ts`): the request as the app
+  made it (a file by name and size, never its bytes), the response (a grid
+  keeps its first rows when oversize), and the stream's events (types, text
+  cut to 500 chars, a result as its columns and row count; 200 events). The
+  app's own simulated events (preview fixtures) carry none.
+- **Stored** `EncryptedJSON`, like step results; PII-redacted on the way in;
+  each part bounded to `MAX_PAYLOAD_CHARS` (32 K); dropped, never stored
+  unredacted, when the PII rules cannot load. **Private to the person whose
+  session made it** (`user_id`): a co-editor sees the event and that a payload
+  exists ("Private to Dana"), never the payload. Kept
+  `PAYLOAD_RETENTION_HOURS` (24), pruned on every write, with their event.
+- **Inspect**: a row's Request / Response / Stream tabs, for your own rows
+  (this page's live rows carry it inline; history rows fetch
+  `GET /runtime/activity/{event_id}/payload`, which answers 404 for anyone
+  else's).
+- **The agent**: `read_artifact_activity(event_id)` returns `payload` for the
+  current user's events when the org lets the model see data, otherwise
+  `payload_shape` (keys, types, row counts, the stream's event-type counts and
+  text length) -- the same gate as `create_data` results in history -- and
+  `payload_private: true` for another person's event. `<app_activity>` marks
+  such events `+payload`.
+- Not stored: anything for `filter`, `click`, `error`, `console` events; the
+  editor's dashboard data loads outside the SDK.
+
+Evidence: `media/pr/embedded-artifacts/96-inspect-stream-live.png`,
+`97-inspect-stream-stored.png`, `98-inspect-response.png`; flow:
+`tools/agent/embed/activity_payloads_flow.mjs`. Tests:
+`tests/e2e/dashboards/test_artifact_activity.py` (stored, bounded, encrypted,
+private, expiring, the agent's gate), `tests/unit/test_artifact_activity_payload_shape.py`.
 
 ## 6. How others do it (checked 2026-10-29)
 

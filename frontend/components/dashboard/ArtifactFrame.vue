@@ -1459,6 +1459,13 @@ async function runParamQueries(
   const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
     ? viewAsMode.value : undefined;
   await Promise.all(affected.map(async (qid) => {
+    // Each parameterized run is a request in the app's activity log (Inspect,
+    // the agent's <app_activity>): which query, how long, how many rows.
+    const t0 = Date.now();
+    const title = visualizationsData.value.find((v: any) => v.queryId === qid)?.title || qid.slice(0, 8);
+    const logRun = (status: 'ok' | 'error', extra: Record<string, any> = {}) =>
+      logActivity?.({ kind: 'request', op: 'queries.run', status, duration_ms: Date.now() - t0,
+                      detail: { resource: String(title).slice(0, 120), action: 'run', ...extra } });
     try {
       const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, {
         method: 'POST',
@@ -1473,8 +1480,10 @@ async function runParamQueries(
       if (error.value || !res || res.status !== 'success') {
         const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
         if (!firstError) firstError = String(msg);
+        logRun('error', { message: String(msg).slice(0, 300), http_status: (error.value as any)?.status });
         return;
       }
+      logRun('ok', { rows: Array.isArray(res.data?.rows) ? res.data.rows.length : undefined });
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
       for (const viz of visualizationsData.value) {
@@ -1486,6 +1495,7 @@ async function runParamQueries(
       }
     } catch (e: any) {
       if (!firstError) firstError = e?.message || 'Query run failed';
+      logRun('error', { message: String(e?.message || 'Query run failed').slice(0, 300) });
     }
   }));
   // New array identity so watchers fire and the fresh rows reach the iframe.

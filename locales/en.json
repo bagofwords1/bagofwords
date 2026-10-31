@@ -4819,7 +4819,17 @@
       "all": "All sources",
       "editor": "Editor",
       "preview": "Preview"
-    }
+    },
+    "tabs": {
+      "detail": "Detail",
+      "request": "Request",
+      "response": "Response",
+      "stream": "Stream"
+    },
+    "privateTo": "Private to {name}",
+    "someoneElse": "someone else",
+    "loadingPayload": "Loading…",
+    "payloadUnavailable": "Not available: it may have expired (payloads are kept 24 hours) or belong to someone else."
   },
   "filter": {
     "selectColumn": "Select column",
