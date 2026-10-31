@@ -61,7 +61,7 @@ request. Conversations are private to their viewer. If policy().available is fal
 show its reason (auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, stream handling, composer keys, scrolling or result rendering yourself.
-const chat = useConversation({conversationId, title}); // optional; use chat.select(id) to switch; omit title: each conversation is named after its first question; call once atop the component; reopens a running answer
+const chat = useConversation({conversationId, title}); // optional; chat.select(id) switches; omit title: each conversation is named after its first question; call once atop the component; reopens a running answer
 // {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder, rename, archive}
 // messages: [{id,role:'user'|'assistant',text,thinking,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while streaming (status 'in_progress'), then re-read; text is the last block, steps the earlier blocks: custom renderers must show both.
@@ -70,32 +70,29 @@ const chat = useConversation({conversationId, title}); // optional; use chat.sel
 // chat.stop() while chat.answering (sending, or an answer left running: only stop() stops it); chat.select(id); chat.newConversation().
 <ChatMessages chat={chat} empty={node}/> // scrolls at the bottom only; jump to latest, older messages, chat.error. Needs a bounded height.
 <ChatComposer chat={chat} placeholder="..."/> // Enter sends, Shift+Enter new line, Stop while answering, the reason when unavailable
-<ChatThreads chat={chat}/> // conversation list: select, new, rename, archive, a spinner while an answer runs; a drawer on narrow screens
+<ChatThreads chat={chat}/> // conversation list: select, new, rename, archive, a spinner while answering; a drawer when narrow
 <ChatSuggestions chat={chat} items={['...']}/> // starter questions: send on click, hidden once there are messages
 <ChatMessage message={m}/> // one message (ChatMessages renders them): markdown with dir="auto" per block, its steps collapsed, tools
-//   (showTools={false} hides them), each result as a ChatResult, incomplete and running markers.
-// ChatMessages and ChatMessage take showResults={false} to hide tables/charts and their incomplete note while keeping Markdown and steps.
-<ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
-// showThinking={true} opts ChatMessages/ChatMessage into a collapsed section (default false).
-// message.thinking survives history; only when emitted. Hiding is not access control.
-// All take labels={{thinking,rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired,conversations,newConversation,rename,archive,archiveConfirm,cancel}}:
+//   (showTools={false} hides them, toolLabel={t=>name} renames), each result as a ChatResult, incomplete and running markers.
+// ChatMessages/ChatMessage: showResults={false} hides tables/charts and their incomplete note (Markdown and steps stay).
+<ChatResult result={r}/> // one result alone: table always, chart only for a valid hint, truncation note
+// showThinking={true} shows message.thinking (kept in history if emitted) collapsed; default false. Hiding is not access control.
+// All take labels={{thinking,rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,toolDetails,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired,conversations,newConversation,rename,archive,archiveConfirm,cancel}}:
 //   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
 function App(){const chat=useConversation();
   return <div className="flex h-screen"><ChatThreads chat={chat}/><div className="flex min-w-0 flex-1 flex-col">
     <ChatMessages chat={chat} empty={<ChatSuggestions chat={chat} items={['Revenue by month?']}/>}/>
     <ChatComposer chat={chat}/></div></div>;}
 Style around these components, not inside them.
-LOW LEVEL (only for what the building blocks cannot do):
+LOW LEVEL (only for what the blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20, before}); // newest first, items as chat.conversations
 const conv = await bow.conversations.create({title}); // {id,title,agents}; agents:[ids] only to narrow on request
 await bow.conversations.rename(conv.id, title); await bow.conversations.archive(conv.id);
 const history = await bow.conversations.messages(conv.id, {limit: 30, before}); // {items,next_before}: oldest first, as
-//   chat.messages; timeline:[{type:"text",id,text}|{type:"tool",id,name,title,status,detail}] is chronological.
-//   Prefer ChatMessages/ChatMessage; toolLabel(tool) can customize display names without changing calls.
-//   Legacy text/steps/tools remain for compatibility. Do not render tools after all text when using timeline.
+//   chat.messages, plus timeline:[{type:"text",id,text}|{type:"tool",id,name,title,status,detail}]: render in that order.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
-  // thinking_delta {block,text}: append reasoning; thinking {block,text}: replace that reasoning block (including empty text).
+  // thinking_delta {block,text}: append reasoning; thinking {block,text}: replace that reasoning block (even if empty).
   // started {message_id}; tool {id,name,title,status}; text_delta {block,text}: append; text {block,text}: replace that block;
   // result {id,block,title,columns:[{field,headerName,type}],rows,row_count,column_count,truncated,chart}: before completed, keep
   //   on that message by id; chart is null or {type, x:field, y:[field], series:field|null, aggregate?:'count'} (count: rows per x):
@@ -104,7 +101,7 @@ for await (const event of bow.conversations.send(conv.id, userText, {signal: abo
   //   re-read messages() and render its results for that message.
 }
 await bow.conversations.stop(conv.id, messageId); // the started event's message_id
-// bow.auth.signIn() requests sign-in through the host; ChatComposer provides this action when auth_required.
+// bow.auth.signIn(): host sign-in; ChatComposer offers it on auth_required.
 // Send only on a user action. Render assistant text (Markdown) with {bow.markdown(text)}, user text as plain text,
 // results with <ChatResult result={r}/>; never re-parse numbers from the answer text.
 Embedded in another application, ARTIFACT_DATA.host_context holds what that
