@@ -43,6 +43,7 @@ class GetContextTool(MCPTool):
     """
     
     name = "get_context"
+    read_only_hint = True
     description = (
         "Get available data sources, tables, metadata resources and the organization's saved "
         "queries (agreed metric/model definitions). Useful for searching or explaining metadata. "

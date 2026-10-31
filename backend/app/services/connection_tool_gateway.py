@@ -336,7 +336,14 @@ class ConnectionToolGateway:
 
         try:
             client = await ConnectionService().construct_client(db, conn, current_user)
-            raw = await client.acall_tool(tool_name, arguments or {})
+            from app.data_sources.clients.mcp_client import McpClient, is_read_only_tool
+            if isinstance(client, McpClient):
+                raw = await client.acall_tool(
+                    tool_name, arguments or {},
+                    read_only=is_read_only_tool(getattr(tool, "metadata_json", None)),
+                )
+            else:
+                raw = await client.acall_tool(tool_name, arguments or {})
         except BaseException as e:  # noqa: BLE001 — surface provider errors as data
             logger.error("ConnectionToolGateway.execute failed: %s", e, exc_info=True)
             return GatewayResult(

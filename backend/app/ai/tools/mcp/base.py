@@ -50,6 +50,12 @@ class MCPTool(ABC):
         """
         return None
 
+    # MCP tool annotation hints (spec: annotations.readOnlyHint /
+    # destructiveHint). Clients — including BOW itself connecting to another
+    # BOW — use them to decide which tools need approval. None = not declared.
+    read_only_hint: Optional[bool] = None
+    destructive_hint: Optional[bool] = None
+
     @property
     def meta(self) -> Optional[Dict[str, Any]]:
         """Optional _meta field for the tool schema (e.g. UI resource hints).
@@ -129,6 +135,13 @@ class MCPTool(ABC):
         if ui.get("resourceUri"):
             meta["ui/resourceUri"] = ui["resourceUri"]
         schema["_meta"] = meta
+        annotations = {}
+        if self.read_only_hint is not None:
+            annotations["readOnlyHint"] = self.read_only_hint
+        if self.destructive_hint is not None:
+            annotations["destructiveHint"] = self.destructive_hint
+        if annotations:
+            schema["annotations"] = annotations
         return schema
     
     # ==================== Report Loading ====================

@@ -366,6 +366,8 @@ async def mcp_endpoint(
             }
             if "_meta" in tool:
                 entry["_meta"] = tool["_meta"]
+            if tool.get("annotations"):
+                entry["annotations"] = tool["annotations"]
             mcp_tools.append(entry)
         return _mcp_response(jsonrpc_response(request.id, {"tools": mcp_tools}))
 

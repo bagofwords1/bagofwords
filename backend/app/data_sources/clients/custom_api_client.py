@@ -344,6 +344,40 @@ class CustomApiClient(ToolProviderClient):
             return True
         return "csrf" in (response.text or "")[:2000].lower()
 
+    # Leading bytes of common binary formats → their media type.
+    _MAGIC = (
+        (b"%PDF-", "application/pdf"),
+        (b"\x89PNG\r\n\x1a\n", "image/png"),
+        (b"\xff\xd8\xff", "image/jpeg"),
+        (b"GIF87a", "image/gif"),
+        (b"GIF89a", "image/gif"),
+        (b"PK\x03\x04", "application/zip"),
+    )
+
+    @classmethod
+    def _sniff_mime(cls, response) -> str:
+        """Media type for a response that sent no Content-Type ('' = text)."""
+        import mimetypes
+        body = response.content or b""
+        for magic, mime in cls._MAGIC:
+            if body.startswith(magic):
+                if mime == "application/zip":
+                    # xlsx/docx/pptx are zips too — trust the URL's extension.
+                    url = str(response.request.url) if getattr(response, "request", None) is not None else ""
+                    guessed = mimetypes.guess_type(url.split("?")[0])[0]
+                    return guessed or mime
+                return mime
+        head = body[:4096]
+        if b"\x00" in head:
+            return "application/octet-stream"
+        try:
+            head.decode("utf-8")
+        except UnicodeDecodeError as e:
+            # A cut at the 4 KB boundary mid-character is still text.
+            if e.start < len(head) - 4:
+                return "application/octet-stream"
+        return ""
+
     @staticmethod
     def _is_texty(mime: str) -> bool:
         mime = (mime or "").split(";")[0].strip().lower()
@@ -485,6 +519,10 @@ class CustomApiClient(ToolProviderClient):
         session file.
         """
         mime = response.headers.get("content-type", "")
+        if not mime.strip():
+            # No Content-Type: decide from the bytes, or a PDF/PNG body is
+            # decoded as text and reaches the agent as garbage.
+            mime = self._sniff_mime(response)
 
         # Binary payload (PDF, image, zip, …) → hand back the bytes for
         # materialization instead of mangling them through .text.
@@ -493,9 +531,11 @@ class CustomApiClient(ToolProviderClient):
             uri = str(response.request.url) if response.request is not None else tool_name
             return {
                 "success": True,
+                # Whether the file could be saved is decided (and reported)
+                # downstream; don't promise it here.
                 "data": (
                     f"Binary response ({mime or 'application/octet-stream'}, "
-                    f"{len(blob):,} bytes) — saved as a file."
+                    f"{len(blob):,} bytes) — see the files listed in the result summary."
                 ),
                 "content_type": "text",
                 "binaries": [{

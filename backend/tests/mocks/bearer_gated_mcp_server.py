@@ -27,6 +27,7 @@ import json
 import os
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 
 mcp = FastMCP("mock-monday")
@@ -36,7 +37,7 @@ mcp = FastMCP("mock-monday")
 VALID_TOKEN = os.environ.get("MOCK_MCP_TOKEN", "secret-user-token")
 
 
-@mcp.tool(description="List boards visible to the signed-in user.")
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), description="List boards visible to the signed-in user.")
 def get_boards() -> str:
     return json.dumps([
         {"id": "1001", "name": "Roadmap"},
@@ -44,12 +45,12 @@ def get_boards() -> str:
     ])
 
 
-@mcp.tool(description="Fetch the items on a board.")
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), description="Fetch the items on a board.")
 def get_board_items(board_id: str) -> str:
     return json.dumps({"board_id": board_id, "items": [{"id": "i1", "name": "Ship it"}]})
 
 
-@mcp.tool(description="Return the authenticated user.")
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), description="Return the authenticated user.")
 def me() -> str:
     return json.dumps({"id": "u1", "name": "Sandbox User"})
 

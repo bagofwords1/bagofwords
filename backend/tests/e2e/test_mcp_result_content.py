@@ -88,9 +88,8 @@ class _ScriptedAgent:
         await db.commit()
 
 
-@pytest.fixture
-def env(test_client, create_user, login_user, whoami, create_data_source, create_report,
-        refresh_connection_tools, enable_mcp, content_url, monkeypatch):
+def _setup(test_client, create_user, login_user, whoami, create_data_source, create_report,
+           refresh_connection_tools, enable_mcp, monkeypatch, *, ds_type, config):
     monkeypatch.setattr(completion_mod, "AgentV2", _ScriptedAgent)
     _ScriptedAgent.results, _ScriptedAgent.reads = [], []
 
@@ -108,8 +107,7 @@ def env(test_client, create_user, login_user, whoami, create_data_source, create
     assert r.status_code == 200, r.text
     enable_mcp(token, org_id)
 
-    ds = create_data_source(name="Content MCP", type="mcp",
-                            config={"server_url": content_url, "transport": "streamable_http"},
+    ds = create_data_source(name=f"Content {ds_type}", type=ds_type, config=config,
                             credentials={}, user_token=token, org_id=org_id)
     conn_id = next(c["id"] for c in ds["connections"])
     refresh_connection_tools(connection_id=conn_id, user_token=token, org_id=org_id)
@@ -127,7 +125,16 @@ def env(test_client, create_user, login_user, whoami, create_data_source, create
         assert payload["output"]["success"], payload
         return payload
 
+    call.conn_id, call.token, call.org_id = conn_id, token, org_id
     return call
+
+
+@pytest.fixture
+def env(test_client, create_user, login_user, whoami, create_data_source, create_report,
+        refresh_connection_tools, enable_mcp, content_url, monkeypatch):
+    return _setup(test_client, create_user, login_user, whoami, create_data_source, create_report,
+                  refresh_connection_tools, enable_mcp, monkeypatch, ds_type="mcp",
+                  config={"server_url": content_url, "transport": "streamable_http"})
 
 
 def _agent_text(payload) -> str:
@@ -188,3 +195,117 @@ def test_unopenable_file_is_reported_not_dropped(env):
     dropped = out.get("dropped_files") or []
     assert [d["mime_type"] for d in dropped] == ["application/zip"]
     assert "application/zip" in payload["observation"]["summary"]
+
+
+# --- approval defaults from tool hints --------------------------------------
+
+def _policies(get_connection_tools, env):
+    tools = get_connection_tools(connection_id=env.conn_id, user_token=env.token, org_id=env.org_id)
+    tools = tools if isinstance(tools, list) else tools.get("tools", tools)
+    return {t["name"]: t for t in tools}
+
+
+@pytest.mark.e2e
+def test_new_tools_start_on_a_policy_from_their_hints(env, get_connection_tools):
+    tools = _policies(get_connection_tools, env)
+    assert tools["list_issues"]["policy"] == "allow"  # readOnlyHint
+    assert tools["delete_branch"]["policy"] == "ask"  # destructiveHint
+    assert tools["mystery_action"]["policy"] == "ask"  # no hints: fail safe
+
+
+@pytest.mark.e2e
+def test_refresh_keeps_a_policy_an_admin_set(env, get_connection_tools, update_connection_tool,
+                                              refresh_connection_tools):
+    tool = _policies(get_connection_tools, env)["mystery_action"]
+    update_connection_tool(connection_id=env.conn_id, tool_id=tool["id"], payload={"policy": "allow"},
+                           user_token=env.token, org_id=env.org_id)
+    refresh_connection_tools(connection_id=env.conn_id, user_token=env.token, org_id=env.org_id)
+    assert _policies(get_connection_tools, env)["mystery_action"]["policy"] == "allow"
+
+
+@pytest.mark.e2e
+def test_structured_only_result_reaches_the_agent(env):
+    payload = env("structured_only", q="x")
+    assert '"closed"' in _agent_text(payload)
+
+
+@pytest.mark.e2e
+def test_hidden_instructions_never_reach_the_agent(env):
+    payload = env("hidden_text", name="bob")
+    preview = str(payload["output"].get("preview"))
+    assert "hello bob" in preview
+    flag = "\U0001F3F4\U000E0067\U000E0062\U000E0073\U000E0063\U000E0074\U000E007F"
+    assert not any(0xE0000 <= ord(ch) <= 0xE007F for ch in preview.replace(flag, ""))
+
+
+# --- custom HTTP tools return files too --------------------------------------
+
+@pytest.fixture(scope="module")
+def files_api_url():
+    """A plain HTTP API returning binary bodies (one with no Content-Type)."""
+    from starlette.applications import Starlette
+    from starlette.responses import Response
+    from starlette.routing import Route
+
+    async def chart(request):
+        # No Content-Type header at all — the client must sniff the PNG.
+        return Response(content.PNG_BYTES, media_type=None)
+
+    async def report(request):
+        return Response(content.PDF_BYTES, media_type="application/pdf")
+
+    async def archive(request):
+        return Response(b"PK\x03\x04fake", media_type="application/zip")
+
+    async def root(request):
+        return Response("ok", media_type="text/plain")
+
+    app = Starlette(routes=[Route("/", root), Route("/chart", chart), Route("/report.pdf", report), Route("/archive", archive)])
+    port = _free_port()
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.time() + 10
+    while not server.started and time.time() < deadline:
+        time.sleep(0.05)
+    assert server.started, "files API did not start"
+    yield f"http://127.0.0.1:{port}"
+    server.should_exit = True
+    thread.join(timeout=5)
+
+
+@pytest.fixture
+def api_env(test_client, create_user, login_user, whoami, create_data_source, create_report,
+            refresh_connection_tools, enable_mcp, files_api_url, monkeypatch):
+    endpoints = [
+        {"name": "get_chart", "method": "GET", "path": "/chart", "description": "chart", "parameters": []},
+        {"name": "get_report", "method": "GET", "path": "/report.pdf", "description": "report", "parameters": []},
+        {"name": "get_archive", "method": "GET", "path": "/archive", "description": "zip", "parameters": []},
+    ]
+    return _setup(test_client, create_user, login_user, whoami, create_data_source, create_report,
+                  refresh_connection_tools, enable_mcp, monkeypatch, ds_type="custom_api",
+                  config={"base_url": files_api_url, "endpoints": endpoints})
+
+
+@pytest.mark.e2e
+def test_custom_api_image_without_content_type_is_saved_as_a_file(api_env):
+    payload = api_env("get_chart")
+    files = payload["output"].get("attached_files") or []
+    assert [f["mime_type"] for f in files] == ["image/png"]
+    assert len(_ScriptedAgent.reads) == 1
+
+
+@pytest.mark.e2e
+def test_custom_api_pdf_is_saved_as_a_file(api_env):
+    payload = api_env("get_report")
+    files = payload["output"].get("attached_files") or []
+    assert [f["mime_type"] for f in files] == ["application/pdf"]
+
+
+@pytest.mark.e2e
+def test_custom_api_unopenable_file_is_reported_not_claimed_saved(api_env):
+    payload = api_env("get_archive")
+    out = payload["output"]
+    assert not out.get("attached_files")
+    assert [d["mime_type"] for d in out.get("dropped_files") or []] == ["application/zip"]
+    assert "saved as a file" not in _agent_text(payload)

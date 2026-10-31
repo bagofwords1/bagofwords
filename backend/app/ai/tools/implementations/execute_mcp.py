@@ -760,7 +760,15 @@ Do not use when:
             if _is_loopback_url(server_url):
                 await self._release_db(db)
             logger.info(f"execute_mcp: Calling remote MCP: {server_url or '?'}")
-            result = await client.acall_tool(data.tool_name, data.arguments)
+            from app.data_sources.clients.mcp_client import McpClient, is_read_only_tool
+            if isinstance(client, McpClient):
+                # Read-only tools may be retried after a dropped connection.
+                result = await client.acall_tool(
+                    data.tool_name, data.arguments,
+                    read_only=is_read_only_tool(getattr(tool_record, "metadata_json", None)),
+                )
+            else:
+                result = await client.acall_tool(data.tool_name, data.arguments)
             logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except BaseException as e:
             logger.error(f"execute_mcp: Tool call failed: {e}", exc_info=True)

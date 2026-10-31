@@ -128,6 +128,7 @@ class ListInstructionsMCPTool(MCPTool):
     """
     
     name = "list_instructions"
+    read_only_hint = True
     description = (
         "List instructions from the current live build. "
         "Instructions are organizational knowledge that guide AI behavior. "
@@ -195,6 +196,7 @@ class ReadInstructionMCPTool(MCPTool):
     """Read one instruction in full, with its agent scope and review state."""
 
     name = "read_instruction"
+    read_only_hint = True
     description = (
         "Read one instruction in full: text, category, load mode, the agents it applies to "
         "(empty = global), whether a change is pending admin review, and whether you can edit it. "
@@ -439,6 +441,8 @@ class DeleteInstructionMCPTool(MCPTool):
     """Delete an instruction — same rules as the web app's delete."""
 
     name = "delete_instruction"
+    read_only_hint = False
+    destructive_hint = True
     description = (
         "Delete an instruction (soft delete); it's removed from the live build. "
         "You need instruction-management rights on every agent it applies to; global "
