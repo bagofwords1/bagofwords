@@ -66,10 +66,17 @@ class PromptBuilderV3:
         # Every message, not just the first: on the transcript path the
         # volatile head (conversation history, current artifact) rides on the
         # last turn, so reading messages[0] alone under-counted it.
-        bodies = [
-            m["content"] if isinstance(m["content"], str) else json.dumps(m["content"], default=str)
-            for m in v3.messages
-        ]
+        bodies = []
+        for m in v3.messages:
+            content = m["content"]
+            if isinstance(content, list):
+                # Images are vision input, never base64 prompt text. The
+                # transcript budget accounts for their pixel cost separately.
+                content = json.dumps([
+                    {"type": "image"} if block.get("type") == "image" else block
+                    for block in content
+                ], default=str)
+            bodies.append(content)
         return "\n".join([v3.system, *bodies])
 
     @staticmethod
@@ -90,7 +97,8 @@ class PromptBuilderV3:
         # tools — only the message shape changes, so the two paths are directly
         # A/B-able. See transcript_bridge.
         messages: list
-        if transcript_bridge.enabled(planner_input):
+        uses_transcript = transcript_bridge.enabled(planner_input)
+        if uses_transcript:
             messages = PromptBuilderV3._build_transcript_messages(planner_input)
         else:
             # Built ONLY for the legacy path. It json.dumps every observation
@@ -108,7 +116,9 @@ class PromptBuilderV3:
             system=system,
             messages=messages,
             tools=[{"name": t.name, "description": t.description, "input_schema": t.input_schema} for t in tools],
-            images=planner_input.images,
+            # Uploads are now native content on the original ask. Passing them
+            # here as well would append another copy to the newest user turn.
+            images=None if uses_transcript else planner_input.images,
             tool_catalog=planner_input.tool_catalog,
             mode=planner_input.mode or "chat",
         )
@@ -304,9 +314,42 @@ class PromptBuilderV3:
             web_fetch_directives_text = (
                 "- **URL fetching (web_fetch is enabled for this org):** when the user references one or more HTTP/HTTPS URLs, pick the tool by what they're asking for, not by URL count:\n"
                 "  - Just \"read / what does it say / summarize\" → `web_fetch` (single URL, returns parsed content in one shot).\n"
-                "  - Build a tracked table / chart / insight from URL content → `create_data`. The code-exec sandbox has an injected `http` client (`http.get(url)`, `http.batch_get(urls)`); the coder will fetch and parse as needed.\n"
-                "  - Validate URL structure or sample content before a larger fetch → `inspect_data` on 1–3 URLs first, then `create_data`.\n"
-                "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
+                + (
+                    "  - Build a tracked table / chart / insight from URL content → `create_data`. The code-exec sandbox has an injected `http` client (`http.get(url)`, `http.batch_get(urls)`); the coder will fetch and parse as needed.\n"
+                    "  - Validate URL structure or sample content before a larger fetch → `inspect_data` on 1–3 URLs first, then `create_data`.\n"
+                    "  - `create_data` / `inspect_data` accept URL-only tasks (no `tables_by_source`, no uploaded file required) when web fetch is enabled."
+                    if getattr(planner_input, "sandbox_web_fetch_enabled", False) else
+                    "  - Generated code cannot fetch URLs in this org (Web fetch in code is off): read pages with `web_fetch` and build from what you read."
+                )
+            )
+
+        # Bulk work in code (org Sandbox settings). Without this the planner
+        # loops its own browser tools page by page and writes every row into a
+        # submit_<list> call: the model reads and writes all of it.
+        _sb_http = getattr(planner_input, "sandbox_web_fetch_enabled", False)
+        _sb_browser = getattr(planner_input, "sandbox_browser_enabled", False)
+        _sb_lists = getattr(planner_input, "sandbox_lists_enabled", False)
+        if _sb_http or _sb_browser:
+            _can = []
+            if _sb_http:
+                _can.append("fetch many URLs (`http.batch_get`)")
+            if _sb_browser:
+                _can.append("drive a headless browser through JavaScript pages, pagination and 'load more' (`browser`)")
+            if _sb_lists:
+                _can.append("submit the rows straight into an Agent List (`lists.submit`)")
+            web_fetch_directives_text += (
+                ("\n" if web_fetch_directives_text else "")
+                + "- **Bulk scraping runs in code (Sandbox):** generated code in `create_data` can "
+                + ", ".join(_can) + ". The pages it reads and the rows it writes never pass through you; "
+                "only counts and a preview come back. So when the task covers more than ~3 pages or more "
+                "than ~20 rows: make ONE `create_data` call (no `tables_by_source` needed) whose "
+                "interpreted_prompt states the start URL, how to paginate (e.g. click 'Next' until it is gone), "
+                "the fields to extract"
+                + (", and the list slug to submit to" if _sb_lists else "")
+                + ". Use your own browser tools at most once first to look at the page structure; never loop "
+                "browser_navigate / browser_extract / browser_act over many pages"
+                + (", and never write scraped rows yourself with a submit_<list> tool" if _sb_lists else "")
+                + ". Check the result's sandbox_activity counts and report them."
             )
 
         # Native web search runs inside the provider (OpenAI/Azure Responses) and
@@ -431,6 +474,28 @@ class PromptBuilderV3:
         # cache-friendly.
         language_text = language_directive_body(getattr(planner_input, "locale", None))
 
+        # Artifact building (dashboards, apps, documents) and its authoring
+        # reference. An app conversation answers a person's data question with
+        # data tools only and never builds, so it gets none of it.
+        app_surface = PromptBuilder._is_app_surface(planner_input)
+        builder_sections_text = "" if app_surface else (
+            'DASHBOARDS\n'
+            '- **Cold start** (no relevant viz in past_observations): build ONE wide master table covering the metrics and dimensions the dashboard needs — not several narrow pre-aggregated queries. The artifact derives KPI cards, charts, and tables CLIENT-SIDE from it (reduce/groupBy in JSX).\n'
+            "- **Filters = server-side parameters (DEFAULT).** When the dashboard has a viewer-adjustable filter (a dimension or time window), declare it as an input parameter on EVERY query the filter must drive (the filter-space pattern: a small dimension query first, then options_source on the consuming queries). Client-side useFilters is only for cheap within-snapshot interactions — never the primary filter mechanism, and never for a filter that some viz cannot honor from its projected columns. To add a filter to an EXISTING query, use `add_parameter(query_id, parameter, column)` — in-place, keeps the query id and its visualizations — instead of recreating via create_data; then wire the control in the artifact. To see a parameterized query's result for particular values (answering in chat, or checking a slice before wiring it), call `run_query(query_id, params={...})` — it never changes the query's defaults or what other viewers see.\n"
+            '- **Warm start**: demonstratives bind to past_observations — "this data", "the above", "what we have", "great/nice + make a dashboard" mean USE the existing visualizations. Scan past_observations for viz_ids FIRST; if they cover the ask, call `create_artifact` directly with them. Call create_data first ONLY when a column the user needs exists in no prior viz. Do not spin up "supporting" KPI/trend/top-N queries the artifact can derive client-side.\n'
+            '- Generic dashboard ask with multiple candidate vizs, open-ended intent ("something interesting"), or data covering only part of the ask → clarify with 2-3 concrete options. Unambiguous coverage (one wide table + "build a dashboard from this") → skip the clarify.\n'
+            "- YOU author all artifact source (see ARTIFACT AUTHORING REFERENCE). `create_artifact` = brand-new artifact or an explicit from-scratch rebuild: write a compact APP BRIEF (task, primary surface, data bindings, interactions, visual direction, and states) as `prompt`, then COMPLETE source in `code` and the viz IDs. Use custom React/CSS or optional kit components; no mandatory hero, KPI row, or subject-based theme. `edit_artifact` = the ONLY edit path: author exact find/replace ops against `<current_artifact>.<code>` — mechanical, atomic, no second model; a failed op returns the closest match to correct, and an edit may carry many ops (size is never a reason to rebuild; call `create_data` first only if the edit needs new data). `read_artifact` when the current code was omitted from context for size. The tools gate and render-validate; on failure fix your code/ops and call again — nothing was persisted. When the user says the app doesn't work or shows an error, read `<app_activity>` / `read_artifact_activity` (failed requests, error codes, the clicks before them) before editing; after a fix, the browser preview's evidence lists every `bow.*` call (`sdk_calls`), failed ones under `errors`.\n"
+            '- Change an artifact ONLY when the user asks for a change to it (add, remove, restyle, fix, rebuild, "put this on the dashboard"). A question — about the data, about the dashboard, or about what changed in it — is answered in `final_answer`, with `create_data`/`run_query` if the data needs it, but never `create_artifact`/`edit_artifact`; offer to add the answer to the dashboard instead. "What changed" / "who changed X" about the dashboard is answered from `<current_artifact>.<collaboration>` (its change log and notes), not with a new query.\n'
+            '- After create/edit succeeds, follow verification_hint: complex parameterized apps need focused interaction checks through the existing browser tools. Simple static dashboards finish normally. Do not issue extra create_data queries just to validate; inspect the viewer-run evidence returned automatically by browser_act. Then deliver actual findings and clearly bound what was checked.\n'
+            '\n'
+            'DOCUMENTS\n'
+            '- "report", "analysis", "write-up", "memo", "root cause", "summarize in a doc" → `create_doc`: YOU author polished markdown with citations for every number, embedding live charts via `{viz:<uuid>}` — create the data FIRST, then the doc (structure and mermaid rules are in the tool\'s description). "dashboard", "monitor", "track" → `create_artifact`. Genuinely ambiguous → dashboard, with the written summary in your final message. Write docs in the user\'s language. Edit docs with `edit_doc` (read_artifact first unless the current markdown is in context).\n'
+            '\n'
+        )
+        builder_example_text = "" if app_surface else (
+            '- (past_observations holds a wide master-table viz) "great create a dashboard" → create_artifact with the existing viz_id — DO NOT call create_data first.\n'
+        )
+
         # NOTE: do NOT embed wall-clock time in the system prompt — it would
         # invalidate Anthropic's prompt cache on every call. The current date
         # is rendered into the per-turn user message instead (see
@@ -490,19 +555,7 @@ ERROR HANDLING
 - Cite the source (table/column, time range) for findings; distinguish "data shows X" from "I infer X"; state confidence and limitations; flag anomalies (unexpected zeros, sudden changes, outliers). No sample or fabricated data in final text.
 - Link back to source documents: when a finding comes from a file, email, page or item that carries a `web_url` (SharePoint, OneDrive, Outlook, Gmail, OneNote) or an `item_url`/board `url` (monday.com), end the answer with the link(s) as markdown with a readable label — `[Q3 budget.xlsx](<web_url>)`, never a bare URL. Use only URLs returned by tools; never invent or edit one.
 
-DASHBOARDS
-- **Cold start** (no relevant viz in past_observations): build ONE wide master table covering the metrics and dimensions the dashboard needs — not several narrow pre-aggregated queries. The artifact derives KPI cards, charts, and tables CLIENT-SIDE from it (reduce/groupBy in JSX).
-- **Filters = server-side parameters (DEFAULT).** When the dashboard has a viewer-adjustable filter (a dimension or time window), declare it as an input parameter on EVERY query the filter must drive (the filter-space pattern: a small dimension query first, then options_source on the consuming queries). Client-side useFilters is only for cheap within-snapshot interactions — never the primary filter mechanism, and never for a filter that some viz cannot honor from its projected columns. To add a filter to an EXISTING query, use `add_parameter(query_id, parameter, column)` — in-place, keeps the query id and its visualizations — instead of recreating via create_data; then wire the control in the artifact. To see a parameterized query's result for particular values (answering in chat, or checking a slice before wiring it), call `run_query(query_id, params={{...}})` — it never changes the query's defaults or what other viewers see.
-- **Warm start**: demonstratives bind to past_observations — "this data", "the above", "what we have", "great/nice + make a dashboard" mean USE the existing visualizations. Scan past_observations for viz_ids FIRST; if they cover the ask, call `create_artifact` directly with them. Call create_data first ONLY when a column the user needs exists in no prior viz. Do not spin up "supporting" KPI/trend/top-N queries the artifact can derive client-side.
-- Generic dashboard ask with multiple candidate vizs, open-ended intent ("something interesting"), or data covering only part of the ask → clarify with 2-3 concrete options. Unambiguous coverage (one wide table + "build a dashboard from this") → skip the clarify.
-- YOU author all artifact source (see ARTIFACT AUTHORING REFERENCE). `create_artifact` = brand-new artifact or an explicit from-scratch rebuild: write a compact APP BRIEF (task, primary surface, data bindings, interactions, visual direction, and states) as `prompt`, then COMPLETE source in `code` and the viz IDs. Use custom React/CSS or optional kit components; no mandatory hero, KPI row, or subject-based theme. `edit_artifact` = the ONLY edit path: author exact find/replace ops against `<current_artifact>.<code>` — mechanical, atomic, no second model; a failed op returns the closest match to correct, and an edit may carry many ops (size is never a reason to rebuild; call `create_data` first only if the edit needs new data). `read_artifact` when the current code was omitted from context for size. The tools gate and render-validate; on failure fix your code/ops and call again — nothing was persisted.
-- Change an artifact ONLY when the user asks for a change to it (add, remove, restyle, fix, rebuild, "put this on the dashboard"). A question — about the data, about the dashboard, or about what changed in it — is answered in `final_answer`, with `create_data`/`run_query` if the data needs it, but never `create_artifact`/`edit_artifact`; offer to add the answer to the dashboard instead. "What changed" / "who changed X" about the dashboard is answered from `<current_artifact>.<collaboration>` (its change log and notes), not with a new query.
-- After create/edit succeeds, follow verification_hint: complex parameterized apps need focused interaction checks through the existing browser tools. Simple static dashboards finish normally. Do not issue extra create_data queries just to validate; inspect the viewer-run evidence returned automatically by browser_act. Then deliver actual findings and clearly bound what was checked.
-
-DOCUMENTS
-- "report", "analysis", "write-up", "memo", "root cause", "summarize in a doc" → `create_doc`: YOU author polished markdown with citations for every number, embedding live charts via `{{viz:<uuid>}}` — create the data FIRST, then the doc (structure and mermaid rules are in the tool's description). "dashboard", "monitor", "track" → `create_artifact`. Genuinely ambiguous → dashboard, with the written summary in your final message. Write docs in the user's language. Edit docs with `edit_doc` (read_artifact first unless the current markdown is in context).
-
-LANGUAGE
+{builder_sections_text}LANGUAGE
 {language_text}
 
 COMMUNICATION
@@ -521,8 +574,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 - "How many active users do we have?" ("active" has several materially different meanings — clarify in BOTH draft and published) → clarify, question="Which definition of \"active user\" should I use?\n- logged in within the last 30 days\n- performed any tracked action within the last 30 days\n- has an active subscription\n- or specify your own."
 - "Active users are users who logged in in the last 30 days." → create_data with that definition.
 - "Hi" → text only: "Hi! What would you like to look into today?"
-- (past_observations holds a wide master-table viz) "great create a dashboard" → create_artifact with the existing viz_id — DO NOT call create_data first.
-"""
+{builder_example_text}"""
+        if app_surface:
+            return system
         from app.ai.agents.planner.artifact_authoring import build_artifact_authoring_reference
         system += "\n\n" + build_artifact_authoring_reference()
         return system
@@ -806,6 +860,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        # <app_activity> is the editor's own use of the app (never a viewer's),
+        # for fixing it: not part of an app conversation.
+        if getattr(planner_input, "app_activity_context", None) and not PromptBuilder._is_app_surface(planner_input):
+            parts.append(f"  {planner_input.app_activity_context}")
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
             parts.append(f"  {disabled}")
@@ -957,8 +1015,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         images_context = ""
         if planner_input.images:
             images_context = (
-                f"<images>{len(planner_input.images)} image(s) attached. Analyze them as part "
-                f"of your response when relevant.</images>"
+                f"<images>{len(planner_input.images)} retained image(s) from the original "
+                "user request or tool observations. Repeated visibility does not mean "
+                "a new upload or a refreshed capture. Use the associated request/tool "
+                "result and artifact version to establish recency.</images>"
             )
 
         platform = planner_input.external_platform or "default"
@@ -1045,6 +1105,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
+        # <app_activity> is the editor's own use of the app (never a viewer's),
+        # for fixing it: not part of an app conversation.
+        if getattr(planner_input, "app_activity_context", None) and not PromptBuilder._is_app_surface(planner_input):
+            parts.append(f"  {planner_input.app_activity_context}")
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
             parts.append(f"  {disabled}")

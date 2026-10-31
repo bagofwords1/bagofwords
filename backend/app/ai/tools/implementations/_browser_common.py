@@ -84,6 +84,9 @@ def chromium_executable() -> Optional[str]:
         os.path.join(base, "chromium-*/chrome-linux/chrome"),
         os.path.join(base, "chromium-*/chrome-linux/headless_shell"),
         os.path.join(base, "chromium_headless_shell-*/chrome-linux/headless_shell"),
+        # Newer Playwright builds unpack into *-linux64 folders.
+        os.path.join(base, "chromium-*/chrome-linux64/chrome"),
+        os.path.join(base, "chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell"),
     ):
         hits = sorted(glob.glob(pat))
         if hits:
@@ -359,6 +362,11 @@ class BrowserSessionManager:
             except Exception:
                 pass
 
+    async def close_session(self, session_id: str):
+        """Close one session by id (the sandbox's per-run browser)."""
+        async with self._lock:
+            await self._close(session_id)
+
     async def close_report(self, report_id: str):
         for sid, s in list(self._sessions.items()):
             if sid == str(report_id) or (s.scope and s.scope[2] == str(report_id)):
@@ -390,8 +398,12 @@ class BrowserSessionManager:
     def scope_for(ctx, *, internal=True):
         # Connector browsers keep their authorized report session across turns;
         # an internal preview belongs only to the execution that opened it.
+        # A sub-agent gets its own connector browser, kept across its own turns:
+        # parallel children (and the parent) never drive the same page.
         execution = str(ctx.get("agent_execution_id") or "") if internal else ""
-        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (execution,)
+        sub_agent = "" if internal else str(ctx.get("sub_agent_id") or "")
+        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (
+            execution or (f"sub_agent:{sub_agent}" if sub_agent else ""),)
 
     async def close_execution(self, execution_id):
         for sid, s in list(self._sessions.items()):
@@ -628,12 +640,20 @@ async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000, roo
 
     if not full:
         # Drop pure structural containers with no accessible name to shrink the tree.
+        # Their children move up one level per dropped ancestor, so the filtered
+        # tree keeps the real nesting (a dropped list after an alert must not put
+        # its items under that alert).
         lines = []
+        dropped = []  # indents of the dropped containers enclosing the current line
         for ln in snap.splitlines():
             stripped = ln.strip()
+            indent = len(ln) - len(ln.lstrip(" "))
+            while dropped and indent <= dropped[-1]:
+                dropped.pop()
             if re.fullmatch(r'-\s+(generic|group|paragraph|list|listitem)\s+\[ref=[^\]]+\]:?', stripped):
+                dropped.append(indent)
                 continue
-            lines.append(ln)
+            lines.append(ln[min(indent, 2 * len(dropped)):] if stripped else ln)
         snap = "\n".join(lines)
 
     truncated = False

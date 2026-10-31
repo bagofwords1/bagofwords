@@ -3453,6 +3453,7 @@
       "discovering_schema": "Erkennung: Schema",
       "catalog_ready": "Bereit: Katalog",
       "reading_semantic_views": "Lesen: semantische Sichten",
+      "reading_routines": "Prozeduren und Funktionen werden gelesen",
       "admin_scan": "Administrativer Scan: Arbeitsbereiche",
       "listing_workspaces": "Auflistung: Arbeitsbereiche",
       "workspace_models": "Auflistung: Modelle",
@@ -3835,6 +3836,20 @@
           "title": "Unten einfügen und Verbindung testen",
           "body": "Fügen Sie die gesamte Ausgabe in das Feld Cluster-Zugriffsdatei ein und klicken Sie auf Verbindung testen."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Dem Konto Lesezugriff in Configuration Manager geben",
+          "body": "Öffnen Sie in der Konsole Administration > Security > Administrative Users, fügen Sie das Konto (oder seine AD-Gruppe) hinzu und weisen Sie die Rolle Read-only Analyst zu. Seine Sicherheitsbereiche und Sammlungen bestimmen, was Bag of Words sehen kann."
+        },
+        {
+          "title": "Prüfen, ob der Verwaltungsdienst antwortet",
+          "body": "Führen Sie dies auf einem domänengebundenen Rechner gegen Ihren SMS Provider aus. Ihr Standort sollte aufgelistet werden."
+        },
+        {
+          "title": "Zertifikat des SMS Providers exportieren",
+          "body": "Standardmäßig verwendet der Standort ein selbstsigniertes Zertifikat. Führen Sie dies in PowerShell auf dem SMS Provider aus und fügen Sie die Ausgabe in SMS Provider certificate (PEM) ein. Überspringen Sie den Schritt, wenn das Zertifikat von einer Zertifizierungsstelle stammt, der dieser Server bereits vertraut."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopieren fehlgeschlagen — Text markieren",
@@ -4083,7 +4098,12 @@
     "dashboard.join_no_access": "Du brauchst Zugriff auf {name}, um dieses Dashboard zu bearbeiten.",
     "dashboard.creator_publish_owner_only": "Dieses Dashboard läuft mit den Zugangsdaten seines Eigentümers, daher kann nur der Eigentümer es veröffentlichen.",
     "dashboard.published_since": "{by} hat dieses Dashboard veröffentlicht, seit dein Entwurf begonnen hat.",
-    "dashboard.draft_name_taken": "Es gibt bereits einen Entwurf mit diesem Namen."
+    "dashboard.draft_name_taken": "Es gibt bereits einen Entwurf mit diesem Namen.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -5914,6 +5934,15 @@
     "editQuery": "{name} bearbeiten",
     "rowFiltered": "Zeilengefiltert",
     "refreshFailed": "Aktualisierung fehlgeschlagen",
+    "routineProcedure": "Prozedur",
+    "routineFunction": "Funktion",
+    "routineHint": "Gespeicherte Routine: Der Agent liest ihre Logik und wendet sie in eigenen Abfragen an. Er führt sie nie aus.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Typ",
+    "routineSource": "Quellcode",
+    "routineSourceTruncated": "Gekürzt",
+    "routineSourceHidden": "Quellcode nicht sichtbar",
+    "routineSourceHiddenHint": "Das Konto der Verbindung kann den Quellcode dieser Routine nicht lesen (VIEW DEFINITION oder das Gegenstück der Datenbank ist nötig). Der Agent sieht nur die Signatur.",
     "successful": "Erfolgreich",
     "failed": "Fehlgeschlagen",
     "lastRefreshed": "Zuletzt aktualisiert",
@@ -6436,5 +6465,42 @@
     "owner": "Eigentümer",
     "byOwner": "von {name}",
     "untitled": "Ohne Titel"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Dies wurde noch nicht veröffentlicht. Es erscheint hier, sobald es veröffentlicht ist.",
+      "notFound": "Dies ist nicht verfügbar. Möglicherweise wurde es noch nicht veröffentlicht oder es wurde entfernt.",
+      "denied": "Sie haben keinen Zugriff darauf. Bitten Sie den Eigentümer, es mit Ihnen zu teilen.",
+      "notAllowed": "Dies ist für diese Anwendung nicht aktiviert. Ein Bearbeiter kann es in den Einbettungseinstellungen in Bag of Words erlauben.",
+      "failed": "Das konnte nicht geladen werden. Versuchen Sie es gleich noch einmal."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Aktiviert",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

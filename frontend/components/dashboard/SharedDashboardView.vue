@@ -199,8 +199,9 @@
             @review="openChanges"
         />
 
-        <!-- "Made with BOW" badge -->
-        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft')"
+        <!-- "Made with BOW" badge. Not inside a host application: there it
+             would float over the customer's own product and its controls. -->
+        <a v-if="report.general?.bow_credit !== false && !(embedded && source === 'draft') && !inHostApplication"
            href="https://bagofwords.com"
            target="_blank"
            :style="{ bottom: `${20 + cornerLift}px` }"
@@ -347,11 +348,12 @@
         <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
              availability — sign-in prompt for anonymous, member check inside) -->
         <ArtifactChatBubble
-            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded"
+            v-if="reportLoaded && report?.artifact_chat_enabled && api.chatBase && !embedded && !ownConversations"
             :report-id="id"
             :base="api.chatBase"
-            :raised="report.general?.bow_credit !== false"
+            :raised="report.general?.bow_credit !== false && !inHostApplication"
             :lift="cornerLift"
+            :host-context="props.hostContext ?? null"
         />
 
         <ArtifactResourceExplorer
@@ -384,7 +386,9 @@ import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
+import { embedLoadFailure, embedSessionEnded, type EmbedLoadFailure } from '~/utils/embedSession';
 import { sharedDashboardApi, type SharedDashboardSource } from '~/utils/sharedDashboardApi';
+import { awaitsViewerInput, isOwnSuccess, seedParamValues } from '~/utils/viewerInput';
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue';
 import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
@@ -397,13 +401,21 @@ import {
 // The shared dashboard page: a conversation's /r/{id}, a published
 // dashboard's /d/{id}, or its draft for its editors (/d/{id}/draft) -- the
 // same page over each one's endpoints (utils/sharedDashboardApi).
-const props = defineProps<{ source: SharedDashboardSource; id: string }>();
+// hostContext: set inside a host application (/d/{ref}?host=, EmbeddedArtifactGate).
+const props = defineProps<{ source: SharedDashboardSource; id: string; hostContext?: Record<string, any> | null }>();
+const embedCredential = useEmbedCredential();
+// Inside a host application: the host's chrome surrounds the artifact, so no
+// bars of our own; the signed-in user is the host's.
+const inHostApplication = computed(() => !!embedCredential.value);
 // Start downloading the artifact iframe's libraries now, in parallel with the
 // page's data requests (see utils/artifactLibs.ts).
 ensureArtifactLibs(artifactPageLibs({ reactBuild: 'production', babel: false, pdf: false }));
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
-const emit = defineEmits<{ (e: 'reload'): void }>();
+// `unavailable`: inside a host application the artifact could not be opened;
+// the embed gate says why (it never navigates away from the host's frame).
+// `opened`: inside a host application, it could (the gate tells the host).
+const emit = defineEmits<{ (e: 'reload'): void; (e: 'unavailable', failure: EmbedLoadFailure): void; (e: 'opened'): void }>();
 const api = sharedDashboardApi(props.source, props.id);
 const route = useRoute();
 const { data: currentUser } = useAuth();
@@ -461,6 +473,10 @@ const artifact = ref<any>(null);
 // viewers (401) or any fetch failure — the artifact renders anonymously.
 const viewerContext = ref<any>(null);
 async function fetchViewerContext() {
+    if (embedCredential.value) {
+        viewerContext.value = embedCredential.value.viewer;
+        return;
+    }
     try {
         const { data } = await useMyFetch('/api/users/me/viewer_context');
         viewerContext.value = data.value || null;
@@ -548,10 +564,24 @@ const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.v
 // never moves elsewhere: the tab's bar names the version it shows, so a
 // version that is gone says so in place (`unavailable`). The published page
 // keeps its badge, as its readers see it.
+// An app that holds its own conversations (bow.conversations, or the
+// useConversation building block) is the chat: the bubble would be a second one.
+const ownConversations = computed(() => /\bbow\.conversations\b|\buseConversation\s*\(/.test(artifact.value?.content?.code || ''));
 const embedded = (props.source === 'draft' || props.source === 'dashboard') && route.query.embed === '1';
 const unavailable = ref(false);
 // Top bar state
-const showTopBar = ref(!embedded);
+const showTopBar = ref(!embedded && !inHostApplication.value);
+// The host page moved to another record: the artifact gets the new context.
+watch(() => props.hostContext, () => { if (artifactIframeLoaded.value) pushArtifactData(); }, { deep: true });
+// A silent renewal for the same viewer keeps this view (the gate remounts it
+// only for someone else), but may bring another role or other groups: the
+// artifact gets the new current_user, its data untouched. Display only; the
+// server enforces access.
+watch(() => JSON.stringify(embedCredential.value?.viewer ?? null), () => {
+    if (!embedCredential.value) return;
+    viewerContext.value = embedCredential.value.viewer;
+    deliverArtifactData();
+});
 const activeTab = ref<'report' | 'data'>('report');
 // The owner's "Include Data Tab" share setting. The report loads after mount,
 // so this is true until proven otherwise — anything but an explicit false
@@ -957,6 +987,12 @@ async function loadReport() {
         }
         if (fetchError.value) {
             const status = (fetchError.value as any)?.statusCode || (fetchError.value as any)?.status;
+            // Inside a host application: no draft, no sign-in page, no
+            // /not_found -- each would leave the host's frame. The gate says why.
+            if (inHostApplication.value && props.source === 'dashboard') {
+                emit('unavailable', embedLoadFailure(status, (fetchError.value as any)?.data?.error_code));
+                return;
+            }
             // Not published yet: its editors see the draft instead -- unless
             // the draft just sent us here (it would bounce back and forth).
             const fromDraft = route.query.from === 'draft';
@@ -988,15 +1024,24 @@ async function loadReport() {
             return;
         }
         if (!data.value) {
+            if (inHostApplication.value && props.source === 'dashboard') {
+                emit('unavailable', embedLoadFailure(undefined, null));
+                return;
+            }
             navigateTo('/not_found');
             return;
         }
         report.value = asReport(data.value);
         forkEligibility.value = (data.value as any)?.fork_eligibility || null;
+        if (inHostApplication.value && props.source === 'dashboard') emit('opened');
     } catch (e) {
         console.error('Failed to load report:', e);
         if (embedded) {
             unavailable.value = true;
+            return;
+        }
+        if (inHostApplication.value && props.source === 'dashboard') {
+            emit('unavailable', embedLoadFailure(undefined, null));
             return;
         }
         navigateTo('/not_found');
@@ -1041,11 +1086,22 @@ function asReport(meta: any) {
 }
 const dashboardMeta = ref<any>(null);
 
+// Inside a host application, a later request of the view (content, queries)
+// refused for a dead embed session: the session ended, not the load -- the
+// gate ends it as an expired one (the host is asked to sign the user in).
+function embedSessionEndedOn(error: any): boolean {
+    if (!inHostApplication.value || props.source !== 'dashboard' || !error) return false;
+    if (!embedSessionEnded(error?.statusCode || error?.status, error?.data?.error_code)) return false;
+    emit('unavailable', 'session_invalid');
+    return true;
+}
+
 // A dashboard's published version (or its draft): one artifact, whose
 // content the page renders as it renders a conversation's newest.
 async function loadDashboardContent() {
     try {
         const { data, error } = await useMyFetch(api.content!);
+        if (embedSessionEndedOn(error.value)) return;
         if (error.value || !data.value) throw error.value || new Error('Missing dashboard content');
         const body = data.value as any;
         const meta = dashboardMeta.value || {};
@@ -1109,6 +1165,7 @@ async function loadArtifact() {
 async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
     try {
         const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
+        if (embedSessionEndedOn(error.value)) return [];
         if (error.value || !Array.isArray(data.value)) return null;
         return data.value as any[];
     } catch {
@@ -1151,6 +1208,7 @@ async function loadVisualizationData(artifactId?: string) {
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
         const appliedByQuery = new Map<string, any>();
+        const nextServedApplied: Record<string, Record<string, any>> = {};
         const titleToId = new Map<string, string>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
@@ -1185,10 +1243,15 @@ async function loadVisualizationData(artifactId?: string) {
             const vr = (step.value as any)?.viewer_result;
             if ((step.value as any)?.snapshot_withheld) {
                 anyWithheld = true;
-                nextWithheldCharts.push({
-                    title: (query as any).title || 'Untitled',
-                    noAccess: vr?.error_code === 'no_access',
-                });
+                if (awaitsViewerInput(vr)) {
+                    // Nothing ran: the app gives the value (setParams). Its rows and code stay withheld.
+                    visibleQueries += 1;
+                } else {
+                    nextWithheldCharts.push({
+                        title: (query as any).title || 'Untitled',
+                        noAccess: vr?.error_code === 'no_access',
+                    });
+                }
             } else if (step.value) {
                 if (!(step.value as any).pending && vr?.status !== 'success') anyAuthorSnapshot = true;
                 // Only a step that actually loaded counts as viewable — see
@@ -1203,7 +1266,7 @@ async function loadVisualizationData(artifactId?: string) {
                 if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
                 if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
                 if (vr.status === 'error' && vr.error_code === 'credentials_required') anyNeedsConnect = true;
-                if (vr.status === 'success') anyOwnSuccess = true;
+                if (isOwnSuccess(vr)) anyOwnSuccess = true;  // a wait for input is not a run of theirs (exports)
             }
             const viewerRun = vr?.last_run_at;
             if (viewerRun) {
@@ -1217,6 +1280,7 @@ async function loadVisualizationData(artifactId?: string) {
             }
             rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
             appliedByQuery.set(String((query as any).id), (step.value as any)?.applied_params || {});
+            nextServedApplied[String((query as any).id)] = (step.value as any)?.applied_params || {};
             if ((query as any).title) titleToId.set(String((query as any).title).toLowerCase(), String((query as any).id));
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
@@ -1247,6 +1311,8 @@ async function loadVisualizationData(artifactId?: string) {
                 });
             }
         }
+        // What this load was served; replaced on every load, never merged.
+        servedAppliedParams = nextServedApplied;
         // Reorder vizData to match artifact's visualization_ids order
         const vizIds = artifact.value?.content?.visualization_ids;
         if (vizIds && vizIds.length > 0) {
@@ -1313,8 +1379,11 @@ async function pollPending() {
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
 // The draft page counts no view (collab01): editors at work are not readers.
+// The draft page is an editor at work: what happens in the app is logged for
+// their agent (never on published pages or inside host applications).
 useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id,
-    recordViews: props.source !== 'draft'}));
+    recordViews: props.source !== 'draft',
+    activity: props.source === 'draft' && !props.hostContext ? { version: artifact.value?.version ?? null } : null}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
 // iframe finishes loading is simply lost, so deliveries wait for `load`.
@@ -1335,6 +1404,9 @@ watch(() => colorMode.value, (v) => {
 
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
+// The applied_params each query's served step ran with, from the latest load
+// (loadVisualizationData). initParamValues seeds the inputs from them.
+let servedAppliedParams: Record<string, Record<string, any>> = {};
 // Host-resolved stable choices per param (static options + options-source
 // query rows) — mirrors ArtifactFrame; useParamOptions() reads these.
 const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
@@ -1466,15 +1538,10 @@ async function resolveParamOptions(
     paramOptions.value = out;
 }
 
+// Once, at mount: an input the viewer has not set starts from the value its
+// query was served with, else its default, so a filter run sends it too.
 function initParamValues() {
-    const next: Record<string, any> = {};
-    for (const specs of Object.values(queryParamSpecs.value)) {
-        for (const spec of (specs as any[]) || []) {
-            if (spec.source === 'identity') continue;
-            if (spec.default !== undefined && spec.default !== null) next[spec.name] = spec.default;
-        }
-    }
-    paramValues.value = next;
+    paramValues.value = seedParamValues(queryParamSpecs.value, servedAppliedParams);
 }
 
 function queriesWithIdentityParams(): string[] {
@@ -1527,6 +1594,7 @@ function pushArtifactData() {
             visualizations: visualizationsData.value,
             files: filesData.value,
             current_user: viewerContext.value,
+            host_context: props.hostContext ?? null,
             params: paramsPayload(),
             runtime: artifactRuntime()
         }))
@@ -1646,6 +1714,7 @@ const iframeSrcdoc = computed(() => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     };
@@ -1921,6 +1990,7 @@ onMounted(async () => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
+        host_context: props.hostContext ?? null,
         params: paramsPayload(),
         runtime: artifactRuntime()
     }));

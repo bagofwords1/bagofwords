@@ -45,6 +45,8 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
         .order_by(DataSource.name)
     )
     rows = list((await db.execute(stmt)).scalars().all())
+    from app.services.connected_application_service import filter_agents
+    rows = await filter_agents(db, rows, organization.id)
     if user is None:
         return [ds for ds in rows if getattr(ds, "is_public", False)]
     is_admin, member_ids = await get_accessible_data_source_ids(
@@ -90,7 +92,13 @@ def run_scope_agents(runtime_ctx: dict[str, Any]) -> list[Any]:
         return []
     out: list[Any] = []
     seen: set = set()
-    for ds in list(runtime_ctx.get("run_agents") or []) + list(getattr(report, "data_sources", None) or []):
+    from app.core.request_origin import current
+    run_agents = list(runtime_ctx.get("run_agents") or [])
+    attachments = list(getattr(report, "data_sources", None) or [])
+    if current() is not None and "run_agents" in runtime_ctx:
+        allowed = {str(ds.id) for ds in run_agents}
+        attachments = [ds for ds in attachments if str(ds.id) in allowed]
+    for ds in run_agents + attachments:
         key = str(getattr(ds, "id", "") or id(ds))
         if key in seen:
             continue
@@ -133,6 +141,8 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
     if not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
     agents = attached if attached else await accessible_agents(db, organization, user)
+    from app.services.connected_application_service import filter_agents
+    agents = await filter_agents(db, agents, organization.id)
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
 
 

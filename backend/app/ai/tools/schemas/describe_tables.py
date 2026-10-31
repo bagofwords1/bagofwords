@@ -11,7 +11,7 @@ class DescribeTablesInput(BaseModel):
     - limit: soft cap for how many tables to include in the rendered excerpt per data source
     """
 
-    query: Union[str, List[str]] = Field(..., description="Table names or patterns")
+    query: Union[str, List[str]] = Field(..., description="Table, procedure or function names, or patterns")
     data_source_ids: Optional[List[str]] = Field(
         default=None, description="Optional list of data source IDs (UUIDs) to scope search"
     )

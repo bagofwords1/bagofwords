@@ -35,6 +35,7 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   network_dir: ['files', 'folder', 'directory', 'local', 'smb'],
   databricks_sql: ['spark', 'lakehouse'],
   azure_data_explorer: ['kusto', 'microsoft', 'adx'],
+  azure_cost: ['microsoft', 'billing', 'finops', 'spend'],
   ms_fabric: ['microsoft', 'onelake'],
   analysis_services: ['ssas', 'microsoft', 'olap'],
   powerbi: ['microsoft', 'pbi'],

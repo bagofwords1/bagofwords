@@ -20,6 +20,9 @@ def guard_browser_tool(run_stream):
         # Validate before interpreting IDs, and never mutate the agent's shared ctx.
         data = self.input_model(**tool_input)
         ctx = dict(runtime_ctx)
+        # The check below swaps ctx["report"] for a verified stub without the
+        # loaded files; tools that save report files need the agent's own object.
+        ctx["agent_report"] = runtime_ctx.get("report")
         artifact_id = getattr(data, "artifact_id", None)
         session_id = getattr(data, "session_id", None)
 

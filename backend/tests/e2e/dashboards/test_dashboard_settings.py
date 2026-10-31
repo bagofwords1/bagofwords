@@ -10,9 +10,9 @@ as switching it on a conversation drops them there.
 import pytest
 from sqlalchemy import text
 
-from tests.e2e.dashboards.dashboard_setup import as_, own, publish
+from tests.e2e.dashboards.dashboard_setup import as_, own, publish, share
 
-DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "chat_enabled": False,
+DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "bow_credit": True, "chat_enabled": False,
             "chat_data_source_ids": None, "chat_model_id": None,
             # The schedule (phase 6, test_dashboard_refresh.py).
             "cron_schedule": None, "refresh_on_view": True, "notification_subscribers": None,
@@ -56,6 +56,7 @@ def test_each_setting_changes_alone_and_the_conversation_keeps_its_own(corpus, c
     before = report_settings()
     steps = [
         ({"include_data_tab": False}, {"include_data_tab": False}),
+        ({"bow_credit": False}, {"bow_credit": False}),
         ({"chat_enabled": True}, {"chat_enabled": True}),
         ({"chat_data_source_ids": [chinook]}, {"chat_data_source_ids": [chinook]}),
         ({"chat_data_source_ids": ["*"]}, {"chat_data_source_ids": None}),
@@ -130,3 +131,29 @@ def test_switching_run_on_my_behalf_drops_viewer_results_on_the_published_copies
     assert counts() == (1, on_draft)
     assert _put(test_client, corpus, aid, {"shared_run_identity": "creator"}).status_code == 200
     assert counts() == (0, on_draft)
+
+
+@pytest.mark.e2e
+def test_made_with_bow_shows_only_when_the_dashboard_and_the_organization_allow_it(corpus, corpus_rows, test_client):
+    aid = own(corpus_rows, corpus, "conv_three_dash/dash_sales")
+    publish(aid)
+    assert share(test_client, corpus, aid, "internal").status_code == 200
+
+    def credit():
+        page = test_client.get(f"/api/d/{aid}", headers=as_(corpus, "member"))
+        assert page.status_code == 200, page.text
+        return page.json()["general"]["bow_credit"]
+
+    def org_credit(on):
+        r = test_client.put("/api/organization/settings", json={"config": {"general": {"bow_credit": on}}},
+                            headers=as_(corpus, "admin"))
+        assert r.status_code == 200, r.text
+
+    assert credit() is True
+    assert _put(test_client, corpus, aid, {"bow_credit": False}).status_code == 200
+    assert credit() is False
+    assert _put(test_client, corpus, aid, {"bow_credit": True}).status_code == 200
+    org_credit(False)
+    assert credit() is False  # the organization's setting turns it off everywhere
+    org_credit(True)
+    assert credit() is True

@@ -785,7 +785,9 @@
       "createdViaExcel": "Created via Excel",
       "runningOnSchedule": "Running on a schedule",
       "createdByTrigger": "Created by a trigger",
-      "createdBySchedule": "Created by a scheduled task"
+      "createdBySchedule": "Created by a scheduled task",
+      "viaHostApp": "Started in {name} (embedded)",
+      "viaOauthApp": "Started through {name}"
     },
     "pagination": {
       "showing": "Showing {from} to {to} of {total} reports",
@@ -867,7 +869,8 @@
     "inProject": "In {name}",
     "artifactLoadFailed": "Could not load the dashboard. Please refresh to try again.",
     "deleteUnpublishedDashboards": "Unpublished dashboards in it will be deleted too: {names}",
-    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}"
+    "deleteLosesUnpublishedChanges": "Unpublished changes to these dashboards will be lost (the published version stays): {names}",
+    "removedApp": "Removed app"
   },
   "projects": {
     "title": "Projects",
@@ -3179,6 +3182,10 @@
           "title": "Agent capabilities",
           "description": "What the agent can do while answering"
         },
+        "sandbox": {
+          "title": "Sandbox",
+          "description": "What generated code can do beyond querying data. Pages and rows the code handles never pass through the model."
+        },
         "learning": {
           "title": "Learning & memory",
           "description": "How the AI learns from users, feedback and usage"
@@ -3467,6 +3474,34 @@
         "sub_agent_allow_create_data": {
           "name": "Sub-agents may create queries",
           "description": "Let sub-agents create tracked queries (create_data) whose ids come back as evidence the agent can chart and cite. Off = research-only sub-agents."
+        },
+        "enable_sandbox_web_fetch": {
+          "name": "Web fetch in code",
+          "description": "Give generated code an `http` client that fetches public URLs in bulk. Pages are read by the code, not by the model, so scraping many pages costs no extra tokens. Separate from Web Fetch, which lets the agent itself read a page."
+        },
+        "sandbox_web_fetch_max_urls": {
+          "name": "Max URLs per code run",
+          "description": "How many URLs one run of generated code may fetch. 1 to 10,000."
+        },
+        "enable_sandbox_browser": {
+          "name": "Browser in code",
+          "description": "Give generated code a headless browser it can drive (open pages, click, type, scroll, read text) for sites that need JavaScript. Uses the URL allowlist of the agent's browser connection; without a browser connection it is not offered."
+        },
+        "sandbox_browser_allow_mutating_requests": {
+          "name": "Allow form submissions from code",
+          "description": "Let the code's browser send POST, PUT, PATCH and DELETE requests (submitting forms, logging in, posting). Off: those requests are blocked, so clicking and typing can only read pages and a retried run cannot change anything on a site."
+        },
+        "sandbox_browser_max_pages": {
+          "name": "Max browser pages per code run",
+          "description": "How many pages one run of generated code may load. 1 to 2,000."
+        },
+        "enable_sandbox_lists": {
+          "name": "Write to Agent Lists from code",
+          "description": "Let generated code submit rows to the conversation's Agent Lists. Rows are checked as they are submitted and saved only after the run succeeds, so a failed or retried run writes nothing. Only the counts reach the model."
+        },
+        "sandbox_lists_max_rows": {
+          "name": "Max list rows per code run",
+          "description": "How many rows one run of generated code may submit to Agent Lists. 1 to 50,000."
         }
       }
     },
@@ -3794,6 +3829,7 @@
       "discovering_schema": "Discovering schema",
       "catalog_ready": "Catalog ready",
       "reading_semantic_views": "Reading semantic views",
+      "reading_routines": "Reading procedures and functions",
       "admin_scan": "Scanning workspace metadata",
       "listing_workspaces": "Listing workspaces",
       "workspace_models": "Listing models",
@@ -4176,6 +4212,20 @@
           "title": "Paste it below and test the connection",
           "body": "Paste the whole output into the Cluster access file field, then click Test connection."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Give the account read access in Configuration Manager",
+          "body": "In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see."
+        },
+        {
+          "title": "Check the administration service answers",
+          "body": "From a domain-joined machine, run this against your SMS Provider. It should list your site."
+        },
+        {
+          "title": "Export the SMS Provider certificate",
+          "body": "The site binds a self-signed certificate by default. Run this in PowerShell on the SMS Provider and paste the output into SMS Provider certificate (PEM). Skip this if the certificate comes from a CA this server already trusts."
+        }
       ]
     },
     "setupGuideCopyFailed": "Copy failed — select the text",
@@ -4271,6 +4321,8 @@
     "copyFailed": "Failed to copy",
     "includeDataTab": "Include Data Tab",
     "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report",
+    "bowCredit": "“Made with BOW” badge",
+    "bowCreditDesc": "Shown in the corner of this dashboard's pages. The organization's setting can turn it off everywhere.",
     "allowChat": "Allow chat",
     "allowChatDesc": "Signed-in workspace members can ask questions about this dashboard",
     "allowChatDescDoc": "Signed-in workspace members can ask questions about this document",
@@ -4426,7 +4478,29 @@
     "dashboard.creator_publish_owner_only": "This dashboard runs with its owner's credentials, so only its owner can publish it.",
     "dashboard.published_since": "{by} published this dashboard since your draft started.",
     "dashboard.draft_name_taken": "A draft with this name already exists.",
-    "sharing.public_disabled": "Public link sharing is turned off for this organization."
+    "sharing.public_disabled": "Public link sharing is turned off for this organization.",
+    "host_app.not_found": "That host application doesn't exist.",
+    "host_app.disabled": "This application's access to BOW is turned off.",
+    "host_app.config_invalid": "This sign-in setup can't work: {field}.",
+    "host_app.revision_conflict": "Someone else changed this application. Reload and try again.",
+    "embed.not_allowed": "This isn't available in this application.",
+    "embed.assertion_invalid": "The application's sign-in wasn't accepted.",
+    "embed.assertion_replayed": "That sign-in was already used. Try again.",
+    "embed.identity_unmapped": "Your account isn't set up in BOW yet. Ask your admin.",
+    "embed.identity_ambiguous": "More than one BOW account matches you. Ask your admin.",
+    "embed.identity_unavailable": "Sign-in is unavailable right now. Try again shortly.",
+    "embed.user_inactive": "Your BOW account is deactivated.",
+    "embed.session_invalid": "Your session ended. Sign in again.",
+    "conversation.not_found": "That conversation doesn't exist.",
+    "conversation.unavailable": "Conversations aren't turned on here.",
+    "conversation.agent_forbidden": "You can't use that agent here.",
+    "conversation.limit": "Too many messages. Wait a moment and try again.",
+    "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -4728,6 +4802,53 @@
       "stillRunning": "The queries are still running. Try again in a moment.",
       "stillFailing": "{failed} still failed when run again."
     }
+  },
+  "artifactActivity": {
+    "title": "Activity",
+    "inspect": "Inspect",
+    "live": "Live",
+    "liveHint": "What this page does appears here as it happens; the agent's preview is picked up every few seconds.",
+    "refresh": "Refresh",
+    "empty": "Nothing recorded yet.",
+    "emptyFiltered": "Nothing matches this filter.",
+    "emptyHint": "Use the app: requests, streams, filters, clicks and errors appear here, and the agent sees the failures.",
+    "filterPlaceholder": "Filter",
+    "shown": "{shown} of {total}",
+    "noDetail": "No detail recorded.",
+    "queries": "{n} queries",
+    "rows": "{n} rows",
+    "filters": {
+      "all": "All",
+      "requests": "Requests",
+      "streams": "Streams",
+      "filters": "Filters",
+      "clicks": "Clicks",
+      "errors": "Errors"
+    },
+    "columns": {
+      "time": "Time",
+      "source": "Source",
+      "kind": "Kind",
+      "event": "Event",
+      "status": "Status",
+      "duration": "Duration",
+      "version": "Ver."
+    },
+    "sources": {
+      "all": "All sources",
+      "editor": "Editor",
+      "preview": "Preview"
+    },
+    "tabs": {
+      "detail": "Detail",
+      "request": "Request",
+      "response": "Response",
+      "stream": "Stream"
+    },
+    "privateTo": "Private to {name}",
+    "someoneElse": "someone else",
+    "loadingPayload": "Loading…",
+    "payloadUnavailable": "Not available: it may have expired (payloads are kept 24 hours) or belong to someone else."
   },
   "filter": {
     "selectColumn": "Select column",
@@ -5169,7 +5290,10 @@
       "unindexedNote": "{n} runs not yet indexed",
       "unindexedHelp": "The rollup sweep is still indexing older runs. Cost, tokens, tools and scores appear as they are indexed.",
       "openCall": "Open this call in the trace",
-      "tableTitle": "Filter to runs that queried {table}"
+      "tableTitle": "Filter to runs that queried {table}",
+      "viaHostApp": "Through a host application (embedded)",
+      "viaOauthApp": "Through an OAuth app",
+      "removedApp": "Removed app"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",
@@ -5949,6 +6073,8 @@
     "vizUnavailable": "Visualization unavailable",
     "vizRenderFailed": "Chart failed to render",
     "diagramFailed": "Diagram failed to render",
+    "diagramDownloadPng": "Download as PNG",
+    "diagramExportFailed": "Could not export the diagram",
     "exportMarkdown": "Download as Markdown",
     "printPdf": "Print / Save as PDF",
     "exportPdf": "Export as PDF",
@@ -6166,6 +6292,15 @@
     "editQuery": "Edit {name}",
     "rowFiltered": "Row filtered",
     "refreshFailed": "Refresh failed",
+    "routineProcedure": "procedure",
+    "routineFunction": "function",
+    "routineHint": "Stored routine: the agent reads its logic and applies it in its own queries. It never runs it.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Type",
+    "routineSource": "Source",
+    "routineSourceTruncated": "Truncated",
+    "routineSourceHidden": "source not visible",
+    "routineSourceHiddenHint": "The connection's account can't read this routine's source (it needs VIEW DEFINITION or the database's equivalent). The agent sees the signature only.",
     "successful": "Successful",
     "failed": "Failed",
     "lastRefreshed": "Last refreshed",
@@ -6809,7 +6944,17 @@
       "viaProject": "Through project {name}",
       "projectMembers": "Members of project {name}",
       "projectMembersUnnamed": "Members of its project"
-    }
+    },
+    "agentsModelTitle": "Agents and model",
+    "agentsModelDesc": "Used when people chat with this dashboard: in the chat bubble, and in apps on it that hold conversations.",
+    "agentsLabel": "Agents",
+    "agentsAuto": "Auto",
+    "agentsAutoDesc": "Every agent each viewer can use, like a BOW chat (or the agents this conversation attached, if it attached some).",
+    "agentsLimited": "Only these agents",
+    "agentsLimitedDesc": "Still limited to what each viewer can use.",
+    "agentsLimitedDataOnly": "Not available while the chat bubble answers from dashboard data only.",
+    "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
+    "bubbleUsesAgents": "The agents above"
   },
   "dashboardStart": {
     "title": "No dashboard here yet",
@@ -6827,5 +6972,130 @@
     "owner": "Owner",
     "byOwner": "by {name}",
     "untitled": "Untitled"
+  },
+  "embed": {
+    "gate": {
+      "starting": "Loading…",
+      "signingIn": "Signing you in…",
+      "signInRequired": "Sign in to see this.",
+      "signIn": "Sign in",
+      "retry": "Try again",
+      "failed": "Sign-in didn't work.",
+      "expired": "Your session ended. Sign in again.",
+      "signedOut": "You're signed out.",
+      "popupBlocked": "The sign-in window was blocked. Allow pop-ups for this page and try again.",
+      "notFramed": "This link only works inside the application it was embedded in."
+    },
+    "unavailable": {
+      "notPublished": "This hasn't been published yet. It will appear here once it's published.",
+      "notFound": "This isn't available. It may not be published yet, or it was removed.",
+      "denied": "You don't have access to this. Ask its owner to share it with you.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "failed": "This couldn't be loaded. Try again in a moment."
+    },
+    "signin": {
+      "working": "Signing you in…",
+      "done": "Signed in. You can close this window.",
+      "invalid": "This sign-in link is incomplete. Close this window and try again."
+    },
+    "tab": {
+      "title": "Embed",
+      "desc": "Show it inside your other applications",
+      "intro": "Pick the applications that may show this dashboard. People see it there as themselves, signed in by that application, and only if they can already view it here.",
+      "privateWarning": "Only you can view this dashboard. Share it (Access) so the people in the other application can see it.",
+      "embeddableIn": "Embeddable in",
+      "noHosts": "Ask an administrator to configure a connected application for embedding.",
+      "noHostsAdmin": "No applications are configured for embedding. Open Connected applications to configure one, then refresh this list.",
+      "newHost": "New host application",
+      "snippet": "Snippet",
+      "snippetFor": "Snippet for {name}",
+      "inline": "In a page",
+      "floating": "Floating",
+      "backend": "Backend",
+      "ssoSignIn": "BOW sign-in",
+      "noteAssertion": "Your backend signs a 60-second assertion for the signed-in user with the host application's private key. The key never goes to the browser.",
+      "noteIdp": "The page passes the user's ID token from your identity provider; BOW checks it with the provider's published keys.",
+      "noteSso": "The first time, people sign in to BOW in a small window. Use this when the other application can't sign assertions."
+    }
+  },
+  "hostApps": {
+    "title": "Host applications",
+    "subtitle": "External systems, such as your ERP, ServiceNow or a portal, that may show dashboards and apps and sign their users in. Add one per system; each dashboard picks them in its Embed settings.",
+    "add": "Add host application",
+    "edit": "Edit {name}",
+    "editAction": "Edit",
+    "noneYet": "No host applications yet",
+    "emptyHelp": "Add the system your people work in, then embed dashboards and apps in it from their Settings → Embed.",
+    "name": "Name",
+    "nameHint": "Shown to editors",
+    "namePlaceholder": "AI ERP Chatbot",
+    "origins": "Allowed origins",
+    "originsHelp": "The exact addresses that may show it, one per line, e.g. https://erp.example.com",
+    "signIn": "How people are signed in",
+    "modeAssertion": "Signed by your backend",
+    "modeAssertionHelp": "Your application's backend signs a short-lived assertion for its user. Invisible to people; works with any login.",
+    "modeIdp": "Identity provider token",
+    "modeIdpHelp": "The page hands over the user's ID token from your OpenID Connect provider (e.g. Microsoft Entra ID). No backend change.",
+    "modeSso": "BOW sign-in",
+    "modeSsoHelp": "People sign in to BOW once, in a small window. For applications you can't change.",
+    "source": "Match people by",
+    "sourceHelp": "Where BOW looks up the user the application names",
+    "attribute": "Member attribute",
+    "attributeHelp": "The attribute set on each member, e.g. employee_id",
+    "issuer": "Issuer",
+    "issuerHelp": "The iss your backend puts in each assertion",
+    "audience": "Audience",
+    "audienceHelp": "The aud of the ID tokens your provider issues to this application",
+    "createUsers": "Create people on first sign-in",
+    "createUsersHelp": "Someone the directory knows but BOW doesn't yet joins as a member. Otherwise they must exist already (invited or provisioned).",
+    "createsUsers": "creates people",
+    "create": "Create",
+    "keyOnce": "Copy the private key now and store it in your application's backend secrets. It is shown only once; BOW keeps the public key only.",
+    "privateKey": "Private key",
+    "copy": "Copy",
+    "copied": "Copied",
+    "keySaved": "I stored it",
+    "disabled": "Disabled",
+    "key": "Key",
+    "usage": "In use",
+    "usageValue": "{sessions} signed in · {artifacts} embedded",
+    "actions": "Actions",
+    "rotateKey": "Rotate key",
+    "rotateConfirm": "The current key stops working at once and everyone is signed out. Rotate?",
+    "revokeSessions": "Sign everyone out",
+    "revokeConfirm": "Sign everyone out of this application now?",
+    "revoked": "Everyone was signed out",
+    "delete": "Delete",
+    "deleteConfirm": "Delete {name}? Its embeds stop working and everyone is signed out.",
+    "backendExample": "Backend example",
+    "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:"
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Enabled",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

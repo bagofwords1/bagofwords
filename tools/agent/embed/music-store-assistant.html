@@ -1,0 +1,83 @@
+<!-- BOW-generated v3: saved through create_artifact/edit_artifact in the customer loop.
+     Requires BOW artifact globals; import as artifact source, not a standalone HTML page. -->
+<script type="text/babel">
+setTheme('slate', { accent: '#1d4ed8', accent2: '#3b82f6', radius: 'soft', shadow: 'soft' });
+
+function App() {
+  const chat = useConversation();
+  const data = useArtifactData();
+  const [showHistory, setShowHistory] = useState(false);
+  const hc = data && data.host_context ? data.host_context : null;
+  const customer = hc ? (hc.customerName || hc.customer || hc.customerId || null) : null;
+
+  const css = `
+    .msa-root{height:100vh;width:100%;display:flex;background:#fff;box-sizing:border-box;overflow:hidden}
+    .msa-panel{width:100%;height:100%;min-width:0;display:flex;flex-direction:column;background:#fff;overflow:hidden;color:#0f172a}
+    .msa-head{background:#1d4ed8;color:#fff;padding:12px 14px;display:flex;align-items:center;gap:10px}
+    .msa-head h1{font-size:15px;font-weight:600;margin:0;line-height:1.2}
+    .msa-head p{font-size:11px;margin:0;opacity:.8}
+    .msa-btn{background:rgba(255,255,255,.15);border:0;color:#fff;border-radius:8px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+    .msa-btn:hover{background:rgba(255,255,255,.28)}
+    .msa-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+    .msa-ctx{background:#eff6ff;border-bottom:1px solid #dbe4f3;color:#1e3a8a;font-size:12px;padding:6px 14px}
+    .msa-body{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+    .msa-msgs{flex:1;min-height:0;display:flex;flex-direction:column}
+    .msa-foot{border-top:1px solid #e5ecf7;padding:8px;background:#fff}
+    .msa-hist{position:absolute;inset:0;background:#fff;z-index:5;overflow:auto;padding:8px}
+    .msa-empty{padding:16px;text-align:center}
+    .msa-empty h2{font-size:15px;margin:0 0 4px;color:#1e3a8a}
+    .msa-empty p{font-size:12px;color:#64748b;margin:0 0 12px}
+  `;
+
+  return (
+    <div className="msa-root">
+      <style>{css}</style>
+      <section className="msa-panel" aria-label="Music Store Assistant">
+        <header className="msa-head">
+          <Icon name="music" size={20} />
+          <div style={{flex:1,minWidth:0}}>
+            <h1>Music Store Assistant</h1>
+            <p>Ask about sales, artists and customers</p>
+          </div>
+          <button className="msa-btn" aria-label="Conversation history" title="History" onClick={() => setShowHistory(v => !v)}>
+            <Icon name="history" size={16} />
+          </button>
+          <button className="msa-btn" aria-label="New conversation" title="New" onClick={() => { chat.newConversation(); setShowHistory(false); }}>
+            <Icon name="plus" size={16} />
+          </button>
+        </header>
+        {customer ? (
+          <div className="msa-ctx">Current customer (host context, advisory): <strong>{String(customer)}</strong></div>
+        ) : null}
+        <div className="msa-body">
+          {showHistory ? (
+            <div className="msa-hist">
+              <ChatThreads chat={chat} />
+            </div>
+          ) : null}
+          <div className="msa-msgs">
+            <ChatMessages
+              chat={chat}
+              empty={
+                <div className="msa-empty">
+                  <h2>How can I help?</h2>
+                  <p>Pick a question or type your own.</p>
+                  <ChatSuggestions chat={chat} items={[
+                    'Who are the top selling artists?',
+                    'What is the revenue by country?',
+                    'Who are our VIP customers?'
+                  ]} />
+                </div>
+              }
+            />
+          </div>
+        </div>
+        <div className="msa-foot">
+          <ChatComposer chat={chat} placeholder="Ask the Music Store agent..." />
+        </div>
+      </section>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>

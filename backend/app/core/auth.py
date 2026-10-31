@@ -162,51 +162,9 @@ class UserManager(BaseUserManager[User, str]):
             return "failed"
         if not identity or not ldap_config.organization_id:
             return "failed"
-        from pydantic import TypeAdapter, EmailStr, ValidationError
-        try:
-            email = str(TypeAdapter(EmailStr).validate_python(identity["email"]))
-        except (ValidationError, KeyError):
-            return "failed"
-        subject = identity["provider"] + ":" + identity["guid"]
-        session = self.user_db.session
-        user = (await session.execute(select(User).where(User.ldap_subject == subject))).scalar_one_or_none()
-        collision = (await session.execute(select(User).where(func.lower(User.email) == email.lower()))).scalar_one_or_none()
-        if collision is not None and (user is None or collision.id != user.id):
-            return "failed"
+        user = await admit_directory_identity(self.user_db.session, identity, ldap_config)
         if user is None:
-            if not ldap_config.auto_provision_users:
-                return "failed"
-            org = await session.get(Organization, ldap_config.organization_id)
-            if org is None:
-                return "failed"
-            from app.core.seats import seats_remaining
-            remaining = await seats_remaining(session, ldap_config.organization_id)
-            if remaining is not None and remaining <= 0:
-                return "failed"
-            from fastapi_users.password import PasswordHelper
-            ph = PasswordHelper()
-            user = User(email=email.lower(), name=identity["name"],
-                hashed_password=ph.hash(ph.generate()), is_active=True,
-                is_verified=True, is_superuser=False, ldap_subject=subject,
-                ldap_identity=identity, ldap_dn=identity["dn"])
-            session.add(user)
-            await session.flush()
-            session.add(Membership(user_id=user.id, organization_id=ldap_config.organization_id,
-                role="member", directory_provider=identity["provider"]))
-            from app.core.permission_resolver import ensure_system_role_assignment
-            await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
-        else:
-            if not user.is_active or user.is_superuser:
-                return "failed"
-            membership = (await session.execute(select(Membership.id).where(
-                Membership.user_id == user.id, Membership.organization_id == ldap_config.organization_id,
-                Membership.deleted_at.is_(None)))).first()
-            if not membership:
-                return "failed"
-            user.email = email.lower()
-            user.ldap_identity = identity
-            user.ldap_dn = identity["dn"]
-        await session.commit()
+            return "failed"
         user._directory_authenticated = True
         return user
 
@@ -881,6 +839,63 @@ class UserManager(BaseUserManager[User, str]):
         return
 
 
+async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_config) -> Optional[User]:
+    """The BOW user for a verified Active Directory identity, created when the
+    deployment auto-provisions directory users. None when it must be refused.
+
+    ``identity`` comes from LDAPConnectionManager.read_identity (an enabled,
+    unexpired object inside the admission group). Shared by password login
+    and embedded sign-in (services/host_identity.py), so both admit exactly
+    the same people: the objectGUID binds the account, an existing account
+    with the same email is never claimed, seats are enforced.
+    """
+    from pydantic import TypeAdapter, EmailStr, ValidationError
+    try:
+        email = str(TypeAdapter(EmailStr).validate_python(identity["email"]))
+    except (ValidationError, KeyError):
+        return None
+    subject = identity["provider"] + ":" + identity["guid"]
+    user = (await session.execute(select(User).where(User.ldap_subject == subject))).scalar_one_or_none()
+    collision = (await session.execute(select(User).where(func.lower(User.email) == email.lower()))).scalar_one_or_none()
+    if collision is not None and (user is None or collision.id != user.id):
+        return None
+    if user is None:
+        if not ldap_config.auto_provision_users:
+            return None
+        org = await session.get(Organization, ldap_config.organization_id)
+        if org is None:
+            return None
+        from app.core.seats import seats_remaining
+        remaining = await seats_remaining(session, ldap_config.organization_id)
+        if remaining is not None and remaining <= 0:
+            return None
+        from fastapi_users.password import PasswordHelper
+        ph = PasswordHelper()
+        user = User(email=email.lower(), name=identity["name"],
+            hashed_password=ph.hash(ph.generate()), is_active=True,
+            is_verified=True, is_superuser=False, ldap_subject=subject,
+            ldap_identity=identity, ldap_dn=identity["dn"])
+        session.add(user)
+        await session.flush()
+        session.add(Membership(user_id=user.id, organization_id=ldap_config.organization_id,
+            role="member", directory_provider=identity["provider"]))
+        from app.core.permission_resolver import ensure_system_role_assignment
+        await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
+    else:
+        if not user.is_active or user.is_superuser:
+            return None
+        membership = (await session.execute(select(Membership.id).where(
+            Membership.user_id == user.id, Membership.organization_id == ldap_config.organization_id,
+            Membership.deleted_at.is_(None)))).first()
+        if not membership:
+            return None
+        user.email = email.lower()
+        user.ldap_identity = identity
+        user.ldap_dn = identity["dn"]
+    await session.commit()
+    return user
+
+
 async def any_user_exists(session: AsyncSession) -> bool:
     """Whether this instance has been claimed yet.
 
@@ -1261,6 +1276,9 @@ async def current_user(
         )
         if context:
             request.state.oauth_token_context = context
+            from app.core.request_origin import OAUTH_APP, set_origin
+
+            set_origin(OAUTH_APP, str(context.client.id))
             return context.user
         raise HTTPException(
             status_code=401,

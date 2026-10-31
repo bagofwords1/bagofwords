@@ -240,6 +240,8 @@ class QlikSenseOnPremClient(DataSourceClient):
         self._xrfkey = secrets.token_hex(8)
 
         self._http: Optional[requests.Session] = None
+        # `Stream/App` keys of the apps the last get_schemas could not read.
+        self._unread_app_keys: List[str] = []
         self._stream_cache: Optional[Dict[str, Dict[str, Any]]] = None
         self._temp_dir: Optional[str] = None
         self._cert_path: Optional[str] = None
@@ -427,6 +429,13 @@ class QlikSenseOnPremClient(DataSourceClient):
             raise RuntimeError(f"Invalid JSON from Qlik QRS ({url}): {e}")
 
     def test_connection(self) -> Dict[str, Any]:
+        """Health probe: QRS reachable, certificate accepted, apps listable.
+
+        Kept deliberately light — the status sweep runs this every few
+        minutes. It reads ``about``, a stream count and the *condensed* app
+        list; the full app and stream objects (owners, tags, custom
+        properties for every app on the site) are only needed for indexing.
+        """
         try:
             self.connect()
         except Exception as e:
@@ -440,7 +449,8 @@ class QlikSenseOnPremClient(DataSourceClient):
         version = (about or {}).get("buildVersion") or "unknown"
 
         try:
-            streams = self._qrs_get("stream/full") or []
+            count = self._qrs_get("stream/count") or {}
+            stream_count = int((count or {}).get("value") or 0)
         except Exception as e:
             return {
                 "success": False,
@@ -449,7 +459,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             }
 
         try:
-            apps = self.list_apps()
+            apps = self._apps_from_rows(self._qrs_get("app") or [])
         except Exception as e:
             return {
                 "success": False,
@@ -461,7 +471,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         if apps:
             msg = (
                 f"Connected to Qlik Sense Enterprise {version} as '{acting}'. "
-                f"{len(streams)} stream(s), {len(apps)} app(s) visible."
+                f"{stream_count} stream(s), {len(apps)} app(s) visible."
             )
         else:
             msg = (
@@ -474,7 +484,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             "message": msg,
             "version": version,
             "user": acting,
-            "stream_count": len(streams),
+            "stream_count": stream_count,
             "app_count": len(apps),
         }
 
@@ -521,7 +531,12 @@ class QlikSenseOnPremClient(DataSourceClient):
         and the `Stream/App/Table` naming both fall out without a translation
         layer.
         """
-        rows = self._qrs_get("app/full") or []
+        return self._apps_from_rows(self._qrs_get("app/full") or [])
+
+    def _apps_from_rows(self, rows: Any) -> List[Dict[str, Any]]:
+        """Apply the published/stream filters and the max_apps cap to QRS app
+        rows. Works on both ``app/full`` and condensed ``app`` rows — the
+        condensed form lacks the descriptive fields, which then stay empty."""
         apps: List[Dict[str, Any]] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -1120,6 +1135,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             payload = asyncio.run(self._read_app_async(app, user))
         except Exception as e:
             logger.warning("Qlik on-prem app crawl failed for %s (%s): %s", app.get("name"), app.get("id"), e)
+            self._mark_unread(app_key)
             meta = dict(self._app_meta(app))
             meta.update({"status": "error", "error": str(e)[:500], "impersonatedUser": user})
             return [Table(
@@ -1150,6 +1166,9 @@ class QlikSenseOnPremClient(DataSourceClient):
                 "Qlik app '%s' (%s) has no data model and no master items (hasData=%s)",
                 app.get("name"), app.get("id"), payload.get("has_data"),
             )
+            # Usually an app that was never reloaded, but an app caught
+            # mid-reload looks the same — so its earlier tables are kept.
+            self._mark_unread(app_key)
             meta = dict(self._app_meta(app, payload))
             meta.update({"status": "empty"})
             return [Table(
@@ -1166,8 +1185,16 @@ class QlikSenseOnPremClient(DataSourceClient):
             )]
         return tables
 
+    def _mark_unread(self, app_key: str) -> None:
+        if app_key:
+            self._unread_app_keys.append(app_key)
+
+    def unindexed_table_prefixes(self) -> List[str]:
+        return list(self._unread_app_keys)
+
     @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
+        self._unread_app_keys = []
         apps = self.list_apps()
         if not apps:
             return []
@@ -1183,6 +1210,7 @@ class QlikSenseOnPremClient(DataSourceClient):
                     except Exception as e:
                         app = futures[fut]
                         logger.warning("Unhandled Qlik crawl exception for %s: %s", app.get("id"), e)
+                        self._mark_unread(self._app_key(app))
             except IndexingCancelled:
                 for pending in futures:
                     pending.cancel()

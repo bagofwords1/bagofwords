@@ -1,6 +1,7 @@
 """Source queries use real permission grants, diagnosis rows, and rollups."""
 import asyncio
 import os
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -354,3 +355,88 @@ def test_one_run_the_sweep_cannot_index_does_not_hold_back_the_rest(world, seed_
     run_service(world, "admin", {"dataset": "runs", "time_range": {"relative": "1h"}}, check)
     df = run_service(world, "admin", {"dataset": "runs", "query": ""})
     assert {newer, broken, older} <= set(df.run_id)
+
+
+# --- tool_calls.code: the code of the step a call created -------------------
+
+def _headers(world, actor):
+    return {"Authorization": f"Bearer {world[actor]['token']}", "X-Organization-Id": world["org_id"]}
+
+
+def _step_with_code(test_client, world, report_id, marker):
+    """A real step on the report, created through the query API. The padding
+    puts the code past the column's length cap."""
+    headers = _headers(world, "admin")
+    query = test_client.post("/api/queries", json={"title": f"q {marker}", "report_id": report_id}, headers=headers)
+    assert query.status_code == 200, query.text
+    code = (f"# {marker}\n" + "# padding\n" * 2500 + "def generate_df(ds_clients, excel_files):\n"
+            "    import pandas as pd\n    return pd.DataFrame({'x': [1]})\n")
+    run = test_client.post(f"/api/queries/{query.json()['id']}/run", json={"code": code}, headers=headers)
+    assert run.status_code == 200, run.text
+    assert not run.json().get("error"), run.text
+    step = test_client.get(f"/api/queries/{query.json()['id']}", headers=headers).json()["default_step"]
+    assert step["code"] == code
+    return step["id"], code
+
+
+def _seed_call_with_step(world, seed_agent_executions, rollup_agent_executions, step_id):
+    from datetime import timedelta
+
+    from tests.e2e.rbac.test_diagnosis_explorer_scope import NOW
+    [run_id] = seed_agent_executions(world["org_id"], world["reports"]["b"], [{
+        "user_id": world["admin"]["user_id"], "prompt": "beta code", "created_at": NOW - timedelta(hours=2),
+        "status": "completed",
+        "tools": [{"name": "create_data", "status": "success", "step_id": step_id},
+                  {"name": "create_data", "status": "error", "error": "boom"}]}])
+    rollup_agent_executions()
+    return run_id
+
+
+def _code_rows(world, actor, run_id):
+    df = run_service(world, actor, {"dataset": "tool_calls", "query": "tool:create_data",
+                                    "columns": ["call_id", "run_id", "step_id", "code"]})
+    return df[df.run_id == run_id]
+
+
+@pytest.mark.parametrize("actor", ["admin", "manager_b"])
+def test_tool_calls_code_is_the_created_steps_code(world, test_client, seed_agent_executions, rollup_agent_executions, actor):
+    from app.services.bow_source_service import MAX_CODE_CHARS
+    step_id, code = _step_with_code(test_client, world, world["reports"]["b"], uuid4().hex)
+    run_id = _seed_call_with_step(world, seed_agent_executions, rollup_agent_executions, step_id)
+
+    rows = _code_rows(world, actor, run_id)
+    assert len(rows) == 2
+    with_step = rows[rows.step_id == step_id]
+    assert len(with_step) == 1
+    returned = with_step.code.iloc[0]
+    assert returned == code[:MAX_CODE_CHARS] and len(returned) == MAX_CODE_CHARS
+    # A call that created no step has no code.
+    assert rows[rows.step_id.isna()].code.isna().all()
+    # Opt-in: the default projection does not carry code.
+    assert "code" not in run_service(world, actor, {"dataset": "tool_calls"}).columns
+
+
+def test_tool_calls_code_is_withheld_where_the_steps_rows_are(world, test_client, seed_agent_executions, rollup_agent_executions):
+    """A non-owner who may not see the step's rows (viewer identity on a
+    per-user connection) gets no code either; the owner still does."""
+    step_id, code = _step_with_code(test_client, world, world["reports"]["b"], uuid4().hex)
+    run_id = _seed_call_with_step(world, seed_agent_executions, rollup_agent_executions, step_id)
+    ds = test_client.get(f"/api/data_sources/{world['ds_b']['id']}", headers=_headers(world, "admin")).json()
+    for conn in ds["connections"]:
+        r = test_client.put(f"/api/connections/{conn['id']}", json={"auth_policy": "user_required"},
+                            headers=_headers(world, "admin"))
+        assert r.status_code == 200, r.text
+
+    manager = _code_rows(world, "manager_b", run_id)
+    assert len(manager) == 2 and manager.code.isna().all()
+    owner = _code_rows(world, "admin", run_id)
+    assert owner[owner.step_id == step_id].code.iloc[0].startswith(code[:200])
+
+
+@pytest.mark.parametrize("request_", [
+    {"dataset": "tool_calls", "group_by": ["code"], "metrics": [{"op": "count", "name": "calls"}]},
+    {"dataset": "tool_calls", "metrics": [{"op": "count_distinct", "field": "code", "name": "codes"}]},
+])
+def test_tool_calls_code_cannot_be_aggregated(world, request_):
+    with pytest.raises(ValueError):
+        run_service(world, "admin", request_)

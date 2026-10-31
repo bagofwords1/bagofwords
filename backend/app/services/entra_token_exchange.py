@@ -248,6 +248,7 @@ async def exchange(db, service, *, client_id, client_secret, subject_token, scop
     if (
         not client
         or client.deleted_at
+        or not client.enabled
         or client.entra_exchange != config
         or not set(requested) <= set(client.scopes.split())
         or not secrets.compare_digest(service_hash(client_secret), client.client_secret_hash)

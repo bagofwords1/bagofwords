@@ -3453,6 +3453,7 @@
       "discovering_schema": "Descoberta: esquema",
       "catalog_ready": "Pronto: catálogo",
       "reading_semantic_views": "Leitura: visões semânticas",
+      "reading_routines": "Lendo procedimentos e funções",
       "admin_scan": "Varredura administrativa: espaços de trabalho",
       "listing_workspaces": "Listagem: espaços de trabalho",
       "workspace_models": "Listagem: modelos",
@@ -3835,6 +3836,20 @@
           "title": "Cole abaixo e teste a conexão",
           "body": "Cole toda a saída no campo Arquivo de acesso ao cluster e clique em Testar conexão."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Conceda à conta acesso de leitura no Configuration Manager",
+          "body": "No console, vá em Administration > Security > Administrative Users, adicione a conta (ou o grupo do AD dela) e atribua a função Read-only Analyst. Os escopos de segurança e as coleções dela definem o que o Bag of Words pode ver."
+        },
+        {
+          "title": "Verifique se o serviço de administração responde",
+          "body": "Em uma máquina ingressada no domínio, execute isto no seu SMS Provider. O comando deve listar o seu site."
+        },
+        {
+          "title": "Exporte o certificado do SMS Provider",
+          "body": "Por padrão, o site usa um certificado autoassinado. Execute isto no PowerShell do SMS Provider e cole a saída em SMS Provider certificate (PEM). Pule esta etapa se o certificado vier de uma AC em que este servidor já confia."
+        }
       ]
     },
     "setupGuideCopyFailed": "Falha ao copiar — selecione o texto",
@@ -4083,7 +4098,12 @@
     "dashboard.join_no_access": "Você precisa de acesso a {name} para editar este painel.",
     "dashboard.creator_publish_owner_only": "Este painel é executado com as credenciais do proprietário, por isso só o proprietário pode publicá-lo.",
     "dashboard.published_since": "{by} publicou este painel desde que o seu rascunho começou.",
-    "dashboard.draft_name_taken": "Já existe um rascunho com este nome."
+    "dashboard.draft_name_taken": "Já existe um rascunho com este nome.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -5914,6 +5934,15 @@
     "editQuery": "Editar {name}",
     "rowFiltered": "Linhas filtradas",
     "refreshFailed": "Falha na atualização",
+    "routineProcedure": "procedimento",
+    "routineFunction": "função",
+    "routineHint": "Rotina armazenada: o agente lê a lógica dela e a aplica nas próprias consultas. Ele nunca a executa.",
+    "routineParameter": "Parâmetro",
+    "routineParameterType": "Tipo",
+    "routineSource": "Código-fonte",
+    "routineSourceTruncated": "Truncado",
+    "routineSourceHidden": "código não visível",
+    "routineSourceHiddenHint": "A conta da conexão não consegue ler o código desta rotina (é preciso VIEW DEFINITION ou o equivalente do banco). O agente vê apenas a assinatura.",
     "successful": "Bem-sucedidas",
     "failed": "Falhadas",
     "lastRefreshed": "Última atualização",
@@ -6436,5 +6465,42 @@
     "owner": "Proprietário",
     "byOwner": "de {name}",
     "untitled": "Sem título"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Isto ainda não foi publicado. Aparecerá aqui quando for publicado.",
+      "notFound": "Isto não está disponível. Talvez ainda não tenha sido publicado ou tenha sido removido.",
+      "denied": "Você não tem acesso a isto. Peça ao proprietário que compartilhe com você.",
+      "notAllowed": "Isto não está habilitado para este aplicativo. Um editor pode permitir isso nas configurações de incorporação no Bag of Words.",
+      "failed": "Não foi possível carregar. Tente novamente em instantes."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Ativada",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

@@ -14,6 +14,7 @@ from typing import Optional
 from app.ai.llm.types import Message
 from app.ai.context.replay_args import compact_replayed_args
 from app.ai.context.parts import (
+    ImagePart,
     Outcome,
     Part,
     TextPart,
@@ -103,9 +104,11 @@ class Transcript:
 
     # -- construction -------------------------------------------------
 
-    def add_user_text(self, text: str) -> None:
-        if text:
-            self.turns.append(Turn(role="user", parts=[TextPart(text=text)]))
+    def add_user_text(self, text: str, *, images: Optional[list[dict]] = None) -> None:
+        parts: list[Part] = [TextPart(text=text)] if text else []
+        parts.extend(ImagePart(image=img) for img in images or [])
+        if parts:
+            self.turns.append(Turn(role="user", parts=parts))
 
     def add_assistant_step(
         self,
@@ -172,10 +175,10 @@ class Transcript:
 
     def image_count(self) -> int:
         return sum(
-            len(p.images)
+            len(p.images) if isinstance(p, ToolResultPart) else 1
             for t in self.turns
             for p in t.parts
-            if isinstance(p, ToolResultPart)
+            if isinstance(p, (ToolResultPart, ImagePart))
         )
 
     # -- integrity ----------------------------------------------------
@@ -225,8 +228,8 @@ class Transcript:
         decay will exhaust itself moving a handful of tokens and the real
         problem is elsewhere (usually an oversized schema block).
 
-        Images are reducible everywhere except on the newest image-bearing
-        step, which the ladder never touches (see fit_to_budget).
+        Tool images are reducible except on the newest image-bearing step.
+        User uploads stay with the ask and contribute to this floor.
         """
         split = max(len(self.turns) - PROTECT_LAST_TURNS, 0)
         newest = self._newest_image_turn()
@@ -359,6 +362,10 @@ class Transcript:
                 if isinstance(p, TextPart):
                     if p.text:
                         blocks.append({"type": "text", "text": p.text})
+
+                elif isinstance(p, ImagePart):
+                    if supports_images:
+                        hoisted_images.append({"type": "image", "source": _image_source(p.image)})
 
                 elif isinstance(p, ThinkingPart):
                     # Replay only to the provider that issued the signature.

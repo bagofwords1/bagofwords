@@ -18,6 +18,12 @@ import httpx
 
 from app.ai.code_execution.query_params import date_range_issue, param_values_equal
 from app.schemas.param_schema import parse_param_specs
+from app.services.artifact_preview_noise import is_preview_noise_error
+
+
+def activity_session_id(evidence_id) -> str:
+    """The activity log session of one preview (``artifact_activity`` rows)."""
+    return f"preview-{evidence_id}"
 
 
 class PreviewUnavailableError(RuntimeError):
@@ -46,6 +52,10 @@ class ArtifactPreviewService:
         self.pending = set()
         self.changed = asyncio.Event()
         self.evidence_id = str(uuid4())
+        # Every preview opened in this run, in order: the automatic check finds
+        # its own preview's activity log session here, even when a refused load
+        # returns no evidence_id.
+        runtime_ctx.setdefault("artifact_preview_evidence_ids", []).append(self.evidence_id)
         self.client = None
         self.token = None
         self.operations = 0
@@ -131,6 +141,26 @@ class ArtifactPreviewService:
         self.changed.set()
         return event
 
+    async def log_activity(self, kind: str, event: dict):
+        """Keep a preview event in the app's activity log (``source=preview``),
+        next to the editor's, so the agent reads both in one place. ``seq`` is
+        the cursor of the evidence event it mirrors (0 when there is none): the
+        automatic check stamps what its result reported by it."""
+        from app.dependencies import async_session_maker
+        from app.services import artifact_activity
+
+        if not self.artifact:
+            return
+        try:
+            async with async_session_maker() as db:
+                await artifact_activity.record(
+                    db, organization_id=self.org_id, report_id=self.report_id,
+                    artifact_id=self.artifact.get("artifact_id") or self.artifact["id"],  # the app, not this version
+                    user_id=self.user_id, session_id=activity_session_id(self.evidence_id), source="preview",
+                    artifact_version=self.artifact.get("version"), events=[{**event, "kind": kind}])
+        except Exception:
+            pass  # evidence in the tool result still carries it
+
     def begin_action(self):
         if self.pending:
             raise ValueError("A previous query is still pending; use browser_snapshot with its action ID before another action")
@@ -178,7 +208,10 @@ class ArtifactPreviewService:
                 if query.get("artifact_id") not in (None, [aid]):
                     return await route.fulfill(status=403, json={"detail": "Wrong artifact"})
                 result = self.queries if query.get("artifact_id") else self.queries + self.options
-            elif path in {f"/api/reports/{self.report_id}", "/api/users/me/viewer_context", "/api/settings", "/api/config/i18n"}:
+            elif path in {f"/api/reports/{self.report_id}", "/api/users/me/viewer_context", "/api/settings", "/api/config/i18n",
+                          # The real conversation policy (asked by the artifact's own id, not the
+                          # version's), so the simulated app refuses what the live one would.
+                          f"/api/artifacts/{self.artifact.get('artifact_id') or aid}/runtime/conversations/policy"}:
                 result = await self._get(path)
             elif any(path == f"/api/files/{fid}/embed_token" for fid in self.file_ids):
                 result = await self._get(path)
@@ -202,7 +235,15 @@ class ArtifactPreviewService:
             started = time.monotonic()
             try:
                 response = await self.client.post(path, json=body, headers={"X-Request-ID": request_id})
-                result = response.json()
+                try:
+                    result = response.json()
+                except ValueError:
+                    result = None
+                if not isinstance(result, dict):
+                    # A failed run (e.g. a non-JSON 500 page) is a failed viewer
+                    # query, not a transport failure of the preview.
+                    result = {"status": "error",
+                              "error": f"Query run failed (HTTP {response.status_code}) without a JSON result"}
                 self.record("query", action_id=action_id, query_id=match[1], request_id=request_id,
                             operation_kind="query", execution_mode="viewer_query",
                             submitted_params=body.get("params", {}), applied_params=result.get("applied_params"),
@@ -222,8 +263,11 @@ class ArtifactPreviewService:
     async def wait_ready(self, timeout=10):
         deadline = time.monotonic() + timeout
         while not any(e["kind"] == "data_received" for e in self.events):
-            if any(e["kind"] == "error" for e in self.events):
+            if any(e["kind"] == "error" and not is_preview_noise_error(e) for e in self.events):
                 return "errors_observed"
+            if not self.query_ids and any(e["kind"] == "sdk_call" for e in self.events):
+                # No viewer queries (a chat app): its bow.* calls are its loading.
+                return "sdk_calls_observed"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return "pending"
@@ -287,13 +331,16 @@ class ArtifactPreviewService:
             acknowledged = set().union(*(self.revisions.get(e.get("data_revision"), set())
                                          for e in events if e["kind"] == "data_received"))
             received = bool(queries) and all(e.get("request_id") in acknowledged for e in queries)
-            failed = any(e["kind"] == "error" or (e["kind"] == "query" and e.get("status") != "success") for e in events)
+            failed = any(e["kind"] == "error" or (e["kind"] == "query" and e.get("status") != "success")
+                         or (e["kind"] == "sdk_call" and e.get("status") in {"error", "interrupted"}) for e in events)
             if failed:
                 return "failed"
             if mismatched:
                 return "parameter_mismatch"
             if not self.pending and ids <= completed and received:
                 return "data_received"
+            if not ids and not committed and any(e["kind"] == "sdk_call" for e in events) and time.monotonic() >= grace:
+                return "sdk_calls_observed"
             if not ids and not committed and time.monotonic() >= grace and not self.pending:
                 return "no_query_observed"
             remaining = deadline - time.monotonic()
@@ -349,7 +396,10 @@ class ArtifactPreviewService:
             "result_checks": result_checks,
             "warnings": [e for e in delta if e["kind"] == "warning"][-10:],
             "queries": [e for e in delta if e["kind"] == "query"][-20:],
-            "errors": [e for e in delta if e["kind"] in {"error", "blocked"}][-10:],
+            "errors": [e for e in delta if e["kind"] in {"error", "blocked"}
+                       or (e["kind"] == "sdk_call" and e.get("status") in {"error", "interrupted"})][-10:],
+            "sdk_calls": [{k: e.get(k) for k in ("op", "status", "error_code", "duration_ms", "detail") if e.get(k) is not None}
+                          for e in delta if e["kind"] == "sdk_call"][-20:],
             "runtime": [e for e in delta if e["kind"] in {"params_commit", "data_sent", "data_received", "params_status"}][-20:],
             "pending": sorted(self.pending), "update_status": update_status,
             "truncated": len(delta) > 50 or (bool(self.events) and start < self.events[0]["cursor"] - 1),

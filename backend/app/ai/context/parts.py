@@ -62,6 +62,14 @@ class TextPart:
 
 
 @dataclass
+class ImagePart:
+    """An image belonging to a user message, independent of tool results."""
+
+    image: dict
+    kind: Literal["image"] = "image"
+
+
+@dataclass
 class ThinkingPart:
     """Provider-native reasoning. ``signature`` is opaque and provider-bound."""
 
@@ -206,7 +214,7 @@ class ToolResultPart:
         )
 
 
-Part = Union[TextPart, ThinkingPart, ToolCallPart, ToolResultPart]
+Part = Union[TextPart, ImagePart, ThinkingPart, ToolCallPart, ToolResultPart]
 
 
 @dataclass
@@ -231,6 +239,8 @@ class Turn:
         for p in self.parts:
             if isinstance(p, ToolResultPart):
                 total += p.tokens + p.image_tokens()
+            elif isinstance(p, ImagePart):
+                total += image_tokens(p.image)
             elif isinstance(p, (TextPart, ThinkingPart)):
                 total += estimate_tokens(p.text)
             elif isinstance(p, ToolCallPart):

@@ -283,11 +283,6 @@ from app.ai.context.transcript import (  # noqa: E402
     retained_prefix as _retained_prefix,
 )
 
-# Uploaded images to attach when the CURRENT completion has none of its own —
-# a follow-up question ("?", "why?") about a picture uploaded a turn ago. Only
-# the most recent few, so a long conversation full of screenshots doesn't
-# re-send its whole gallery on every call.
-_FOLLOWUP_IMAGE_LIMIT = 2
 
 
 
@@ -544,6 +539,16 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
 }
 
 
+def artifact_chat_tool_allowlist(platform_context) -> set:
+    """The viewer-chat tools for one message. An app's conversation
+    (platform_context surface "app") answers data questions only: it drops
+    read_artifact, whose guidance is about editing an artifact, and its own
+    report holds no artifact to read. The dashboard bubble keeps it."""
+    if isinstance(platform_context, dict) and platform_context.get("surface") == "app":
+        return ARTIFACT_CHAT_TOOL_ALLOWLIST - {"read_artifact"}
+    return ARTIFACT_CHAT_TOOL_ALLOWLIST
+
+
 # Tools that never read the turn's context view or hub; they skip the pre-tool
 # context rebuild. Anything not listed keeps it.
 _CONTEXT_FREE_TOOLS = frozenset({
@@ -665,6 +670,7 @@ class AgentV2:
             self._sub_agent_id = None
         self._sub_agent = None                 # dict loaded from the sub_agents row at run start
         self._sub_agent_allowed_tools = None   # frozenset of tool names (profile ∩ catalog)
+        self._artifact_check_run = None        # ArtifactCheckRun of the current execution (automatic artifact check)
         self._sub_agent_finished = False       # finish_subtask observed this run
         self._sub_agent_finish_nudges = 0
         self._sub_agent_tokens_used = 0          # LLM tokens summed over this child's planner calls
@@ -1036,9 +1042,10 @@ class AgentV2:
         # (the roster is a server-synced hard scope — see ArtifactChatService).
         # Keyed on the report's own type so no caller can forget to pass it.
         if getattr(self.report, 'report_type', 'regular') == 'artifact_chat':
+            _chat_tools = artifact_chat_tool_allowlist(self.platform_context)
             all_catalog_dicts = [
                 t for t in all_catalog_dicts
-                if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
+                if t['name'] in _chat_tools
             ]
 
         # The conversation's API settings (report.follow_ups /
@@ -1973,30 +1980,16 @@ class AgentV2:
         except Exception:
             return None
 
-    def _followup_image_files(self) -> list:
-        """The most recent uploaded images, for a turn that attached none of its
-        own. "Why?" / "?" about a screenshot uploaded one turn ago is a normal
-        way to ask a question, and scoping the attach to the CURRENT completion
-        meant the model entered that turn blind — it had to guess from the
-        <files> listing that the picture was relevant and spend a step reading
-        it back. Bounded to the newest few so a long conversation doesn't
-        re-send its whole gallery."""
-        def _created(f):
-            return getattr(f, "created_at", None) or ""
-        try:
-            ordered = sorted(self.image_files, key=_created, reverse=True)
-        except TypeError:
-            # Mixed/naive timestamps — fall back to report order (oldest first).
-            ordered = list(reversed(self.image_files))
-        return ordered[:_FOLLOWUP_IMAGE_LIMIT]
-
     async def _load_images_as_input(self) -> list[ImageInput]:
-        """Load image files as base64-encoded ImageInput objects for vision models.
+        """Load the images uploaded WITH the current message as vision input.
 
-        Prefers the images uploaded with the CURRENT completion; when that turn
-        uploaded none, falls back to the most recent images on the report so a
-        follow-up question about an earlier screenshot still arrives with the
-        picture attached.
+        Only this turn's uploads. Images from earlier messages are not
+        re-attached: this channel lands on the newest user message, so a
+        re-sent picture reads as "the user just sent this" and the model
+        answers about it as if it were new. Earlier images stay reachable —
+        history tags each message with what it carried
+        ("[attached: name (image/png, id=…)]") and read_file shows the
+        picture again on demand.
         """
         import base64
         import aiofiles
@@ -2004,7 +1997,7 @@ class AgentV2:
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
-        eligible_files = self.image_files
+        eligible_files = []
         if current_cid and self.image_files and self.db and self.report:
             try:
                 image_file_ids = [str(f.id) for f in self.image_files]
@@ -2017,10 +2010,9 @@ class AgentV2:
                 )
                 current_ids = {row[0] for row in result.fetchall()}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
-                if not eligible_files:
-                    eligible_files = self._followup_image_files()
             except Exception as e:
-                logger.warning(f"Failed to filter images by completion, loading all: {e}")
+                logger.warning(f"Failed to filter images by completion, attaching none: {e}")
+                eligible_files = []
 
         images: list[ImageInput] = []
         for f in eligible_files:
@@ -2085,7 +2077,9 @@ class AgentV2:
         transcript's own tool results, bounded by Transcript's retention —
         adding them here too sent the last steps' pages twice per request. The
         legacy planner / non-transcript prompt have no other channel, so they
-        keep both. User uploads only ever ride this channel.
+        keep both. User uploads reach the prompt builder through this field;
+        on the transcript path it anchors them to the original ask and clears
+        the provider side channel so they cannot move to the latest result.
         """
         rides_transcript = False
         if tool_images:
@@ -2610,6 +2604,9 @@ class AgentV2:
                         "settings": self.organization_settings,
                         "report": self.report,
                         "run_agent_ids": self._run_agent_ids(),
+                        # Same gate as the submit_<list> tools (conversation switch,
+                        # sub-agent profile): create_data offers `lists` to code only then.
+                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                         "head_completion": self.head_completion,
@@ -4382,6 +4379,27 @@ class AgentV2:
             logger.warning(f"[agent.single_writer] rebuild failed: {_e!r}")
         return True
 
+    def _artifact_check_run_for_execution(self):
+        """Run state for the automatic artifact check, or None when this run may
+        not use browser_navigate (catalog after report.tools, sub-agent profile)."""
+        from app.ai.tools.artifact_verification import ArtifactCheckRun
+
+        names = {d.name for d in getattr(self, "_browser_catalog_candidates", [])}
+        profile = getattr(self, "_sub_agent_allowed_tools", None) if getattr(self, "_is_sub_agent", False) else None
+
+        def allowed(tool_name):
+            return tool_name in names and (profile is None or tool_name in profile)
+
+        if not allowed("browser_navigate"):
+            return None
+        execution = getattr(self, "current_execution", None)
+        execution_id = str(execution.id) if execution is not None else None
+        run = getattr(self, "_artifact_check_run", None)
+        if run is None or run.execution_id != execution_id:
+            run = ArtifactCheckRun(execution_id=execution_id, smoke_allowed=allowed("browser_act"))
+            self._artifact_check_run = run
+        return run
+
     async def _release_db_between_steps(self) -> None:
         """Commit the agent's main session so its pooled DB connection is returned
         to the pool during the upcoming long awaits (planner LLM call, tool /
@@ -5418,6 +5436,7 @@ class AgentV2:
                         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
                         # Active scheduled tasks for this report (for dedupe + cancellation)
                         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+                        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
                         # Loadable prior steps (so the planner prefers reuse via load_step)
                         available_steps_context = await self._build_available_steps_context()
 
@@ -5513,6 +5532,7 @@ class AgentV2:
                             entities_context=entities_context,
                             available_steps_context=available_steps_context,
                             scheduled_tasks_context=scheduled_tasks_context,
+                            app_activity_context=app_activity_context or None,
                             history_summary=history_summary,
                             messages_context=messages_context,
                             resources_context=resources_context,
@@ -5534,6 +5554,7 @@ class AgentV2:
                             disabled_tools=sorted(self._disabled_tools),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+                            **self._sandbox_planner_flags(),
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
@@ -6554,6 +6575,7 @@ class AgentV2:
                                 _browser_session = session_manager.get(tool_input.get("session_id"), {
                                     "organization": self.organization, "user": getattr(self.head_completion, "user", None),
                                     "report": self.report, "agent_execution_id": str(self.current_execution.id),
+                                    "sub_agent_id": self._sub_agent_id,
                                 }) if tool_input.get("session_id") else None
                                 _verifying = (tool_name == "browser_navigate" and bool(tool_input.get("artifact_id"))) or (
                                     tool_name.startswith("browser_") and _browser_session is not None and _browser_session.preview is not None)
@@ -6663,22 +6685,44 @@ class AgentV2:
                                     # narrates the whole turn as a failure and the
                                     # user reads a working dashboard as broken.
                                     _saved_version = last_artifact_state.get("version")
+                                    # An automatic browser check reported problems (or a
+                                    # chat send that got no reply) and no later check
+                                    # passed: the saved version is intact but NOT known
+                                    # to work, so no text may claim it works.
+                                    _problems = last_artifact_state.get("automatic_check_status") in (
+                                        "problems_found", "not_verified")
                                     _saved_txt = (
                                         f"v{_saved_version} is saved and working with all {total_artifact_calls} "
                                         "of this turn's applied change(s)"
                                         if _saved_version is not None else
                                         f"all {total_artifact_calls} change(s) that ran this turn are saved"
                                     )
+                                    if _problems:
+                                        _saved_txt = (
+                                            _saved_txt.replace(" is saved and working with ", " is saved with ")
+                                            + ", but the last automatic check found problems that are not confirmed fixed"
+                                        )
                                     _refusal_obs: Dict[str, Any] = {
                                         "summary": (
-                                            f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
-                                            f"'{tool_name}' was NOT executed and every further create/edit_artifact "
-                                            f"call this turn will also be refused. NOTHING IS BROKEN: {_saved_txt}. "
-                                            "Only this one further change was deferred — it was not applied. Do NOT "
-                                            "request artifact tools again. Write your final answer now: lead with what "
-                                            "IS done and saved, then name the single deferred change and tell the user "
-                                            "to ask again to continue it. Never describe a refused edit as completed, "
-                                            "and never describe the artifact as failed or broken — it is intact."
+                                            (
+                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                                f"'{tool_name}' was NOT executed and every further create/edit_artifact "
+                                                f"call this turn will also be refused. {_saved_txt}. Only this one further "
+                                                "change was deferred — it was not applied. Do NOT request artifact tools "
+                                                "again. Write your final answer now: say what IS saved, say plainly that "
+                                                "the problems the automatic check found are not confirmed fixed, "
+                                                "then name the deferred change and tell the user to ask again to continue. "
+                                                "Never describe a refused edit as completed."
+                                            ) if _problems else (
+                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                                f"'{tool_name}' was NOT executed and every further create/edit_artifact "
+                                                f"call this turn will also be refused. NOTHING IS BROKEN: {_saved_txt}. "
+                                                "Only this one further change was deferred — it was not applied. Do NOT "
+                                                "request artifact tools again. Write your final answer now: lead with what "
+                                                "IS done and saved, then name the single deferred change and tell the user "
+                                                "to ask again to continue it. Never describe a refused edit as completed, "
+                                                "and never describe the artifact as failed or broken — it is intact."
+                                            )
                                         ),
                                         "error": {
                                             "code": "artifact_budget_exhausted",
@@ -6700,13 +6744,25 @@ class AgentV2:
                                         _refusal_obs["final_answer"] = (
                                             f"I applied {total_artifact_calls} change(s) to the dashboard"
                                             + (
-                                                f" — it's saved and working at v{_saved_version} — and then hit"
-                                                if _saved_version is not None else ", then hit"
+                                                (
+                                                    f" (saved as v{_saved_version}), but the last automatic check "
+                                                    "found problems that are not confirmed fixed yet. I then hit"
+                                                    if _saved_version is not None else
+                                                    ", but the last automatic check found problems that "
+                                                    "are not confirmed fixed yet. I then hit"
+                                                ) if _problems else (
+                                                    f" — it's saved and working at v{_saved_version} — and then hit"
+                                                    if _saved_version is not None else ", then hit"
+                                                )
                                             )
                                             + f" this turn's limit of {max_total_artifact_calls} artifact "
                                             "updates, so the remaining requested change was deferred rather than "
-                                            "applied. Nothing is broken and nothing was lost. Ask me to continue and "
-                                            "I'll pick up the rest."
+                                            + (
+                                                "applied. Ask me to continue and I'll fix the reported problems."
+                                                if _problems else
+                                                "applied. Nothing is broken and nothing was lost. Ask me to continue and "
+                                                "I'll pick up the rest."
+                                            )
                                         )
                                     return await _refuse_before_dispatch(_refusal_obs)
 
@@ -6814,6 +6870,9 @@ class AgentV2:
                                         "settings": self.organization_settings,
                                         "report": self.report,
                                         "run_agent_ids": self._run_agent_ids(),
+                                        # Same gate as the submit_<list> tools (conversation switch,
+                                        # sub-agent profile): create_data offers `lists` to code only then.
+                                        "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "head_completion": self.head_completion,
@@ -6860,6 +6919,7 @@ class AgentV2:
                                         "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                         "usage_limit_context": self.usage_limit_context,
                                         "verification_group_id": tool_input.get("_verification_group_id"),
+                                        "artifact_check_run": self._artifact_check_run_for_execution(),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
                                         "sub_agent_can_review_messages": (
@@ -7407,6 +7467,19 @@ class AgentV2:
                                             _aid = _obs.get("artifact_id")
                                             if _aid:
                                                 last_artifact_state["artifact_id"] = _aid
+                                            # Unchanged when absent: a later cosmetic edit
+                                            # (no check) must not hide earlier problems.
+                                            # Nor may a check that could not run
+                                            # (unavailable: outage, time budget, skip,
+                                            # check_failed): it confirms nothing, so only a
+                                            # check that ran replaces recorded problems.
+                                            _auto = (_obs.get("verification_hint") or {}).get("automatic_check")
+                                            if isinstance(_auto, dict) and _auto.get("status") and (
+                                                _auto["status"] != "unavailable"
+                                                or last_artifact_state.get("automatic_check_status")
+                                                not in ("problems_found", "not_verified")
+                                            ):
+                                                last_artifact_state["automatic_check_status"] = _auto["status"]
 
                                 if _obs and _obs.get("analysis_complete"):
                                     analysis_done = True
@@ -8145,6 +8218,7 @@ class AgentV2:
             planner_input.memory_hint = None
             planner_input.scheduled_context = None
             planner_input.scheduled_tasks_context = None
+            planner_input.app_activity_context = None
             planner_input.sub_agents_enabled = False
             if self._sub_agent:
                 planner_input.sub_agent_title = self._sub_agent.get("title")
@@ -8304,6 +8378,7 @@ class AgentV2:
         mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
         entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
         scheduled_tasks_context = (view.warm.scheduled_tasks.render() if getattr(view.warm, "scheduled_tasks", None) else "")
+        app_activity_context = (view.warm.app_activity.render() if getattr(view.warm, "app_activity", None) else "")
         available_steps_context = await self._build_available_steps_context()
         _notes_cfg2 = self.organization_settings.get_config("enable_agent_notes") if self.organization_settings else None
         _notes_on = bool(getattr(_notes_cfg2, "value", False)) if _notes_cfg2 is not None else False
@@ -8330,6 +8405,7 @@ class AgentV2:
             entities_context=entities_context,
             available_steps_context=available_steps_context,
             scheduled_tasks_context=scheduled_tasks_context,
+            app_activity_context=app_activity_context or None,
             history_summary=history_summary,
             messages_context=messages_context,
             resources_context=resources_context,
@@ -8346,6 +8422,7 @@ class AgentV2:
             disabled_tools=sorted(self._disabled_tools),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)) and "execute_mcp" not in self._disabled_tools,
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)) and "web_fetch" not in self._disabled_tools,
+            **self._sandbox_planner_flags(),
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
@@ -8664,6 +8741,22 @@ class AgentV2:
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
             return {"decision": False, "conditions": []}
+
+    def _sandbox_planner_flags(self) -> dict:
+        """What create_data's generated code may do (org Sandbox settings), as
+        the planner should see it: `browser` needs a browser connection on
+        the report, `lists` needs a list this user can submit to (a
+        submit_<list> tool), `http` follows the conversation's web_fetch switch."""
+        from app.ai.code_execution.sandbox_helpers import sandbox_settings
+        from app.ai.tools.implementations._browser_common import get_browser_connection
+
+        sb = sandbox_settings(self.organization_settings)
+        routing = getattr(self, "_list_tool_routing", None) or {}
+        return {
+            "sandbox_web_fetch_enabled": sb.web_fetch and "web_fetch" not in self._disabled_tools,
+            "sandbox_browser_enabled": sb.browser and get_browser_connection({"report": self.report}) is not None,
+            "sandbox_lists_enabled": sb.lists and bool(routing),
+        }
 
     def _web_search_enabled(self) -> bool:
         """Effective gate for native, provider-executed web search.
@@ -9049,8 +9142,13 @@ class AgentV2:
                "report": self.report,
                "user": getattr(self.head_completion, "user", None) if self.head_completion else None,
                "agent_execution_id": str(self.current_execution.id) if self.current_execution else None}
+        candidates = self._browser_catalog_candidates
+        allowed = getattr(self, "_sub_agent_allowed_tools", None) if self._is_sub_agent else None
+        if allowed is not None:
+            # Never advertise a browser tool the sub-agent dispatch check would refuse.
+            candidates = [t for t in candidates if t.name in allowed]
         self.planner.tool_catalog = await refresh_browser_tool_catalog(
-            self.planner.tool_catalog, self._browser_catalog_candidates, ctx)
+            self.planner.tool_catalog, candidates, ctx)
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

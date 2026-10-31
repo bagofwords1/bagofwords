@@ -1522,6 +1522,8 @@ class DataSourceService:
             query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
         # Non-published agents (draft/disabled) are only visible to managers.
         is_gov, manage_ids, resolved = await self._publish_visibility(db, current_user, organization)
         # Batch the per-connection indexing + table-count lookups across the
@@ -1720,6 +1722,8 @@ class DataSourceService:
 
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
 
         # Batch the per-connection indexing + table-count lookups across the
         # whole list so building N agents doesn't issue N×(queries) — the N+1
@@ -2524,7 +2528,13 @@ class DataSourceService:
                 for conn in data_source.connections
             )
             if persist and shared_only:
-                if not all_success:
+                # Follow the connections' own flags rather than this one probe:
+                # test_connection deactivates a shared connection only after
+                # several failures in a row, and the agent must agree with it.
+                for conn in data_source.connections:
+                    await db.refresh(conn, attribute_names=["is_active"])
+                connections_up = all(bool(conn.is_active) for conn in data_source.connections)
+                if not connections_up:
                     data_source.is_active = False
                 elif data_source.is_active == False:
                     data_source.is_active = True
@@ -2889,6 +2899,8 @@ class DataSourceService:
 
         With no current_user (system/scheduled contexts) nothing is filtered.
         """
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
         if current_user is None:
             return list(data_sources or [])
 
@@ -2994,6 +3006,10 @@ class DataSourceService:
         # sources regardless of what a (possibly stale or hand-crafted) report
         # snapshot claims. `current_user is None` means a trusted system/scheduled
         # context, which is not filtered (mirrors filter_user_*_data_sources).
+        from app.services.connected_application_service import agent_ceiling
+        ceiling = await agent_ceiling(db, data_source.organization_id)
+        if ceiling is not None and str(data_source.id) not in ceiling:
+            raise AppError.forbidden(ErrorCode.APPLICATION_AGENT_FORBIDDEN, "Application has no access to this agent")
         if current_user is not None:
             from app.core.permission_resolver import user_can_access_data_source
             if not await user_can_access_data_source(
@@ -3067,6 +3083,7 @@ class DataSourceService:
                 client = ClientClass(**allowed)
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
+                await self._attach_table_scope(db, client, data_source, conn)
                 built[key] = client
 
                 # Accelerated (FAST) relations for this connection, exposed as a
@@ -3286,6 +3303,44 @@ class DataSourceService:
         except Exception:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
+
+    async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
+        """Attach the agent's table selection to a SQL client so it holds at
+        query time (enforced by the code-execution wrapper, see
+        app/ai/code_execution/table_scope.py).
+
+        Covers the rows of THIS connection plus unlinked legacy rows, the same
+        set `_attach_stored_table_metadata` reads. Nothing is attached when the
+        data source has no table rows (never indexed: there is no selection to
+        enforce) or the client is not a SQL dialect the check can parse.
+
+        Errors propagate: a client that should be scoped must not be handed
+        out unscoped.
+        """
+        from app.ai.code_execution.sql_guard import dialect_for_client
+        from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
+        from app.models.datasource_table import DataSourceTable
+        from app.models.connection_table import ConnectionTable
+
+        if not dialect_for_client(client):
+            return
+        rows = (await db.execute(
+            select(DataSourceTable.name, DataSourceTable.is_active)
+            .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            .where(
+                DataSourceTable.datasource_id == str(data_source.id),
+                or_(
+                    ConnectionTable.connection_id == str(connection.id),
+                    DataSourceTable.connection_table_id.is_(None),
+                ),
+            )
+        )).all()
+        if not rows:
+            return
+        setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
+            active=[name for name, is_active in rows if is_active],
+            inactive=[name for name, is_active in rows if not is_active],
+        ))
 
     def _attach_client_quota_metadata(self, client, data_source: DataSource, connection, client_key: str) -> None:
         try:

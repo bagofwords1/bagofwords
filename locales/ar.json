@@ -3453,6 +3453,7 @@
       "discovering_schema": "اكتشاف: المخطط",
       "catalog_ready": "جاهز: الكتالوج",
       "reading_semantic_views": "قراءة: طرق العرض الدلالية",
+      "reading_routines": "قراءة الإجراءات والدوال",
       "admin_scan": "فحص إداري: مساحات العمل",
       "listing_workspaces": "سرد: مساحات العمل",
       "workspace_models": "سرد: النماذج",
@@ -3835,6 +3836,20 @@
           "title": "الصقه أدناه واختبر الاتصال",
           "body": "الصق المخرجات كاملة في حقل ملف الوصول إلى العنقود ثم انقر على اختبار الاتصال."
         }
+      ],
+      "mecm": [
+        {
+          "title": "امنح الحساب صلاحية القراءة في Configuration Manager",
+          "body": "في وحدة التحكم انتقل إلى Administration > Security > Administrative Users، وأضف الحساب (أو مجموعة AD الخاصة به) وامنحه دور Read-only Analyst. تحدد نطاقات الأمان والمجموعات الخاصة به ما يمكن لـ Bag of Words رؤيته."
+        },
+        {
+          "title": "تحقّق من استجابة خدمة الإدارة",
+          "body": "من جهاز منضم إلى المجال، شغّل هذا الأمر على SMS Provider. يجب أن يعرض موقعك."
+        },
+        {
+          "title": "صدّر شهادة SMS Provider",
+          "body": "يستخدم الموقع افتراضيًا شهادة موقّعة ذاتيًا. شغّل هذا الأمر في PowerShell على SMS Provider والصق الناتج في SMS Provider certificate (PEM). تخطَّ هذه الخطوة إذا كانت الشهادة صادرة عن مرجع شهادات يثق به هذا الخادم بالفعل."
+        }
       ]
     },
     "setupGuideCopyFailed": "فشل النسخ — حدد النص",
@@ -4083,7 +4098,12 @@
     "dashboard.join_no_access": "تحتاج إلى الوصول إلى {name} لتحرير لوحة المعلومات هذه.",
     "dashboard.creator_publish_owner_only": "تعمل لوحة المعلومات هذه ببيانات اعتماد مالكها، لذا لا يمكن نشرها إلا لمالكها.",
     "dashboard.published_since": "نشر {by} لوحة المعلومات هذه منذ بدء مسودتك.",
-    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل."
+    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -5914,6 +5934,15 @@
     "editQuery": "تعديل {name}",
     "rowFiltered": "تصفية الصفوف",
     "refreshFailed": "فشل التحديث",
+    "routineProcedure": "إجراء",
+    "routineFunction": "دالة",
+    "routineHint": "روتين مخزّن: يقرأ الوكيل منطقه ويطبّقه في استعلاماته الخاصة، ولا يشغّله أبدًا.",
+    "routineParameter": "معامل",
+    "routineParameterType": "النوع",
+    "routineSource": "الشيفرة المصدرية",
+    "routineSourceTruncated": "مقتطع",
+    "routineSourceHidden": "المصدر غير مرئي",
+    "routineSourceHiddenHint": "لا يستطيع حساب الاتصال قراءة شيفرة هذا الروتين (يلزم إذن VIEW DEFINITION أو ما يعادله في قاعدة البيانات). يرى الوكيل التوقيع فقط.",
     "successful": "ناجحة",
     "failed": "فاشلة",
     "lastRefreshed": "آخر تحديث",
@@ -6436,5 +6465,42 @@
     "owner": "المالك",
     "byOwner": "بواسطة {name}",
     "untitled": "بلا عنوان"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "لم يُنشر هذا المحتوى بعد. سيظهر هنا بعد نشره.",
+      "notFound": "هذا المحتوى غير متاح. ربما لم يُنشر بعد، أو تمت إزالته.",
+      "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
+      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في Bag of Words.",
+      "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "مفعّل",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

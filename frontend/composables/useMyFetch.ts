@@ -11,6 +11,12 @@
 // its copy (sorting in place, etc.) cannot alias another's.
 const inflightGets = new Map<string, Promise<any>>()
 
+// The key of a GET that may share an in-flight call. It holds the
+// Authorization the call sends: another sender (an embedded artifact's next
+// viewer) must not receive this one's answer. In memory only, like the call.
+export const inflightGetKey = (authorization: string, organizationId: string, request: string, query: unknown) =>
+  JSON.stringify([authorization, organizationId, request, query ?? null])
+
 const cloneBody = (data: any) => {
   try { return structuredClone(data) } catch { return data }
 }
@@ -19,16 +25,18 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
+  // An embedded artifact acts as the host application's user (useEmbedCredential).
+  const embed = useEmbedCredential().value
 
   const isClient = process.client
 
   // Ensure organization is loaded before making the request
-  const orgResult = await ensureOrganization()
+  const orgResult = embed ? { id: embed.organizationId } : await ensureOrganization()
 
   opts = opts || {}
   opts.headers = {
     ...opts.headers,
-    Authorization: `${token.value}`,
+    Authorization: embed ? `Bearer ${embed.token}` : `${token.value}`,
   }
 
   // Add the organization ID to the headers if it's set
@@ -67,8 +75,8 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
         method === 'GET' && typeof request === 'string' && !(opts as any).body
       let data: any
       if (canDedupe) {
-        const key = `${orgResult?.id || ''}|${request}|` +
-          JSON.stringify((opts as any).query ?? (opts as any).params ?? null)
+        const key = inflightGetKey(opts.headers.Authorization, orgResult?.id || '', request,
+          (opts as any).query ?? (opts as any).params)
         let inflight = inflightGets.get(key)
         if (!inflight) {
           inflight = $fetch(request, { baseURL: config.public.baseURL, ...opts })

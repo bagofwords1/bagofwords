@@ -318,6 +318,12 @@ class PostgreSQLConfig(BaseModel):
         description="libpq sslmode: disable, allow, prefer, require, verify-ca, verify-full. Use 'require' for IAM-authenticated connections (e.g. AWS RDS), which reject unencrypted logins.",
         json_schema_extra={"ui:type": "select", "ui:options": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]}
     )
+    index_routines: bool = Field(
+        False,
+        title="Index stored procedures & functions",
+        description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 # SQLite (local file database)
@@ -361,6 +367,13 @@ class SQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(..., ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    # MySQL, MariaDB and SQL Server (MssqlConfig) — the clients that index routines.
+    index_routines: bool = Field(
+        False,
+        title="Index stored procedures & functions",
+        description="Also index procedures and functions with their source. The agent reads their logic and may call functions inside queries; use a read-only database account.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
 
 
 # Snowflake
@@ -805,6 +818,94 @@ class PriorityErpConfig(BaseModel):
     )
 
 
+# Microsoft Configuration Manager (SCCM / MECM) — AdminService REST API
+class MecmNtlmCredentials(BaseModel):
+    """Windows credentials, sent with NTLM / Negotiate."""
+    username: str = Field(
+        ...,
+        min_length=1,
+        title="Domain username",
+        description=(
+            "DOMAIN\\username or user@domain. The account must be a Configuration Manager "
+            "administrative user — the Read-only Analyst role is enough. Its security scopes "
+            "decide which devices and collections it can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class MecmKerberosCredentials(BaseModel):
+    """Kerberos service account from a keytab or ticket cache mounted on the server."""
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: str | None = Field(
+        None,
+        title="Service principal",
+        description=(
+            "Optional service-account principal (svc_bow@CONTOSO.COM). Administrators mount "
+            "krb5.conf and the client keytab (KRB5_CLIENT_KTNAME) on the Bag of Words server. "
+            "Requests run as this account, not as the signed-in user."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
+class MecmConfig(BaseModel):
+    server_url: str = Field(
+        ...,
+        title="SMS Provider",
+        description=(
+            "Host name of the server with the SMS Provider role (usually the site server), e.g. "
+            "cm01.contoso.com — or the full https://cm01.contoso.com/AdminService URL."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    classes: str | None = Field(
+        None,
+        title="Classes",
+        description=(
+            "Optional comma-separated list of classes to expose, e.g. SMS_R_System, SMS_Collection, "
+            "SMS_G_System_INSTALLED_SOFTWARE, v1.0/Device. If empty, a curated set of device, "
+            "collection, inventory, application, deployment and update classes is used."
+        ),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    discover_all: bool = Field(
+        False,
+        title="Discover all classes",
+        description="Index every class the site exposes (700+, including custom hardware inventory classes) instead of the curated set.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    include_v1: bool = Field(
+        False,
+        title="Include v1.0 entities",
+        description="Also index the versioned v1.0 route (Device and related entities). Needs Configuration Manager 1906 or later.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_certificate: str | None = Field(
+        None,
+        title="SMS Provider certificate (PEM)",
+        description=(
+            "By default the site uses a self-signed certificate for the administration service. "
+            "Paste it here (or the issuing CA's certificate) to trust exactly that certificate "
+            "instead of turning verification off."
+        ),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the server certificate. Turn off only for an isolated test lab.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 # AppDynamics (Cisco / Splunk AppDynamics)
 class AppDynamicsUserPassCredentials(BaseModel):
     username: str = Field(
@@ -848,6 +949,49 @@ class AppDynamicsConfig(BaseModel):
         True,
         title="Verify SSL",
         description="Verify the controller's TLS certificate. Disable only for self-signed or private-CA certs on trusted networks (e.g. on-prem controllers).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
+# CrowdStrike Falcon
+class CrowdStrikeApiClientCredentials(BaseModel):
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="From Support and resources → API clients and keys in the Falcon console. Grant read-only scopes: Hosts, Host groups, Alerts, Incidents, Vulnerabilities, Prevention policies, IOC Management.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Shown once when the API client is created. Short-lived OAuth tokens are fetched and refreshed automatically.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    member_cid: Optional[str] = Field(
+        None,
+        title="Member CID (optional)",
+        description="Flight Control (MSSP) only: the child tenant's CID to read from. Leave empty for a single tenant.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class CrowdStrikeConfig(BaseModel):
+    region: Literal["auto", "us-1", "us-2", "eu-1", "us-gov-1", "us-gov-2"] = Field(
+        "auto",
+        title="Cloud Region",
+        description="The Falcon cloud your tenant lives in (the console URL tells you: falcon.us-2.crowdstrike.com → us-2). \"auto\" detects it from the API client.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["auto", "us-1", "us-2", "eu-1", "us-gov-1", "us-gov-2"]},
+    )
+    base_url: Optional[str] = Field(
+        None,
+        title="API Base URL (optional)",
+        description="Overrides the region, e.g. for an API gateway or proxy in front of the Falcon API. Leave empty to use the region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the API's TLS certificate. Disable only behind a TLS-intercepting proxy on a trusted network.",
         json_schema_extra={"ui:type": "boolean"},
     )
 
@@ -1814,6 +1958,39 @@ class AzureDataExplorerConfig(BaseModel):
     database: str = Field(..., title="Database", description="Database name", json_schema_extra={"ui:type": "string"})
 
 
+# Azure Cost Management — the Azure counterpart of AWS Cost Explorer.
+class AzureCostServicePrincipalCredentials(BaseModel):
+    tenant_id: str = Field(..., title="Tenant ID", description="Microsoft Entra ID (Azure AD) tenant ID.", json_schema_extra={"ui:type": "string"})
+    client_id: str = Field(..., title="Client ID", description="Application (client) ID of the app registration.", json_schema_extra={"ui:type": "string"})
+    client_secret: str = Field(..., title="Client Secret", description="Client secret of the app registration. Grant the app the Cost Management Reader role on the scope.", json_schema_extra={"ui:type": "password"})
+
+
+class AzureCostDefaultCredentials(BaseModel):
+    """No stored secret — azure-identity's DefaultAzureCredential resolves a
+    managed identity, workload identity, or AZURE_* environment variables."""
+    class Config:
+        extra = 'allow'
+
+
+class AzureCostConfig(BaseModel):
+    scope: str = Field(
+        ...,
+        title="Scope",
+        description=(
+            "What to report on. A subscription ID, or a scope path such as "
+            "/subscriptions/<id>, /subscriptions/<id>/resourceGroups/<name>, "
+            "/providers/Microsoft.Management/managementGroups/<id>, or a billing scope "
+            "like /providers/Microsoft.Billing/billingAccounts/<id>."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    cost_type: Literal["ActualCost", "AmortizedCost"] = Field(
+        "ActualCost",
+        title="Default cost view",
+        description="Actual cost matches your invoice. Amortized cost spreads reservation and savings plan purchases across their term.",
+    )
+
+
 # PostHog
 class PostHogCredentials(BaseModel):
     api_key: str = Field(
@@ -2522,6 +2699,46 @@ class DocumentumImpersonationCredentials(BaseModel):
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
+# Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is
+# read with *application* permissions, so only the app registration is needed.
+class IntuneCredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Microsoft Entra tenant ID (Directory ID) that holds your Intune subscription.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description=(
+            "Application (client) ID of an Entra app registration granted, with admin consent, "
+            "the read-only Microsoft Graph application permissions "
+            "DeviceManagementManagedDevices.Read.All, DeviceManagementConfiguration.Read.All, "
+            "DeviceManagementApps.Read.All and DeviceManagementServiceConfig.Read.All. "
+            "Tables whose permission is missing are simply left out."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="A client secret of that app registration.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class IntuneConfig(BaseModel):
+    max_rows: int = Field(
+        50000,
+        ge=1,
+        le=50000,
+        title="Max Rows Per Query",
+        description="Safety cap on how many records a single query may page through.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 class SharePointListsCredentials(SharePointCredentials):
     """SharePoint Lists uses the same Microsoft Graph auth as SharePoint."""
     pass
@@ -4123,6 +4340,10 @@ __all__ = [
     "PriorityErpPatCredentials",
     "PriorityErpBasicCredentials",
     "PriorityErpConfig",
+    # Microsoft Configuration Manager
+    "MecmNtlmCredentials",
+    "MecmKerberosCredentials",
+    "MecmConfig",
     # MCP
     "MCPConfig",
     "MCPNoAuthCredentials",

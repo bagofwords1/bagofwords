@@ -5,8 +5,8 @@ the dashboard instead of the conversation:
 
 - who: whoever may read the dashboard (/d access), signed in, a live member
   of its organization, with the dashboard's chat switched on;
-- the thread: one hidden artifact_chat report per reader per dashboard,
-  found by reports.source_artifact_id. forked_from_id stays empty, so the
+- the thread: the reader's newest hidden artifact_chat report on the
+  dashboard, found by reports.source_artifact_id. forked_from_id stays empty, so the
   conversation's /r chat (keyed on it) never finds these threads;
 - the agents: the dashboard's chat_data_source_ids, else the release's own
   sources (an "Auto" release: only those its copies' code names, never the
@@ -17,11 +17,15 @@ the dashboard instead of the conversation:
   conversation it was made in may be gone);
 - the context: the live release -- its title and, in data-only scope, its
   charts with the rows this reader may see (ReleaseRender), never the stored
-  snapshot as such.
+  snapshot as such. Inside a host application the bubble also sends the
+  host's current context (sanitize_host_context): advisory prompt text only,
+  never used for access or queries.
 
 It outlives the conversation: nothing here reads it.
 """
+import json
 import uuid
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -30,6 +34,11 @@ from app.models.artifact import Artifact
 from app.models.artifact_release import ArtifactRelease
 from app.models.report import Report
 from app.services.artifact_chat_service import MAX_CONTEXT_ROWS_PER_VIZ, artifact_chat_service
+
+# Host context (what the host application says the viewer is looking at, from
+# embed.updateContext) is kept only when it is a small JSON object.
+HOST_CONTEXT_MAX_CHARS = 2048
+HOST_CONTEXT_MAX_KEYS = 20
 
 
 async def open_chat(db, ref: str, user) -> tuple[Artifact, ArtifactRelease]:
@@ -88,11 +97,14 @@ def chat_model_id(artifact: Artifact) -> str | None:
 
 
 async def find_thread(db, artifact: Artifact, user) -> Report | None:
+    """The reader's newest thread: a reader may hold several (the artifact's
+    own conversations, services/artifact_conversations.py); the bubble
+    continues the latest."""
     return (await db.execute(
         select(Report).where(
             Report.report_type == "artifact_chat", Report.source_artifact_id == str(artifact.id),
             Report.user_id == str(user.id), Report.deleted_at.is_(None),
-        ).limit(1)
+        ).order_by(Report.created_at.desc()).limit(1)
     )).scalars().first()
 
 
@@ -131,3 +143,20 @@ async def build_context(db, artifact: Artifact, release: ArtifactRelease, agent_
             "rows": (v.get("rows") or [])[:MAX_CONTEXT_ROWS_PER_VIZ], "total_rows": len(v.get("rows") or []),
         } for v in charts]
     return context
+
+
+def sanitize_host_context(value: Any) -> dict | None:
+    """The host's context for a bubble message, or None: a non-empty dict with
+    string keys, at most HOST_CONTEXT_MAX_KEYS keys and HOST_CONTEXT_MAX_CHARS
+    serialized characters. Values pass through as JSON. It is advisory and
+    unverified (any allowed host page can set it): prompt text only, it grants
+    no access."""
+    if not isinstance(value, dict) or not value or len(value) > HOST_CONTEXT_MAX_KEYS:
+        return None
+    if not all(isinstance(k, str) for k in value):
+        return None
+    try:
+        serialized = json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return None
+    return value if len(serialized) <= HOST_CONTEXT_MAX_CHARS else None

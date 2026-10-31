@@ -589,6 +589,13 @@
       </div>
     </div>
 
+    <!-- Inspect: the app's activity (requests, streams, filters, clicks,
+         errors) docked under it, DevTools-style; opened from the ⋯ menu.
+         Editors only: it reads the log the agent reads. -->
+    <ArtifactActivityLog v-if="inspectOpen && report && selectedArtifact?.artifact_id && !verificationPreview" ref="activityLogRef"
+      :artifact-id="selectedArtifact.artifact_id" :report-id="reportId" :version="selectedArtifact?.version ?? null"
+      @close="inspectOpen = false" />
+
     <!-- Fullscreen Modal -->
     <Teleport to="body">
       <UModal v-model="isFullscreenOpen" :ui="{ width: 'sm:max-w-[98vw]', height: 'h-[98vh]' }">
@@ -639,9 +646,11 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
+import ArtifactActivityLog from './ArtifactActivityLog.vue';
 import DashboardStart from './DashboardStart.vue';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
@@ -743,10 +752,21 @@ const useMyFetch: typeof useApplicationFetch = (async (request: any, options: an
 }) as typeof useApplicationFetch;
 
 let verificationRevision = 0;
+// BOW's preview: the editor's real conversation policy, for the simulated
+// bow.conversations (artifact-sdk.js fixtureRefusal).
+let previewConversationPolicy: any = null;
 // A full payload carries only the latest accepted result for each query.
 const verificationRequests = new Map<string, string>();
+// Set once the runtime broker exists (below): the editor's activity log.
+let logActivity: ((event: ActivityEvent) => void) | null = null;
 function verificationEvent(kind: string, fields: Record<string, any> = {}) {
-  if (!props.verificationPreview) return;
+  if (!props.verificationPreview) {
+    // Outside the preview the same moments go to the editor's activity log.
+    if (kind === 'params_commit') logActivity?.({ kind: 'filter', status: 'ok', detail: { params: fields.changes || {}, queries: (fields.targets || []).length || undefined } });
+    else if (kind === 'error' && fields.source === 'runtime') logActivity?.({ kind: 'error', detail: { message: String(fields.message || 'Render error').slice(0, 300), where: 'render' } });
+    else if (kind === 'error') logActivity?.({ kind: 'filter', status: 'error', detail: { message: String(fields.message || '').slice(0, 300) } });
+    return;
+  }
   window.dispatchEvent(new CustomEvent('bow:artifact-evidence', {
     detail: { kind, artifact_id: props.requestedArtifactId, ...fields },
   }));
@@ -1182,7 +1202,15 @@ function postToRuntimeFrames(message: any) {
 const resourcesAvailable = ref(false);
 
 
-useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you" }));
+// The editor's own session logs what happens in the app for the agent
+// (services/artifact_activity.py); BOW's preview turns the same events into
+// its evidence. View-as and readers are never logged.
+const runtime = useArtifactRuntime(() => ({ frames: [iframeRef.value, fullscreenRuntimeFrame.value], artifactId: selectedArtifact.value?.artifact_id, readOnly: !!props.verificationPreview || viewAsMode.value !== "you",
+  activity: !props.verificationPreview && viewAsMode.value === "you" ? { reportId: props.reportId, version: selectedArtifact.value?.version ?? null } : null,
+  onActivity: props.verificationPreview
+    ? (e) => verificationEvent('sdk_call', { event_kind: e.kind, op: e.op, status: e.status, error_code: e.error_code, duration_ms: e.duration_ms, detail: e.detail })
+    : (e) => { if (viewAsMode.value === "you") activityLogRef.value?.push(e); } }));
+logActivity = runtime.log;
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -1431,6 +1459,13 @@ async function runParamQueries(
   const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
     ? viewAsMode.value : undefined;
   await Promise.all(affected.map(async (qid) => {
+    // Each parameterized run is a request in the app's activity log (Inspect,
+    // the agent's <app_activity>): which query, how long, how many rows.
+    const t0 = Date.now();
+    const title = visualizationsData.value.find((v: any) => v.queryId === qid)?.title || qid.slice(0, 8);
+    const logRun = (status: 'ok' | 'error', extra: Record<string, any> = {}) =>
+      logActivity?.({ kind: 'request', op: 'queries.run', status, duration_ms: Date.now() - t0,
+                      detail: { resource: String(title).slice(0, 120), action: 'run', ...extra } });
     try {
       const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, {
         method: 'POST',
@@ -1445,8 +1480,10 @@ async function runParamQueries(
       if (error.value || !res || res.status !== 'success') {
         const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
         if (!firstError) firstError = String(msg);
+        logRun('error', { message: String(msg).slice(0, 300), http_status: (error.value as any)?.status });
         return;
       }
+      logRun('ok', { rows: Array.isArray(res.data?.rows) ? res.data.rows.length : undefined });
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
       for (const viz of visualizationsData.value) {
@@ -1458,6 +1495,7 @@ async function runParamQueries(
       }
     } catch (e: any) {
       if (!firstError) firstError = e?.message || 'Query run failed';
+      logRun('error', { message: String(e?.message || 'Query run failed').slice(0, 300) });
     }
   }));
   // New array identity so watchers fire and the fresh rows reach the iframe.
@@ -1864,6 +1902,8 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+const activityLogRef = ref<InstanceType<typeof ArtifactActivityLog> | null>(null);
+const inspectOpen = ref(false);
 // Remounting the Publish button re-reads what readers see now.
 const publishKey = ref(0);
 // A roll back changes what is live; a transfer changes who may do what.
@@ -2011,6 +2051,8 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     const inspectors = [];
     // History: the conversations, versions and releases (Roll back) -- editors.
     if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { settingsModalRef.value?.open('versions'); } });
+    // Activity log: what the app did while it was used (requests, filters, clicks, errors) -- editors.
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('artifactActivity.inspect'), icon: 'i-heroicons-code-bracket-square', testid: 'inspect-menu', click: () => { inspectOpen.value = !inspectOpen.value; } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);
@@ -2731,7 +2773,9 @@ function sendDataToIframe() {
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
-    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {})
+    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
+    // Each push replaces the app's data: keep the preview's real policy in it.
+    ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
   }));
 
   verificationEvent('data_sent', {
@@ -2981,7 +3025,15 @@ async function fetchData(artifactId?: string, { inPlace = false }: { inPlace?: b
     // snapshot. Later updates (param runs, view-as swaps) flow via
     // postMessage into the live data store — never by recomputing srcdoc,
     // which would reload the iframe and lose control state.
+    // BOW's preview simulates conversations, but against the real policy, so
+    // an app the live page would refuse fails in the preview too.
+    if (!inPlace && props.verificationPreview && selectedArtifact.value?.artifact_id
+        && String(selectedArtifact.value?.content?.code || '').includes('conversations')) {
+      const { data } = await useMyFetch(`/api/artifacts/${selectedArtifact.value.artifact_id}/runtime/conversations/policy`);
+      previewConversationPolicy = data.value || null;
+    }
     if (!inPlace) srcdocSeed.value = JSON.parse(JSON.stringify({
+      ...(previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
       report: toRaw(reportData.value),
       visualizations: toRaw(visualizationsData.value),
       files: toRaw(filesData.value),

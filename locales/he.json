@@ -400,7 +400,7 @@
     "manage": "ניהול",
     "agent": "סוכן",
     "agents": "סוכנים",
-    "viewAllAgents": "הצג את כל הסוכנים →",
+    "viewAllAgents": "הצג את כל הסוכנים ←",
     "context": "סוכן",
     "noAgents": "אין סוכנים",
     "allAgents": "כל הסוכנים",
@@ -756,7 +756,9 @@
       "createdViaExcel": "נוצר דרך Excel",
       "runningOnSchedule": "פועל לפי תזמון",
       "createdByTrigger": "נוצר על ידי טריגר",
-      "createdBySchedule": "נוצר על ידי משימה מתוזמנת"
+      "createdBySchedule": "נוצר על ידי משימה מתוזמנת",
+      "viaHostApp": "התחילה ב-{name} (הטמעה)",
+      "viaOauthApp": "התחילה דרך {name}"
     },
     "pagination": {
       "showing": "מציג {from} עד {to} מתוך {total} דוחות",
@@ -841,7 +843,8 @@
     "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן.",
     "artifactLoadFailed": "לא ניתן לטעון את הגלריה. יש לרענן את הדף ולנסות שוב.",
     "deleteUnpublishedDashboards": "דשבורדים שלא פורסמו יימחקו גם הם: {names}",
-    "deleteLosesUnpublishedChanges": "שינויים שלא פורסמו בדשבורדים האלה יאבדו (הגרסה המפורסמת נשארת): {names}"
+    "deleteLosesUnpublishedChanges": "שינויים שלא פורסמו בדשבורדים האלה יאבדו (הגרסה המפורסמת נשארת): {names}",
+    "removedApp": "אפליקציה שהוסרה"
   },
   "projects": {
     "title": "פרויקטים",
@@ -2283,7 +2286,7 @@
       "scimTitle": "הקצאה אוטומטית (SCIM)",
       "scimSubtitle": "הקצה ובטל הקצאת משתמשים וקבוצות מספק הזהות שלך באופן אוטומטי",
       "enterpriseScim": "הקצאת SCIM דורשת רישיון Enterprise. סנכרן אוטומטית משתמשים מ-Okta, Azure AD, OneLogin וספקי זהות נוספים.",
-      "learnMore": "למידע נוסף →",
+      "learnMore": "למידע נוסף ←",
       "scimBaseUrl": "כתובת בסיס של SCIM",
       "copied": "הועתק",
       "copy": "העתק",
@@ -2570,12 +2573,12 @@
           "setupGuideTitle": "הגדרת {label}",
           "msStep1": "צור את תיבת הדואר (תיבת דואר משותפת מתאימה — אין צורך ברישיון).",
           "msStep2": "Entra → App registrations → New registration (single tenant). העתק את ה-tenant ID + client ID.",
-          "msStep3": "API permissions → Office 365 Exchange Online → Application → {imapScope} + {smtpScope} → אשר הסכמת מנהל.",
+          "msStep3": "API permissions → Office 365 Exchange Online → Application → {imapScope} + {smtpScope} ← אשר הסכמת מנהל.",
           "msStep4": "Certificates & secrets → New client secret.",
           "msStep5": "Exchange PowerShell: {cmd1}, ולאחר מכן {cmd2} עבור תיבת דואר זו.",
           "googleStep1": "צור את תיבת הדואר (משתמש Workspace עם רישיון).",
-          "googleStep2": "Google Cloud → פרויקט חדש → הפעל את ה-Gmail API → צור חשבון שירות → צור מפתח JSON.",
-          "googleStep3": "Admin console → Security → API controls → Domain-wide delegation → הוסף את מזהה הלקוח של ה-SA עם ההרשאה {scope}.",
+          "googleStep2": "Google Cloud ← פרויקט חדש ← הפעל את ה-Gmail API ← צור חשבון שירות ← צור מפתח JSON.",
+          "googleStep3": "Admin console → Security → API controls → Domain-wide delegation ← הוסף את מזהה הלקוח של ה-SA עם ההרשאה {scope}.",
           "googleStep4": "הדבק את מפתח ה-JSON בטופס.",
           "imapIntro": "חבר כל תיבת דואר התומכת ב-SMTP + IMAP רגיל — Exchange מקומי, ספק אחסון, או סיסמת אפליקציה אישית.",
           "imapBullet1": "השתמש בסיסמת אפליקציה אם הספק אוכף MFA (אימות בסיסי חסום ב-Microsoft 365 / Gmail — השתמש באריחים אלה במקום).",
@@ -3099,6 +3102,10 @@
           "title": "יכולות הסוכן",
           "description": "מה הסוכן יכול לעשות בזמן מתן תשובה"
         },
+        "sandbox": {
+          "title": "ארגז חול",
+          "description": "מה הקוד שנוצר יכול לעשות מעבר לשאילתות על נתונים. דפים ושורות שהקוד מעבד לעולם לא עוברים דרך המודל."
+        },
         "learning": {
           "title": "למידה וזיכרון",
           "description": "איך ה-AI לומד ממשתמשים, ממשוב ומשימוש"
@@ -3387,6 +3394,34 @@
         "sub_agent_allow_create_data": {
           "name": "סוכני משנה רשאים ליצור שאילתות",
           "description": "מאפשר לסוכני משנה ליצור שאילתות מעוקבות (create_data) שהמזהים שלהן חוזרים כראיות שהסוכן יכול להציג בגרף ולצטט. כבוי = סוכני משנה למחקר בלבד."
+        },
+        "enable_sandbox_web_fetch": {
+          "name": "שליפה מהאינטרנט בקוד",
+          "description": "נותן לקוד שנוצר לקוח `http` ששולף כתובות ציבוריות בכמות גדולה. הקוד קורא את הדפים, לא המודל, כך ששליפה של דפים רבים לא עולה טוקנים נוספים. נפרד מ'שליפה מהאינטרנט', שמאפשרת לסוכן עצמו לקרוא דף."
+        },
+        "sandbox_web_fetch_max_urls": {
+          "name": "מספר כתובות מרבי להרצת קוד",
+          "description": "כמה כתובות הרצה אחת של הקוד שנוצר יכולה לשלוף. 1 עד 10,000."
+        },
+        "enable_sandbox_browser": {
+          "name": "דפדפן בקוד",
+          "description": "נותן לקוד שנוצר דפדפן ללא ממשק שהוא יכול להפעיל (לפתוח דפים, ללחוץ, להקליד, לגלול, לקרוא טקסט) עבור אתרים שדורשים JavaScript. משתמש ברשימת הכתובות המותרות של חיבור הדפדפן של הסוכן; בלי חיבור דפדפן הוא לא מוצע."
+        },
+        "sandbox_browser_allow_mutating_requests": {
+          "name": "לאפשר שליחת טפסים מהקוד",
+          "description": "מאפשר לדפדפן של הקוד לשלוח בקשות POST, PUT, PATCH ו-DELETE (שליחת טפסים, התחברות, פרסום). כבוי: הבקשות האלה נחסמות, כך שלחיצה והקלדה יכולות רק לקרוא דפים, והרצה חוזרת לא יכולה לשנות דבר באתר."
+        },
+        "sandbox_browser_max_pages": {
+          "name": "מספר דפים מרבי בדפדפן להרצת קוד",
+          "description": "כמה דפים הרצה אחת של הקוד שנוצר יכולה לטעון. 1 עד 2,000."
+        },
+        "enable_sandbox_lists": {
+          "name": "כתיבה לרשימות הסוכן מהקוד",
+          "description": "מאפשר לקוד שנוצר לשלוח שורות לרשימות הסוכן של השיחה. השורות נבדקות בזמן השליחה ונשמרות רק אחרי שההרצה הצליחה, כך שהרצה שנכשלה או חזרה לא כותבת דבר. רק הספירות מגיעות למודל."
+        },
+        "sandbox_lists_max_rows": {
+          "name": "מספר שורות מרבי ברשימות להרצת קוד",
+          "description": "כמה שורות הרצה אחת של הקוד שנוצר יכולה לשלוח לרשימות הסוכן. 1 עד 50,000."
         }
       }
     },
@@ -3555,7 +3590,7 @@
       "expiresSoon": "הרישיון שלך יפוג בעוד {days} ימים. צור איתנו קשר לחידוש.",
       "enterpriseInfo": "פתח יומני ביקורת, בקרת גישה מתקדמת מבוססת תפקידים ומדיניות שמירת נתונים עם רישיון Enterprise.",
       "activateHint": "הגדר את {envvar} והפעל מחדש כדי להפעיל.",
-      "learnMore": "למידע נוסף →",
+      "learnMore": "למידע נוסף ←",
       "banner": {
         "expiring": "רישיון ה-enterprise שלך יפוג בעוד {days} ימים — חדש אותו כדי למנוע הפרעה.",
         "expired": "רישיון ה-enterprise שלך פג — חדש אותו כדי לשחזר את תכונות ה-enterprise.",
@@ -3732,6 +3767,7 @@
       "discovering_schema": "גילוי: סכמה",
       "catalog_ready": "מוכן: קטלוג",
       "reading_semantic_views": "קריאה: תצוגות סמנטיות",
+      "reading_routines": "קריאת פרוצדורות ופונקציות",
       "admin_scan": "סריקת מנהל: סביבות עבודה",
       "listing_workspaces": "איסוף רשימה: סביבות עבודה",
       "workspace_models": "איסוף רשימה: מודלים",
@@ -4114,6 +4150,20 @@
           "title": "הדביקו למטה ובדקו את החיבור",
           "body": "הדביקו את כל הפלט בשדה קובץ גישה לאשכול ולחצו על בדיקת חיבור."
         }
+      ],
+      "mecm": [
+        {
+          "title": "הענקת הרשאת קריאה לחשבון ב-Configuration Manager",
+          "body": "במסוף עברו אל Administration > Security > Administrative Users, הוסיפו את החשבון (או את קבוצת ה-AD שלו) והקצו לו את התפקיד Read-only Analyst. היקפי האבטחה והאוספים שלו קובעים מה Bag of Words יכול לראות."
+        },
+        {
+          "title": "בדיקה ששירות הניהול עונה",
+          "body": "ממחשב שמצורף לדומיין, הריצו את הפקודה מול ה-SMS Provider. היא אמורה להציג את האתר שלכם."
+        },
+        {
+          "title": "ייצוא האישור של ה-SMS Provider",
+          "body": "כברירת מחדל האתר משתמש באישור בחתימה עצמית. הריצו את הפקודה ב-PowerShell על ה-SMS Provider והדביקו את הפלט בשדה SMS Provider certificate (PEM). דלגו על השלב אם האישור הונפק על ידי CA שהשרת הזה כבר סומך עליה."
+        }
       ]
     },
     "setupGuideCopyFailed": "ההעתקה נכשלה — סמנו את הטקסט",
@@ -4209,6 +4259,8 @@
     "copyFailed": "ההעתקה נכשלה",
     "includeDataTab": "כלול לשונית נתונים",
     "includeDataTabDesc": "המשתמשים המוזמנים יראו את ההיסטוריה המלאה של הנתונים והתהליך בו נעשה שימוש ליצירת הדוח",
+    "bowCredit": "תג “Made with BOW”",
+    "bowCreditDesc": "מוצג בפינת הדפים של הגלריה הזו. הגדרת הארגון יכולה לכבות אותו בכל מקום.",
     "allowChat": "אפשר צ'אט",
     "allowChatDesc": "חברי סביבת העבודה המחוברים יכולים לשאול שאלות על הדשבורד הזה",
     "allowChatDescDoc": "חברי סביבת העבודה המחוברים יכולים לשאול שאלות על המסמך הזה",
@@ -4366,7 +4418,29 @@
     "dashboard.creator_publish_owner_only": "הגלריה הזו רצה עם ההרשאות של הבעלים שלה, ולכן רק הבעלים יכול/ה לפרסם אותה.",
     "dashboard.published_since": "{by} פרסם/ה את הגלריה מאז שהטיוטה שלך התחילה.",
     "dashboard.draft_name_taken": "כבר קיימת טיוטה בשם הזה.",
-    "sharing.public_disabled": "שיתוף בקישור ציבורי כבוי בארגון זה."
+    "sharing.public_disabled": "שיתוף בקישור ציבורי כבוי בארגון זה.",
+    "host_app.not_found": "האפליקציה המארחת הזו לא קיימת.",
+    "host_app.disabled": "הגישה של האפליקציה הזו ל־BOW כבויה.",
+    "host_app.config_invalid": "הגדרת ההתחברות הזו לא יכולה לעבוד: {field}.",
+    "host_app.revision_conflict": "מישהו אחר שינה את האפליקציה. יש לרענן ולנסות שוב.",
+    "embed.not_allowed": "זה לא זמין באפליקציה הזו.",
+    "embed.assertion_invalid": "ההתחברות מהאפליקציה לא התקבלה.",
+    "embed.assertion_replayed": "ההתחברות הזו כבר נוצלה. יש לנסות שוב.",
+    "embed.identity_unmapped": "החשבון שלך עדיין לא מוגדר ב־BOW. כדאי לפנות למנהל.",
+    "embed.identity_ambiguous": "יותר מחשבון BOW אחד תואם לך. כדאי לפנות למנהל.",
+    "embed.identity_unavailable": "ההתחברות לא זמינה כרגע. כדאי לנסות שוב בעוד רגע.",
+    "embed.user_inactive": "חשבון ה־BOW שלך מושבת.",
+    "embed.session_invalid": "החיבור הסתיים. יש להתחבר שוב.",
+    "conversation.not_found": "השיחה הזו לא קיימת.",
+    "conversation.unavailable": "שיחות לא מופעלות כאן.",
+    "conversation.agent_forbidden": "אי אפשר להשתמש בסוכן הזה כאן.",
+    "conversation.limit": "יותר מדי הודעות. כדאי לחכות רגע ולנסות שוב.",
+    "conversation.no_agents": "אין כאן סוכן זמין עבורך. כדאי לשאול את הבעלים באילו סוכנים האפליקציה יכולה להשתמש.",
+    "APPLICATION_NOT_FOUND": "היישום לא נמצא",
+    "APPLICATION_CAPABILITY_EXISTS": "יכולת זו כבר מוגדרת ביישום",
+    "APPLICATION_AGENTS_INVALID": "יש לבחור סוכנים קיימים בארגון הזה",
+    "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW"
   },
   "email": {
     "dashboardShare": {
@@ -4669,6 +4743,53 @@
       "stillFailing": "{failed} עדיין נכשלו בהרצה מחדש."
     }
   },
+  "artifactActivity": {
+    "title": "פעילות",
+    "inspect": "בדיקה",
+    "live": "חי",
+    "liveHint": "מה שהדף הזה עושה מופיע כאן מיד; התצוגה המקדימה של הסוכן נאספת כל כמה שניות.",
+    "refresh": "רענון",
+    "empty": "עדיין לא נרשם דבר.",
+    "emptyFiltered": "אין תוצאות למסנן הזה.",
+    "emptyHint": "השתמשו באפליקציה: בקשות, זרמים, מסננים, לחיצות ושגיאות יופיעו כאן, והסוכן רואה את הכשלים.",
+    "filterPlaceholder": "סינון",
+    "shown": "{shown} מתוך {total}",
+    "noDetail": "לא נרשם פירוט.",
+    "queries": "{n} שאילתות",
+    "rows": "{n} שורות",
+    "filters": {
+      "all": "הכול",
+      "requests": "בקשות",
+      "streams": "זרמים",
+      "filters": "מסננים",
+      "clicks": "לחיצות",
+      "errors": "שגיאות"
+    },
+    "columns": {
+      "time": "שעה",
+      "source": "מקור",
+      "kind": "סוג",
+      "event": "אירוע",
+      "status": "מצב",
+      "duration": "משך",
+      "version": "גרסה"
+    },
+    "sources": {
+      "all": "כל המקורות",
+      "editor": "עורך",
+      "preview": "תצוגה מקדימה"
+    },
+    "tabs": {
+      "detail": "פירוט",
+      "request": "בקשה",
+      "response": "תשובה",
+      "stream": "זרם"
+    },
+    "privateTo": "פרטי של {name}",
+    "someoneElse": "מישהו אחר",
+    "loadingPayload": "טוען…",
+    "payloadUnavailable": "לא זמין: ייתכן שפג תוקפו (התכנים נשמרים 24 שעות) או שהוא שייך למישהו אחר."
+  },
   "filter": {
     "selectColumn": "בחר עמודה",
     "visualization": "ויזואליזציה"
@@ -4689,7 +4810,7 @@
     "noConnections": "אין חיבורים",
     "connected": "מחובר",
     "notConnected": "לא מחובר",
-    "openAgent": "פתח סוכן →",
+    "openAgent": "פתח סוכן ←",
     "overview": "סקירה",
     "tables": "טבלאות",
     "instructions": "הנחיות",
@@ -5098,7 +5219,10 @@
       "unindexedNote": "{n} ריצות טרם נוספו לאינדקס",
       "unindexedHelp": "הסריקה עדיין מוסיפה ריצות ישנות לאינדקס. עלות, טוקנים, כלים וציונים יופיעו בהדרגה.",
       "openCall": "פתח קריאה זו בתיעוד הריצה",
-      "tableTitle": "סנן לריצות ששאלו את {table}"
+      "tableTitle": "סנן לריצות ששאלו את {table}",
+      "viaHostApp": "דרך אפליקציה מארחת (הטמעה)",
+      "viaOauthApp": "דרך אפליקציית OAuth",
+      "removedApp": "אפליקציה שהוסרה"
     },
     "title": "ניטור",
     "tabExplore": "סקירה",
@@ -5425,7 +5549,7 @@
     "saveSecretWarning": "שמור את סוד הלקוח עכשיו — הוא לא יוצג שוב.",
     "setupInstructions": "הנחיות התקנה",
     "setupStep1Prefix": "ב-Claude Web, עבור אל",
-    "setupStep1Bold": "הגדרות → מחברים → הוסף",
+    "setupStep1Bold": "הגדרות ← מחברים ← הוסף",
     "setupStep2Prefix": "הזן את כתובת ה-URL של שרת ה-MCP:",
     "setupStep3Prefix": "לחץ על",
     "setupStep3Bold": "הגדרות מתקדמות",
@@ -5895,6 +6019,8 @@
     "vizUnavailable": "התצוגה אינה זמינה",
     "vizRenderFailed": "טעינת התרשים נכשלה",
     "diagramFailed": "טעינת הדיאגרמה נכשלה",
+    "diagramDownloadPng": "הורדה כ-PNG",
+    "diagramExportFailed": "ייצוא הדיאגרמה נכשל",
     "exportMarkdown": "הורדה כ-Markdown",
     "printPdf": "הדפסה / שמירה כ-PDF",
     "exportPdf": "ייצוא כ-PDF",
@@ -6157,6 +6283,15 @@
     "editQuery": "עריכת {name}",
     "rowFiltered": "סינון שורות",
     "refreshFailed": "הרענון נכשל",
+    "routineProcedure": "פרוצדורה",
+    "routineFunction": "פונקציה",
+    "routineHint": "שגרה שמורה: הסוכן קורא את הלוגיקה שלה ומיישם אותה בשאילתות שלו. הוא לעולם לא מריץ אותה.",
+    "routineParameter": "פרמטר",
+    "routineParameterType": "סוג",
+    "routineSource": "קוד מקור",
+    "routineSourceTruncated": "קוצר",
+    "routineSourceHidden": "הקוד אינו גלוי",
+    "routineSourceHiddenHint": "לחשבון של החיבור אין הרשאה לקרוא את הקוד של שגרה זו (נדרשת הרשאת VIEW DEFINITION או המקבילה במסד הנתונים). הסוכן רואה רק את החתימה.",
     "successful": "הצליחו",
     "failed": "נכשלו",
     "lastRefreshed": "רענון אחרון",
@@ -6800,7 +6935,17 @@
       "viaProject": "דרך הפרויקט {name}",
       "projectMembers": "חברי הפרויקט {name}",
       "projectMembersUnnamed": "חברי הפרויקט"
-    }
+    },
+    "agentsModelTitle": "סוכנים ומודל",
+    "agentsModelDesc": "משמשים כשאנשים משוחחים עם הדשבורד: בבועת הצ'אט, ובאפליקציות שמנהלות בו שיחות.",
+    "agentsLabel": "סוכנים",
+    "agentsAuto": "אוטומטי",
+    "agentsAutoDesc": "כל סוכן שכל צופה יכול להשתמש בו, כמו בצ'אט של BOW (או הסוכנים שהשיחה הזו צירפה, אם צירפה).",
+    "agentsLimited": "רק הסוכנים האלה",
+    "agentsLimitedDesc": "עדיין מוגבל למה שכל צופה יכול להשתמש בו.",
+    "agentsLimitedDataOnly": "לא זמין כל עוד בועת הצ'אט עונה רק מנתוני הדשבורד.",
+    "modelDesc": "ברירת המחדל של כל צופה נקבעת לפי הקבוצה והארגון שלו (ולפי הניתוב האוטומטי כשהוא פעיל). מודל שהצופה לא יכול להשתמש בו מוחלף בברירת המחדל שלו.",
+    "bubbleUsesAgents": "הסוכנים שלמעלה"
   },
   "dashboardStart": {
     "title": "עדיין אין כאן גלריה",
@@ -6818,5 +6963,130 @@
     "owner": "בעלים",
     "byOwner": "של {name}",
     "untitled": "ללא שם"
+  },
+  "embed": {
+    "gate": {
+      "starting": "טוען…",
+      "signingIn": "מתחבר…",
+      "signInRequired": "יש להתחבר כדי לראות את זה.",
+      "signIn": "התחברות",
+      "retry": "לנסות שוב",
+      "failed": "ההתחברות לא הצליחה.",
+      "expired": "החיבור הסתיים. יש להתחבר שוב.",
+      "signedOut": "התנתקת.",
+      "popupBlocked": "חלון ההתחברות נחסם. יש לאפשר חלונות קופצים בדף הזה ולנסות שוב.",
+      "notFramed": "הקישור הזה עובד רק בתוך האפליקציה שבה הוטמע."
+    },
+    "unavailable": {
+      "notPublished": "התוכן הזה עדיין לא פורסם. הוא יוצג כאן לאחר שיפורסם.",
+      "notFound": "התוכן הזה אינו זמין. ייתכן שעדיין לא פורסם או שהוסר.",
+      "denied": "אין לך גישה לתוכן הזה. בקש/י מהבעלים לשתף אותו איתך.",
+      "notAllowed": "התוכן הזה לא הופעל עבור האפליקציה הזו. עורך/ת יכול/ה לאפשר זאת בהגדרות ההטמעה שלו ב-Bag of Words.",
+      "failed": "לא ניתן היה לטעון את התוכן. נסה/י שוב בעוד רגע."
+    },
+    "signin": {
+      "working": "מתחבר…",
+      "done": "התחברת. אפשר לסגור את החלון.",
+      "invalid": "קישור ההתחברות חסר. יש לסגור את החלון ולנסות שוב."
+    },
+    "tab": {
+      "title": "הטמעה",
+      "desc": "הצגה בתוך האפליקציות האחרות שלך",
+      "intro": "בוחרים את האפליקציות שיכולות להציג את הדשבורד. אנשים רואים אותו שם בתור עצמם, מחוברים דרך אותה אפליקציה, ורק אם כבר יש להם הרשאת צפייה כאן.",
+      "privateWarning": "רק את/ה יכול/ה לראות את הדשבורד. כדאי לשתף אותו (גישה) כדי שאנשים באפליקציה האחרת יוכלו לראות אותו.",
+      "embeddableIn": "אפשר להטמיע ב־",
+      "noHosts": "יש לבקש ממנהל להגדיר יישום מחובר להטמעה.",
+      "noHostsAdmin": "אין יישומים המוגדרים להטמעה. יש לפתוח את היישומים המחוברים, להגדיר יישום ואז לרענן את הרשימה.",
+      "newHost": "אפליקציה מארחת חדשה",
+      "snippet": "קוד",
+      "snippetFor": "קוד עבור {name}",
+      "inline": "בתוך דף",
+      "floating": "צף",
+      "backend": "שרת",
+      "ssoSignIn": "התחברות ל־BOW",
+      "noteAssertion": "השרת שלך חותם על הצהרה ל־60 שניות עבור המשתמש המחובר, עם המפתח הפרטי של האפליקציה המארחת. המפתח אף פעם לא מגיע לדפדפן.",
+      "noteIdp": "הדף מעביר את אסימון הזהות של המשתמש מספק הזהויות שלך; BOW מאמת אותו מול המפתחות שהספק מפרסם.",
+      "noteSso": "בפעם הראשונה אנשים מתחברים ל־BOW בחלון קטן. מתאים כשהאפליקציה האחרת לא יכולה לחתום על הצהרות."
+    }
+  },
+  "hostApps": {
+    "title": "אפליקציות מארחות",
+    "subtitle": "מערכות חיצוניות, כמו ה־ERP, ServiceNow או פורטל, שיכולות להציג דשבורדים ואפליקציות ולחבר את המשתמשים שלהן. מוסיפים אחת לכל מערכת; כל דשבורד בוחר אותן בהגדרות ההטמעה שלו.",
+    "add": "הוספת אפליקציה מארחת",
+    "edit": "עריכת {name}",
+    "editAction": "עריכה",
+    "noneYet": "עדיין אין אפליקציות מארחות",
+    "emptyHelp": "מוסיפים את המערכת שבה האנשים עובדים, ואז מטמיעים בה דשבורדים ואפליקציות מתוך ההגדרות ← הטמעה שלהם.",
+    "name": "שם",
+    "nameHint": "מוצג לעורכים",
+    "namePlaceholder": "צ׳אטבוט AI ל-ERP",
+    "origins": "מקורות מורשים",
+    "originsHelp": "הכתובות המדויקות שמותר להן להציג, אחת בכל שורה, למשל https://erp.example.com",
+    "signIn": "איך אנשים מתחברים",
+    "modeAssertion": "חתימה בשרת שלך",
+    "modeAssertionHelp": "השרת של האפליקציה שלך חותם על הצהרה קצרת חיים עבור המשתמש שלו. שקוף לאנשים; עובד עם כל שיטת התחברות.",
+    "modeIdp": "אסימון מספק הזהויות",
+    "modeIdpHelp": "הדף מעביר את אסימון הזהות של המשתמש מספק ה־OpenID Connect שלך (למשל Microsoft Entra ID). בלי שינוי בשרת.",
+    "modeSso": "התחברות ל־BOW",
+    "modeSsoHelp": "אנשים מתחברים ל־BOW פעם אחת, בחלון קטן. לאפליקציות שאי אפשר לשנות.",
+    "source": "זיהוי אנשים לפי",
+    "sourceHelp": "איפה BOW מחפש את המשתמש שהאפליקציה מציינת",
+    "attribute": "מאפיין חבר",
+    "attributeHelp": "המאפיין שמוגדר לכל חבר, למשל employee_id",
+    "issuer": "מנפיק",
+    "issuerHelp": "ה־iss שהשרת שלך מכניס לכל הצהרה",
+    "audience": "קהל",
+    "audienceHelp": "ה־aud של אסימוני הזהות שהספק מנפיק לאפליקציה הזו",
+    "createUsers": "יצירת אנשים בהתחברות הראשונה",
+    "createUsersHelp": "מי שהספרייה מכירה אבל BOW עדיין לא, מצטרף כחבר. אחרת הוא צריך להיות קיים מראש (הוזמן או סונכרן).",
+    "createsUsers": "יוצרת אנשים",
+    "create": "יצירה",
+    "keyOnce": "יש להעתיק עכשיו את המפתח הפרטי ולשמור אותו בסודות של שרת האפליקציה. הוא מוצג פעם אחת בלבד; BOW שומר רק את המפתח הציבורי.",
+    "privateKey": "מפתח פרטי",
+    "copy": "העתקה",
+    "copied": "הועתק",
+    "keySaved": "שמרתי אותו",
+    "disabled": "מושבתת",
+    "key": "מפתח",
+    "usage": "בשימוש",
+    "usageValue": "{sessions} מחוברים · {artifacts} מוטמעים",
+    "actions": "פעולות",
+    "rotateKey": "החלפת מפתח",
+    "rotateConfirm": "המפתח הנוכחי יפסיק לעבוד מיד וכולם ינותקו. להחליף?",
+    "revokeSessions": "ניתוק כולם",
+    "revokeConfirm": "לנתק עכשיו את כולם מהאפליקציה הזו?",
+    "revoked": "כולם נותקו",
+    "delete": "מחיקה",
+    "deleteConfirm": "למחוק את {name}? ההטמעות שלה יפסיקו לעבוד וכולם ינותקו.",
+    "backendExample": "דוגמה לשרת",
+    "backendExampleHelp": "חותמים על הצהרה אחת לכל התחברות, עבור המשתמש שמחובר לאפליקציה שלך:"
+  },
+  "connectedApps": {
+    "title": "יישומים מחוברים",
+    "subtitle": "רשמו יישומים חיצוניים פעם אחת. הגדירו הטמעה, גישת OAuth ואת הסוכנים שכל יישום רשאי להשתמש בהם.",
+    "add": "הוספת יישום",
+    "configuration": "הגדרות היישום",
+    "general": "כללי וגישה",
+    "embedding": "הטמעה",
+    "oauth": "API ו־MCP ‏(OAuth)",
+    "agents": "סוכנים מורשים",
+    "agentHelp": "גישת היישום מוגבלת תמיד להרשאות המשתמש המחובר ולסוכנים שנבחרו בתוצר. היא אינה מעניקה הרשאות בעצמה.",
+    "selectedAgents": "רק סוכנים נבחרים",
+    "allAgents": "כל הסוכנים שהמשתמש רשאי לגשת אליהם",
+    "noAgents": "אין סוכנים זמינים. צרו סוכן תחילה.",
+    "empty": "אין עדיין יישומים מחוברים. הוסיפו מערכת ERP, פורטל או לקוח MCP.",
+    "createHelp": "בשלב הבא בחרו סוכנים מורשים והגדירו הטמעה, OAuth או שניהם. יישומים חדשים מתחילים ללא סוכנים מורשים.",
+    "disableHelp": "השבתה מסיימת חיבורי OAuth והטמעה קיימים. לאחר הפעלה מחדש המשתמשים יידרשו להתחבר שוב.",
+    "deleteConfirm": "למחוק את {name}? גישת OAuth וההטמעה יופסקו והחיבורים הקיימים יסתיימו.",
+    "saved": "היישום נשמר",
+    "embeddingHelp": "בחרו כתובות מקור מורשות ואת אופן זיהוי המשתמשים. פרטי ההזדהות להטמעה נפרדים מפרטי ההזדהות של OAuth.",
+    "configureEmbedding": "הגדרת הטמעה",
+    "configureOAuth": "הגדרת OAuth",
+    "manage": "ניהול יישומים ואימות",
+    "refresh": "רענון יישומים",
+    "embedHelp": "מוצגים כאן רק יישומים שהוגדרה בהם הטמעה. הגדירו זהות, OAuth והחלפת אסימוני Entra ביישומים מחוברים.",
+    "enabled": "פעיל",
+    "embeddingEmpty": "לא הוגדרה הטמעה",
+    "oauthEmpty": "לא הוגדר OAuth"
   }
 }

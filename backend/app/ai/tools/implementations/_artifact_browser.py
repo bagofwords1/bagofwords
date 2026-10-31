@@ -24,11 +24,32 @@ async def navigate_artifact(data, ctx):
             if detail.get("artifact_id") != preview.artifact["id"]:
                 return
             kind = detail.get("kind")
-            if kind in {"params_commit", "params_status", "data_sent", "data_received", "error"}:
-                preview.record(kind, **{k: v for k, v in detail.items() if k not in {"kind", "artifact_id", "action_id", "cursor"}})
+            if kind == "sdk_call":
+                # What the app did through bow.* (simulated in preview), its
+                # clicks and errors. Calls become evidence; everything is kept
+                # in the app's activity log next to the editor's.
+                event_kind = detail.get("event_kind")
+                event = {k: detail.get(k) for k in ("op", "status", "error_code", "duration_ms")
+                         if detail.get(k) is not None}
+                inner = detail.get("detail") if isinstance(detail.get("detail"), dict) else {}
+                seq = 0
+                if event_kind in {"request", "stream"}:
+                    seq = preview.record("sdk_call", call=event_kind, **event, detail=inner)["cursor"]
+                if event_kind in {"request", "stream", "click", "error", "console"}:
+                    await preview.log_activity(event_kind, {**event, "detail": inner, "seq": seq})
+            elif kind in {"params_commit", "params_status", "data_sent", "data_received", "error"}:
+                recorded = preview.record(kind, **{k: v for k, v in detail.items()
+                                                   if k not in {"kind", "artifact_id", "action_id", "cursor"}})
+                if kind == "error":
+                    await preview.log_activity("error", {"detail": {"message": str(detail.get("message") or "")[:300],
+                                                                    "where": str(detail.get("source") or "preview")},
+                                                         "seq": recorded["cursor"]})
         await s.page.expose_binding("__bowPreviewEvidence", receive)
         await s.page.add_init_script("window.addEventListener('bow:artifact-evidence', e => window.__bowPreviewEvidence(e.detail));")
-        s.page.on("pageerror", lambda e: preview.record("error", source="browser", message=str(e)[:1500], stack=getattr(e, "stack", "")[:2500]))
+        # Playwright's own service-worker blocking reads navigator.serviceWorker
+        # in every frame and throws inside the sandboxed app frame: not the app's.
+        s.page.on("pageerror", lambda e: None if "Failed to read the 'serviceWorker' property" in str(e) else
+                  preview.record("error", source="browser", message=str(e)[:1500], stack=getattr(e, "stack", "")[:2500]))
         s.page.on("console", lambda msg: preview.record(
             "warning" if msg.text.startswith(("Warning:", "[vite] failed to connect to websocket")) else "error",
             source="console", message=msg.text[:1500]) if msg.type == "error" else None)

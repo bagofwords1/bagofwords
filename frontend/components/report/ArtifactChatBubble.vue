@@ -62,8 +62,12 @@
                                  content and the tool line render together, in that order —
                                  same as the report page. -->
                             <template v-for="block in orderedBlocks(msg)" :key="block.id">
+                                <!-- cache-key per block: MDC caches its parse by a hash of the
+                                     INITIAL value, so two streamed answers that open with the same
+                                     chunk shared one entry and the later message showed the earlier
+                                     one's text. -->
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
-                                    <MDC :value="block.content" />
+                                    <MDC :value="block.content" :cache-key="`artifact-chat-${msg.id}-${block.id}`" />
                                 </div>
                                 <!-- Tool activity: the collapsed-header look of the report
                                      page's tool components ("Created data — Revenue by
@@ -136,7 +140,10 @@ import Spinner from '~/components/Spinner.vue'
 
 // base: the page the chat belongs to -- the conversation's /r/{id}, or a
 // dashboard's /d/{id}, whose chat API mirrors it.
-const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number }>()
+// hostContext: the host application's current context (embed.updateContext),
+// sent with each message so "this customer" resolves. The server caps it and
+// labels it advisory and unverified; it grants no access.
+const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number; hostContext?: Record<string, any> | null }>()
 const chatBase = computed(() => props.base || `/r/${props.reportId}`)
 
 const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
@@ -261,7 +268,7 @@ async function send() {
         const res: any = await useMyFetch(`${chatBase.value}/chat/completions`, {
             method: 'POST',
             stream: true,
-            body: JSON.stringify({ prompt: { content }, stream: true }),
+            body: JSON.stringify({ prompt: { content, ...(props.hostContext ? { platform_context: { host_context: props.hostContext } } : {}) }, stream: true }),
             headers: { 'Content-Type': 'application/json' },
         } as any)
         const response: Response = res.data

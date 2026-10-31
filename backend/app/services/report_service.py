@@ -2198,7 +2198,11 @@ class ReportService:
             select(Report).filter(
                 Report.id == report_id,
                 Report.organization_id == organization.id,
-                Report.report_type == 'regular',
+                # Conversations held through an outside app list with the
+                # person's reports (get_reports), so their unread dot clears too.
+                or_(Report.report_type == 'regular',
+                    and_(Report.report_type == 'artifact_chat', Report.origin_app_type.isnot(None),
+                         Report.user_id == str(current_user.id))),
             )
         )
         report = result.scalar_one_or_none()
@@ -2846,6 +2850,17 @@ class ReportService:
                     break
         return sorted(hits)
 
+    async def _attach_origins(self, db, reports, schemas) -> None:
+        """Name the outside app each listed conversation came through."""
+        from app.core import request_origin
+
+        pairs = [(r.origin_app_type, r.origin_app_id) for r in reports if getattr(r, "origin_app_type", None)]
+        if not pairs:
+            return
+        known = await request_origin.names(db, pairs)
+        for report, schema in zip(reports, schemas):
+            schema.origin_app = request_origin.describe(report.origin_app_type, report.origin_app_id, known)
+
     async def get_reports(
         self,
         db: AsyncSession,
@@ -2880,7 +2895,14 @@ class ReportService:
 
             from app.services.bow_source_access import visible_reports_clause
             base_conditions.append(await visible_reports_clause(db, organization.id, current_user))
-            base_conditions.append(Report.report_type == 'regular')
+            # Conversations the person held in an app embedded elsewhere (a host
+            # application) or through an OAuth app list with their own; other
+            # app conversations stay inside their app.
+            base_conditions.append(or_(
+                Report.report_type == 'regular',
+                and_(Report.report_type == 'artifact_chat', Report.origin_app_type.isnot(None),
+                     Report.user_id == current_user.id),
+            ))
 
             # Optional filter by mode (chat/deep/training)
             if mode and mode in ('chat', 'training'):
@@ -3131,6 +3153,7 @@ class ReportService:
                     has_next=page < total_pages, has_prev=page > 1,
                 )
                 span.add_event("get_reports done (minimal)")
+                await self._attach_origins(db, reports, report_schemas)
                 return ReportListResponse(reports=report_schemas, meta=meta)
 
             # Suppress DataSource's lazy="selectin" cascade (reports →
@@ -3382,6 +3405,7 @@ class ReportService:
                 has_prev=has_prev
             )
             span.add_event("get_reports done")
+            await self._attach_origins(db, reports, report_schemas)
             return ReportListResponse(reports=report_schemas, meta=meta)
 
     async def bulk_archive_reports(

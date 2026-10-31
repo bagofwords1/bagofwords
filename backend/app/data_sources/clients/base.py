@@ -3,7 +3,7 @@ import inspect
 import threading
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from app.data_sources.clients.progress import CancelCheck, ProgressCallback
 
@@ -251,6 +251,27 @@ class DataSourceClient(ABC):
         `source_bytes`, `file_count`, `row_count` for file-based sources so the
         UI can show how big the indexed data was. Default empty."""
         return {}
+
+    def unindexed_table_prefixes(self) -> List[str]:
+        """Table-name prefixes the last `get_schemas` call could not read.
+
+        A catalog crawler that reads its source in parts (one BI app, one
+        semantic model) returns nothing for a part it could not open on this
+        run — the server was busy, the app was mid-reload, a call timed out.
+        Absent from the result is not the same as gone from the source, so the
+        schema refresh keeps existing tables under these prefixes (and the
+        agents' selection of them) instead of pruning them. Each prefix covers
+        names that start with ``prefix + "/"``. Default: nothing unread.
+        """
+        return []
+
+    def unindexed_entry_types(self) -> List[str]:
+        """``metadata_json["type"]`` values the last `get_schemas` call could
+        not read, e.g. ``"routine"`` when routine discovery failed while the
+        tables were read fine. The schema refresh keeps existing entries of
+        these types instead of pruning them. Default: nothing unread.
+        """
+        return sorted(getattr(self, "_unindexed_entry_types", None) or ())
 
     # File-shaped capabilities. Default implementations raise NotImplementedError;
     # clients that declare LIST_FILES / READ_FILE / SEARCH_FILES override.

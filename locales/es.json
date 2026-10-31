@@ -756,7 +756,9 @@
       "createdViaExcel": "Creado vía Excel",
       "runningOnSchedule": "Ejecutándose en un horario",
       "createdByTrigger": "Creado por un disparador",
-      "createdBySchedule": "Creado por una tarea programada"
+      "createdBySchedule": "Creado por una tarea programada",
+      "viaHostApp": "Iniciada en {name} (integrada)",
+      "viaOauthApp": "Iniciada a través de {name}"
     },
     "pagination": {
       "showing": "Mostrando {from} a {to} de {total} informes",
@@ -841,7 +843,8 @@
     "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí.",
     "artifactLoadFailed": "No se pudo cargar el panel. Actualiza la página para intentarlo de nuevo.",
     "deleteUnpublishedDashboards": "También se eliminarán sus paneles sin publicar: {names}",
-    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}"
+    "deleteLosesUnpublishedChanges": "Se perderán los cambios sin publicar de estos paneles (la versión publicada se mantiene): {names}",
+    "removedApp": "Aplicación eliminada"
   },
   "projects": {
     "title": "Proyectos",
@@ -3099,6 +3102,10 @@
           "title": "Capacidades del agente",
           "description": "Qué puede hacer el agente al responder"
         },
+        "sandbox": {
+          "title": "Sandbox",
+          "description": "Qué puede hacer el código generado además de consultar datos. Las páginas y filas que procesa el código nunca pasan por el modelo."
+        },
         "learning": {
           "title": "Aprendizaje y memoria",
           "description": "Cómo aprende la IA de los usuarios, los comentarios y el uso"
@@ -3387,6 +3394,34 @@
         "sub_agent_allow_create_data": {
           "name": "Las subagentes pueden crear consultas",
           "description": "Permite que los subagentes creen consultas rastreadas (create_data) cuyos ids vuelven como evidencia que el agente puede graficar y citar. Desactivado = subagentes solo de investigación."
+        },
+        "enable_sandbox_web_fetch": {
+          "name": "Descarga web en el código",
+          "description": "Da al código generado un cliente `http` que descarga URL públicas en bloque. El código lee las páginas, no el modelo, así que extraer muchas páginas no consume tokens adicionales. Es independiente de Descarga web, que permite al propio agente leer una página."
+        },
+        "sandbox_web_fetch_max_urls": {
+          "name": "Máximo de URL por ejecución de código",
+          "description": "Cuántas URL puede descargar una ejecución del código generado. De 1 a 10.000."
+        },
+        "enable_sandbox_browser": {
+          "name": "Navegador en el código",
+          "description": "Da al código generado un navegador sin interfaz que puede controlar (abrir páginas, hacer clic, escribir, desplazarse, leer texto) para sitios que necesitan JavaScript. Usa la lista de URL permitidas de la conexión de navegador del agente; sin conexión de navegador no se ofrece."
+        },
+        "sandbox_browser_allow_mutating_requests": {
+          "name": "Permitir envío de formularios desde el código",
+          "description": "Permite que el navegador del código envíe solicitudes POST, PUT, PATCH y DELETE (enviar formularios, iniciar sesión, publicar). Desactivado: esas solicitudes se bloquean, así que hacer clic y escribir solo puede leer páginas y una ejecución repetida no puede cambiar nada en un sitio."
+        },
+        "sandbox_browser_max_pages": {
+          "name": "Máximo de páginas del navegador por ejecución",
+          "description": "Cuántas páginas puede cargar una ejecución del código generado. De 1 a 2.000."
+        },
+        "enable_sandbox_lists": {
+          "name": "Escribir en listas del agente desde el código",
+          "description": "Permite que el código generado envíe filas a las listas del agente de la conversación. Las filas se validan al enviarse y se guardan solo cuando la ejecución termina bien, así que una ejecución fallida o repetida no escribe nada. Al modelo solo le llegan los totales."
+        },
+        "sandbox_lists_max_rows": {
+          "name": "Máximo de filas de lista por ejecución",
+          "description": "Cuántas filas puede enviar a las listas del agente una ejecución del código generado. De 1 a 50.000."
         }
       }
     },
@@ -3732,6 +3767,7 @@
       "discovering_schema": "Descubriendo: esquema",
       "catalog_ready": "Listo: catálogo",
       "reading_semantic_views": "Leyendo: vistas semánticas",
+      "reading_routines": "Leyendo procedimientos y funciones",
       "admin_scan": "Exploración administrativa: espacios de trabajo",
       "listing_workspaces": "Enumerando: espacios de trabajo",
       "workspace_models": "Enumerando: modelos",
@@ -4114,6 +4150,20 @@
           "title": "Pégalo abajo y prueba la conexión",
           "body": "Pega toda la salida en el campo Archivo de acceso al clúster y pulsa Probar conexión."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Concede a la cuenta acceso de lectura en Configuration Manager",
+          "body": "En la consola ve a Administration > Security > Administrative Users, agrega la cuenta (o su grupo de AD) y asígnale el rol Read-only Analyst. Sus ámbitos de seguridad y colecciones deciden lo que Bag of Words puede ver."
+        },
+        {
+          "title": "Comprueba que el servicio de administración responde",
+          "body": "Desde un equipo unido al dominio, ejecuta esto contra tu SMS Provider. Debería listar tu sitio."
+        },
+        {
+          "title": "Exporta el certificado del SMS Provider",
+          "body": "El sitio usa un certificado autofirmado de forma predeterminada. Ejecuta esto en PowerShell en el SMS Provider y pega el resultado en SMS Provider certificate (PEM). Omite este paso si el certificado lo emite una CA en la que este servidor ya confía."
+        }
       ]
     },
     "setupGuideCopyFailed": "Error al copiar — selecciona el texto",
@@ -4209,6 +4259,8 @@
     "copyFailed": "No se pudo copiar",
     "includeDataTab": "Incluir pestaña de datos",
     "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe",
+    "bowCredit": "Insignia “Hecho con BOW”",
+    "bowCreditDesc": "Se muestra en la esquina de las páginas de este dashboard. El ajuste de la organización puede desactivarla en todas partes.",
     "allowChat": "Permitir chat",
     "allowChatDesc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este panel",
     "allowChatDescDoc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este documento",
@@ -4366,7 +4418,29 @@
     "dashboard.creator_publish_owner_only": "Este panel se ejecuta con las credenciales de su propietario, así que solo el propietario puede publicarlo.",
     "dashboard.published_since": "{by} publicó este panel después de que empezara tu borrador.",
     "dashboard.draft_name_taken": "Ya existe un borrador con este nombre.",
-    "sharing.public_disabled": "Compartir con enlace público está desactivado en esta organización."
+    "sharing.public_disabled": "Compartir con enlace público está desactivado en esta organización.",
+    "host_app.not_found": "Esa aplicación anfitriona no existe.",
+    "host_app.disabled": "El acceso de esta aplicación a BOW está desactivado.",
+    "host_app.config_invalid": "Esta configuración de inicio de sesión no puede funcionar: {field}.",
+    "host_app.revision_conflict": "Otra persona cambió esta aplicación. Recarga e inténtalo de nuevo.",
+    "embed.not_allowed": "Esto no está disponible en esta aplicación.",
+    "embed.assertion_invalid": "No se aceptó el inicio de sesión de la aplicación.",
+    "embed.assertion_replayed": "Ese inicio de sesión ya se usó. Inténtalo de nuevo.",
+    "embed.identity_unmapped": "Tu cuenta aún no está configurada en BOW. Consulta a tu administrador.",
+    "embed.identity_ambiguous": "Más de una cuenta de BOW coincide contigo. Consulta a tu administrador.",
+    "embed.identity_unavailable": "El inicio de sesión no está disponible ahora. Inténtalo en un momento.",
+    "embed.user_inactive": "Tu cuenta de BOW está desactivada.",
+    "embed.session_invalid": "Tu sesión terminó. Vuelve a iniciar sesión.",
+    "conversation.not_found": "Esa conversación no existe.",
+    "conversation.unavailable": "Las conversaciones no están activadas aquí.",
+    "conversation.agent_forbidden": "No puedes usar ese agente aquí.",
+    "conversation.limit": "Demasiados mensajes. Espera un momento e inténtalo de nuevo.",
+    "conversation.no_agents": "No tienes ningún agente disponible aquí. Pregunta al propietario qué agentes puede usar esta app.",
+    "APPLICATION_NOT_FOUND": "Aplicación no encontrada",
+    "APPLICATION_CAPABILITY_EXISTS": "Esta aplicación ya tiene esta función",
+    "APPLICATION_AGENTS_INVALID": "Selecciona agentes existentes en esta organización",
+    "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW"
   },
   "email": {
     "dashboardShare": {
@@ -4648,6 +4722,53 @@
       "stillRunning": "Las consultas siguen en ejecución. Inténtalo de nuevo en un momento.",
       "stillFailing": "{failed} siguen fallando al ejecutarse de nuevo."
     }
+  },
+  "artifactActivity": {
+    "title": "Actividad",
+    "inspect": "Inspeccionar",
+    "live": "En vivo",
+    "liveHint": "Lo que hace esta página aparece aquí al instante; la vista previa del agente se recoge cada pocos segundos.",
+    "refresh": "Actualizar",
+    "empty": "Todavía no hay nada registrado.",
+    "emptyFiltered": "Nada coincide con este filtro.",
+    "emptyHint": "Usa la aplicación: las solicitudes, flujos, filtros, clics y errores aparecen aquí, y el agente ve los fallos.",
+    "filterPlaceholder": "Filtrar",
+    "shown": "{shown} de {total}",
+    "noDetail": "Sin detalle registrado.",
+    "queries": "{n} consultas",
+    "rows": "{n} filas",
+    "filters": {
+      "all": "Todo",
+      "requests": "Solicitudes",
+      "streams": "Flujos",
+      "filters": "Filtros",
+      "clicks": "Clics",
+      "errors": "Errores"
+    },
+    "columns": {
+      "time": "Hora",
+      "source": "Origen",
+      "kind": "Tipo",
+      "event": "Evento",
+      "status": "Estado",
+      "duration": "Duración",
+      "version": "Ver."
+    },
+    "sources": {
+      "all": "Todos los orígenes",
+      "editor": "Editor",
+      "preview": "Vista previa"
+    },
+    "tabs": {
+      "detail": "Detalle",
+      "request": "Solicitud",
+      "response": "Respuesta",
+      "stream": "Flujo"
+    },
+    "privateTo": "Privado de {name}",
+    "someoneElse": "otra persona",
+    "loadingPayload": "Cargando…",
+    "payloadUnavailable": "No disponible: puede haber caducado (los contenidos se conservan 24 horas) o pertenecer a otra persona."
   },
   "filter": {
     "selectColumn": "Selecciona una columna",
@@ -5078,7 +5199,10 @@
       "unindexedNote": "{n} ejecuciones sin indexar",
       "unindexedHelp": "El barrido sigue indexando ejecuciones antiguas. Coste, tokens, herramientas y puntuaciones aparecen a medida que se indexan.",
       "openCall": "Abrir esta llamada en la traza",
-      "tableTitle": "Filtrar ejecuciones que consultaron {table}"
+      "tableTitle": "Filtrar ejecuciones que consultaron {table}",
+      "viaHostApp": "A través de una aplicación anfitriona (integrada)",
+      "viaOauthApp": "A través de una aplicación OAuth",
+      "removedApp": "Aplicación eliminada"
     },
     "title": "Monitoreo",
     "tabExplore": "Explorar",
@@ -5875,6 +5999,8 @@
     "vizUnavailable": "Visualización no disponible",
     "vizRenderFailed": "El gráfico no se pudo renderizar",
     "diagramFailed": "El diagrama no se pudo renderizar",
+    "diagramDownloadPng": "Descargar como PNG",
+    "diagramExportFailed": "No se pudo exportar el diagrama",
     "exportMarkdown": "Descargar como Markdown",
     "printPdf": "Imprimir / Guardar como PDF",
     "exportPdf": "Exportar como PDF",
@@ -6137,6 +6263,15 @@
     "editQuery": "Editar {name}",
     "rowFiltered": "Filtrado por filas",
     "refreshFailed": "Error de actualización",
+    "routineProcedure": "procedimiento",
+    "routineFunction": "función",
+    "routineHint": "Rutina almacenada: el agente lee su lógica y la aplica en sus propias consultas. Nunca la ejecuta.",
+    "routineParameter": "Parámetro",
+    "routineParameterType": "Tipo",
+    "routineSource": "Código",
+    "routineSourceTruncated": "Truncado",
+    "routineSourceHidden": "código no visible",
+    "routineSourceHiddenHint": "La cuenta de la conexión no puede leer el código de esta rutina (necesita VIEW DEFINITION o el equivalente de la base de datos). El agente solo ve la firma.",
     "successful": "Correctas",
     "failed": "Fallidas",
     "lastRefreshed": "Última actualización",
@@ -6780,7 +6915,17 @@
       "viaProject": "A través del proyecto {name}",
       "projectMembers": "Miembros del proyecto {name}",
       "projectMembersUnnamed": "Miembros de su proyecto"
-    }
+    },
+    "agentsModelTitle": "Agentes y modelo",
+    "agentsModelDesc": "Se usan cuando las personas chatean con este tablero: en la burbuja de chat y en las apps que mantienen conversaciones.",
+    "agentsLabel": "Agentes",
+    "agentsAuto": "Automático",
+    "agentsAutoDesc": "Todos los agentes que cada espectador puede usar, como en un chat de BOW (o los agentes que adjuntó esta conversación, si adjuntó alguno).",
+    "agentsLimited": "Solo estos agentes",
+    "agentsLimitedDesc": "Siempre limitado a lo que cada espectador puede usar.",
+    "agentsLimitedDataOnly": "No disponible mientras la burbuja de chat responde solo con los datos del tablero.",
+    "modelDesc": "El modelo predeterminado de cada espectador sigue a su grupo y a la organización (y al enrutamiento automático si está activo). Si un espectador no puede usar un modelo, se usa su predeterminado.",
+    "bubbleUsesAgents": "Los agentes de arriba"
   },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",
@@ -6798,5 +6943,130 @@
     "owner": "Propietario",
     "byOwner": "de {name}",
     "untitled": "Sin título"
+  },
+  "embed": {
+    "gate": {
+      "starting": "Cargando…",
+      "signingIn": "Iniciando sesión…",
+      "signInRequired": "Inicia sesión para verlo.",
+      "signIn": "Iniciar sesión",
+      "retry": "Reintentar",
+      "failed": "No se pudo iniciar sesión.",
+      "expired": "Tu sesión terminó. Vuelve a iniciar sesión.",
+      "signedOut": "Cerraste sesión.",
+      "popupBlocked": "Se bloqueó la ventana de inicio de sesión. Permite ventanas emergentes en esta página e inténtalo de nuevo.",
+      "notFramed": "Este enlace solo funciona dentro de la aplicación en la que se insertó."
+    },
+    "unavailable": {
+      "notPublished": "Esto aún no se ha publicado. Aparecerá aquí cuando se publique.",
+      "notFound": "Esto no está disponible. Puede que aún no se haya publicado o que se haya eliminado.",
+      "denied": "No tienes acceso a esto. Pide a su propietario que lo comparta contigo.",
+      "notAllowed": "Esto no está habilitado para esta aplicación. Un editor puede permitirlo en su configuración de Insertar en Bag of Words.",
+      "failed": "No se pudo cargar. Inténtalo de nuevo en un momento."
+    },
+    "signin": {
+      "working": "Iniciando sesión…",
+      "done": "Sesión iniciada. Puedes cerrar esta ventana.",
+      "invalid": "Este enlace de inicio de sesión está incompleto. Cierra esta ventana e inténtalo de nuevo."
+    },
+    "tab": {
+      "title": "Insertar",
+      "desc": "Muéstralo dentro de tus otras aplicaciones",
+      "intro": "Elige las aplicaciones que pueden mostrar este tablero. Las personas lo ven allí como ellas mismas, con la sesión de esa aplicación, y solo si ya pueden verlo aquí.",
+      "privateWarning": "Solo tú puedes ver este tablero. Compártelo (Acceso) para que lo vean las personas de la otra aplicación.",
+      "embeddableIn": "Se puede insertar en",
+      "noHosts": "Pide a un administrador que configure una aplicación conectada para la integración web.",
+      "noHostsAdmin": "No hay aplicaciones configuradas para la integración web. Abre Aplicaciones conectadas para configurar una y luego actualiza esta lista.",
+      "newHost": "Nueva aplicación anfitriona",
+      "snippet": "Código",
+      "snippetFor": "Código para {name}",
+      "inline": "En una página",
+      "floating": "Flotante",
+      "backend": "Backend",
+      "ssoSignIn": "inicio de sesión de BOW",
+      "noteAssertion": "Tu backend firma una aserción de 60 segundos para el usuario con la clave privada de la aplicación anfitriona. La clave nunca llega al navegador.",
+      "noteIdp": "La página entrega el token de ID del usuario de tu proveedor de identidad; BOW lo verifica con las claves publicadas del proveedor.",
+      "noteSso": "La primera vez, las personas inician sesión en BOW en una ventana pequeña. Úsalo cuando la otra aplicación no pueda firmar aserciones."
+    }
+  },
+  "hostApps": {
+    "title": "Aplicaciones anfitrionas",
+    "subtitle": "Sistemas externos, como tu ERP, ServiceNow o un portal, que pueden mostrar tableros y apps e iniciar la sesión de sus usuarios. Agrega uno por sistema; cada tablero los elige en su configuración Insertar.",
+    "add": "Agregar aplicación anfitriona",
+    "edit": "Editar {name}",
+    "editAction": "Editar",
+    "noneYet": "Aún no hay aplicaciones anfitrionas",
+    "emptyHelp": "Agrega el sistema en el que trabaja tu gente y luego inserta tableros y apps desde su Configuración → Insertar.",
+    "name": "Nombre",
+    "nameHint": "Lo ven los editores",
+    "namePlaceholder": "Chatbot de IA del ERP",
+    "origins": "Orígenes permitidos",
+    "originsHelp": "Las direcciones exactas que pueden mostrarlo, una por línea, p. ej. https://erp.example.com",
+    "signIn": "Cómo se inicia la sesión",
+    "modeAssertion": "Firmado por tu backend",
+    "modeAssertionHelp": "El backend de tu aplicación firma una aserción de corta duración para su usuario. Invisible para las personas; funciona con cualquier inicio de sesión.",
+    "modeIdp": "Token del proveedor de identidad",
+    "modeIdpHelp": "La página entrega el token de ID del usuario de tu proveedor OpenID Connect (p. ej. Microsoft Entra ID). Sin cambios en el backend.",
+    "modeSso": "Inicio de sesión de BOW",
+    "modeSsoHelp": "Las personas inician sesión en BOW una vez, en una ventana pequeña. Para aplicaciones que no puedes cambiar.",
+    "source": "Identificar a las personas por",
+    "sourceHelp": "Dónde busca BOW al usuario que nombra la aplicación",
+    "attribute": "Atributo del miembro",
+    "attributeHelp": "El atributo definido en cada miembro, p. ej. employee_id",
+    "issuer": "Emisor",
+    "issuerHelp": "El iss que tu backend pone en cada aserción",
+    "audience": "Audiencia",
+    "audienceHelp": "El aud de los tokens de ID que tu proveedor emite para esta aplicación",
+    "createUsers": "Crear personas en el primer inicio de sesión",
+    "createUsersHelp": "Alguien que el directorio conoce pero BOW todavía no se une como miembro. Si no, debe existir de antemano (invitado o aprovisionado).",
+    "createsUsers": "crea personas",
+    "create": "Crear",
+    "keyOnce": "Copia la clave privada ahora y guárdala en los secretos del backend de tu aplicación. Solo se muestra una vez; BOW guarda solo la clave pública.",
+    "privateKey": "Clave privada",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "keySaved": "Ya la guardé",
+    "disabled": "Desactivada",
+    "key": "Clave",
+    "usage": "En uso",
+    "usageValue": "{sessions} con sesión · {artifacts} insertados",
+    "actions": "Acciones",
+    "rotateKey": "Rotar clave",
+    "rotateConfirm": "La clave actual deja de funcionar de inmediato y se cierra la sesión de todos. ¿Rotar?",
+    "revokeSessions": "Cerrar la sesión de todos",
+    "revokeConfirm": "¿Cerrar ahora la sesión de todos en esta aplicación?",
+    "revoked": "Se cerró la sesión de todos",
+    "delete": "Eliminar",
+    "deleteConfirm": "¿Eliminar {name}? Sus inserciones dejan de funcionar y se cierra la sesión de todos.",
+    "backendExample": "Ejemplo de backend",
+    "backendExampleHelp": "Firma una aserción por cada inicio de sesión, para el usuario con sesión en tu aplicación:"
+  },
+  "connectedApps": {
+    "title": "Aplicaciones conectadas",
+    "subtitle": "Registra aplicaciones externas una sola vez. Configura la integración, el acceso OAuth y los agentes que puede usar cada aplicación.",
+    "add": "Añadir aplicación",
+    "configuration": "Configuración de la aplicación",
+    "general": "General y acceso",
+    "embedding": "Integración web",
+    "oauth": "API y MCP (OAuth)",
+    "agents": "Agentes permitidos",
+    "agentHelp": "El acceso de la aplicación se limita a los permisos del usuario y a los agentes seleccionados en el artefacto. Por sí solo no concede acceso.",
+    "selectedAgents": "Solo los agentes seleccionados",
+    "allAgents": "Todos los agentes accesibles para el usuario",
+    "noAgents": "No hay agentes disponibles. Crea un agente primero.",
+    "empty": "Aún no hay aplicaciones conectadas. Añade tu ERP, portal o cliente MCP.",
+    "createHelp": "Selecciona los agentes permitidos y configura la integración web, OAuth o ambos. Las aplicaciones nuevas no tienen agentes permitidos.",
+    "disableHelp": "Desactivar finaliza las sesiones OAuth y de integración existentes. Al reactivar, los usuarios deberán iniciar sesión de nuevo.",
+    "deleteConfirm": "¿Eliminar {name}? Se detendrán OAuth y la integración web y finalizarán las sesiones existentes.",
+    "saved": "Aplicación guardada",
+    "embeddingHelp": "Elige los orígenes web permitidos y cómo identifica la aplicación a sus usuarios. Las credenciales de integración son distintas de las credenciales OAuth.",
+    "configureEmbedding": "Configurar integración web",
+    "configureOAuth": "Configurar OAuth",
+    "manage": "Administrar aplicaciones y autenticación",
+    "refresh": "Actualizar aplicaciones",
+    "embedHelp": "Aquí solo aparecen aplicaciones con integración web configurada. Configura la identidad, OAuth y el intercambio de tokens Entra en Aplicaciones conectadas.",
+    "enabled": "Activada",
+    "embeddingEmpty": "La integración web no está configurada",
+    "oauthEmpty": "OAuth no está configurado"
   }
 }

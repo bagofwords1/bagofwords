@@ -6,6 +6,8 @@ from typing import Optional, List, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+from app.schemas.base import OptionalNaiveUTCInput, OptionalUTCDatetime
+
 
 # --- SCIM Core Schemas (RFC 7643) ---
 
@@ -124,15 +126,15 @@ class ScimError(BaseModel):
 
 class ScimTokenCreate(BaseModel):
     name: str = "SCIM Token"
-    expires_at: Optional[datetime] = None
+    expires_at: OptionalNaiveUTCInput = None
 
 
 class ScimTokenResponse(BaseModel):
     id: str
     name: str
     token_prefix: str
-    created_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
+    expires_at: OptionalUTCDatetime = None
     last_used_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}

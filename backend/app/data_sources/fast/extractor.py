@@ -19,6 +19,7 @@ every existing caller depends on it.
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -222,12 +223,19 @@ def extract_to_artifact(
     max_rows: int = DEFAULT_MAX_ROWS,
     max_bytes: int = DEFAULT_MAX_BYTES,
     max_seconds: int = DEFAULT_MAX_SECONDS,
+    should_abort: Callable[[], bool] | None = None,
 ) -> ExtractResult:
     """Stream `sql` into a fresh encrypted DuckDB artifact.
 
     Writes to a `.tmp` sibling and atomically renames on success, so a crashed
     or aborted refresh can never leave a half-written artifact in place. The
     caller keeps serving the previous artifact until the swap lands.
+
+    ``should_abort`` is polled between batches; when it returns True the
+    extraction stops at the next batch boundary with ``ExtractionAborted``
+    (closing the source generator, which cancels the still-running job on
+    sources that bill for it). A caller whose request was cancelled uses this
+    to stop the source within one batch instead of waiting out the full scan.
     """
     started = time.monotonic()
     src = _source(client, sql)
@@ -240,6 +248,11 @@ def extract_to_artifact(
     con = None
 
     def _elapsed_guard():
+        if should_abort is not None and should_abort():
+            raise ExtractionAborted(
+                "Refresh was cancelled before it completed; "
+                "the previous data is still being served."
+            )
         if time.monotonic() - started > max_seconds:
             raise ExtractionAborted(
                 f"Refresh exceeded the {max_seconds}s limit and was aborted; "

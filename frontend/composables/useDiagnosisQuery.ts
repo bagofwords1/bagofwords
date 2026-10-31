@@ -24,6 +24,8 @@ export interface RunItem {
   prompt: string
   error: string | null
   platform: string
+  // The outside app the run came through (host application or OAuth app).
+  origin_app?: { type: 'host_app' | 'oauth_app'; id: string; name: string | null } | null
   user: { id: string | null; name: string | null; email: string | null }
   agents: Agent[]
   report: { id: string | null; title: string | null; turn: number | null; turns: number | null }

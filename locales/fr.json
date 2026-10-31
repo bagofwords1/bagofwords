@@ -3453,6 +3453,7 @@
       "discovering_schema": "Découverte: schéma",
       "catalog_ready": "Prêt: catalogue",
       "reading_semantic_views": "Lecture: vues sémantiques",
+      "reading_routines": "Lecture des procédures et fonctions",
       "admin_scan": "Analyse administrative: espaces de travail",
       "listing_workspaces": "Énumération: espaces de travail",
       "workspace_models": "Énumération: modèles",
@@ -3835,6 +3836,20 @@
           "title": "Collez-le ci-dessous et testez la connexion",
           "body": "Collez toute la sortie dans le champ Fichier d'accès au cluster, puis cliquez sur Tester la connexion."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Accorder au compte l'accès en lecture dans Configuration Manager",
+          "body": "Dans la console, allez dans Administration > Security > Administrative Users, ajoutez le compte (ou son groupe AD) et attribuez-lui le rôle Read-only Analyst. Ses étendues de sécurité et ses regroupements déterminent ce que Bag of Words peut voir."
+        },
+        {
+          "title": "Vérifier que le service d'administration répond",
+          "body": "Depuis une machine jointe au domaine, exécutez ceci sur votre SMS Provider. La commande doit lister votre site."
+        },
+        {
+          "title": "Exporter le certificat du SMS Provider",
+          "body": "Par défaut, le site utilise un certificat auto-signé. Exécutez ceci dans PowerShell sur le SMS Provider et collez le résultat dans SMS Provider certificate (PEM). Ignorez cette étape si le certificat provient d'une autorité de certification déjà approuvée par ce serveur."
+        }
       ]
     },
     "setupGuideCopyFailed": "Échec de la copie — sélectionnez le texte",
@@ -4083,7 +4098,12 @@
     "dashboard.join_no_access": "Vous devez avoir accès à {name} pour modifier ce tableau de bord.",
     "dashboard.creator_publish_owner_only": "Ce tableau de bord s'exécute avec les identifiants de son propriétaire : seul le propriétaire peut le publier.",
     "dashboard.published_since": "{by} a publié ce tableau de bord depuis le début de votre brouillon.",
-    "dashboard.draft_name_taken": "Un brouillon porte déjà ce nom."
+    "dashboard.draft_name_taken": "Un brouillon porte déjà ce nom.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -5914,6 +5934,15 @@
     "editQuery": "Modifier {name}",
     "rowFiltered": "Lignes filtrées",
     "refreshFailed": "Échec de l’actualisation",
+    "routineProcedure": "procédure",
+    "routineFunction": "fonction",
+    "routineHint": "Routine stockée : l’agent lit sa logique et l’applique dans ses propres requêtes. Il ne l’exécute jamais.",
+    "routineParameter": "Paramètre",
+    "routineParameterType": "Type",
+    "routineSource": "Code source",
+    "routineSourceTruncated": "Tronqué",
+    "routineSourceHidden": "code non visible",
+    "routineSourceHiddenHint": "Le compte de la connexion ne peut pas lire le code de cette routine (il faut VIEW DEFINITION ou l’équivalent de la base). L’agent ne voit que la signature.",
     "successful": "Réussies",
     "failed": "Échouées",
     "lastRefreshed": "Dernière actualisation",
@@ -6436,5 +6465,42 @@
     "owner": "Propriétaire",
     "byOwner": "de {name}",
     "untitled": "Sans titre"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Ce contenu n'a pas encore été publié. Il apparaîtra ici dès qu'il sera publié.",
+      "notFound": "Ce contenu n'est pas disponible. Il n'a peut-être pas encore été publié, ou il a été supprimé.",
+      "denied": "Vous n'avez pas accès à ce contenu. Demandez à son propriétaire de le partager avec vous.",
+      "notAllowed": "Ce contenu n'est pas activé pour cette application. Un éditeur peut l'autoriser dans ses paramètres d'intégration dans Bag of Words.",
+      "failed": "Impossible de charger ce contenu. Réessayez dans un instant."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Activée",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

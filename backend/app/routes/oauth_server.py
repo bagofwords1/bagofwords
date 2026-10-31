@@ -395,6 +395,7 @@ async def create_client(
         redirect_uris=redirect_uris,
         trusted=trusted,
         entra_exchange=exchange_config,
+        application_id=body.get("application_id"),
     )
     try:
         await audit_service.log(

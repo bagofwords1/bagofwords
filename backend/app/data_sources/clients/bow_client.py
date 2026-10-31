@@ -28,6 +28,9 @@ Example: ds_clients["bow"].execute_query({"dataset":"runs", "query":"tool:create
 Datasets: runs (one row/run), tool_calls (one row/call). query uses the Diagnosis grammar: status:error, feedback:negative,
 judge.confidence:<3, agent:"Name", tool:create_data tool.status:error, table:customers, tool.args:region.
 columns selects fields; omit it for defaults. Select only relevant columns, not the entire schema catalog.
+tool_calls has code: the code of the step the call created (create_data), not in the defaults. Request it explicitly,
+e.g. "columns":["call_id","run_id","tool","status","error","code"]; it is the step's current code, a row column only
+(no group_by/metrics), and empty for calls that created no step or whose rows you may not see.
 For one row per run use agent_ids/agent_names arrays, never agent_id/agent_name (those expand runs per agent).
 Agent filters use actual names: agent:"sap-bo" is exact, agent:sap* matches a name prefix. Push filters into query, not pandas.
 group_by and metrics aggregate all matching rows on the server:

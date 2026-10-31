@@ -3453,6 +3453,7 @@
       "discovering_schema": "Identifiering: schema",
       "catalog_ready": "Klar: katalog",
       "reading_semantic_views": "Läsning: semantiska vyer",
+      "reading_routines": "Läser procedurer och funktioner",
       "admin_scan": "Administrativ skanning: arbetsytor",
       "listing_workspaces": "Listning: arbetsytor",
       "workspace_models": "Listning: modeller",
@@ -3835,6 +3836,20 @@
           "title": "Klistra in nedan och testa anslutningen",
           "body": "Klistra in hela utdatan i fältet Klusteråtkomstfil och klicka på Testa anslutning."
         }
+      ],
+      "mecm": [
+        {
+          "title": "Ge kontot läsbehörighet i Configuration Manager",
+          "body": "Gå till Administration > Security > Administrative Users i konsolen, lägg till kontot (eller dess AD-grupp) och tilldela rollen Read-only Analyst. Kontots säkerhetsomfång och samlingar avgör vad Bag of Words kan se."
+        },
+        {
+          "title": "Kontrollera att administrationstjänsten svarar",
+          "body": "Kör detta mot din SMS Provider från en domänansluten dator. Det ska lista din plats."
+        },
+        {
+          "title": "Exportera SMS Providerns certifikat",
+          "body": "Platsen använder som standard ett självsignerat certifikat. Kör detta i PowerShell på SMS Providern och klistra in utdata i SMS Provider certificate (PEM). Hoppa över steget om certifikatet kommer från en CA som den här servern redan litar på."
+        }
       ]
     },
     "setupGuideCopyFailed": "Kopiering misslyckades — markera texten",
@@ -4083,7 +4098,12 @@
     "dashboard.join_no_access": "Du behöver åtkomst till {name} för att redigera den här instrumentpanelen.",
     "dashboard.creator_publish_owner_only": "Den här instrumentpanelen körs med ägarens autentiseringsuppgifter, så bara ägaren kan publicera den.",
     "dashboard.published_since": "{by} har publicerat den här instrumentpanelen sedan ditt utkast startade.",
-    "dashboard.draft_name_taken": "Det finns redan ett utkast med det här namnet."
+    "dashboard.draft_name_taken": "Det finns redan ett utkast med det här namnet.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -5914,6 +5934,15 @@
     "editQuery": "Redigera {name}",
     "rowFiltered": "Radfiltrerad",
     "refreshFailed": "Uppdateringen misslyckades",
+    "routineProcedure": "procedur",
+    "routineFunction": "funktion",
+    "routineHint": "Lagrad rutin: agenten läser dess logik och tillämpar den i sina egna frågor. Den körs aldrig.",
+    "routineParameter": "Parameter",
+    "routineParameterType": "Typ",
+    "routineSource": "Källkod",
+    "routineSourceTruncated": "Avkortad",
+    "routineSourceHidden": "källkod ej synlig",
+    "routineSourceHiddenHint": "Anslutningens konto kan inte läsa rutinens källkod (VIEW DEFINITION eller databasens motsvarighet krävs). Agenten ser bara signaturen.",
     "successful": "Lyckade",
     "failed": "Misslyckade",
     "lastRefreshed": "Senast uppdaterad",
@@ -6436,5 +6465,42 @@
     "owner": "Ägare",
     "byOwner": "av {name}",
     "untitled": "Namnlös"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "Det här har inte publicerats ännu. Det visas här när det har publicerats.",
+      "notFound": "Det här är inte tillgängligt. Det kanske inte har publicerats ännu, eller så har det tagits bort.",
+      "denied": "Du har inte åtkomst till det här. Be ägaren att dela det med dig.",
+      "notAllowed": "Det här är inte aktiverat för det här programmet. En redigerare kan tillåta det i dess inställningar för inbäddning i Bag of Words.",
+      "failed": "Det gick inte att läsa in. Försök igen om en stund."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Aktiverad",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

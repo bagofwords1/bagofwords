@@ -1,5 +1,45 @@
 # Release Notes
 
+## Version 0.0.602 (October 31, 2026)
+- Added CrowdStrike Falcon as a read-only data source: hosts, alerts, incidents, vulnerabilities and IOCs (#1527)
+- Added Microsoft Intune as a read-only data source: devices, compliance, configuration profiles, apps and Autopilot (#1528)
+- Added Microsoft Configuration Manager (SCCM / MECM) as a read-only data source through the AdminService API (#1529)
+- Added Azure Cost Management as a data source, with spend by service, resource group and tag, and forecasts (#1531)
+- Added Connected applications: one registration per outside app for embedding and OAuth/MCP access, with a per-app agent limit (#1532) — Settings → Integrations
+- Added embedded agent chat with ready-made chat components and answers that include tables and charts (#1523)
+- Added Inspect in the app editor, showing each request, response and stream an app makes (#1532)
+- Added the model's thinking to embedded chat, hidden by default (#1532) — `showThinking={true}`
+- Added an automatic check that loads each app the agent creates or edits and reports problems back to it (#1523)
+- Added chatbot authoring, browse-web and scrape-with-code skills to the skill catalog (#1525, #1526)
+- Fixed stored result rows reaching the model in conversation history when "Allow LLM to see data" is off (#1523)
+- Fixed publishing failing when a query's required input has no stored value; each viewer's run fills it in (#1523)
+- Fixed uploaded images attaching to a later request instead of the one they were sent with (#1524)
+- Fixed published slide previews to serve only the release's own slide images (#1530)
+
+## Version 0.0.601 (October 30, 2026)
+- Added embedding artifacts in host applications, with silent sign-in through a signed assertion, identity provider or Active Directory (#1514) — Settings → Integrations → Host applications, then the artifact's Embed tab
+- Added `bow.conversations`, so an embedded artifact lists and opens the viewer's own conversations (#1514)
+- Added an app activity log, so the agent sees editor and preview events from an artifact (#1514)
+- Added the source app to conversations and runs from embedded apps or MCP clients, shown on /reports and in Monitoring (#1514)
+- Added turning off the "Made with BOW" badge per dashboard (#1514) — dashboard Settings → Viewers
+- Added Sandbox settings for web fetch, a headless browser and Agent List writes from generated code (#1520) — AI settings → Sandbox, all off by default
+- Added routing bulk scraping to one generated-code run instead of page-by-page browser calls (#1520)
+- Added indexing of stored procedures and functions for Postgres, MySQL, MariaDB and SQL Server (#1506) — "Index stored procedures & functions" on the connection, off by default
+- Added the browser tools to sub-agents, each with its own browser session (#1521)
+- Added saving a long page's full text from `browser_extract`, so the agent can read past the inline limit (#1519)
+- Added Download as PNG for Mermaid diagrams in docs and chat (#1518)
+- Added every sheet name of an Excel workbook to file connector reads, and reading a named sheet (#1517)
+- Added the created step's code to `bow.tool_calls` (#1510)
+- Added compact counts (1.2K) on Monitoring KPI cards (#1511)
+- Changed artifact modals, drawers and tabs to animate smoothly, and charts to stop redrawing on every render (#1513)
+- Fixed an agent querying tables outside its table selection; the selection is now enforced at query time (#1512)
+- Fixed earlier images being re-sent on later turns of a conversation (#1515)
+- Fixed table cells in Hebrew and Arabic answers aligning left (#1516)
+- Fixed orphaned DuckDB files left behind after custom table refreshes (#1505)
+- Fixed transient Qlik failures disconnecting the agent and resetting its table selection (#1508)
+- Fixed chevrons and arrows pointing the wrong way in RTL (#1507)
+- Fixed stage and service-account badges in the agent selector not aligning to the right (#1509)
+
 ## Version 0.0.600 (October 28, 2026)
 - Added Amazon CloudWatch Logs as an audit log stream destination (#1499)
 - Added encryption at rest for conversation text, agent context, dashboard content, run parameters and entity SQL under the `data_encryption` setting (#1501)

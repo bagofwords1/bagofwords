@@ -629,6 +629,14 @@ def render_file_payload(name: str, payload: Any, max_rows: int, max_chars: int) 
             "col_count": int(len(df.columns)),
             "truncated": truncated,
         })
+        # Excel workbooks: which sheet this is, and every sheet in the file.
+        # Without the list the model only ever sees the first sheet and has
+        # no way to ask for the others (connectors tag it — see
+        # read_excel_sheet in _file_source_common).
+        sheet_names = payload.attrs.get("sheet_names")
+        if sheet_names:
+            out["sheet"] = payload.attrs.get("sheet")
+            out["sheets"] = [str(n) for n in sheet_names]
         return out
 
     if isinstance(payload, str):

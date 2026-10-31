@@ -54,7 +54,8 @@ for an explicit Apply workflow. Preserve null, numeric, list, and date types.
 Query controls affect only their declared query_ids; never claim unrelated views
 were filtered. Identity-source parameters are server-owned and never editable.
 Snapshot search/filter/sort acts only on fetched rows; say so when rows are limited.
-UI state (tab, selection, detail panel) belongs in React state. Preserve valid
+UI state (tab, selection, detail panel) belongs in React state. Use the kit's Tabs, Modal
+and Drawer for tabbed views, dialogs and side panels unless the design needs something they cannot do. Preserve valid
 selection by stable record ID across data updates; clear/explain a selection
 that leaves the result. Never remount the whole app on parameter changes.
 Only show actions you implement. Artifact-owned records, files and approved AI
