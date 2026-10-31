@@ -2,11 +2,15 @@
 
 ## Version 0.0.603 (October 31, 2026)
 - Added scoping instructions to a connected application, so a rule applies only in conversations started from that app (#1542) — instruction editor → Channels
+- Added GitLab and Bitbucket as MCP connections, with sign-in per user for GitLab and email + API token for Bitbucket (#1541)
+- Added GitHub, GitLab and Bitbucket repositories as read-only Code connections the agent can list, read and search (#1541)
 - Added a sign-in screen with the app's title for chat apps opened by signed-out viewers (#1540)
 - Changed embedded chat to show tool activity beside the text it belongs to, with readable labels and error detail (#1540)
 - Changed the published app menu to a single compact menu, hidden when the app is embedded (#1540)
 - Fixed chat apps losing their tools when the agent resumes after a wait (#1540)
 - Fixed channel-scoped instructions loading on the wrong channel when the same question was asked on two channels within a few minutes (#1542)
+- Fixed Jira / Confluence MCP connections failing after Atlassian retired its old endpoint; existing connections move automatically (#1541)
+- Fixed Git connections storing access tokens in the cloned repository's config and skipping SSH host-key checks (#1541)
 - Fixed embedded chat waiting on chart libraries it doesn't use (#1540)
 
 ## Version 0.0.602 (October 31, 2026)
