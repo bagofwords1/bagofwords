@@ -1,3 +1,4 @@
+from app.errors import AppError, ErrorCode
 import logging as _logging
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload
@@ -212,6 +213,10 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     else:
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
 
+            from app.services.connected_application_service import agent_ceiling
+            if permission == "manage_settings" and await agent_ceiling(db, str(organization.id)) is not None:
+                raise AppError.forbidden(ErrorCode.APPLICATION_MANAGEMENT_FORBIDDEN, "Manage applications directly in BOW")
+
             # Check role-based permission via RBAC resolver
             # `permission` may be a single string or a list/tuple (ANY-of semantics)
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
@@ -338,6 +343,12 @@ def requires_resource_permission(resource_type: str, permission: str):
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
+            if resource_type == "data_source":
+                from app.services.connected_application_service import agent_ceiling
+                ceiling = await agent_ceiling(db, str(organization.id))
+                if ceiling is not None and str(all_args.get(_RESOURCE_PARAM_MAP[resource_type])) not in ceiling:
+                    raise AppError.forbidden(ErrorCode.APPLICATION_AGENT_FORBIDDEN, "Application has no access to this agent")
+
             resolved = await resolve_permissions(db, str(user.id), str(organization.id))
 
             # Tier 1: full_admin_access wildcard
@@ -410,6 +421,12 @@ async def check_resource_permissions(
     """
     if not resource_ids:
         return
+
+    if resource_type == "data_source":
+        from app.services.connected_application_service import agent_ceiling
+        ceiling = await agent_ceiling(db, org_id)
+        if ceiling is not None and any(str(rid) not in ceiling for rid in resource_ids):
+            raise AppError.forbidden(ErrorCode.APPLICATION_AGENT_FORBIDDEN, "Application has no access to this agent")
 
     resolved = await resolve_permissions(db, user_id, org_id)
 

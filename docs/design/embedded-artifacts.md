@@ -10,7 +10,7 @@ the next commit; see §11 for what was ported from it).
 | # | Decision |
 | --- | --- |
 | 1 | **The artifact is what gets embedded.** No separate "embedded chat" product. A chat assistant, a data app or a dashboard is an artifact; the customer frames it in their application (ERP, ServiceNow, intranet). |
-| 2 | **Host applications are organization integrations.** A host application is one registered system ("Northwind ERP — production"): allowed origins + how it vouches for its users. It lives in Settings → Integrations next to OAuth apps. Admins create it there, or inline from an artifact's Embed section. One per system, never one per artifact. |
+| 2 | **Host applications are organization integrations.** A host application is one registered system ("Northwind ERP — production"): allowed origins + how it vouches for its users. It is the Embedding capability of a Connected application in Settings → Integrations. Admins configure it there; the artifact's Embed section links to that application. OAuth is another optional capability of the same identity. One per system, never one per artifact. |
 | 3 | **Embedding is opt-in on both sides.** The artifact lists the host applications it may appear in, and the host application must be enabled. Embedding never widens the audience: an embedded viewer must also pass the artifact's normal sharing. |
 | 4 | **Every embedded viewer is a real BOW user.** No anonymous or "app owns data" mode. Users come from the organization's identity provider — created in advance (SCIM, LDAP sync, invitations) or just in time on first arrival, according to the policies BOW already has. |
 | 5 | **Any SSO, not only Entra.** OIDC (Entra, Okta, Keycloak, Google, ADFS-OIDC), SAML (incl. ADFS, Ping), and on-prem Active Directory through LDAP. §4 describes how each one signs in silently. |
@@ -185,10 +185,13 @@ Fixture mode keeps conversations in the frame and answers with a fixed text and 
 
 ### 6.1 Data model
 
-- `host_applications`: organization, public id, name, enabled, allowed origins, identity mode, mode config (issuer, public key + fingerprint, identity source, create-users flag, linked OAuth client for exchange), epoch, created by. Secrets never stored (private key shown once; exchange uses the existing OAuth client secret hash).
+- `connected_applications`: shared organization, name, enabled, created-by, timestamps, and `agent_ids` ceiling. New registrations start with `[]`; `NULL` preserves existing OAuth access to all agents the user may use.
+- `application_embedding_config`: 1:1 application FK, public embed id, origins, identity mode/source, assertion public key/fingerprint or IdP audience, epoch/revision. Assertion private keys are shown once and never stored.
+- `application_oauth_config`: optional 1:1 application FK, unchanged OAuth client id, secret hash, redirects, scopes, trusted flag and Entra exchange settings. OAuth consent trust never grants permission to assert host identities.
+- The existing unreleased `hostapp01` migration is replaced in place. It copies released OAuth rows with their IDs, hashes and timestamps intact, leaving authorization-code/token rows unchanged. An environment that already applied the old unreleased migration needs its disposable sandbox rebuilt or its pre-migration backup restored; do not stamp the new schema over old tables.
 - `artifact_host_applications (artifact_id, host_application_id)` — the artifact side of the opt-in (queryable both ways, survives versions).
 - `oauth_mcp_access_tokens.host_application_id` (nullable FK) for embed sessions.
-- `embed_assertion_replays (host_application_id, jti, expires_at)`.
+- `host_assertion_replays (host_application_id, jti, expires_at)`.
 
 ### 6.2 Serving the artifact
 
@@ -219,8 +222,8 @@ The page's own chat bubble (the platform bubble, shown when the artifact holds n
 
 ## 7. UI
 
-- **Settings → Integrations → Host applications** (next to OAuth apps): list, create, identity mode and its fields, key generation/rotation (private key shown once), allowed origins, enable/disable, sign everyone out, active sessions, the artifacts that allow it, audit link.
-- **Artifact Settings window → Embed tab** (`components/dashboard/DashboardSettingsModal.vue`): "Embeddable in" picker (admins can create a host application inline), snippets for floating / inline / full page, backend examples per identity mode (Python, Node, Java, C#; the exchange call for 4.2; nothing for 4.3), a preview signed in as yourself, and the frame URL for platforms that only accept an iframe URL.
+- **Settings → Integrations → Connected applications**: one registration with General & access, Embedding, and API & MCP (OAuth). Registration and editing retain `manage_settings`. General controls name, enabled and allowed agents. Embedding controls origins, identity mode, keys, sessions and artifact associations; OAuth retains its existing scopes, redirects, credentials and Entra exchange setup. Disabling/deleting the shared application ends both capabilities' sessions. Agent access is the intersection of application, user, and artifact/conversation policy. Legacy unrestricted OAuth clients retain their existing behavior.
+- **Artifact Settings window → Embed tab** (`components/dashboard/DashboardSettingsModal.vue`): "Embeddable in" picker with a link to the selected Connected application's authentication settings and a refresh action, snippets for floating / inline / full page, backend examples per identity mode (Python, Node, Java, C#; the exchange call for 4.2; nothing for 4.3), a preview signed in as yourself, and the frame URL for platforms that only accept an iframe URL.
 - **Viewers tab**: the conversation policy (§5.1) — already there for dashboard chat, extended with tool switches.
 - Removed: the "Embedded chat" settings tab and page (already gone from this branch).
 

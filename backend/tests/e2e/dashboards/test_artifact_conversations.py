@@ -744,3 +744,43 @@ def test_large_results_stay_within_the_message_budget_in_stream_and_history(
     lost = len(streamed) == 2 or not streamed[2]["rows"]
     assert stream[-1].get("results_incomplete", False) is lost
     assert history[-1].get("results_incomplete", False) is lost
+
+
+def test_connected_application_ceiling_applies_to_embedded_conversations(corpus, corpus_rows, test_client, second_agent):
+    aid = _chatty(corpus, corpus_rows, test_client)
+    _as_auto(corpus_rows, aid)
+    admin = as_(corpus, 'admin')
+    application = test_client.post('/api/connected_applications', headers=admin, json={
+        'name': 'Scoped ERP', 'agent_ids': [second_agent],
+    }).json()
+    membership = corpus.cast.people['member'].membership_id
+    test_client.put(f'/api/organizations/{corpus.cast.org_id}/members/{membership}',
+                    json={'custom_attributes': {'employee_id': 'scoped-employee'}}, headers=admin)
+    host_response = test_client.post('/api/host_applications', headers=admin, json={
+        'application_id': application['id'], 'name': application['name'],
+        'allowed_origins': ['https://portal.example.com'], 'identity_mode': 'assertion',
+        'identity_source': 'member_attribute:employee_id', 'issuer': 'portal',
+    })
+    assert host_response.status_code == 201, host_response.text
+    host = host_response.json()
+    assert test_client.put(f'/api/artifacts/{aid}/embedding', headers=as_(corpus, 'owner'),
+                           json={'host_application_ids': [application['id']]}).status_code == 200
+    from tests.e2e.dashboards.test_embed_host_applications import sign
+    session = test_client.post(f"/api/embed/{host['public_id']}/session", json={
+        'assertion': sign(host['private_key'], aud=host['public_id'], sub='scoped-employee', iss='portal'),
+    })
+    assert session.status_code == 200, session.text
+    headers = {'Authorization': f"Bearer {session.json()['token']}"}
+    policy = test_client.get(f'{base(aid)}/policy', headers=headers)
+    assert policy.status_code == 200, policy.text
+    assert {a['id'] for a in policy.json()['agents']} == {second_agent}
+    forbidden = test_client.post(base(aid), headers=headers, json={'agents': [corpus.cast.data_sources['chinook']]})
+    assert forbidden.status_code == 403
+    conversation = test_client.post(base(aid), headers=headers, json={})
+    assert conversation.status_code == 201, conversation.text
+    assert conversation.json()['agents'] == [second_agent]
+    changed = test_client.patch('/api/connected_applications/' + application['id'], headers=admin, json={'agent_ids': []})
+    assert changed.status_code == 200, changed.text
+    assert test_client.get(f'{base(aid)}/policy', headers=headers).json()['agents'] == []
+    assert test_client.patch('/api/connected_applications/' + application['id'], headers=admin, json={'enabled': False}).status_code == 200
+    assert test_client.get(f'{base(aid)}/policy', headers=headers).status_code == 401

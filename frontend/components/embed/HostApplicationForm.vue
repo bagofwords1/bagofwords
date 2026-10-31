@@ -27,7 +27,7 @@
     </template>
 
     <template v-else>
-      <UFormGroup :label="$t('hostApps.name')" :hint="$t('hostApps.nameHint')">
+      <UFormGroup v-if="!application" :label="$t('hostApps.name')" :hint="$t('hostApps.nameHint')">
         <UInput v-model="form.name" data-testid="host-app-name" :placeholder="$t('hostApps.namePlaceholder')" />
       </UFormGroup>
 
@@ -88,7 +88,7 @@ import EmbedCode from '~/components/embed/EmbedCode.vue'
 import { EXAMPLE_LANGS, backendExample, type ExampleLang } from '~/utils/embedExamples'
 
 type Host = Record<string, any>
-const props = defineProps<{ host?: Host | null }>()
+const props = defineProps<{ host?: Host | null; application?: Host }>()
 const emit = defineEmits<{ (e: 'saved', host: Host): void; (e: 'cancel'): void }>()
 
 const { t } = useI18n()
@@ -96,7 +96,7 @@ const toast = useToast()
 const { getErrorMessage } = useErrorMessage()
 
 const form = reactive({
-  name: props.host?.name || '',
+  name: props.application?.name || props.host?.name || '',
   identity_mode: (props.host?.identity_mode || 'assertion') as 'assertion' | 'idp_token' | 'sso',
   issuer: props.host?.issuer || '',
   audience: props.host?.audience || '',
@@ -137,7 +137,8 @@ function body() {
   const source = form.identity_mode === 'sso' ? null
     : sourceKind.value === 'member_attribute:' ? `member_attribute:${attributeKey.value.trim()}` : sourceKind.value
   return {
-    name: form.name.trim(),
+    ...(!props.application || !props.host ? { name: props.application?.name || form.name.trim() } : {}),
+    ...(!props.host && props.application ? { application_id: props.application.id } : {}),
     allowed_origins: originsText.value.split(/[\s,]+/).map(s => s.trim()).filter(Boolean),
     identity_mode: form.identity_mode,
     identity_source: source,

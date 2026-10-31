@@ -918,9 +918,11 @@ async def get_ds_ids_with_permission(
 
     is_full_admin=True means the caller should skip all DS-level filtering.
     """
+    from app.services.connected_application_service import agent_ceiling
+    ceiling = await agent_ceiling(db, org_id)
     resolved = await resolve_permissions(db, str(user_id), str(org_id))
     if resolved.has_org_permission(permission):
-        return True, []
+        return (True, []) if ceiling is None else (False, list(ceiling))
     # Resolve through has_resource_permission rather than testing membership of
     # the raw grant set: an agent's owner/manager holds `manage`, which IMPLIES
     # manage_instructions / manage_evals / create_entities on that agent
@@ -933,7 +935,7 @@ async def get_ds_ids_with_permission(
         if rtype == "data_source"
         and resolved.has_resource_permission("data_source", rid, permission)
     ]
-    return False, matching
+    return False, matching if ceiling is None else [i for i in matching if i in ceiling]
 
 
 async def get_user_ids_with_permission(
@@ -977,6 +979,11 @@ async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:
     """Check if a user can access a single data source (public bypass + grants/memberships)."""
+    from app.services.connected_application_service import agent_ceiling
+    ceiling = await agent_ceiling(db, org_id)
+    target = str(ds_id) if ds_id is not None else (str(ds.id) if ds is not None else None)
+    if ceiling is not None and target not in ceiling:
+        return False
     if ds is not None and getattr(ds, 'is_public', False):
         return True
     is_admin, accessible = await get_accessible_data_source_ids(db, user_id, org_id)

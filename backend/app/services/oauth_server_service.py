@@ -115,6 +115,7 @@ class OAuthServerService:
         redirect_uris: Optional[list[str]] = None,
         trusted: bool = False,
         entra_exchange: Optional[dict] = None,
+        application_id: Optional[str] = None,
     ) -> dict:
         """Create an OAuth client for an organization.
 
@@ -137,6 +138,9 @@ class OAuthServerService:
             trusted=trusted,
             entra_exchange=entra_exchange,
         )
+        if application_id:
+            from app.services.connected_application_service import attach_application
+            client.application = await attach_application(db, organization_id, application_id, OAuthClient)
         db.add(client)
         await db.commit()
         await db.refresh(client)
@@ -352,15 +356,22 @@ class OAuthServerService:
         db: AsyncSession,
         client_id: str,
         client_secret: Optional[str] = None,
+        *,
+        for_update: bool = False,
     ) -> Optional[OAuthClient]:
         """Validate client credentials. If client_secret is None, only validate client_id."""
-        result = await db.execute(
+        query = (
             select(OAuthClient)
             .where(OAuthClient.client_id == client_id)
             .where(OAuthClient.deleted_at.is_(None))
+            .where(OAuthClient.enabled.is_(True))
         )
+        if for_update:
+            query = query.execution_options(populate_existing=True).with_for_update()
+        result = await db.execute(query)
         client = result.scalar_one_or_none()
-        if not client:
+        # Recheck the loaded parent after a possible row-lock wait, too.
+        if not client or not client.enabled or client.deleted_at:
             return None
 
         if client_secret is not None:
@@ -451,6 +462,8 @@ class OAuthServerService:
         epoch = await lock_user_sessions(db, user_id)
         if session_epoch is not None and epoch != session_epoch:
             return None
+        if not await self.validate_client(db, client_id, for_update=True):
+            return None
         code = secrets.token_urlsafe(32)
 
         auth_code = OAuthAuthorizationCode(
@@ -501,6 +514,11 @@ class OAuthServerService:
             return None
 
         await lock_user_sessions(db, auth_code.user_id)
+        # Serialize issuance with application disable/delete. Recheck after the
+        # user lock, matching Entra's user → application lock order.
+        client = await self.validate_client(db, client_id, client_secret, for_update=True)
+        if not client:
+            return None
         await db.refresh(auth_code)
         if auth_code.deleted_at is not None:
             return None
@@ -596,6 +614,9 @@ class OAuthServerService:
             return None
 
         await lock_user_sessions(db, token_record.user_id)
+        client = await self.validate_client(db, client_id, client_secret, for_update=True)
+        if not client:
+            return None
         await db.refresh(token_record)
         if token_record.deleted_at is not None:
             return None
@@ -692,6 +713,7 @@ class OAuthServerService:
             select(OAuthClient)
             .where(OAuthClient.client_id == token_record.client_id)
             .where(OAuthClient.deleted_at.is_(None))
+            .where(OAuthClient.enabled.is_(True))
         )).scalar_one_or_none()
         if not client:
             return None

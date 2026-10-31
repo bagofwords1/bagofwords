@@ -97,9 +97,14 @@ deployment; avoid external fonts, CDNs, or scripts for an air-gapped installatio
 An exported static page cannot provide live chat without the BOW backend and an
 available model provider.
 
-For ERP/ServiceNow embedding, reuse BOW's host-application setup and generated
-embed snippet. The integration must allow the host origin and the published
-artifact. Take the embed reference from that snippet; a saved artifact version
+For ERP/ServiceNow embedding, use Settings → Integrations → Connected applications
+and the artifact's generated embed snippet. An administrator registers one application,
+selects its allowed agents in General & access, and configures its Embedding capability
+(origins and identity). New applications start with no allowed agents. API & MCP
+(OAuth) is an optional, separate capability of that same application; it is not needed
+for BOW popup sign-in or signed host assertions. The artifact's Embed tab links to
+this setup and must explicitly allow the application. Application policy only narrows
+the viewer's own permissions; it cannot grant agent access. Take the embed reference from that snippet; a saved artifact version
 ID is not the published artifact's identity. Use its configured identity flow:
 a backend-signed host assertion mapped to an existing BOW user, or the
 supported IdP/SSO flow. Signing keys stay
