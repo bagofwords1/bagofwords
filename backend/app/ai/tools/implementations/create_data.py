@@ -1552,7 +1552,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
             idempotent=False,
             required_permissions=[],
             tags=["data", "code", "execution"],
-            allowed_modes=["chat", "training"],
+            # Child profiles decide whether tracked queries are permitted.
+            # Keep the tool eligible before that profile filter runs, so
+            # validation and bulk list writes remain available to children.
+            allowed_modes=["chat", "training", "subagent"],
         )
 
     @property
