@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import List, Literal, Optional
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 MAX_ORIGINS = 20
 IdentityMode = Literal["assertion", "idp_token", "sso"]
@@ -51,7 +52,8 @@ def _source(value):
 
 
 class HostApplicationCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
+    application_id: Optional[str] = None
+    name: str = Field(min_length=1, max_length=255)
     allowed_origins: List[str] = Field(default_factory=list)
     identity_mode: IdentityMode = "assertion"
     identity_source: Optional[str] = None
@@ -79,7 +81,7 @@ class HostApplicationCreate(BaseModel):
 class HostApplicationUpdate(BaseModel):
     """Partial update; ``revision`` must match the row the caller edited."""
     revision: int
-    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
     allowed_origins: Optional[List[str]] = None
     identity_mode: Optional[IdentityMode] = None
     identity_source: Optional[str] = None
@@ -113,8 +115,8 @@ class HostApplicationSchema(BaseModel):
     key_fingerprint: Optional[str] = None
     epoch: int
     revision: int
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
+    updated_at: OptionalUTCDatetime = None
     active_sessions: int = 0
     artifacts: int = 0
 
@@ -143,19 +145,16 @@ class EmbedSessionRequest(BaseModel):
 
 class EmbedSessionSchema(BaseModel):
     token: str
-    expires_at: datetime
+    # UTC with its Z: a bare timestamp is read as local time by a browser.
+    expires_at: UTCDatetime
+    # Seconds left when this was sent; the frame renews from it, so neither
+    # its clock nor its timezone is involved.
+    expires_in: int
     user: dict
     host_application: str
     organization_id: str
     # ARTIFACT_DATA.current_user for the embedded artifact (users/me/viewer_context's shape).
     viewer: dict
-
-    @field_serializer("expires_at")
-    def _utc(self, value: datetime) -> str:
-        # Stored naive in UTC; sent with its zone so browsers don't read it as
-        # local time (the page schedules renewal from it).
-        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc) \
-            .isoformat().replace("+00:00", "Z")
 
 
 class EmbedBootstrapSchema(BaseModel):

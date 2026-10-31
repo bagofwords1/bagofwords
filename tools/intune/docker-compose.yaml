@@ -1,0 +1,22 @@
+# Mock Microsoft Graph for Intune (v1.0 shapes) — see mock_graph.py.
+# Intune is SaaS-only (no emulator / container exists), so this serves the
+# exact Graph surface IntuneClient touches. Point the backend at it with
+#   BOW_GRAPH_BASE_URL=http://localhost:8095/v1.0
+#   BOW_GRAPH_TOKEN_BASE_URL=http://localhost:8095
+#
+#   docker compose up -d
+#   curl -s -X POST localhost:8095/t/oauth2/v2.0/token -d grant_type=client_credentials \
+#        -d client_id=intune-reader -d 'client_secret=Reader123!' -d scope=https://graph.microsoft.com/.default
+services:
+  intune-graph-mock:
+    image: python:3.13-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_graph.py:/srv/mock_graph.py:ro
+    command: sh -c "pip install --quiet fastapi uvicorn python-multipart && python mock_graph.py"
+    environment:
+      INTUNE_MOCK_PORT: "8095"
+      # Every Nth Graph call answers 429 + Retry-After: 1
+      # INTUNE_MOCK_THROTTLE_EVERY: "3"
+    ports:
+      - "8095:8095"

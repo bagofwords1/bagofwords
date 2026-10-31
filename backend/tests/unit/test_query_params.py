@@ -546,3 +546,51 @@ def test_identity_verification_accepts_scoped_reads(queries):
 def test_identity_verification_ignores_specs_without_values():
     specs = _specs(*_ID_SPECS)
     assert verify_identity_binds_in_queries([], {"email": None}, specs) is None
+
+
+# ---------------------------------------------------------------------------
+# missing_required_inputs: what Publish, a refresh and a reader's dashboard run
+# never run without (the skip rule of a context-driven query).
+# ---------------------------------------------------------------------------
+
+def _required_input(name, **extra):
+    return ParamSpec(name=name, type="number", required=True, source="input", **extra)
+
+
+def test_missing_required_inputs_names_only_required_inputs_without_a_default():
+    from app.ai.code_execution.query_params import missing_required_inputs
+
+    specs = [
+        ParamSpec(name="viewer", type="string", required=True, source="identity",
+                  identity_binding="viewer.email"),
+        ParamSpec(name="dept", type="string", required=True, source="input_identity_default",
+                  identity_binding="viewer.email"),
+        ParamSpec(name="genre", type="string", required=False, source="input"),
+        _required_input("region", default=3),
+        # A falsy default is still a default: a naive `not s.default` would call these missing.
+        _required_input("zero", default=0),
+        ParamSpec(name="blank", type="string", required=True, source="input", default=""),
+        _required_input("customer_id"),
+    ]
+    # Identity-sourced, optional and defaulted params are never "missing".
+    assert missing_required_inputs(specs, None) == ["customer_id"]
+    assert missing_required_inputs(specs, {}) == ["customer_id"]
+
+
+@pytest.mark.parametrize("value", [[], 0, "", False, 0.0])
+def test_missing_required_inputs_treats_only_none_or_absent_as_missing(value):
+    from app.ai.code_execution.query_params import missing_required_inputs
+
+    specs = [_required_input("customer_id")]
+    assert missing_required_inputs(specs, {"customer_id": value}) == []
+    assert missing_required_inputs(specs, {"customer_id": None}) == ["customer_id"]
+    assert missing_required_inputs(specs, {"other": 14}) == ["customer_id"]
+
+
+def test_missing_required_inputs_names_each_missing_one_in_declaration_order():
+    from app.ai.code_execution.query_params import missing_required_inputs
+
+    specs = [_required_input("b_second"), _required_input("a_first"), _required_input("c_stored")]
+    assert missing_required_inputs(specs, {"c_stored": 27}) == ["b_second", "a_first"]
+    assert missing_required_inputs(specs, {"b_second": 1, "a_first": 2, "c_stored": 3}) == []
+    assert missing_required_inputs([], None) == []

@@ -10,7 +10,7 @@ the next commit; see §11 for what was ported from it).
 | # | Decision |
 | --- | --- |
 | 1 | **The artifact is what gets embedded.** No separate "embedded chat" product. A chat assistant, a data app or a dashboard is an artifact; the customer frames it in their application (ERP, ServiceNow, intranet). |
-| 2 | **Host applications are organization integrations.** A host application is one registered system ("Northwind ERP — production"): allowed origins + how it vouches for its users. It lives in Settings → Integrations next to OAuth apps. Admins create it there, or inline from an artifact's Embed section. One per system, never one per artifact. |
+| 2 | **Host applications are organization integrations.** A host application is one registered system ("Northwind ERP — production"): allowed origins + how it vouches for its users. It is the Embedding capability of a Connected application in Settings → Integrations. Admins configure it there; the artifact's Embed section links to that application. OAuth is another optional capability of the same identity. One per system, never one per artifact. |
 | 3 | **Embedding is opt-in on both sides.** The artifact lists the host applications it may appear in, and the host application must be enabled. Embedding never widens the audience: an embedded viewer must also pass the artifact's normal sharing. |
 | 4 | **Every embedded viewer is a real BOW user.** No anonymous or "app owns data" mode. Users come from the organization's identity provider — created in advance (SCIM, LDAP sync, invitations) or just in time on first arrival, according to the policies BOW already has. |
 | 5 | **Any SSO, not only Entra.** OIDC (Entra, Okta, Keycloak, Google, ADFS-OIDC), SAML (incl. ADFS, Ping), and on-prem Active Directory through LDAP. §4 describes how each one signs in silently. |
@@ -118,6 +118,8 @@ For hosts that cannot run server code: the frame shows "Sign in", opens BOW's no
 ### 4.4 Sessions (all modes)
 
 - Stored in `oauth_mcp_access_tokens` (prefix `bow_embed_`, scope `embed`, `host_application_id`), 1 hour, held in frame memory only, renewed silently through the same mode.
+- Renewal: the session response carries `expires_at` (UTC, with `Z`) and `expires_in` (seconds); the frame renews from `expires_in` 5 minutes ahead (halfway through a shorter session), so neither its clock nor its timezone matters. A renewal for the same viewer keeps the artifact's runtime ports and running requests; a different viewer remounts the artifact with nothing of the previous one's, not even the answer to a GET still in flight for them (`useMyFetch` shares an in-flight GET only between calls sending the same `Authorization`). A failed renewal keeps the current session and the app and retries quietly (15, 30, 60, 120 s) until the session really expires; only that, or a permanent identity error, ends it. SSO mode cannot renew silently and asks for a sign-in at expiry. `BOW_EMBED_SESSION_LIFETIME_SECONDS` (dev/test only, clamped to 60-3600, default 1 hour) shortens sessions to watch a renewal.
+- Renewal that changes the viewer's role or groups (recorded decision 2026-10-30, finding 16): a renewal for the same viewer updates `current_user` only. Queries scoped to the viewer's identity are not re-run until the next load, and `bow.context` is not refreshed in preview. Revisit if hosts change roles mid-session.
 - Re-checked on every request: expiry, host application enabled + epoch, user active + `session_epoch`, organization membership, and that the artifact allows this host application.
 - Revocation: logout, "sign everyone out", key rotation and disabling bump the host application's epoch.
 - Accepted only by the routes in §3. Every other route keeps rejecting them.
@@ -145,14 +147,16 @@ As built (`backend/app/routes/artifact_conversations.py`, `services/artifact_con
 | Route | Does |
 | --- | --- |
 | `GET  /policy` | available or why not (`auth_required`, `disabled`), scope, the agents this viewer may use |
-| `GET  ?limit&before` | the viewer's conversations on this artifact, newest first |
+| `GET  ?limit&before` | the viewer's conversations on this artifact, newest first; each item has `in_progress`: true while its answer still runs (a system completion in progress, not a sub-agent's, with a heartbeat inside the 300 s stale window) |
 | `POST` `{title?, agents?}` | create; `agents` must be ⊆ policy ∩ the viewer's access (`conversation.agent_forbidden`) |
-| `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise) |
-| `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}` |
-| `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, then exactly one `completed` or `error` |
+| `GET/PATCH/DELETE /{cid}` | read, rename, archive — the viewer's own only (`conversation.not_found` otherwise); archive first stops the conversation's running answer (`update_completion_sigkill`), since nobody can reach it afterwards |
+| `GET  /{cid}/messages?limit&before` | `get_completions_v2`, flattened to `{id, role, text, status, tools[]}`; assistant items also carry `results[]` (and `results_incomplete: true` when some could not be produced) |
+| `POST /{cid}/messages` `{text}` | `create_completion_stream`, re-emitted as NDJSON: `started`, `tool`, `text_delta`, `text`, `result`, then exactly one `completed` (optionally `results_incomplete: true`) or `error`; nothing after it |
 | `POST /{cid}/messages/{mid}/stop` | `update_completion_sigkill` |
 
 Viewer = `viewer_optional` (app session or embed session). Policy (`artifact_conversations.open_for` / `allowed_agent_ids`), re-applied on every message: anyone who may read the published artifact and is a member (editors also on the unpublished draft); agents = the ones the artifact was built with plus any named in the chat settings, as the viewer may use them. **Independent of the chat bubble**: *Allow chat* off or its *dashboard data only* scope do not switch conversations off or empty their agents. Rate limits: 6 messages/min per viewer per artifact, 60/min per organization, 240 reads/min. Not built yet: re-attach to a running answer (`watch`), MCP approvals and clarify responses (§10.2).
+
+**Results (as built, `services/artifact_conversation_results.py`).** Each successful `create_data` of the answer reaches the app as a `result` event before `completed`, and again in history on the assistant item, so a reload shows what the answer showed: `{id, block, title, columns:[{field, headerName, type}], rows:[{field: value}], row_count, column_count, truncated, chart}`. Only the thread's own steps are read (never the dashboard's or another viewer's), with the organization's display redaction applied to cells, headers and titles. Caps: 200 rows, 30 columns, 1000 characters per cell, 256 KiB per result line and 512 KiB of result lines per message (the broker reads 1 MiB per chunk); anything cut sets `truncated`. `chart` is the agent's own view as a hint (`bar|line|area|pie|scatter`, `x`, `y[]`, `series`), kept only when the shaped rows can draw it as they are: rows not truncated, the axes are kept columns, the value axes are numeric (and x for scatter), no filter or top-level aggregation, and each x (or x and series) appears once (null and `""` count as one category, as BOW's charts bucket them), so a sum/avg/min/max series aggregation is a no-op (`count`, or any other, means no chart); otherwise `chart: null` and the app shows the table only. When the agent stores a result after the answer finished, `completed` waits for it at most 4 s; a later one is history-only and `completed` says `results_incomplete: true`. Only `create_data` results are shown; `run_query` output is a follow-up.
 
 **Why not let the broker call `/api/reports` directly:** generated code would get the viewer's whole API (every report, settings, sharing), policy would live in the browser, and embed sessions would have to be accepted by the main API. Server-side runtime routes keep all three closed.
 
@@ -161,15 +165,15 @@ Viewer = `viewer_optional` (app session or embed session). Policy (`artifact_con
 ```js
 await bow.conversations.policy()                          // {available, scope, agents}
 const c = await bow.conversations.create({ title, agents })
-for await (const ev of bow.conversations.send(c.id, text, { signal })) { /* started|tool|text_delta|text|completed */ }
+for await (const ev of bow.conversations.send(c.id, text, { signal })) { /* started|tool|text_delta|text|result|completed */ }
 await bow.conversations.list({ limit: 20 })               // past conversations
-await bow.conversations.messages(c.id, { before })        // transcript
+await bow.conversations.messages(c.id, { before })        // transcript; assistant items carry results[]
 await bow.conversations.rename(c.id, title); await bow.conversations.archive(c.id)
 await bow.conversations.stop(c.id, messageId)
 bow.markdown(text)                                        // agent answers → safe React elements (no HTML)
 ```
 
-Fixture mode keeps conversations in the frame and answers with a fixed text, like `bow.ai`. The page's own chat bubble hides when the artifact uses `bow.conversations` (it is the chat).
+Fixture mode keeps conversations in the frame and answers with a fixed text and two sample `result`s, ids per message (a three-row bar chart, and a cut table with `chart: null` and more rows and columns than shown; both also stored on the message), like `bow.ai`, so verifier runs reach the table-only and truncation branches. The authoring reference (`artifact_sdk_reference.py`) teaches the chat building blocks first: the sandbox globals `useConversation` (the stream, stop, history and errors), `ChatMessage` (one message) and `ChatResult` (one result). `ChatResult` holds the table, chart and truncation-note logic (the table always, the chart only for a hint that names real columns, its option computed once per result), the hook re-reads history after each answer (so `results_incomplete` is handled) and `ChatMessage` shows the "some results of this answer could not be shown" note; the low-level `bow.conversations` lines stay for what the blocks cannot do. It teaches composing a chat from `ChatMessages` (the scrolling transcript: it opens at the newest message, follows an answer only while the viewer is at the bottom, loads earlier pages), `ChatComposer` (Enter sends, Shift+Enter adds a line, Stop while an answer runs), `ChatThreads` (the viewer's conversations: select, new, rename, archive, a spinner while an answer runs, a drawer on narrow screens) and `ChatSuggestions` (starter questions sent on a click) around `useConversation`; every component takes the hook's object as `chat` and one shared `labels` table (key names in the reference, English defaults in the globals). The broker passes `result` events through unchanged. The page's own chat bubble hides when the artifact uses `bow.conversations` or calls `useConversation(` (it is the chat).
 
 ### 5.5 Authoring
 
@@ -181,10 +185,13 @@ Fixture mode keeps conversations in the frame and answers with a fixed text, lik
 
 ### 6.1 Data model
 
-- `host_applications`: organization, public id, name, enabled, allowed origins, identity mode, mode config (issuer, public key + fingerprint, identity source, create-users flag, linked OAuth client for exchange), epoch, created by. Secrets never stored (private key shown once; exchange uses the existing OAuth client secret hash).
+- `connected_applications`: shared organization, name, enabled, created-by, timestamps, and `agent_ids` ceiling. New registrations start with `[]`; `NULL` preserves existing OAuth access to all agents the user may use.
+- `application_embedding_config`: 1:1 application FK, public embed id, origins, identity mode/source, assertion public key/fingerprint or IdP audience, epoch/revision. Assertion private keys are shown once and never stored.
+- `application_oauth_config`: optional 1:1 application FK, unchanged OAuth client id, secret hash, redirects, scopes, trusted flag and Entra exchange settings. OAuth consent trust never grants permission to assert host identities.
+- `hostapp01` shipped in v0.0.601 and remains unchanged. New revision `connapps01` follows `payload01`, copying existing OAuth and host registrations with IDs, credentials, configuration, timestamps and disabled/deleted state intact. It repoints child foreign keys before removing old tables, preserving codes, tokens, replay protection and artifact bindings. Existing applications retain their prior agent access. Upgrade normally; no credential rotation or database rebuild is required. Downgrade refuses policies the old schema cannot represent; see `docs/feedback-loops/connected-applications-upgrade.md`.
 - `artifact_host_applications (artifact_id, host_application_id)` — the artifact side of the opt-in (queryable both ways, survives versions).
 - `oauth_mcp_access_tokens.host_application_id` (nullable FK) for embed sessions.
-- `embed_assertion_replays (host_application_id, jti, expires_at)`.
+- `host_assertion_replays (host_application_id, jti, expires_at)`.
 
 ### 6.2 Serving the artifact
 
@@ -204,15 +211,19 @@ BOWEmbed.mount({
   identity: { getAssertion }          // §4.1 — or { exchangeToken } §4.2, or { sso: 'popup' } §4.3
   context: { recordId: 'INC-1042' },  // → bow.context.host inside the artifact
   theme, locale,
-})  // .open() .close() .updateContext() .logout() .destroy(); events: ready, authenticated, authRequired, error
+})  // .open() .close() .updateContext() .logout() .destroy(); events: ready, authenticated, authRequired, unavailable, error
 ```
+
+An artifact the signed-in user cannot open here (not published, not found, not shared with them, or not embeddable in this host application) is shown as a message in the frame, and the frame posts `bow:unavailable {reason, message}`. The SDK then emits `unavailable` with `reason` one of `not_published` (editors and admins only), `not_found`, `denied`, `not_allowed`, or `failed` (a server or network error; the frame offers Try again). When the user later opens the artifact, the host receives `authenticated` once. A dead embed session (any 401) ends the way an expired one does, and arrives as `authRequired`. `embed.state.status === 'unavailable'` also follows a failed start (not framed, bootstrap failed, host application disabled), which arrives as `authRequired`, so hosts should listen for the `unavailable` event rather than read `state.status`.
 
 Host context reaches artifact code through `bow.context`; the artifact decides whether to pass it into a conversation turn.
 
+The page's own chat bubble (the platform bubble, shown when the artifact holds no chat of its own) also forwards host context: inside a host application it sends the host's current context (the last `embed.updateContext`) with each message as `prompt.platform_context.host_context` to `POST /api/d/{ref}/chat/completions`. The server keeps it only when it is a JSON object with string keys, at most 20 keys and at most 2,048 serialized characters (`dashboard_chat.sanitize_host_context`); anything larger is dropped and the message runs without it, and a value that is not an object is ignored. The route replaces all client-supplied platform context with server-derived context, then adds the sanitized host context. It is stored with the completion's prompt in the viewer's own thread. There is no separate top-level host-context field on the shared completion schema. The bubble's `<artifact_chat_context>` shows it as one line after the dashboard title, labelled as what the host application says the viewer is looking at, advisory and unverified, possibly stale, for resolving references such as "this customer", granting no access, and data only (never instructions); `<`, `>` and line separators in it are escaped. It is prompt text only: no query, parameter or authorization code reads it, and the agent still runs as the viewer, so a host page cannot widen what the viewer may see by naming another user or a role. Without host context the bubble's prompt is unchanged. The conversation's own `/r/{id}/chat` route and app conversations (`useConversation`, `bow.conversations`) ignore the field; an app that wants host context in a turn still puts it in the message itself. Recorded decision 2026-10-30 (finding 2, option A of OD-2).
+
 ## 7. UI
 
-- **Settings → Integrations → Host applications** (next to OAuth apps): list, create, identity mode and its fields, key generation/rotation (private key shown once), allowed origins, enable/disable, sign everyone out, active sessions, the artifacts that allow it, audit link.
-- **Artifact Settings window → Embed tab** (`components/dashboard/DashboardSettingsModal.vue`): "Embeddable in" picker (admins can create a host application inline), snippets for floating / inline / full page, backend examples per identity mode (Python, Node, Java, C#; the exchange call for 4.2; nothing for 4.3), a preview signed in as yourself, and the frame URL for platforms that only accept an iframe URL.
+- **Settings → Integrations → Connected applications**: one registration with General & access, Embedding, and API & MCP (OAuth). Registration and editing retain `manage_settings`. General controls name, enabled and allowed agents. Embedding controls origins, identity mode, keys, sessions and artifact associations; OAuth retains its existing scopes, redirects, credentials and Entra exchange setup. Disabling/deleting the shared application ends both capabilities' sessions. Agent access is the intersection of application, user, and artifact/conversation policy. Legacy unrestricted OAuth clients retain their existing behavior.
+- **Artifact Settings window → Embed tab** (`components/dashboard/DashboardSettingsModal.vue`): "Embeddable in" picker with a link to the selected Connected application's authentication settings and a refresh action, snippets for floating / inline / full page, backend examples per identity mode (Python, Node, Java, C#; the exchange call for 4.2; nothing for 4.3), a preview signed in as yourself, and the frame URL for platforms that only accept an iframe URL.
 - **Viewers tab**: the conversation policy (§5.1) — already there for dashboard chat, extended with tool switches.
 - Removed: the "Embedded chat" settings tab and page (already gone from this branch).
 
@@ -276,6 +287,7 @@ One fix from the prototype stays on this branch: per-block `cache-key` on `<MDC>
 - **Admin capability for the Embed tab** follows the dashboard's own Settings gate (`dashboard_for(..., CAP_SETTINGS)`): an organization admin who does not edit a dashboard cannot embed it (same as the rest of its Settings window).
 - **SSO mode** is handled inside the frame: the user clicks *Sign in* in the embedded page, BOW's own sign-in runs in a popup on the BOW origin and posts a one-time PKCE-bound code back to the frame (`pages/embed-signin.vue`). The host page configures nothing.
 - **Host context** reaches artifact code as `ARTIFACT_DATA.host_context` (updated on `embed.updateContext`), not as `bow.context.host`.
+- **The platform chat bubble forwards host context** (2026-10-30, finding 2): §6.3 left passing host context into a turn to the artifact, which the bubble (not artifact code) could not do, so in a host embed the bubble answered without knowing which record the viewer was on. It now sends the context with each message, capped and labelled advisory; see §6.3. This extends §6.3 rather than overriding it: artifact code still decides for its own conversations.
 - **"Made with BOW" badge** is not shown inside a host application (it floated over the customer's controls — found in the live loop).
 - **`bow.markdown`** added: agent answers are Markdown and the sandbox has no renderer; the live loop showed raw tables.
 - Embed sessions also return the viewer payload (`viewer_context`) so the artifact's `current_user` is the host's user.

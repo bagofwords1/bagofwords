@@ -26,6 +26,7 @@ import json
 import secrets
 import time
 import uuid
+from datetime import datetime, timedelta
 
 import jwt
 import pytest
@@ -72,6 +73,12 @@ class Embed:
 
     def attribute(self, person, value, key="employee_id"):
         membership_id = self.corpus.cast.people[person].membership_id
+        if membership_id is None:  # the org creator's membership is created implicitly
+            members = self.client.get(f"/api/organizations/{self.corpus.cast.org_id}/members",
+                                      headers=self.admin)
+            assert members.status_code == 200, members.text
+            membership_id = next(m["id"] for m in members.json()
+                                 if m["user_id"] == self.corpus.cast.id(person))
         r = self.client.put(f"/api/organizations/{self.corpus.cast.org_id}/members/{membership_id}",
                             json={"custom_attributes": {key: value}}, headers=self.admin)
         assert r.status_code == 200, r.text
@@ -192,18 +199,49 @@ def test_a_signed_assertion_signs_in_the_member_it_names(embed):
     assert status.status_code == 200 and status.json()["token"] == ""
 
 
+def _expiry(body):
+    """The session's expiry as an aware instant, refusing a bare local time
+    (a browser reads one in its own timezone)."""
+    expires_at = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
+    assert expires_at.utcoffset() == timedelta(0), body["expires_at"]
+    return expires_at
+
+
+def test_a_session_says_when_it_ends_in_utc_and_in_seconds(embed):
+    """The frame schedules its renewal from this: the instant must not depend
+    on the browser's timezone, and ``expires_in`` not on its clock."""
+    embed.attribute("member", "E-2077")
+    host = embed.create()
+    issued = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub="E-2077"))
+    assert issued.status_code == 200, issued.text
+    body = issued.json()
+    status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(body["token"]))
+    assert status.status_code == 200, status.text
+    for seen in (body, status.json()):
+        _expiry(seen)
+        assert 0 < seen["expires_in"] <= 3600
+    assert _expiry(status.json()) == _expiry(body)
+
+
+@pytest.mark.parametrize("configured,lifetime", [("120", 120), ("5", 60), ("86400", 3600), ("soon", 3600)])
+def test_the_session_lifetime_setting_stays_within_an_hour(embed, monkeypatch, configured, lifetime):
+    """BOW_EMBED_SESSION_LIFETIME_SECONDS (dev/test: force a renewal in
+    minutes) is clamped to 60 s - 1 h; anything unreadable is the 1 h default."""
+    monkeypatch.setenv("BOW_EMBED_SESSION_LIFETIME_SECONDS", configured)
+    embed.attribute("member", "E-3011")
+    host = embed.create()
+    body = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub="E-3011")).json()
+    assert lifetime - 60 < body["expires_in"] <= lifetime
+
+
 def test_a_session_s_expiry_is_sent_in_utc(embed):
     # The page schedules renewal from it: a time without a zone is read as the
     # browser's local time, hours off anywhere but UTC.
-    from datetime import datetime, timezone
-
     embed.attribute("member", "E-2048")
     host = embed.create()
     body = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub="E-2048")).json()
     expires = datetime.fromisoformat(body["expires_at"].replace("Z", "+00:00"))
     assert expires.utcoffset() is not None and expires.utcoffset().total_seconds() == 0
-    remaining = (expires - datetime.now(timezone.utc)).total_seconds()
-    assert 50 * 60 < remaining <= 60 * 60 + 5
     status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(body["token"])).json()
     assert status["expires_at"] == body["expires_at"]
 
@@ -248,6 +286,52 @@ def test_an_assertion_is_good_once(embed):
     assert embed.session(host, assertion=assertion).status_code == 200
     again = embed.session(host, assertion=assertion)
     assert again.status_code == 401 and again.json()["error_code"] == "embed.assertion_replayed"
+
+
+@pytest.mark.parametrize("person", ["admin", "member"])
+def test_schema_upgrade_preserves_embed_sessions_keys_and_replay_protection(embed, published, person):
+    """Live credentials and artifact admission survive the schema transition."""
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine
+    from tests.fixtures.dashboard_corpus.alembic_at import script_directory
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    subject = f"employee-{uuid.uuid4().hex}"
+    embed.attribute(person, subject)
+    host = embed.create()
+    # Released hosts had no application agent ceiling.
+    updated = embed.client.patch(f"/api/connected_applications/{host['id']}",
+                                 json={"agent_ids": None}, headers=embed.admin)
+    assert updated.status_code == 200, updated.text
+    assert embed.allow(published, host).status_code == 200
+    assertion = sign(host["private_key"], aud=host["public_id"], sub=subject)
+    issued = embed.session(host, assertion=assertion)
+    assert issued.status_code == 200, issued.text
+    token = issued.json()["token"]
+    engine = create_engine(sync_test_url())
+    try:
+        with engine.begin() as conn:
+            migration = script_directory().get_revision("connapps01").module
+            with Operations.context(MigrationContext.configure(conn)):
+                migration.downgrade()
+                migration.upgrade()
+    finally:
+        engine.dispose()
+
+    status = embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(token))
+    assert status.status_code == 200, status.text
+    assert status.json()["user"]["id"] == embed.corpus.cast.id(person)
+    artifact = embed.client.get(f"/api/d/{published}", headers=bearer(token))
+    assert artifact.status_code == 200, artifact.text
+    replayed = embed.session(host, assertion=assertion)
+    assert replayed.status_code == 401 and replayed.json()["error_code"] == "embed.assertion_replayed"
+    fresh = embed.session(host, assertion=sign(host["private_key"], aud=host["public_id"], sub=subject))
+    assert fresh.status_code == 200, fresh.text
+    disabled = embed.client.patch(f"/api/connected_applications/{host['id']}",
+                                  json={"enabled": False}, headers=embed.admin)
+    assert disabled.status_code == 200
+    assert embed.client.get(f"/api/embed/{host['public_id']}/session", headers=bearer(token)).status_code == 401
 
 
 def test_a_subject_two_members_share_signs_in_no_one(embed):
@@ -360,6 +444,25 @@ def test_a_session_stops_working_when_it_should(embed, published, ending, corpus
         assert r.status_code in (200, 204), r.text
     r = embed.client.get(f"/api/d/{published}", headers=bearer(token))
     assert r.status_code == 401 and r.json()["error_code"] == "embed.session_invalid"
+
+
+def test_an_unpublished_artifact_tells_an_embedded_editor_it_is_not_published_and_no_one_else(
+        embed, corpus, corpus_rows):
+    """The embed gate's message rests on this: only its editors (and admins)
+    learn that an artifact exists but is not published; anyone else is told
+    it is not found. An embed session never opens the draft."""
+    aid = own(corpus_rows, corpus, DASH)  # never published
+    embed.attribute("owner", "E-30")
+    embed.attribute("member", "E-31")
+    host = embed.create()
+    assert embed.allow(aid, host).status_code == 200
+    owner, member = embed.sign_in(host, "E-30"), embed.sign_in(host, "E-31")
+
+    mine = embed.client.get(f"/api/d/{aid}", headers=bearer(owner))
+    assert mine.status_code == 404 and mine.json()["error_code"] == "dashboard.not_published"
+    theirs = embed.client.get(f"/api/d/{aid}", headers=bearer(member))
+    assert theirs.status_code == 404 and theirs.json()["error_code"] == "artifact.not_found"
+    assert embed.client.get(f"/api/d/{aid}/draft", headers=bearer(owner)).status_code == 401
 
 
 def test_a_session_from_one_host_is_not_another_hosts(embed, published):

@@ -140,7 +140,10 @@ import Spinner from '~/components/Spinner.vue'
 
 // base: the page the chat belongs to -- the conversation's /r/{id}, or a
 // dashboard's /d/{id}, whose chat API mirrors it.
-const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number }>()
+// hostContext: the host application's current context (embed.updateContext),
+// sent with each message so "this customer" resolves. The server caps it and
+// labels it advisory and unverified; it grants no access.
+const props = defineProps<{ reportId: string; base?: string; raised?: boolean; lift?: number; hostContext?: Record<string, any> | null }>()
 const chatBase = computed(() => props.base || `/r/${props.reportId}`)
 
 const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
@@ -265,7 +268,7 @@ async function send() {
         const res: any = await useMyFetch(`${chatBase.value}/chat/completions`, {
             method: 'POST',
             stream: true,
-            body: JSON.stringify({ prompt: { content }, stream: true }),
+            body: JSON.stringify({ prompt: { content, ...(props.hostContext ? { platform_context: { host_context: props.hostContext } } : {}) }, stream: true }),
             headers: { 'Content-Type': 'application/json' },
         } as any)
         const response: Response = res.data

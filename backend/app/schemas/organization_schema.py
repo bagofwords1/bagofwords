@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from app.schemas.user_schema import UserSchema
 from app.schemas.usage_policy_schema import UsageQuotaSummarySchema
+from app.schemas.base import OptionalUTCDatetime
 
 # Per-org note about a member. Surfaced to the AI planner. Capped to keep
 # prompt overhead negligible.
@@ -80,7 +81,7 @@ class MembershipSchema(MembershipCreate):
     # "skipped_no_smtp" | None (not an invite / not applicable).
     invite_email_status: Optional[str] = None
     # When the pending invite link expires (pending invites only).
-    invite_expires_at: Optional[datetime] = None
+    invite_expires_at: OptionalUTCDatetime = None
 
     class Config:
         from_attributes = True

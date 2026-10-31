@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
+from app.schemas.base import OptionalUTCDatetime
 from app.schemas.external_platform_schema import PlatformType
 
 class ExternalUserMappingBase(BaseModel):
@@ -30,7 +31,7 @@ class ExternalUserMappingSchema(ExternalUserMappingBase):
     organization_id: str
     platform_id: str  
     verification_token: Optional[str] = None
-    verification_expires_at: Optional[datetime] = None
+    verification_expires_at: OptionalUTCDatetime = None
     last_verified_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

@@ -32,15 +32,18 @@ async def navigate_artifact(data, ctx):
                 event = {k: detail.get(k) for k in ("op", "status", "error_code", "duration_ms")
                          if detail.get(k) is not None}
                 inner = detail.get("detail") if isinstance(detail.get("detail"), dict) else {}
+                seq = 0
                 if event_kind in {"request", "stream"}:
-                    preview.record("sdk_call", call=event_kind, **event, detail=inner)
+                    seq = preview.record("sdk_call", call=event_kind, **event, detail=inner)["cursor"]
                 if event_kind in {"request", "stream", "click", "error", "console"}:
-                    await preview.log_activity(event_kind, {**event, "detail": inner})
+                    await preview.log_activity(event_kind, {**event, "detail": inner, "seq": seq})
             elif kind in {"params_commit", "params_status", "data_sent", "data_received", "error"}:
-                preview.record(kind, **{k: v for k, v in detail.items() if k not in {"kind", "artifact_id", "action_id", "cursor"}})
+                recorded = preview.record(kind, **{k: v for k, v in detail.items()
+                                                   if k not in {"kind", "artifact_id", "action_id", "cursor"}})
                 if kind == "error":
                     await preview.log_activity("error", {"detail": {"message": str(detail.get("message") or "")[:300],
-                                                                    "where": str(detail.get("source") or "preview")}})
+                                                                    "where": str(detail.get("source") or "preview")},
+                                                         "seq": recorded["cursor"]})
         await s.page.expose_binding("__bowPreviewEvidence", receive)
         await s.page.add_init_script("window.addEventListener('bow:artifact-evidence', e => window.__bowPreviewEvidence(e.detail));")
         # Playwright's own service-worker blocking reads navigator.serviceWorker

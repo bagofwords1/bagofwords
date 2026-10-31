@@ -175,6 +175,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | ServiceNow | Business app |
 | Monday data | Business app |
 | AWS Cost Explorer | Business app |
+| Azure Cost Management | Business app |
 | PostHog | Business app |
 | Priority ERP | Business app |
 | Outlook Mail | Business app |
@@ -187,10 +188,13 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Prometheus | Monitoring and observability |
 | AWS CloudWatch | Monitoring and observability |
 | VMware Aria Operations | Monitoring and observability |
+| CrowdStrike Falcon | Security |
 | Jaeger | Tracing and observability |
 | Kubernetes | Infrastructure |
+| Microsoft Configuration Manager (SCCM) | Infrastructure |
 | NetApp ONTAP | Infrastructure |
 | Brocade Fabric OS | Infrastructure |
+| Microsoft Intune | Infrastructure |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |

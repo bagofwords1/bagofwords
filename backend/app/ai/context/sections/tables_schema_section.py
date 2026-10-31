@@ -149,6 +149,11 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # come from. `shared_by` marks a subform under several parents, which has
     # no single path and must be read via the parent the question means.
     "priority_erp": ("title", "subform_of", "navigation", "shared_by"),
+    # MecmClient: WMI class names (SMS_FullCollectionMembership,
+    # SMS_UpdateComplianceStatus) do not say what a class holds or how its
+    # status codes read. The description is the only place that does, and
+    # `Table.description` is not persisted with the catalog.
+    "mecm": ("description",),
 }
 
 

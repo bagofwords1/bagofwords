@@ -56,6 +56,13 @@ DATA_SOURCES = [
     #                    "account_name": "customer1", "username": "admin",
     #                    "password": "Secret123!"}}
     "appdynamics",
+    # Remote mode: CrowdStrike ships no emulator/container for the Falcon API,
+    # so integrations.json points at either a real tenant (API client with read
+    # scopes) or the SDK-shaped simulator:
+    # `tools/crowdstrike/docker-compose.yaml` (mock_falcon.py) —
+    #   {"crowdstrike": {"enabled": true, "base_url": "http://localhost:8095",
+    #                    "client_id": "bow_api", "client_secret": "FalconSecret123!"}}
+    "crowdstrike",
     # Remote mode: no Aria Operations appliance can run in CI (OVA, needs ESXi
     # + a Broadcom entitlement), so integrations.json points at either a live
     # appliance or the spec-shaped simulator:
@@ -64,6 +71,14 @@ DATA_SOURCES = [
     #                        "auth_source": "LOCAL", "username": "admin",
     #                        "password": "Aria!2024"}}
     "aria_operations",
+    # Remote mode: Intune is SaaS-only (no container). integrations.json points
+    # at a real tenant's Entra app — or at the doc-shaped Graph stand-in
+    # `tools/intune/docker-compose.yaml` (mock_graph.py), in which case the run
+    # also needs BOW_GRAPH_BASE_URL=http://localhost:8095/v1.0 and
+    # BOW_GRAPH_TOKEN_BASE_URL=http://localhost:8095 in the environment:
+    #   {"intune": {"enabled": true, "tenant_id": "<tenant guid>",
+    #               "client_id": "intune-reader", "client_secret": "Reader123!"}}
+    "intune",
     # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
     # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
     # avoid pulling in elasticsearch-py's strict server-version handshake.
@@ -102,11 +117,25 @@ DATA_SOURCES = [
     # against a live account configured in integrations.json (skips otherwise):
     #   {"monday": {"enabled": true, "api_token": "..."}}
     "monday",
+    # Remote mode: Configuration Manager needs Windows Server + SQL + AD, so no
+    # container exists. Point integrations.json at a real lab (e.g. Microsoft's
+    # "Configuration Manager current branch" Azure quickstart template) or the
+    # protocol simulator `tools/mecm/mock_adminservice.py` (HTTPS + real NTLM):
+    #   {"mecm": {"enabled": true, "server_url": "localhost:8443",
+    #             "username": "CONTOSO\\svc_bow", "password": "Passw0rd!",
+    #             "ca_certificate": "-----BEGIN CERTIFICATE-----\n..."}}
+    "mecm",
     # Container mode (testcontainers k3s): the k3s admin kubeconfig is used ONLY
     # to seed tools/kubernetes/{rbac.yaml,manifests}; the client under test then
     # authenticates with the service-account access file exactly the way a
     # customer connection does. `{"kubernetes": {"enabled": true, "container": true}}`.
     "kubernetes",
+    # Remote mode: Azure Cost Management has no emulator, so this runs only
+    # against a live tenant configured in integrations.json (skips otherwise):
+    #   {"azure_cost": {"enabled": true, "scope": "/subscriptions/<id>",
+    #                   "tenant_id": "...", "client_id": "...", "client_secret": "..."}}
+    # For a deeper probe of the live API shape see verify_azure_cost.py.
+    "azure_cost",
 ]
 
 

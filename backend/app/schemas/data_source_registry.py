@@ -52,6 +52,8 @@ from app.schemas.data_sources.configs import (
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
+    CrowdStrikeConfig,
+    CrowdStrikeApiClientCredentials,
     KubernetesConfig,
     KubernetesAccessFileCredentials,
     ZabbixTokenCredentials,
@@ -88,6 +90,9 @@ from app.schemas.data_sources.configs import (
     JaegerNoAuthCredentials,
     JaegerBasicCredentials,
     JaegerBearerCredentials,
+    # Microsoft Intune
+    IntuneConfig,
+    IntuneCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -97,6 +102,10 @@ from app.schemas.data_sources.configs import (
     # Azure Data Explorer
     AzureDataExplorerConfig,
     AzureDataExplorerCredentials,
+    # Azure Cost Management
+    AzureCostConfig,
+    AzureCostServicePrincipalCredentials,
+    AzureCostDefaultCredentials,
     # Databricks SQL
     DatabricksSqlConfig,
     DatabricksSqlCredentials,
@@ -167,6 +176,10 @@ from app.schemas.data_sources.configs import (
     PriorityErpConfig,
     PriorityErpPatCredentials,
     PriorityErpBasicCredentials,
+    # Microsoft Configuration Manager (SCCM / MECM)
+    MecmConfig,
+    MecmNtlmCredentials,
+    MecmKerberosCredentials,
     # Oracle BI (OBIEE / OAS / OAC)
     OracleBIConfig,
     OracleBICredentials,
@@ -837,6 +850,48 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_nouns=("form", "forms"),
         version="beta",
     ),
+    "mecm": DataSourceRegistryEntry(
+        type="mecm",
+        category="infra",
+        title="Microsoft Configuration Manager (SCCM)",
+        description="Microsoft Configuration Manager (SCCM / MECM / ConfigMgr). Query devices, collections, hardware and software inventory, applications, deployments and software update compliance via the AdminService REST API. Read-only.",
+        config_schema=MecmConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            # The SMS Provider only speaks Windows auth. NTLM also offers the
+            # user scope: each person's own CM security scopes then filter what
+            # they see (bring-your-own Windows credentials).
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=MecmNtlmCredentials, scopes=["system", "user"]),
+            # Kerberos runs as a keytab-backed service account mounted on the
+            # server — one identity for everyone, so system scope only.
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=MecmKerberosCredentials, scopes=["system"]),
+        }),
+        setup_guide=[
+            SetupStep(
+                title="Give the account read access in Configuration Manager",
+                body="In the console go to Administration > Security > Administrative Users, add the account (or its AD group) and assign the Read-only Analyst role. Its security scopes and collections decide what Bag of Words can see.",
+            ),
+            SetupStep(
+                title="Check the administration service answers",
+                body="From a domain-joined machine, run this against your SMS Provider. It should list your site.",
+                code="Invoke-RestMethod -UseDefaultCredentials -Uri 'https://cm01.contoso.com/AdminService/wmi/SMS_Site'",
+                language="powershell",
+            ),
+            SetupStep(
+                title="Export the SMS Provider certificate",
+                body="The site binds a self-signed certificate by default. Run this in PowerShell on the SMS Provider and paste the output into SMS Provider certificate (PEM). Skip this if the certificate comes from a CA this server already trusts.",
+                code=(
+                    "$hash = ((netsh http show sslcert ipport=0.0.0.0:443) -match 'Certificate Hash' -split ':\\s*')[-1].Trim()\n"
+                    "$c = Get-Item \"Cert:\\LocalMachine\\My\\$hash\"\n"
+                    "'-----BEGIN CERTIFICATE-----'; [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks'); '-----END CERTIFICATE-----'"
+                ),
+                language="powershell",
+            ),
+        ],
+        client_path="app.data_sources.clients.mecm_client.MecmClient",
+        # Configuration Manager catalogs WMI classes, not database tables.
+        catalog_nouns=("class", "classes"),
+        version="beta",
+    ),
     "appdynamics": DataSourceRegistryEntry(
         type="appdynamics",
         category="infra",
@@ -854,6 +909,21 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "AppdynamicsClient".
         client_path="app.data_sources.clients.appdynamics_client.AppDynamicsClient",
+        version="beta",
+    ),
+    "crowdstrike": DataSourceRegistryEntry(
+        type="crowdstrike",
+        category="infra",
+        title="CrowdStrike Falcon",
+        description="Endpoint security platform. Query hosts, alerts, incidents, CrowdScore, Spotlight vulnerabilities, prevention policies and custom IOCs via the Falcon API (read-only).",
+        config_schema=CrowdStrikeConfig,
+        credentials_auth=AuthOptions(default="api_client", by_auth={
+            # OAuth2 client credentials — the only auth the Falcon API accepts.
+            # Per-user scope = each user brings an API client scoped to what
+            # they may see.
+            "api_client": AuthVariant(title="API Client (OAuth)", schema=CrowdStrikeApiClientCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.crowdstrike_client.CrowdStrikeClient",
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(
@@ -1068,6 +1138,33 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system", "user"])  # system
         }),
         client_path=None,
+        version="beta",
+    ),
+    "azure_cost": DataSourceRegistryEntry(
+        type="azure_cost",
+        category="infra",
+        title="Azure Cost Management",
+        description="Analyze Azure spend by service, resource group, resource, tag and time, and forecast where the month will land.",
+        config_schema=AzureCostConfig,
+        # Service principal is the common case. The default chain covers
+        # deployments inside Azure (managed identity / workload identity),
+        # where no secret should be stored at all.
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Service Principal (Entra ID App)",
+                    schema=AzureCostServicePrincipalCredentials,
+                    scopes=["system", "user"],
+                ),
+                "managed_identity": AuthVariant(
+                    title="Managed Identity / Default Azure Credential",
+                    schema=AzureCostDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.azure_cost_client.AzureCostClient",
         version="beta",
     ),
     "aws_cloudwatch": DataSourceRegistryEntry(
@@ -1639,6 +1736,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="shared",
         requires_license="enterprise",
+    ),
+    "intune": DataSourceRegistryEntry(
+        type="intune",
+        category="infra",
+        title="Microsoft Intune",
+        description="Query Intune device management — managed devices, compliance status per policy, configuration profiles, apps, discovered software and Autopilot — read-only through Microsoft Graph.",
+        config_schema=IntuneConfig,
+        credentials_auth=AuthOptions(default="service_principal", by_auth={
+            # App-only (client credentials) with read-only Graph application
+            # permissions. Intune data is tenant-wide inventory, so there is no
+            # per-user variant: a delegated token would need the user to hold
+            # an Intune RBAC role, which is an admin-only shape anyway.
+            "service_principal": AuthVariant(
+                title="Entra ID App (Service Principal)",
+                schema=IntuneCredentials,
+                scopes=["system"],
+            ),
+        }),
+        client_path="app.data_sources.clients.intune_client.IntuneClient",
+        data_shape="tables",
+        catalog_ownership="shared",
+        version="beta",
     ),
     "sharepoint_lists": DataSourceRegistryEntry(
         type="sharepoint_lists",

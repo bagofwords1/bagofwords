@@ -48,6 +48,10 @@ async def _agent_with_permission(
     readable by every member.
     """
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    from app.services.connected_application_service import agent_ceiling
+    ceiling = await agent_ceiling(db, organization.id)
+    if ceiling is not None and str(data_source_id) not in ceiling:
+        return None, resolved
     ds = (await db.execute(
         select(DataSource).where(
             DataSource.id == str(data_source_id),

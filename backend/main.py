@@ -335,10 +335,11 @@ app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 from app.routes import artifact_resources
 app.include_router(artifact_resources.router, prefix="/api")
-from app.routes import host_applications, embed, artifact_conversations, artifact_activity
+from app.routes import host_applications, embed, artifact_conversations, artifact_activity, connected_applications
 from app.core import request_origin
 request_origin.install()  # stamp conversations and agent runs with the app they came through
 app.include_router(host_applications.router, prefix="/api")
+app.include_router(connected_applications.router, prefix="/api")
 app.include_router(embed.router, prefix="/api")
 app.include_router(artifact_conversations.router, prefix="/api")
 app.include_router(artifact_activity.router, prefix="/api")

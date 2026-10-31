@@ -71,6 +71,7 @@ const normalizeType = (raw: string) => {
     if (t === 'qlik_sense' || t === 'qlik_sense_onprem') t = 'qlik'
     if (t === 'hana' || t === 'saphana') t = 'sap_hana'
     if (t === 'datasphere') t = 'sap_datasphere'
+    if (t === 'sccm' || t === 'configmgr' || t === 'memcm') t = 'mecm'
     // SAP BusinessObjects and BW reuse the generic SAP logo (sap_datasphere.png).
     if (t === 'businessobjects' || t === 'business_objects' || t === 'bobj' || t === 'sap_bo') t = 'sap_datasphere'
     if (t === 'sap_bw' || t === 'bw' || t === 'sap_bw_xmla' || t === 'bw4hana') t = 'sap_datasphere'
@@ -115,8 +116,10 @@ const iconPath = computed(() => {
         csv: 'csv.png',
         gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',
+        intune: 'intune.png',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
+        azure_cost: 'azure_cost.svg',
         // Same brand asset as the monday MCP preset (CONNECTOR_ICON_FILE above).
         monday: 'monday.svg',
     };

@@ -423,15 +423,27 @@ async def _has_own_run(db, release, user) -> bool:
     from app.models.query import Query
     from app.models.step import Step
     from app.models.step_user_result import StepUserResult
+    from app.services.dashboard_runs import needs_input_names
 
     if user is None:
         return False
-    return (await db.execute(
-        select(StepUserResult.id).join(Step, Step.id == StepUserResult.step_id)
+    rows = await db.stream(
+        select(StepUserResult.data).join(Step, Step.id == StepUserResult.step_id)
         .join(Query, Query.id == Step.query_id)
         .where(Query.artifact_release_id == str(release.id), StepUserResult.user_id == str(user.id),
-               StepUserResult.status == "success").limit(1)
-    )).scalar_one_or_none() is not None
+               StepUserResult.status == "success")
+        .order_by(StepUserResult.last_run_at.desc().nullslast(), StepUserResult.id)
+        .execution_options(yield_per=1)
+    )
+    # A wait for input is not a run of theirs (resolve_release_step): it holds no rows. The marker
+    # is inside the encrypted data, so it is read here, not in SQL.
+    try:
+        async for data in rows.scalars():
+            if not needs_input_names(data):
+                return True
+        return False
+    finally:
+        await rows.close()
 
 
 async def _release_pdf(db, artifact, release, user) -> str | None:
@@ -664,6 +676,8 @@ async def get_published_preview(
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(viewer_optional),
 ):
+    import re
+    import uuid as _uuid
     from pathlib import Path
 
     from fastapi.responses import FileResponse
@@ -675,14 +689,27 @@ async def get_published_preview(
     images = (release.content or {}).get("preview_images") or []
     if index < 0 or index >= len(images) or await _withheld_from(db, artifact, release, user, baked=True):
         raise dashboard_data.not_found()
+    # Build the base from a validated UUID, never a raw value: release.id is a
+    # DB-generated UUID, so parse it back through uuid.UUID() so only the 36
+    # hex/hyphen canonical chars can ever form the "release-<id>" segment (no
+    # separators, no traversal), independent of how `ref` resolved to it.
+    release_id = str(_uuid.UUID(str(release.id)))
     # Only the release's own copies (copy_dashboard writes them under
     # release-<id>/); a path it did not copy is not served.
-    own_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews" / f"release-{release.id}"
+    own_dir = Path(__file__).parent.parent.parent / "uploads" / "pptx_previews" / f"release-{release_id}"
+    # Defence-in-depth: the copy engine writes these as slide-<n>.png (the
+    # pptx_executor glob that produces them). Collapse the stored value to a
+    # bare basename and require that exact shape, so no directory component
+    # from it (e.g. a "../../main.py" the copy engine refused and left as-is)
+    # can reach the filesystem — before safe_join re-checks containment.
+    name = Path(str(images[index]).removeprefix(f"pptx_previews/release-{release_id}/")).name
+    if not re.fullmatch(r"slide-\d+\.png", name):
+        raise dashboard_data.not_found()
     try:
-        path = safe_join(own_dir, str(images[index]).removeprefix(f"pptx_previews/release-{release.id}/"))
+        path = safe_join(own_dir, name)
     except UnsafePathError:
         raise dashboard_data.not_found()
-    if not path.is_file() or path.suffix.lower() != ".png":
+    if not path.is_file():
         raise dashboard_data.not_found()
     return FileResponse(path=str(path), media_type="image/png")
 
@@ -836,7 +863,13 @@ async def create_dashboard_chat_completion(
     completion.prompt.step_id = None
     completion.prompt.mode = "chat"
     completion.prompt.platform = "artifact_chat"
+    host_context = dashboard_chat.sanitize_host_context((completion.prompt.platform_context or {}).get("host_context"))
     completion.prompt.platform_context = await dashboard_chat.build_context(db, artifact, release, agent_ids, user)
+    # The host's current context (the bubble inside a host application):
+    # advisory prompt text only. All other client-supplied platform context
+    # is replaced above; host context never controls access or queries.
+    if host_context:
+        completion.prompt.platform_context["host_context"] = host_context
     try:
         completion.queue = False
     except Exception:

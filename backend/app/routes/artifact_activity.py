@@ -1,15 +1,19 @@
-"""``POST /api/artifacts/{id}/runtime/activity``: the editor's page broker
-sends what happened in the app (services/artifact_activity.py).
+"""The app activity log over HTTP (services/artifact_activity.py).
+
+* ``POST /api/artifacts/{id}/runtime/activity``: the editor's page broker
+  sends what happened in the app.
+* ``GET /api/artifacts/{id}/runtime/activity``: the editor reads it back
+  (the Activity log panel), newest first.
 
 App sessions only (``current_user``: embed sessions never reach it), and only
 someone who edits the artifact, so viewers and host applications are never
-recorded.
+recorded and never read it.
 """
 from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,18 +63,76 @@ async def _report_for(db, artifact, user, report_id: Optional[str]) -> Optional[
     return None
 
 
-@router.post("/activity")
-async def record_activity(artifact_id: str, body: ActivityBatch, db: AsyncSession = Depends(get_async_db),
-                          user: User = Depends(current_user)):
+async def _editing(db, artifact_id: str, user: User, report_id: Optional[str]) -> tuple:
+    """The artifact and the conversation the person edits it in; 404 for
+    anyone else (viewers are told nothing, as if the artifact did not exist)."""
     from app.models.artifact import Artifact
 
     artifact = await db.get(Artifact, artifact_id)
     if artifact is None or artifact.deleted_at is not None:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
-    report_id = await _report_for(db, artifact, user, body.report_id)
+    report_id = await _report_for(db, artifact, user, report_id)
     if report_id is None:
-        # Viewers are never recorded; said like a missing artifact.
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    return artifact, report_id
+
+
+@router.get("/activity")
+async def read_activity(artifact_id: str, report_id: Optional[str] = None,
+                        only_errors: bool = False, source: Optional[str] = None,
+                        limit: int = Query(100, ge=1, le=200),
+                        db: AsyncSession = Depends(get_async_db), user: User = Depends(current_user)):
+    """The log as the Activity log panel shows it: newest first, each event
+    with its time, source, version and a one-line description."""
+    from sqlalchemy import select
+
+    artifact, rid = await _editing(db, artifact_id, user, report_id)
+    await admit(db, [str(artifact.id), str(user.id), "activity-read"], BATCHES_PER_MINUTE)
+    rows = await artifact_activity.recent(db, report_id=rid, artifact_id=str(artifact.id),
+                                          only_errors=only_errors, source=source, limit=limit)
+    with_payload = await artifact_activity.payload_event_ids(db, [e.id for e in rows])
+    user_ids = {str(e.user_id) for e in rows if e.user_id}
+    names = dict((await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))).all()) if user_ids else {}
+    return {
+        "events": [{
+            "id": e.id, "created_at": e.created_at.isoformat() + "Z" if e.created_at else None,
+            "kind": e.kind, "op": e.op, "source": e.source, "version": e.artifact_version, "status": e.status,
+            "error_code": e.error_code, "duration_ms": e.duration_ms, "failed": artifact_activity.is_failure(e),
+            "text": artifact_activity.describe(e), "detail": e.detail or {}, "session_id": e.session_id,
+            "user_name": names.get(str(e.user_id)) if e.user_id else None,
+            # A payload (request / response / stream) is private to whose session made it.
+            "has_payload": e.id in with_payload,
+            "payload_mine": e.id in with_payload and str(e.user_id) == str(user.id),
+        } for e in reversed(rows)],
+        "retention_days": artifact_activity.RETENTION_DAYS,
+        "keep_per_report": artifact_activity.KEEP_PER_REPORT,
+        "payload_retention_hours": artifact_activity.PAYLOAD_RETENTION_HOURS,
+    }
+
+
+@router.get("/activity/{event_id}/payload")
+async def read_activity_payload(artifact_id: str, event_id: str, report_id: Optional[str] = None,
+                                db: AsyncSession = Depends(get_async_db), user: User = Depends(current_user)):
+    """What one of the reader's own events carried: the request, the
+    response, the stream's events (redacted on the way in). Another
+    person's payload, or none, reads as not found."""
+    from app.models.artifact_activity import ArtifactActivityEvent
+
+    artifact, rid = await _editing(db, artifact_id, user, report_id)
+    await admit(db, [str(artifact.id), str(user.id), "activity-read"], BATCHES_PER_MINUTE)
+    event = await db.get(ArtifactActivityEvent, event_id)
+    if event is None or str(event.report_id) != str(rid) or str(event.artifact_id) != str(artifact.id):
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    payload = await artifact_activity.payload_for(db, event.id)
+    if payload is None or str(payload.user_id) != str(user.id):
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    return {"event_id": event.id, "request": payload.request, "response": payload.response, "stream": payload.stream}
+
+
+@router.post("/activity")
+async def record_activity(artifact_id: str, body: ActivityBatch, db: AsyncSession = Depends(get_async_db),
+                          user: User = Depends(current_user)):
+    artifact, report_id = await _editing(db, artifact_id, user, body.report_id)
     await admit(db, [str(artifact.id), str(user.id), "activity"], BATCHES_PER_MINUTE)
     stored = await artifact_activity.record(
         db, organization_id=str(artifact.organization_id), artifact_id=str(artifact.id), report_id=report_id,

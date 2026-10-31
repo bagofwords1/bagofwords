@@ -42,7 +42,37 @@ def _outcome(status: Any) -> Outcome:
     return Outcome.OUTCOME_UNKNOWN
 
 
-def _result_content(tool_execution: Any, outcome: Outcome) -> tuple[str, str | None]:
+def _hide_rows(body: dict) -> dict:
+    """A copy of ``body`` whose data previews carry no row values.
+
+    Stored summaries may hold rows captured while the organization still let
+    the model see data; once it no longer does, history must not replay them.
+    Shape (columns, row_count, stats) and references stay.
+    """
+    def _hidden(preview: Any) -> Any:
+        if not isinstance(preview, dict):
+            return preview
+        return {
+            **{key: value for key, value in preview.items() if key != "rows"},
+            "data_hidden": True,
+        }
+
+    hidden = dict(body)
+    if "data_preview" in hidden:
+        hidden["data_preview"] = _hidden(hidden["data_preview"])
+    if isinstance(hidden.get("results"), list):
+        hidden["results"] = [
+            {**item, "data_preview": _hidden(item["data_preview"])}
+            if isinstance(item, dict) and "data_preview" in item
+            else item
+            for item in hidden["results"]
+        ]
+    return hidden
+
+
+def _result_content(
+    tool_execution: Any, outcome: Outcome, allow_llm_see_data: bool = True
+) -> tuple[str, str | None]:
     if outcome is Outcome.OUTCOME_UNKNOWN:
         body = {
             "summary": (
@@ -68,6 +98,8 @@ def _result_content(tool_execution: Any, outcome: Outcome) -> tuple[str, str | N
             body = {**body, "error": tool_execution.error_message}
         if not body:
             body = {"summary": "The call completed without a stored result body."}
+        if not allow_llm_see_data:
+            body = _hide_rows(body)
 
     content = json.dumps(body, default=str, ensure_ascii=False, separators=(",", ":"))
     digest = getattr(tool_execution, "result_summary", None)
@@ -81,6 +113,7 @@ def build_durable_transcript(
     completions: list[Any],
     blocks_by_completion: dict[str, list[Any]],
     tool_exec_by_id: dict[str, Any],
+    allow_llm_see_data: bool = True,
 ) -> tuple[Transcript, set[str]]:
     """Build ordered, paired tool turns for the detailed message window.
 
@@ -176,7 +209,9 @@ def build_durable_transcript(
                     )
                 )
                 outcome = _outcome(getattr(tool_execution, "status", None))
-                content, digest = _result_content(tool_execution, outcome)
+                content, digest = _result_content(
+                    tool_execution, outcome, allow_llm_see_data
+                )
                 results.append(
                     ToolResultPart(
                         call_id=str(call_id),

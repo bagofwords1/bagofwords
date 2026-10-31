@@ -3,7 +3,7 @@
     <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
         <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-          {{ $t('settings.integrations.channels.oauth.title') }}
+          {{ $t(application ? 'connectedApps.oauth' : 'settings.integrations.channels.oauth.title') }}
         </h3>
         <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
           {{ $t('settings.integrations.channels.oauth.subtitle') }}
@@ -13,8 +13,8 @@
         <UButton color="gray" variant="ghost" size="sm" @click="showEndpointsModal = true">
           {{ $t('settings.integrations.channels.oauth.endpointReference') }}
         </UButton>
-        <UButton color="blue" size="sm" icon="i-heroicons-plus" @click="openCreate">
-          {{ $t('settings.integrations.channels.oauth.registerApp') }}
+        <UButton v-if="!application || !clients.length" color="blue" size="sm" icon="i-heroicons-plus" @click="openCreate">
+          {{ $t(application ? 'connectedApps.configureOAuth' : 'settings.integrations.channels.oauth.registerApp') }}
         </UButton>
       </div>
     </header>
@@ -39,13 +39,13 @@
       <div v-if="clients.length === 0" class="mt-6 rounded-xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
         <UIcon name="i-heroicons-key" class="mx-auto h-6 w-6 text-ink-muted" />
         <h4 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">
-          {{ $t('settings.integrations.channels.oauth.noneYet') }}
+          {{ $t(application ? 'connectedApps.oauthEmpty' : 'settings.integrations.channels.oauth.noneYet') }}
         </h4>
         <p class="mx-auto mt-1 max-w-sm text-xs leading-5 text-gray-500 dark:text-gray-400">
           {{ $t('settings.integrations.channels.oauth.emptyHelp') }}
         </p>
         <UButton class="mt-4" color="blue" variant="soft" size="sm" icon="i-heroicons-plus" @click="openCreate">
-          {{ $t('settings.integrations.channels.oauth.registerApp') }}
+          {{ $t(application ? 'connectedApps.configureOAuth' : 'settings.integrations.channels.oauth.registerApp') }}
         </UButton>
       </div>
 
@@ -119,7 +119,7 @@
           <div class="flex items-start justify-between gap-4">
             <div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                {{ formMode === 'create' ? $t('settings.integrations.channels.oauth.createTitle') : $t('settings.integrations.channels.oauth.editApp') }}
+                {{ formMode === 'create' ? $t(application ? 'connectedApps.configureOAuth' : 'settings.integrations.channels.oauth.createTitle') : $t('settings.integrations.channels.oauth.editApp') }}
               </h3>
               <p v-if="formMode === 'create'" class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
                 {{ $t('settings.integrations.channels.oauth.createHelp') }}
@@ -130,7 +130,7 @@
         </template>
 
         <form id="oauth-app-form" class="space-y-5" @submit.prevent="submitApp">
-          <div>
+          <div v-if="!application">
             <label class="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200">
               {{ $t('settings.integrations.channels.oauth.appName') }}
             </label>
@@ -244,7 +244,7 @@
               {{ $t('settings.integrations.channels.common.cancel') }}
             </UButton>
             <UButton form="oauth-app-form" type="submit" color="blue" size="sm" :loading="submitting" :disabled="!canSubmit">
-              {{ formMode === 'create' ? $t('settings.integrations.channels.oauth.registerApp') : $t('settings.integrations.channels.common.save') }}
+              {{ formMode === 'create' ? $t(application ? 'connectedApps.configureOAuth' : 'settings.integrations.channels.oauth.registerApp') : $t('settings.integrations.channels.common.save') }}
             </UButton>
           </div>
         </template>
@@ -324,6 +324,7 @@
 import { computed, onMounted, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
+const props = defineProps<{ application?: Record<string, any> }>()
 const emit = defineEmits<{ updated: [] }>()
 
 interface OAuthClient {
@@ -417,6 +418,7 @@ const clientActionItems = computed<Record<string, any[][]>>(() => {
         { label: t('settings.integrations.channels.oauth.delete'), icon: 'i-heroicons-trash', danger: true, click: () => remove(client) },
       ],
     ]
+    if (props.application) items[client.id] = items[client.id].slice(0, 1)
   }
   return items
 })
@@ -449,7 +451,7 @@ async function copy(value?: string) {
 function openCreate() {
   formMode.value = 'create'
   editingClient.value = null
-  formName.value = ''
+  formName.value = props.application?.name || ''
   formRedirectUris.value = import.meta.client ? `${window.location.origin}/oauth/callback` : ''
   formScopes.value = ['app']
   formTrusted.value = false
@@ -491,7 +493,7 @@ async function loadEntraProviders() {
 
 async function loadClients() {
   const response = await useMyFetch('/api/oauth/clients')
-  clients.value = (response.data.value as OAuthClient[]) || []
+  clients.value = ((response.data.value as OAuthClient[]) || []).filter(c => !props.application || c.id === props.application.id)
 }
 
 async function submitApp() {
@@ -502,7 +504,8 @@ async function submitApp() {
       const response = await useMyFetch('/api/oauth/clients', {
         method: 'POST',
         body: {
-          name: formName.value.trim(),
+          name: props.application?.name || formName.value.trim(),
+          ...(props.application ? { application_id: props.application.id } : {}),
           redirect_uris: parseUris(formRedirectUris.value),
           scopes: formScopes.value.join(' '),
           trusted: formTrusted.value,
@@ -519,7 +522,7 @@ async function submitApp() {
       const response = await useMyFetch(`/api/oauth/clients/${editingClient.value.id}`, {
         method: 'PATCH',
         body: {
-          name: formName.value.trim(),
+          ...(!props.application ? { name: formName.value.trim() } : {}),
           redirect_uris: parseUris(formRedirectUris.value),
           scopes: formScopes.value.join(' '),
           trusted: formTrusted.value,

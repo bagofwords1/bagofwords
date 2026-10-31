@@ -2,8 +2,8 @@
 
 A host application is one registered system ("Northwind ERP - production")
 that may frame artifacts and sign its users in to BOW. It is an organization
-integration, managed next to OAuth apps (Settings -> Integrations), never one
-per artifact. See docs/design/embedded-artifacts.md.
+capability of a ConnectedApplication, managed with OAuth in Settings, never
+one per artifact. See docs/design/embedded-artifacts.md.
 
 Trust model in one place:
 
@@ -33,18 +33,16 @@ pass the artifact's normal sharing.
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
-from app.models.base import BaseSchema
+from app.models.base import Base, BaseSchema
+from app.models.connected_application import ApplicationConfiguration
 
 IDENTITY_MODES = ("assertion", "idp_token", "sso")
 
 
-class HostApplication(BaseSchema):
-    __tablename__ = "host_applications"
+class HostApplication(ApplicationConfiguration, Base):
+    __tablename__ = "application_embedding_config"
 
-    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     public_id = Column(String(40), nullable=False, unique=True, index=True)
-    name = Column(String(120), nullable=False)
-    enabled = Column(Boolean, nullable=False, default=True, server_default="1")
     allowed_origins = Column(JSON, nullable=False, default=list)
 
     identity_mode = Column(String(16), nullable=False, default="assertion", server_default="assertion")
@@ -60,9 +58,7 @@ class HostApplication(BaseSchema):
 
     epoch = Column(Integer, nullable=False, default=1, server_default="1")
     revision = Column(Integer, nullable=False, default=1, server_default="1")
-    created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
-    organization = relationship("Organization")
 
 
 class ArtifactHostApplication(BaseSchema):
@@ -74,7 +70,7 @@ class ArtifactHostApplication(BaseSchema):
     )
 
     artifact_id = Column(String(36), ForeignKey("artifacts.id", ondelete="CASCADE"), nullable=False, index=True)
-    host_application_id = Column(String(36), ForeignKey("host_applications.id", ondelete="CASCADE"),
+    host_application_id = Column(String(36), ForeignKey("application_embedding_config.id", ondelete="CASCADE"),
                                  nullable=False, index=True)
     created_by_user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
@@ -86,7 +82,7 @@ class HostAssertionReplay(BaseSchema):
         UniqueConstraint("host_application_id", "jti", name="uq_host_assertion_replays_host_jti"),
     )
 
-    host_application_id = Column(String(36), ForeignKey("host_applications.id", ondelete="CASCADE"),
+    host_application_id = Column(String(36), ForeignKey("application_embedding_config.id", ondelete="CASCADE"),
                                  nullable=False, index=True)
     jti = Column(String(255), nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
