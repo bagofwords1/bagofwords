@@ -90,6 +90,8 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     linear: 'linear.png',
     sentry: 'sentry.png',
     github: 'github.svg',
+    gitlab: 'gitlab.svg',
+    bitbucket: 'bitbucket.svg',
     gmail: 'gmail.png',
     google_drive: 'google_drive.png',
     x: 'x.svg',

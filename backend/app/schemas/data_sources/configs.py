@@ -4048,6 +4048,22 @@ class MCPBearerCredentials(BaseModel):
     )
 
 
+class MCPBasicCredentials(BaseModel):
+    """HTTP Basic credentials, e.g. an Atlassian account email + API token."""
+    username: str = Field(
+        ...,
+        title="Email / username",
+        description="Account email or username (sent as the Basic auth user)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="API token",
+        description="API token or password (sent as the Basic auth password)",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
 class MCPOAuthAppCredentials(BaseModel):
     """Pre-configured OAuth client for an MCP server.
 
@@ -4348,6 +4364,7 @@ __all__ = [
     "MCPConfig",
     "MCPNoAuthCredentials",
     "MCPBearerCredentials",
+    "MCPBasicCredentials",
     "MCPOAuthAppCredentials",
     # Custom API
     "CustomAPIConfig",
