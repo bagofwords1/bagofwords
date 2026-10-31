@@ -81,6 +81,22 @@ def test_local_interaction_recommends_verification():
     assert hint["next_tool_input"] == {"artifact_id": "artifact-modal"}
 
 
+def test_a_chat_built_from_the_chat_components_recommends_verification():
+    # The chat components hold their own state and handlers: the app's code
+    # has useConversation() and no useState or onClick of its own.
+    hint = build_artifact_verification_hint(
+        artifact_id="artifact-chat",
+        version=1,
+        code=("function App() {\n  const chat = useConversation();\n  return (<div><ChatThreads chat={chat} />"
+              "<ChatMessages chat={chat} /><ChatComposer chat={chat} /></div>);\n}"),
+        available=True,
+    )
+
+    assert hint["recommended"] is True
+    assert "interactive_app" in hint["reason_codes"]
+    assert hint["next_tool_input"] == {"artifact_id": "artifact-chat"}
+
+
 def test_identity_parameters_alone_do_not_make_a_page_complex():
     hint = build_artifact_verification_hint(
         artifact_id="artifact-identity",

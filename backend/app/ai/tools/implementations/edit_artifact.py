@@ -25,6 +25,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
+from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
@@ -95,6 +96,7 @@ class EditArtifactTool(Tool):
             },
         )
 
+    @with_automatic_artifact_check
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = EditArtifactInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": "Apply artifact edit"})

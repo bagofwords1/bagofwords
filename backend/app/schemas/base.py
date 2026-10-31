@@ -8,7 +8,7 @@ This fixes JavaScript's Date parsing which interprets naive datetime strings as 
 from datetime import datetime, timezone
 from typing import Annotated, Optional
 
-from pydantic import BaseModel, ConfigDict, PlainSerializer
+from pydantic import AfterValidator, BaseModel, ConfigDict, PlainSerializer
 
 
 def serialize_datetime_utc(value: datetime | None) -> str | None:
@@ -41,6 +41,28 @@ UTCDatetime = Annotated[
 OptionalUTCDatetime = Annotated[
     Optional[datetime],
     PlainSerializer(serialize_datetime_utc, return_type=Optional[str])
+]
+
+
+def to_naive_utc(value: datetime | None) -> datetime | None:
+    """
+    Normalize a datetime input to naive UTC, the form the DateTime columns hold.
+
+    - Naive input already means UTC and is returned unchanged
+    - Timezone-aware input is converted to the same instant in naive UTC
+    - Returns None for None values
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+# Input type for nullable datetime fields stored in naive UTC columns (expiry
+# inputs): an offset-aware value is stored as the same instant, and the
+# services can compare it with naive datetime.utcnow().
+OptionalNaiveUTCInput = Annotated[
+    Optional[datetime],
+    AfterValidator(to_naive_utc)
 ]
 
 
