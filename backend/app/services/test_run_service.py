@@ -1,3 +1,4 @@
+from app.services.worker_recovery import monitored
 from typing import Optional, List, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -9,11 +10,9 @@ import uuid
 
 
 # --- Durable run-finished wake dispatch ---------------------------------------
-# The wake that resumes the origin chat when an agent-started eval run finishes
-# is dispatched as a one-shot APScheduler job (same durable pattern as
-# WaitService.run_wait_wake), NOT an in-process asyncio task. The shared
-# jobstore IS the queue: a worker that dies before the job runs recovers it on
-# restart via misfire_grace_time — no lost wakes, and no recurring poll.
+# A receipt is persisted before arming the timer. A periodic sweep also repairs
+# the finalize-to-enqueue gap from TestRun.wake_on_finish. Agent creation and
+# receipt checkpoint share a transaction; interrupted agent effects aren't replayed.
 _EVAL_WAKE_PREFIX = "eval_wake:"
 
 
@@ -24,20 +23,11 @@ def _eval_wake_job_id(run_id: str) -> str:
 
 
 async def run_eval_wake(job_id: str, run_id: str) -> None:
-    """APScheduler callback: deliver the run-finished wake for ``run_id``.
-
-    Every worker runs its own scheduler against the shared jobstore, so this
-    may fire on more than one — the cross-worker claim lets exactly one
-    proceed. Idempotency across separate fires (e.g. a misfire re-run after a
-    crash) is handled by ``wake_on_finish``: it is cleared only after the wake
-    completion is created, so a crash mid-delivery re-fires (at-least-once,
-    absorbed by the 'already handled, acknowledge and stop' wake guidance)
-    rather than dropping the notification.
-    """
-    from app.core.scheduler import claim_scheduled_run
-    if not await asyncio.to_thread(claim_scheduled_run, job_id):
-        return
-    await TestRunService()._fire_eval_wake(run_id)
+    """Wake hint for legacy timers; durable consumers own the execution."""
+    from app.services.background_jobs import enqueue, session_factory
+    async with session_factory()() as db:
+        await enqueue(db, key=job_id, kind='eval_wake', payload={'run_id': run_id})
+        await db.commit()
 
 
 def _agent_metadata_from_execution(ae) -> Dict[str, Any]:
@@ -803,6 +793,9 @@ class TestRunService:
         await self._apply_case_fixtures(db, organization, current_user, cases)
 
         requested_case_ids = {str(c.id) for c in cases}
+        from app.services.worker_recovery import recover_evals
+        candidates = await self._org_in_progress_runs(db, str(organization.id))
+        await recover_evals(db, [str(r.id) for r in candidates])
         in_progress_runs = await self._org_in_progress_runs(db, str(organization.id))
 
         # Resolve build_id up front (provided, else current main) so dedupe
@@ -1099,6 +1092,8 @@ class TestRunService:
         statuses = [getattr(r, "status", "") for r in rows]
         if not rows or any(s not in RESULT_TERMINAL_STATUSES for s in statuses):
             return None
+        from app.services.worker_recovery import require_running
+        await require_running(session, TestRun, run_id, "in_progress")
         run.finished_at = run.finished_at or datetime.utcnow()
         if any(s == "stopped" for s in statuses):
             run.status = "stopped"
@@ -1115,17 +1110,16 @@ class TestRunService:
     def _schedule_eval_wake(self, run_id: str) -> None:
         """Arm the durable run-finished wake for a run.
 
-        Registers a one-shot APScheduler job on the shared jobstore (same
-        pattern as WaitService). Fires ~immediately in the normal case; if the
-        worker dies before it runs, it recovers on restart via
-        misfire_grace_time. Idempotent by ``run_id`` — a second schedule for
-        the same run replaces the first, so the finalizer and a live
-        ``stream_run`` client both calling this collapse to one job. Best-effort:
-        a scheduler hiccup must never block run finalization.
+        Persist a receipt before registering the one-shot timer. The independent
+        consumer delivers it even after APScheduler removes the timer at dispatch.
+        The run ID deduplicates finalizer/stream callers; recovery repairs the
+        intent from wake_on_finish if scheduling fails after run finalization.
         """
         try:
             from app.core.scheduler import scheduler
             job_id = _eval_wake_job_id(str(run_id))
+            from app.services.background_jobs import enqueue_sync
+            enqueue_sync(key=job_id, kind='eval_wake', payload={'run_id': str(run_id)})
             scheduler.add_job(
                 func=run_eval_wake,
                 trigger="date",
@@ -1141,12 +1135,9 @@ class TestRunService:
     async def _fire_eval_wake(self, run_id: str) -> None:
         """Deliver the wake-on-finish completion for a terminal run.
 
-        Ordering is deliberate: the wake completion is created FIRST, and
-        ``wake_on_finish`` is cleared only AFTER it succeeds. So a crash between
-        the two re-fires (the durable job / a later schedule finds the flag
-        still set) rather than silently dropping the notification — at-least-once
-        delivery, with duplicates absorbed by the 'already handled, acknowledge
-        and stop' text in the wake prompt.
+        Clear wake_on_finish after delivery. A durable receipt retries only
+        before the agent completion is committed; interrupted agent execution
+        is surfaced as an error instead of replaying its side effects.
         """
         async_session = create_async_session_factory()
         try:
@@ -1242,6 +1233,7 @@ class TestRunService:
                     await session.commit()
         except Exception as e:
             logging.error(f"eval wake for run {run_id} failed: {e}")
+            raise
 
     async def _evaluate_report_result(
         self,
@@ -1427,6 +1419,7 @@ class TestRunService:
                 except Exception:
                     pass
 
+    @monitored(TestRun, 'run_id', 'in_progress')
     async def _watch_and_finalize(
         self,
         *,

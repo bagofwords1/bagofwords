@@ -797,6 +797,15 @@ async def startup_event():
     # above — those are the ones that fanned out to N workers.
     scheduler.start()
 
+    # Independent of leader election: each process can recover another one.
+    from app.services.background_jobs import BackgroundWorker
+    from app.services.worker_recovery import run_recovery
+    import asyncio as _jobs_asyncio
+    app.state.delivery_workers = [
+        _jobs_asyncio.create_task(BackgroundWorker().run()) for _ in range(2)
+    ]
+    app.state.recovery_task = _jobs_asyncio.create_task(run_recovery())
+
     if is_scheduler_leader:
         # Re-register scheduled prompt jobs and move dashboard refresh jobs onto
         # their org timezone (only the leader flushes these to the jobstore;
@@ -922,6 +931,17 @@ Starting server with configuration:
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    import asyncio
+    import contextlib
+    tasks = list(getattr(app.state, 'delivery_workers', []))
+    recovery = getattr(app.state, 'recovery_task', None)
+    if recovery is not None:
+        tasks.append(recovery)
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
     await stop_tool_audit_worker()
     dashboard_jobs_task = getattr(app.state, "dashboard_jobs_task", None)
     if dashboard_jobs_task is not None:

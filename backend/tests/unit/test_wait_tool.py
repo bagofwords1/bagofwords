@@ -142,6 +142,7 @@ async def test_happy_path_arms_and_terminates():
 
 
 @pytest.mark.asyncio
+@pytest.mark.db
 async def test_service_arms_one_shot_date_job():
     from app.services import wait_service as ws
 
@@ -160,6 +161,7 @@ async def test_service_arms_one_shot_date_job():
         assert kwargs["kwargs"]["reason"] == "retry later"
 
 
+@pytest.mark.db
 def test_service_cancel_removes_job():
     from app.services import wait_service as ws
 

@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from fastapi import APIRouter, Request
@@ -93,6 +92,15 @@ async def receive_webhook(token: str, request: Request):
 
         webhook_id = str(wh.id)
 
-    # Heavy work (event entry, classify, agent) runs in the background.
-    asyncio.create_task(webhook_service.process_delivery(webhook_id, payload, headers))
+        from app.services.background_jobs import enqueue
+        import hashlib
+        import uuid
+        delivery_id = adapter.event_id(headers, payload)
+        identity = hashlib.sha256(str(delivery_id).encode()).hexdigest() if delivery_id else str(uuid.uuid4())
+        await enqueue(db, key=f'webhook:{webhook_id}:{identity}', kind='webhook', payload={
+            'webhook_id': webhook_id, 'payload': payload,
+            'headers': webhook_service._safe_headers(headers),
+        })
+        await db.commit()
+    # Accepted only after the durable delivery commits.
     return JSONResponse(status_code=200, content={"status": "accepted"})

@@ -13,8 +13,8 @@ stop the wake:
 Service accounts are inactive by construction, so ``is_active`` alone must not
 block a service account that is still bound to the org.
 
-The LLM boundary (``run_machine_turn``) and the cross-worker run claim are
-stubbed. Everything else, including the DB, is real.
+The machine turn is stubbed to isolate delivery-time access checks.
+The DB is real; receipt ownership is covered separately.
 """
 import uuid
 from datetime import datetime
@@ -69,9 +69,8 @@ async def _fire(report_id, user_id, org_id) -> bool:
     async def _fake_turn(*args, **kwargs):
         calls.append(kwargs)
 
-    with patch.object(ws, "claim_scheduled_run", lambda job_id: True), \
-         patch("app.services.machine_turn.run_machine_turn", _fake_turn):
-        await ws.run_wait_wake(
+    with patch("app.services.machine_turn.run_machine_turn", _fake_turn):
+        await ws.deliver_wait_wake(
             job_id=f"wait:{report_id}:{uuid.uuid4().hex[:6]}", report_id=report_id,
             user_id=user_id, organization_id=org_id, reason="check again",
         )
