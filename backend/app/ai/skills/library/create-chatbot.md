@@ -55,6 +55,14 @@ queries, dashboard cards, record collections, or separate AI resource.
 - Send only on a user action. Starter questions must work, and opening the app
   must not spend tokens. Preserve unsent input after errors. Show an unavailable
   policy reason instead of a usable composer when chat cannot run.
+- Keep thinking hidden by default: omit `showThinking` on `ChatMessages` and
+  `ChatMessage`, or set it to `false`. Show the normal working indicator and
+  tool progress instead. Only when the user requests thinking display, set
+  `showThinking={true}` and translate `labels.thinking`; it renders separately
+  in a collapsed section. Do not mix `message.thinking` into the answer or
+  steps. Thinking depends on what the model emits; this display option does
+  not enable model reasoning. Hiding it is not an access-control boundary:
+  the authenticated viewer still receives thinking in the API/SDK.
 - Use the SDK's safe Markdown rendering and structured results. Render actual
   tool progress, tables, and supported chart hints; never invent results or
   reconstruct chart values from answer text. Do not promise a tool-specific UI

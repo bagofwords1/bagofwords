@@ -2,7 +2,7 @@
 
 ARTIFACT_SDK_REFERENCE = r"""
 ARTIFACT RESOURCE SDK v1
-Artifacts can be interactive applications without analytical visualizations.
+Artifacts may be apps without analytical visualizations.
 Keep useArtifactData(), vizById(id), useParams(), useParamOptions(), useFilters()
 and useCurrentUser() unchanged for existing analytical data; bow.data exposes
 those same helpers. Do not replace analytical queries with record collections.
@@ -54,19 +54,16 @@ for await (const event of bow.ai.stream(operationName,
 // Catch errors using error.code: VALIDATION, FORBIDDEN, CONFLICT, QUOTA_EXCEEDED,
 // UNAVAILABLE, INTERRUPTED, ABORTED. Preserve input on conflict. Respect current
 // server permissions; no raw fetch, credentials, parent DOM or browser storage.
-CONVERSATIONS: chat-assistant apps talk to the organization's agents (their
-tools and data access, as the viewer), not to a bare model. Use bow.conversations for that; use bow.ai only for one-off
-text operations without data. On Auto, conversations may use every agent the
-viewer can use (or the owner's subset); the model is the
-owner's choice or the viewer's default. No setting needs switching on. Pass
-`agents` only when the user asks to narrow a conversation. Each viewer sees
-only their own conversations. When policy().available is false, show its reason
-(auth_required, not_member, no_agents) instead of the composer.
+CONVERSATIONS: use bow.conversations for agent chat with the viewer's tools/data;
+bow.ai is for one-off text. Auto uses accessible agents within the owner's policy.
+The model is the owner's choice or viewer default. Pass agents only to narrow on
+request. Conversations are private to their viewer. If policy().available is false,
+show its reason (auth_required, not_member, no_agents) instead of the composer.
 CHAT BUILDING BLOCKS (sandbox globals): build every chat with the agents from these; do not write the
 send loop, stream handling, composer keys, scrolling or result rendering yourself.
 const chat = useConversation({conversationId, title}); // optional; use chat.select(id) to switch; omit title: each conversation is named after its first question; call once atop the component; reopens a running answer
 // {messages, conversations, conversationId, policy, loading, sending, answering, error, hasOlder, loadingOlder, send, stop, select, newConversation, reload, loadOlder, rename, archive}
-// messages: [{id,role:'user'|'assistant',text,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
+// messages: [{id,role:'user'|'assistant',text,thinking,steps,status,created_at,tools:[...],results:[...],results_incomplete}],
 //   live while streaming (status 'in_progress'), then re-read; text is the last block, steps the earlier blocks: custom renderers must show both.
 // conversations: [{id,title,created_at,updated_at,in_progress}]. error: null or {code,message}.
 // chat.send(text) on a user action only (creates on first send; ignored while answering);
@@ -79,13 +76,15 @@ const chat = useConversation({conversationId, title}); // optional; use chat.sel
 //   (showTools={false} hides them), each result as a ChatResult, incomplete and running markers.
 // ChatMessages and ChatMessage take showResults={false} to hide tables/charts and their incomplete note while keeping Markdown and steps.
 <ChatResult result={r}/>   // one result alone: table always, chart only for a valid hint, truncation note
-// All take labels={{rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired,conversations,newConversation,rename,archive,archiveConfirm,cancel}}:
+// showThinking={true} opts ChatMessages/ChatMessage into a collapsed section (default false).
+// message.thinking survives history; only when emitted. Hiding is not access control.
+// All take labels={{thinking,rowsShown,columnsShown,partial,incomplete,inProgress,steps,failed,stopped,olderMessages,jumpToLatest,send,stop,unavailable,authRequired,conversations,newConversation,rename,archive,archiveConfirm,cancel}}:
 //   their visible texts, English when missing: pass every one in the app's language ({shown} and {total} fill rowsShown/columnsShown).
 function App(){const chat=useConversation();
   return <div className="flex h-screen"><ChatThreads chat={chat}/><div className="flex min-w-0 flex-1 flex-col">
     <ChatMessages chat={chat} empty={<ChatSuggestions chat={chat} items={['Revenue by month?']}/>}/>
     <ChatComposer chat={chat}/></div></div>;}
-You arrange them; style around them, not inside them.
+Style around these components, not inside them.
 LOW LEVEL (only for what the building blocks cannot do):
 const policy = await bow.conversations.policy(); // {available,reason?,agents_mode:'auto'|'limited',agents:[{id,name}],model:{id,name,source}}
 const {items, next_before} = await bow.conversations.list({limit: 20, before}); // newest first, items as chat.conversations
@@ -94,6 +93,7 @@ await bow.conversations.rename(conv.id, title); await bow.conversations.archive(
 const history = await bow.conversations.messages(conv.id, {limit: 30, before}); // {items,next_before}: oldest first, as
 //   chat.messages; results?:[...] and tools?:[...] only on assistant items: render tool.title || tool.name, never the object.
 for await (const event of bow.conversations.send(conv.id, userText, {signal: abortController.signal})) {
+  // thinking_delta {block,text}: append reasoning; thinking {block,text}: replace that reasoning block (including empty text).
   // started {message_id}; tool {id,name,title,status}; text_delta {block,text}: append; text {block,text}: replace that block;
   // result {id,block,title,columns:[{field,headerName,type}],rows,row_count,column_count,truncated,chart}: before completed, keep
   //   on that message by id; chart is null or {type, x:field, y:[field], series:field|null, aggregate?:'count'} (count: rows per x):

@@ -1108,3 +1108,35 @@ async def test_a_tool_lookup_that_keeps_failing_warns_once_then_logs_at_debug(mo
     assert len(failed) >= 3
     assert [r.levelno for r in failed] == [logging.WARNING] + [logging.DEBUG] * (len(failed) - 1)
     assert failed[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_reasoning_stream_and_history_stay_separate_from_answer():
+    t = await _thread(status="success")
+    seeded = await _seed(t)
+    # Only the agent writes completion blocks; seed its persisted output here.
+    async with async_session_maker() as db:
+        block = await db.get(CompletionBlock, seeded.block)
+        block.reasoning = "Check the totals."
+        block.content = "The total is 42."
+        await db.commit()
+        saved = (await _history(t, db))[t.message]
+    assert saved["thinking"] == "Check the totals."
+    assert saved["text"] == "The total is 42."
+    events = await read_all(stream(t, FakeSSE([
+        started(t),
+        _frame("block.delta.token", {"block_id": "a", "field": "reasoning", "token": "Check "}),
+        text("The total is 42."),
+        _frame("block.delta.text", {"block_id": "a", "field": "reasoning", "text": "Check the totals."}),
+        _frame("block.delta.token", {"block_id": "b", "field": "reasoning", "token": "Done."}),
+        _frame("block.delta.text", {"block_id": "b", "field": "reasoning", "text": ""}),
+        finished(),
+    ])))
+    assert [e for e in events if e["type"].startswith("thinking")] == [
+        {"type": "thinking_delta", "block": "a", "text": "Check "},
+        {"type": "thinking", "block": "a", "text": "Check the totals."},
+        {"type": "thinking_delta", "block": "b", "text": "Done."},
+        {"type": "thinking", "block": "b", "text": ""},
+    ]
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == ["The total is 42."]
+    assert events[-1]["type"] == "completed"
