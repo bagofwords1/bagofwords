@@ -1,7 +1,7 @@
 """What an app activity event carried: request, response, stream
 
 Revision ID: payload01
-Revises: origin01
+Revises: mrgheads11
 Create Date: 2026-10-31
 
 ``artifact_activity_payloads``: one optional row per activity event, private
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "payload01"
-down_revision: str | None = "origin01"
+down_revision: str | None = "mrgheads11"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
