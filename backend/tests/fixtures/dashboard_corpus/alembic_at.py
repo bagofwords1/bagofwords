@@ -112,7 +112,7 @@ def downgrade_test_db_to_base() -> None:
 # code at head reads their tables and columns, so a corpus stopped before the
 # data migration gets them too: their upgrade() runs on its own, unstamped,
 # and is idempotent, so a later `upgrade head` finds it done.
-SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01")
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01")
 
 
 def apply_schema_only_revisions(url: str) -> None:

@@ -1522,6 +1522,8 @@ class DataSourceService:
             query = query.filter(or_(*clauses))
         result = await db.execute(query)
         data_sources = result.scalars().all()
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
         # Non-published agents (draft/disabled) are only visible to managers.
         is_gov, manage_ids, resolved = await self._publish_visibility(db, current_user, organization)
         # Batch the per-connection indexing + table-count lookups across the
@@ -1720,6 +1722,8 @@ class DataSourceService:
 
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
 
         # Batch the per-connection indexing + table-count lookups across the
         # whole list so building N agents doesn't issue N×(queries) — the N+1
@@ -2895,6 +2899,8 @@ class DataSourceService:
 
         With no current_user (system/scheduled contexts) nothing is filtered.
         """
+        from app.services.connected_application_service import filter_agents
+        data_sources = await filter_agents(db, data_sources, organization.id)
         if current_user is None:
             return list(data_sources or [])
 
@@ -3000,6 +3006,10 @@ class DataSourceService:
         # sources regardless of what a (possibly stale or hand-crafted) report
         # snapshot claims. `current_user is None` means a trusted system/scheduled
         # context, which is not filtered (mirrors filter_user_*_data_sources).
+        from app.services.connected_application_service import agent_ceiling
+        ceiling = await agent_ceiling(db, data_source.organization_id)
+        if ceiling is not None and str(data_source.id) not in ceiling:
+            raise AppError.forbidden(ErrorCode.APPLICATION_AGENT_FORBIDDEN, "Application has no access to this agent")
         if current_user is not None:
             from app.core.permission_resolver import user_can_access_data_source
             if not await user_can_access_data_source(

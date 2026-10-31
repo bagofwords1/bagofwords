@@ -191,12 +191,12 @@ export default defineNuxtConfig({
             // changeOrigin rewrites Host to the upstream, so the backend would
             // otherwise derive OAuth redirect_uri from 127.0.0.1:8000. Pass the
             // X-Forwarded-Host/Proto of a proxy in front of us (ingress, tunnel)
-            // through unchanged, and only default to localhost:3000 over http
-            // for direct local dev. Set on proxyReq because static `headers`
-            // would overwrite the incoming values.
+            // through unchanged, and preserve the incoming Host for direct
+            // local dev (including non-default ports). Set on proxyReq because
+            // static `headers` would overwrite the incoming values.
             configure: (proxy) => {
                 proxy.on('proxyReq', (proxyReq, req) => {
-                    proxyReq.setHeader('X-Forwarded-Host', req.headers['x-forwarded-host'] || 'localhost:3000')
+                    proxyReq.setHeader('X-Forwarded-Host', req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000')
                     proxyReq.setHeader('X-Forwarded-Proto', req.headers['x-forwarded-proto'] || 'http')
                 })
             }

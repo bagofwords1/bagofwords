@@ -5,19 +5,19 @@
   <section class="pb-10" data-testid="host-apps">
     <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('hostApps.title') }}</h3>
-        <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">{{ $t('hostApps.subtitle') }}</p>
+        <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t(application ? 'connectedApps.embedding' : 'hostApps.title') }}</h3>
+        <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">{{ $t(application ? 'connectedApps.embeddingHelp' : 'hostApps.subtitle') }}</p>
       </div>
-      <UButton v-if="!editing" color="gray" variant="soft" size="sm" icon="i-heroicons-plus" data-testid="host-app-add" @click="editing = 'new'">
-        {{ $t('hostApps.add') }}
+      <UButton v-if="!editing && (!application || !hosts.length)" color="gray" variant="soft" size="sm" icon="i-heroicons-plus" data-testid="host-app-add" @click="editing = 'new'">
+        {{ $t(application ? 'connectedApps.configureEmbedding' : 'hostApps.add') }}
       </UButton>
     </header>
 
     <div v-if="editing" class="mt-6 max-w-xl">
       <h4 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
-        {{ editing === 'new' ? $t('hostApps.add') : $t('hostApps.edit', { name: editing.name }) }}
+        {{ editing === 'new' ? $t(application ? 'connectedApps.configureEmbedding' : 'hostApps.add') : $t('hostApps.edit', { name: editing.name }) }}
       </h4>
-      <HostApplicationForm :host="editing === 'new' ? null : editing" @saved="onSaved" @cancel="editing = null" />
+      <HostApplicationForm :application="application" :host="editing === 'new' ? null : editing" @saved="onSaved" @cancel="editing = null" />
     </div>
 
     <div v-else-if="loading" class="flex items-center justify-center py-20">
@@ -26,7 +26,7 @@
 
     <div v-else-if="hosts.length === 0" class="mt-6 rounded-xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
       <UIcon name="i-heroicons-window" class="mx-auto h-6 w-6 text-ink-muted" />
-      <h4 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">{{ $t('hostApps.noneYet') }}</h4>
+      <h4 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">{{ $t(application ? 'connectedApps.embeddingEmpty' : 'hostApps.noneYet') }}</h4>
       <p class="mx-auto mt-1 max-w-sm text-xs leading-5 text-gray-500 dark:text-gray-400">{{ $t('hostApps.emptyHelp') }}</p>
     </div>
 
@@ -51,7 +51,7 @@
               {{ $t('hostApps.usageValue', { sessions: host.active_sessions, artifacts: host.artifacts }) }}
             </p>
           </div>
-          <UToggle :model-value="host.enabled" :loading="busy === host.id" size="sm" data-testid="host-app-enabled"
+          <UToggle v-if="!application" :model-value="host.enabled" :loading="busy === host.id" size="sm" data-testid="host-app-enabled"
                    @update:model-value="setEnabled(host, $event)" />
           <UDropdown :items="actions(host)" :popper="{ placement: 'bottom-end' }">
             <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-ellipsis-horizontal" :aria-label="$t('hostApps.actions')" />
@@ -81,6 +81,7 @@ import HostApplicationForm from '~/components/embed/HostApplicationForm.vue'
 import EmbedCode from '~/components/embed/EmbedCode.vue'
 import { EXAMPLE_LANGS, backendExample, type ExampleLang } from '~/utils/embedExamples'
 
+const props = defineProps<{ application?: Record<string, any> }>()
 const emit = defineEmits<{ (e: 'updated'): void }>()
 const { t } = useI18n()
 const toast = useToast()
@@ -99,7 +100,7 @@ const modeLabel = (mode: string) => ({
 
 async function load() {
   const { data } = await useMyFetch('/api/host_applications')
-  hosts.value = (data.value as any[]) || []
+  hosts.value = ((data.value as any[]) || []).filter(h => !props.application || h.id === props.application.id)
   loading.value = false
 }
 
@@ -139,7 +140,7 @@ function actions(host: any) {
     click: () => confirm(t('hostApps.revokeConfirm')) && call(host, '/revoke_sessions', { method: 'POST' },
       () => toast.add({ title: t('hostApps.revoked') })),
   })
-  items.push({
+  if (!props.application) items.push({
     label: t('hostApps.delete'), icon: 'i-heroicons-trash',
     click: () => confirm(t('hostApps.deleteConfirm', { name: host.name })) && call(host, '', { method: 'DELETE' }),
   })

@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><title>BOW thinking display verification</title>
+<script src="/libs/react-18.production.min.js"></script><script src="/libs/react-dom-18.production.min.js"></script>
+<script src="/libs/echarts-5.min.js"></script><style>body{font:16px system-ui;background:#f4f6fa;color:#172033;padding:40px}main{max-width:700px;margin:auto;background:white;padding:28px;border:1px solid #ddd;border-radius:12px}button{padding:10px;margin:8px}details{margin:16px 0;color:#526079}summary{cursor:pointer}p{white-space:pre-wrap}</style></head><body><main><h2>Music Store assistant</h2><p>Component verification · synthetic thinking text</p><div id="root"></div></main>
+<script src="/libs/artifact-globals.js"></script><script>
+function App(){var s=React.useState(true),lang=React.useState(false);return React.createElement('div',{dir:lang[0]?'rtl':'ltr'},[
+React.createElement('button',{key:'b',onClick:function(){s[1](!s[0])}},s[0]?'Hide thinking':'Show thinking'),
+React.createElement('button',{key:'l',onClick:function(){lang[1](!lang[0])}},'English / עברית'),
+React.createElement(ChatMessage,{key:'m',showThinking:s[0],labels:{thinking:lang[0]?'תהליך החשיבה':'Thinking'},message:{role:'assistant',status:'success',text:lang[0]?'סך המכירות הוא 42.':'Total sales are 42.',thinking:lang[0]?'בודק את הסכומים.\n\nהבדיקה הושלמה.':'Checking the totals.\n\nVerification complete.',steps:[],tools:[],results:[]}})])}
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));</script></body></html>

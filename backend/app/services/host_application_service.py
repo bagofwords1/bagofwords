@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import os
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -47,6 +48,10 @@ ASSERTION_ALGORITHMS = ("RS256",)
 ASSERTION_MAX_LIFETIME = timedelta(minutes=2)
 LEEWAY = timedelta(seconds=60)
 SESSION_LIFETIME = timedelta(hours=1)
+# Dev/test only: BOW_EMBED_SESSION_LIFETIME_SECONDS shortens embed sessions so a
+# renewal can be watched in minutes. Clamped to 60 s - 1 h; unset or unreadable
+# is the hour above.
+SESSION_LIFETIME_RANGE = (60, 3600)
 SSO_CODE_LIFETIME = timedelta(seconds=60)
 SESSION_PREFIX = "bow_embed_"
 SESSION_SCOPE = "embed"
@@ -60,6 +65,15 @@ def _hash(value: str) -> str:
 
 def _now() -> datetime:
     return datetime.utcnow()
+
+
+def _session_lifetime() -> timedelta:
+    try:
+        seconds = int(os.environ.get("BOW_EMBED_SESSION_LIFETIME_SECONDS", ""))
+    except ValueError:
+        return SESSION_LIFETIME
+    low, high = SESSION_LIFETIME_RANGE
+    return timedelta(seconds=min(high, max(low, seconds)))
 
 
 def generate_keypair() -> Tuple[str, str, str]:
@@ -139,6 +153,9 @@ class HostApplicationService:
             public_key=public_pem, key_fingerprint=fingerprint, epoch=1, revision=1,
             created_by_user_id=str(user.id),
         )
+        if payload.application_id:
+            from app.services.connected_application_service import attach_application
+            host.application = await attach_application(db, organization.id, payload.application_id, HostApplication)
         db.add(host)
         await db.commit()
         await db.refresh(host)
@@ -179,6 +196,9 @@ class HostApplicationService:
             # Disabling, or changing who may sign in and how, ends every session.
             host.epoch = int(host.epoch or 1) + 1
         host.revision = int(host.revision or 1) + 1
+        if payload.enabled is False:
+            from app.services.connected_application_service import revoke_credentials
+            await revoke_credentials(db, host.application)
         await db.commit()
         await db.refresh(host)
         return host, private_pem
@@ -437,7 +457,7 @@ class HostApplicationService:
         record = OAuthAccessToken(
             token_hash=_hash(token), client_id=f"host:{host.public_id}"[:64], user_id=str(user.id),
             organization_id=str(host.organization_id), scope=SESSION_SCOPE,
-            expires_at=_now() + SESSION_LIFETIME, host_application_id=str(host.id),
+            expires_at=_now() + _session_lifetime(), host_application_id=str(host.id),
             exchange_context={"host_epoch": int(host.epoch or 1),
                               "user_epoch": int(getattr(user, "session_epoch", 0) or 0)},
         )

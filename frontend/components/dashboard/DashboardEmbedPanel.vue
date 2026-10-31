@@ -34,13 +34,12 @@
                                 @click="selected = host.id">{{ $t('embed.tab.snippet') }}</button>
                     </li>
                 </ul>
-                <div v-if="state.can_manage_hosts" class="mt-2">
-                    <UButton v-if="!creating" size="xs" color="gray" variant="ghost" icon="i-heroicons-plus" data-testid="embed-new-host"
-                             @click="creating = true">{{ $t('embed.tab.newHost') }}</UButton>
-                    <div v-else class="mt-2 rounded-lg border border-gray-200 p-4 dark:border-gray-800">
-                        <HostApplicationForm @saved="onHostCreated" @cancel="creating = false" />
-                    </div>
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                    <UButton v-if="state.can_manage_hosts" size="xs" color="gray" variant="ghost" icon="i-heroicons-cog-6-tooth"
+                             :to="applicationSettings" target="_blank" data-testid="embed-manage-applications">{{ $t('connectedApps.manage') }}</UButton>
+                    <UButton size="xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" :loading="loading" @click="load">{{ $t('connectedApps.refresh') }}</UButton>
                 </div>
+                <p class="mt-2 text-xs text-ink-muted">{{ $t('connectedApps.embedHelp') }}</p>
             </section>
 
             <section v-if="selectedHost" data-testid="embed-snippets" class="space-y-2">
@@ -63,7 +62,6 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
-import HostApplicationForm from '~/components/embed/HostApplicationForm.vue'
 import EmbedCode from '~/components/embed/EmbedCode.vue'
 import { EXAMPLE_LANGS, backendExample, type ExampleLang } from '~/utils/embedExamples'
 
@@ -76,7 +74,6 @@ const { getErrorMessage } = useErrorMessage()
 const state = ref<any>(null)
 const loading = ref(false)
 const saving = ref(false)
-const creating = ref(false)
 const selected = ref<string | null>(null)
 const variant = ref<'inline' | 'floating' | 'backend'>('inline')
 const lang = ref<ExampleLang>('python')
@@ -119,11 +116,9 @@ function toggle(host: any, allowed: boolean) {
     put(ids)
 }
 
-async function onHostCreated(host: any) {
-    creating.value = false
-    await load()
-    toggle(state.value.hosts.find((h: any) => h.id === host.id) || host, true)
-}
+const applicationSettings = computed(() => ({ path: '/settings/integrations', query: {
+    open: 'connected_apps', ...(selected.value ? { application: selected.value } : {}),
+} }))
 
 watch(() => props.active, (on) => { if (on) load() }, { immediate: true })
 

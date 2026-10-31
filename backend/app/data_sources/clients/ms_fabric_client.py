@@ -2,6 +2,8 @@ from app.data_sources.clients.progress import discovery_progress, discovery_item
 from app.data_sources.clients.base import DataSourceClient
 
 import logging
+import hashlib
+import json
 import time
 import pandas as pd
 import struct
@@ -130,10 +132,18 @@ class MsFabricClient(DataSourceClient):
         # Keyed additionally by the identity the token is minted for, so a
         # delegated (per-user) connection never shares a pool with another
         # user's — the same hazard the SQL Server client documents for Kerberos.
-        identity = self._delegated_access_token or self.client_id or "service"
+        # JWT prefixes contain shared headers, not the user's identity. Hash
+        # the complete credential so users and token/secret rotations cannot
+        # reuse a pool whose creator captured another authentication context.
+        credentials = (
+            ["delegated", self._delegated_access_token]
+            if self._delegated_access_token
+            else ["service", self.tenant_id, self.client_id, self.client_secret]
+        )
+        identity = hashlib.sha256(json.dumps(credentials).encode()).hexdigest()
         return get_engine(
             placeholder,
-            key_extra=f"fabric:{identity[:64]}",
+            key_extra=f"fabric:{identity}",
             creator=self._open_connection,
             # A token has a finite lifetime and a pooled connection outliving
             # it fails on next use. Recycling well inside the usual ~60-90 min

@@ -4481,7 +4481,12 @@
     "conversation.unavailable": "Conversations aren't turned on here.",
     "conversation.agent_forbidden": "You can't use that agent here.",
     "conversation.limit": "Too many messages. Wait a moment and try again.",
-    "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use."
+    "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -4783,6 +4788,53 @@
       "stillRunning": "The queries are still running. Try again in a moment.",
       "stillFailing": "{failed} still failed when run again."
     }
+  },
+  "artifactActivity": {
+    "title": "Activity",
+    "inspect": "Inspect",
+    "live": "Live",
+    "liveHint": "What this page does appears here as it happens; the agent's preview is picked up every few seconds.",
+    "refresh": "Refresh",
+    "empty": "Nothing recorded yet.",
+    "emptyFiltered": "Nothing matches this filter.",
+    "emptyHint": "Use the app: requests, streams, filters, clicks and errors appear here, and the agent sees the failures.",
+    "filterPlaceholder": "Filter",
+    "shown": "{shown} of {total}",
+    "noDetail": "No detail recorded.",
+    "queries": "{n} queries",
+    "rows": "{n} rows",
+    "filters": {
+      "all": "All",
+      "requests": "Requests",
+      "streams": "Streams",
+      "filters": "Filters",
+      "clicks": "Clicks",
+      "errors": "Errors"
+    },
+    "columns": {
+      "time": "Time",
+      "source": "Source",
+      "kind": "Kind",
+      "event": "Event",
+      "status": "Status",
+      "duration": "Duration",
+      "version": "Ver."
+    },
+    "sources": {
+      "all": "All sources",
+      "editor": "Editor",
+      "preview": "Preview"
+    },
+    "tabs": {
+      "detail": "Detail",
+      "request": "Request",
+      "response": "Response",
+      "stream": "Stream"
+    },
+    "privateTo": "Private to {name}",
+    "someoneElse": "someone else",
+    "loadingPayload": "Loading…",
+    "payloadUnavailable": "Not available: it may have expired (payloads are kept 24 hours) or belong to someone else."
   },
   "filter": {
     "selectColumn": "Select column",
@@ -6920,6 +6972,13 @@
       "popupBlocked": "The sign-in window was blocked. Allow pop-ups for this page and try again.",
       "notFramed": "This link only works inside the application it was embedded in."
     },
+    "unavailable": {
+      "notPublished": "This hasn't been published yet. It will appear here once it's published.",
+      "notFound": "This isn't available. It may not be published yet, or it was removed.",
+      "denied": "You don't have access to this. Ask its owner to share it with you.",
+      "notAllowed": "This isn't enabled for this application. An editor can allow it in its Embed settings in Bag of Words.",
+      "failed": "This couldn't be loaded. Try again in a moment."
+    },
     "signin": {
       "working": "Signing you in…",
       "done": "Signed in. You can close this window.",
@@ -6931,8 +6990,8 @@
       "intro": "Pick the applications that may show this dashboard. People see it there as themselves, signed in by that application, and only if they can already view it here.",
       "privateWarning": "Only you can view this dashboard. Share it (Access) so the people in the other application can see it.",
       "embeddableIn": "Embeddable in",
-      "noHosts": "No applications are set up yet. Ask an admin to add one in Settings → Integrations → Host applications.",
-      "noHostsAdmin": "No applications are set up yet. Add the first one here.",
+      "noHosts": "Ask an administrator to configure a connected application for embedding.",
+      "noHostsAdmin": "No applications are configured for embedding. Open Connected applications to configure one, then refresh this list.",
       "newHost": "New host application",
       "snippet": "Snippet",
       "snippetFor": "Snippet for {name}",
@@ -6996,5 +7055,33 @@
     "deleteConfirm": "Delete {name}? Its embeds stop working and everyone is signed out.",
     "backendExample": "Backend example",
     "backendExampleHelp": "Sign one assertion per sign-in, for the user your application has signed in:"
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "Enabled",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }

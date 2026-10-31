@@ -80,3 +80,19 @@ async def test_only_the_artifact_s_own_conversation_policy_is_forwarded():
         await service.route(refused)
         assert refused.response["status"] == 403, path
     assert service.client.paths == ["/api/artifacts/artifact-1/runtime/conversations/policy"]
+
+
+@pytest.mark.asyncio
+async def test_the_load_is_ready_on_sdk_calls_when_the_app_has_no_queries():
+    # A chat app has no viewer queries: its bow.* calls are what loading means.
+    service = _service()
+    service.record("sdk_call", call="request", op="conversations.policy", status="ok")
+    assert await service.wait_ready(timeout=1) == "sdk_calls_observed"
+
+
+@pytest.mark.asyncio
+async def test_an_app_with_queries_still_waits_for_its_data():
+    service = _service()
+    service.queries, service.query_ids = [{"id": "query-a"}], {"query-a"}
+    service.record("sdk_call", call="request", op="conversations.policy", status="ok")
+    assert await service.wait_ready(timeout=0.2) == "pending"

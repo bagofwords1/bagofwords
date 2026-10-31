@@ -4084,7 +4084,12 @@
     "dashboard.join_no_access": "تحتاج إلى الوصول إلى {name} لتحرير لوحة المعلومات هذه.",
     "dashboard.creator_publish_owner_only": "تعمل لوحة المعلومات هذه ببيانات اعتماد مالكها، لذا لا يمكن نشرها إلا لمالكها.",
     "dashboard.published_since": "نشر {by} لوحة المعلومات هذه منذ بدء مسودتك.",
-    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل."
+    "dashboard.draft_name_taken": "توجد مسودة بهذا الاسم بالفعل.",
+    "APPLICATION_NOT_FOUND": "Application not found",
+    "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
+    "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },
   "email": {
     "dashboardShare": {
@@ -6446,5 +6451,42 @@
     "owner": "المالك",
     "byOwner": "بواسطة {name}",
     "untitled": "بلا عنوان"
+  },
+  "embed": {
+    "unavailable": {
+      "notPublished": "لم يُنشر هذا المحتوى بعد. سيظهر هنا بعد نشره.",
+      "notFound": "هذا المحتوى غير متاح. ربما لم يُنشر بعد، أو تمت إزالته.",
+      "denied": "ليس لديك حق الوصول إلى هذا المحتوى. اطلب من مالكه مشاركته معك.",
+      "notAllowed": "هذا المحتوى غير مفعّل لهذا التطبيق. يمكن للمحرر السماح به من إعدادات التضمين الخاصة به في Bag of Words.",
+      "failed": "تعذّر تحميل هذا المحتوى. حاول مرة أخرى بعد قليل."
+    }
+  },
+  "connectedApps": {
+    "title": "Connected applications",
+    "subtitle": "Register external applications once. Configure embedding, OAuth access and the agents each application may use.",
+    "add": "Add application",
+    "configuration": "Application configuration",
+    "general": "General & access",
+    "embedding": "Embedding",
+    "oauth": "API & MCP (OAuth)",
+    "agents": "Allowed agents",
+    "agentHelp": "Application access is always intersected with the signed-in user’s permissions and the artifact’s agent selection. It never grants access by itself.",
+    "selectedAgents": "Only selected agents",
+    "allAgents": "All agents the user can access",
+    "noAgents": "No agents available. Create an agent first.",
+    "empty": "No connected applications yet. Add your ERP, portal or MCP client to get started.",
+    "createHelp": "Next, select allowed agents and configure embedding, OAuth, or both. New applications start with no agents allowed.",
+    "disableHelp": "Disabling ends existing OAuth and embed sessions. Re-enabling requires users to sign in again.",
+    "deleteConfirm": "Delete {name}? Both OAuth and embedding will stop, and existing sessions will end.",
+    "saved": "Application saved",
+    "embeddingHelp": "Choose allowed website origins and how this application identifies its users. Embedding credentials are separate from OAuth credentials.",
+    "configureEmbedding": "Configure embedding",
+    "configureOAuth": "Configure OAuth",
+    "manage": "Manage applications & authentication",
+    "refresh": "Refresh applications",
+    "embedHelp": "Only applications with embedding configured appear here. Configure identity, OAuth and Entra token exchange in Connected applications.",
+    "enabled": "مفعّل",
+    "embeddingEmpty": "Embedding is not configured",
+    "oauthEmpty": "OAuth is not configured"
   }
 }
