@@ -2519,6 +2519,46 @@ class DocumentumImpersonationCredentials(BaseModel):
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
+# Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is
+# read with *application* permissions, so only the app registration is needed.
+class IntuneCredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Microsoft Entra tenant ID (Directory ID) that holds your Intune subscription.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description=(
+            "Application (client) ID of an Entra app registration granted, with admin consent, "
+            "the read-only Microsoft Graph application permissions "
+            "DeviceManagementManagedDevices.Read.All, DeviceManagementConfiguration.Read.All, "
+            "DeviceManagementApps.Read.All and DeviceManagementServiceConfig.Read.All. "
+            "Tables whose permission is missing are simply left out."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="A client secret of that app registration.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class IntuneConfig(BaseModel):
+    max_rows: int = Field(
+        50000,
+        ge=1,
+        le=50000,
+        title="Max Rows Per Query",
+        description="Safety cap on how many records a single query may page through.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 class SharePointListsCredentials(SharePointCredentials):
     """SharePoint Lists uses the same Microsoft Graph auth as SharePoint."""
     pass

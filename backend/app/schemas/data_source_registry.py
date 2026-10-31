@@ -90,6 +90,9 @@ from app.schemas.data_sources.configs import (
     JaegerNoAuthCredentials,
     JaegerBasicCredentials,
     JaegerBearerCredentials,
+    # Microsoft Intune
+    IntuneConfig,
+    IntuneCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -1656,6 +1659,28 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="shared",
         requires_license="enterprise",
+    ),
+    "intune": DataSourceRegistryEntry(
+        type="intune",
+        category="infra",
+        title="Microsoft Intune",
+        description="Query Intune device management — managed devices, compliance status per policy, configuration profiles, apps, discovered software and Autopilot — read-only through Microsoft Graph.",
+        config_schema=IntuneConfig,
+        credentials_auth=AuthOptions(default="service_principal", by_auth={
+            # App-only (client credentials) with read-only Graph application
+            # permissions. Intune data is tenant-wide inventory, so there is no
+            # per-user variant: a delegated token would need the user to hold
+            # an Intune RBAC role, which is an admin-only shape anyway.
+            "service_principal": AuthVariant(
+                title="Entra ID App (Service Principal)",
+                schema=IntuneCredentials,
+                scopes=["system"],
+            ),
+        }),
+        client_path="app.data_sources.clients.intune_client.IntuneClient",
+        data_shape="tables",
+        catalog_ownership="shared",
+        version="beta",
     ),
     "sharepoint_lists": DataSourceRegistryEntry(
         type="sharepoint_lists",
