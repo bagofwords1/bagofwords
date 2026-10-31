@@ -7,8 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _null_if_blank(v):
-    # Weaker models send "" for an argument they meant to omit (B9: opencode
-    # strips model: "" / sessionID: ""). Normalise once, here.
+    # Models may send "" for an omitted argument. Normalise once, here.
     if isinstance(v, str) and not v.strip():
         return None
     return v
