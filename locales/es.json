@@ -259,6 +259,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "Buzón de AI",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (deshabilitada)",
+    "optChannelAppDeleted": "Aplicación eliminada",
     "optStatusActive": "Activo",
     "optStatusInactive": "Inactivo",
     "optStatusPending": "Pendiente de revisión",
@@ -4449,6 +4451,7 @@
     "APPLICATION_NOT_FOUND": "Aplicación no encontrada",
     "APPLICATION_CAPABILITY_EXISTS": "Esta aplicación ya tiene esta función",
     "APPLICATION_AGENTS_INVALID": "Selecciona agentes existentes en esta organización",
+    "INSTRUCTION_APPLICATIONS_INVALID": "Selecciona aplicaciones existentes en esta organización",
     "APPLICATION_AGENT_FORBIDDEN": "La aplicación no tiene acceso a este agente",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Administra las aplicaciones directamente en BOW"
   },

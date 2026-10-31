@@ -54,6 +54,8 @@ from app.schemas.instruction_analysis_schema import (
     InstructionAnalysisResponse,
 )
 
+from app.services.connected_application_service import instruction_targets, validate_instruction_channels
+
 router = APIRouter(tags=["instructions"])
 
 #: Page ceilings for GET /instructions. The full row carries the instruction
@@ -76,6 +78,19 @@ instruction_directory_service = InstructionDirectoryService()
 _require_instruction_authority = require_instruction_authority
 
 
+# APPLICATION TARGETS
+# Connected applications an instruction can be scoped to (the channel picker).
+# Names and agent access only; managing apps stays behind manage_settings.
+@router.get("/instructions/application-targets")
+@requires_permission('manage_instructions', resource_scoped=True)
+async def list_instruction_application_targets(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await instruction_targets(db, organization.id)
+
+
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
 @requires_permission('manage_instructions', resource_scoped=True)
@@ -86,6 +101,9 @@ async def create_private_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Create a new private instruction (auto-published) - Private Published: published, null, published"""
+    if instruction.applicable_channels:
+        instruction.applicable_channels = await validate_instruction_channels(
+            db, organization.id, instruction.applicable_channels)
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -102,6 +120,9 @@ async def create_global_instruction(
     organization: Organization = Depends(get_current_organization)
 ):
     """Create a new global instruction (admin only) - Global Draft/Published: null, approved, draft/published"""
+    if instruction.applicable_channels:
+        instruction.applicable_channels = await validate_instruction_channels(
+            db, organization.id, instruction.applicable_channels)
     if instruction.data_source_ids:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
@@ -911,6 +932,9 @@ async def update_instruction(
     # the one agent from it, which is precisely what the /instructions/global
     # gate exists to prevent.
     await require_scope_authority(db, current_user, organization, instruction.data_source_ids)
+    if instruction.applicable_channels:
+        instruction.applicable_channels = await validate_instruction_channels(
+            db, organization.id, instruction.applicable_channels)
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
     )

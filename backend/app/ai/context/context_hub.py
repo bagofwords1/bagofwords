@@ -300,6 +300,14 @@ class ContextHub:
         self.data_sources = data_sources
         self.report = report
         self.mode = mode if mode is not None else getattr(report, "mode", None)
+        # The connected application this conversation came through: the
+        # report's stamp (so follow-ups and background runs keep it), else the
+        # app the current request came through (MCP tools without a report).
+        self.application_id = getattr(report, "origin_app_id", None) if report is not None else None
+        if not self.application_id:
+            from app.core.request_origin import current as _request_origin
+            _origin = _request_origin()
+            self.application_id = _origin[1] if _origin else None
         self.user = user
         self.head_completion = head_completion
         self.widget = widget
@@ -346,6 +354,7 @@ class ContextHub:
         _mode = self.mode
         _external_platform = getattr(self.head_completion, 'external_platform', None) if self.head_completion else None
         _channel = _external_platform or 'app'
+        self.instruction_channel = _channel
         self.instruction_builder = InstructionContextBuilder(
             self.db,
             self.organization,
@@ -357,6 +366,7 @@ class ContextHub:
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
             mode=_mode,
             channel=_channel,
+            application_id=self.application_id,
         )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)
@@ -886,6 +896,12 @@ class ContextHub:
             # Flipping the on-demand setting must apply on the next turn, not
             # after the cache entry expires.
             smart_instructions_on_demand(self.organization_settings),
+            # Instructions are scoped by mode, channel and connected app, so
+            # an in-app turn and a Slack or embedded-app turn with the same
+            # prompt must not share an entry.
+            getattr(self.instruction_builder, "mode", None),
+            getattr(self.instruction_builder, "channel", None),
+            getattr(self.instruction_builder, "application_id", None),
         )
         instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
 

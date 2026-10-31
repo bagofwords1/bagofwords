@@ -990,7 +990,7 @@
                   <!-- Channels (empty = all channels) -->
                   <div class="flex items-center gap-2">
                     <span class="text-2xs text-ink-muted w-20 shrink-0">{{ $t('agentsPage.channels') }}</span>
-                    <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple :placeholder="$t('agentsPage.allChannels')" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
+                    <KSelect v-if="metaEditable" v-model="draft.applicable_channels" :options="channelOpts" multiple summarize :placeholder="$t('agentsPage.allChannels')" icon="i-heroicons-signal" @update:modelValue="onMetaChange" />
                     <template v-else>
                       <span v-if="!(detail.applicable_channels || []).length" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allChannels') }}</span>
                       <span v-for="c in (detail.applicable_channels || [])" :key="'chan'+c" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-signal" class="w-3 h-3 text-ink-muted" />{{ channelLabel(c) }}</span>
@@ -1954,9 +1954,46 @@ const modeScope = computed<string>({
   get: () => (draft.applicable_modes || []).length === 1 ? draft.applicable_modes[0] : '',
   set: (v: string) => { draft.applicable_modes = v ? [v] : [] },
 })
-const channelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
+const baseChannelOpts = computed(() => [{ value: 'app', label: t('agentsPage.optChannelApp') }, { value: 'slack', label: t('agentsPage.optChannelSlack') }, { value: 'teams', label: t('agentsPage.optChannelTeams') }, { value: 'email', label: t('agentsPage.optChannelEmail') }, { value: 'mcp', label: t('agentsPage.optChannelMcp') }])
+// Connected applications (embeds, OAuth/MCP clients) are channels too: an
+// instruction listing 'connected_app:<id>' loads only in conversations that
+// came through that app.
+const APP_CHANNEL_PREFIX = 'connected_app:'
+const appTargets = ref<{ id: string; name: string; enabled: boolean; agent_ids: string[] | null }[]>([])
+async function fetchAppTargets() {
+  try {
+    const { data } = await useMyFetch<any>('/api/instructions/application-targets', { method: 'GET' })
+    appTargets.value = Array.isArray(data.value) ? data.value : []
+  } catch { appTargets.value = [] }
+}
+const appOption = (a: { id: string; name: string; enabled: boolean }) => ({
+  value: APP_CHANNEL_PREFIX + a.id,
+  label: a.enabled ? a.name : t('agentsPage.optChannelAppDisabled', { name: a.name }),
+  heroicon: 'i-heroicons-window',
+})
+// Offer an app only when it can reach one of the instruction's agents (any app
+// for an instruction with no agents), and only while enabled. Apps already
+// selected always stay listed so the scope is never hidden or silently lost.
+const channelOpts = computed(() => {
+  const selected = new Set(draft.applicable_channels || [])
+  const agents = draft.data_source_ids || []
+  const apps = appTargets.value.filter((a) => {
+    if (selected.has(APP_CHANNEL_PREFIX + a.id)) return true
+    if (!a.enabled) return false
+    return !agents.length || a.agent_ids == null || agents.some((id) => a.agent_ids!.includes(id))
+  })
+  return [...baseChannelOpts.value, ...apps.map(appOption)]
+})
 const modeLabel = (v: string) => modeOpts.value.find(o => o.value === v)?.label || v
-const channelLabel = (v: string) => channelOpts.value.find(o => o.value === v)?.label || v
+const channelLabel = (v: string) => {
+  const base = baseChannelOpts.value.find(o => o.value === v)
+  if (base) return base.label
+  if (v.startsWith(APP_CHANNEL_PREFIX)) {
+    const app = appTargets.value.find(a => APP_CHANNEL_PREFIX + a.id === v)
+    return app ? appOption(app).label : t('agentsPage.optChannelAppDeleted')
+  }
+  return v
+}
 // Reference options come from the selected agents' tables and their enabled
 // connection tools (overlay-resolved by /data_sources/{id}/tools).
 const refOptions = computed(() => {
@@ -4588,7 +4625,7 @@ onMounted(async () => {
   // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
   // group's rows load on first expand. fetchCounts also feeds the pending dots
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
-  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchListCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchConnections(), fetchAppTargets(), fetchCounts(), fetchQueryCounts(), fetchListCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
   // fetchCounts already populated the per-row "pending" dot set from its own
   // response, so no separate org-wide /pending-changes sweep is needed here.
