@@ -52,11 +52,9 @@ from app.schemas.data_sources.configs import (
     NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
-    IntuneConfig,
     KubernetesConfig,
     KubernetesAccessFileCredentials,
     ZabbixTokenCredentials,
-    IntuneCredentials,
     ZabbixUserPassCredentials,
     AppDynamicsConfig,
     AppDynamicsUserPassCredentials,
@@ -90,6 +88,9 @@ from app.schemas.data_sources.configs import (
     JaegerNoAuthCredentials,
     JaegerBasicCredentials,
     JaegerBearerCredentials,
+    # Microsoft Intune
+    IntuneConfig,
+    IntuneCredentials,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
