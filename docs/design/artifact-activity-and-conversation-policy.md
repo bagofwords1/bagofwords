@@ -254,8 +254,10 @@ It reads the §2 table and adds no plumbing. Session-only view; viewer history
 would be telemetry, a separate privacy decision.
 
 **As built (Inspect pane).** `components/dashboard/ArtifactActivityLog.vue`,
-docked under the app in `ArtifactFrame.vue` (DevTools-style, drag to resize),
-toggled from the ⋯ menu ("Inspect", editors only, next to History). A table,
+docked under the app in `ArtifactFrame.vue` for editors (DevTools-style).
+Collapsed by default to one 24 px strip: "Inspect · N requests · N errors ·
+last event · live dot"; a click (or ⋯ → Inspect) expands it, drag the top
+edge to resize, the choice sticks per browser (`localStorage bow.inspect.expanded`). A table,
 newest first: time (with the date when not today), source (Editor / Preview),
 kind badge (request / stream / filter / click / error / console), event (op or
 description, with resource, agents or the error message), status with a
@@ -265,11 +267,14 @@ with counts (All, Requests, Streams, Filters, Clicks, Errors), a source
 select and a text filter; a row expands to its redacted detail JSON, op,
 error_code, session and timestamp. **Live:** the page broker's `onActivity`
 pushes this page's own events into the pane at once (before the batch reaches
-the server); the agent's preview events are picked up by a 10 s poll. It reads
+the server); the agent's preview events are picked up by a 10 s poll. **Parameterized queries** are requests too: each `/api/queries/{id}/run` a
+filter change triggers is logged as `queries.run` with the query's title, row
+count, duration and any error (`runParamQueries`), next to the SDK calls
+(`conversations.*`, `records.*`, `files.*`, `ai.*`) the broker already logs. It reads
 `GET /api/artifacts/{id}/runtime/activity` (`routes/artifact_activity.py`),
 behind the same editor-only gate as the POST. Not yet: "Ask BOW about this".
-Evidence: `media/pr/embedded-artifacts/94-inspect-pane.png`,
-`95-inspect-errors-detail.png`; flow: `tools/agent/embed/activity_log_panel.mjs`
+Evidence: `media/pr/embedded-artifacts/93-inspect-collapsed.png`,
+`94-inspect-pane.png`, `95-inspect-errors-detail.png`; flow: `tools/agent/embed/activity_log_panel.mjs`
 (29 rows, 3 under Errors, one more row the moment the app is used).
 
 ## 6. How others do it (checked 2026-10-29)

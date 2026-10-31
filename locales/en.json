@@ -4786,7 +4786,11 @@
       "all": "All sources",
       "editor": "Editor",
       "preview": "Preview"
-    }
+    },
+    "expand": "Show activity",
+    "collapse": "Collapse",
+    "requestsCount": "{n} requests",
+    "errorsCount": "{n} errors"
   },
   "filter": {
     "selectColumn": "Select column",

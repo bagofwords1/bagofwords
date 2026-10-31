@@ -3,7 +3,23 @@
          while its editors (and the agent's own preview) used it, from the
          activity log (services/artifact_activity.py), plus this page's own
          events as they happen. Editors only; the same log the agent reads. -->
-    <div class="flex-shrink-0 flex flex-col border-t border-line bg-surface select-none" :style="{ height: `${height}px` }"
+    <!-- Collapsed: one thin strip. A name, the counts, a pulse. -->
+    <button v-if="!expanded" type="button" @click="setExpanded(true)" data-testid="artifact-inspect-strip"
+            :aria-label="$t('artifactActivity.expand')"
+            class="flex-shrink-0 flex items-center gap-3 w-full h-6 px-3 border-t border-line bg-surface text-2xs text-ink-muted hover:bg-surface-subtle transition-colors">
+        <span class="flex items-center gap-1.5">
+            <Icon name="heroicons:chevron-up" class="w-3 h-3" />
+            <span class="font-medium text-ink-2">{{ $t('artifactActivity.inspect') }}</span>
+        </span>
+        <span class="nums">{{ $t('artifactActivity.requestsCount', { n: counts.requests }) }}</span>
+        <span v-if="counts.errors" class="nums font-medium text-red-700 dark:text-red-400" data-testid="artifact-inspect-strip-errors">
+            {{ $t('artifactActivity.errorsCount', { n: counts.errors }) }}
+        </span>
+        <span v-if="last" class="min-w-0 truncate font-mono text-ink-subtle ms-1" dir="auto">{{ label(last) }}</span>
+        <span class="ms-auto w-1.5 h-1.5 rounded-full shrink-0" :class="live ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'" />
+    </button>
+
+    <div v-else class="flex-shrink-0 flex flex-col border-t border-line bg-surface select-none" :style="{ height: `${height}px` }"
          data-testid="artifact-inspect">
         <!-- Drag handle -->
         <div class="h-1 cursor-row-resize hover:bg-indigo-300 dark:hover:bg-indigo-700 transition-colors" @mousedown.prevent="startResize" />
@@ -31,8 +47,8 @@
             <span class="ms-auto text-2xs text-ink-muted nums whitespace-nowrap">{{ $t('artifactActivity.shown', { shown: shown.length, total: rows.length }) }}</span>
             <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-arrow-path" :loading="loading"
                      :aria-label="$t('artifactActivity.refresh')" data-testid="artifact-inspect-refresh" @click="load" />
-            <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-x-mark" :aria-label="$t('common.close')"
-                     data-testid="artifact-inspect-close" @click="emit('close')" />
+            <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-chevron-down" :aria-label="$t('artifactActivity.collapse')"
+                     data-testid="artifact-inspect-close" @click="setExpanded(false)" />
         </div>
 
         <!-- Rows -->
@@ -88,7 +104,7 @@
                             </td>
                             <td class="td nums text-ink-muted">{{ e.version != null ? `v${e.version}` : '' }}</td>
                         </tr>
-                        <tr v-if="expanded === e.id" class="bg-surface-subtle/60" data-testid="artifact-inspect-detail">
+                        <tr v-if="expandedRow === e.id" class="bg-surface-subtle/60" data-testid="artifact-inspect-detail">
                             <td colspan="7" class="px-4 py-2">
                                 <div class="flex flex-wrap gap-x-6 gap-y-1 text-2xs text-ink-muted mb-1.5">
                                     <span v-if="e.op"><span class="text-ink-subtle">op</span> <span class="font-mono text-ink">{{ e.op }}</span></span>
@@ -111,7 +127,16 @@
 import type { ActivityEvent } from '~/composables/useArtifactRuntime';
 
 const props = defineProps<{ artifactId: string, reportId: string, version?: number | null }>();
-const emit = defineEmits<{ (e: 'close'): void }>();
+
+// Collapsed by default: a strip under the app. Expanded sticks per browser.
+const EXPANDED_KEY = 'bow.inspect.expanded';
+const expanded = ref(false);
+try { expanded.value = localStorage.getItem(EXPANDED_KEY) === '1'; } catch { /* no storage: start collapsed */ }
+function setExpanded(open: boolean) {
+    expanded.value = open;
+    try { localStorage.setItem(EXPANDED_KEY, open ? '1' : '0'); } catch { /* per-browser convenience only */ }
+    if (open) load();
+}
 
 const { t } = useI18n();
 const { getErrorMessage } = useErrorMessage();
@@ -130,7 +155,7 @@ const live = ref(false);
 const filter = ref<'all' | 'request' | 'stream' | 'filter' | 'click' | 'errors'>('all');
 const source = ref<'all' | 'editor' | 'preview'>('all');
 const query = ref('');
-const expanded = ref<string | null>(null);
+const expandedRow = ref<string | null>(null);
 const listRef = ref<HTMLElement | null>(null);
 const height = ref(260);
 let liveSeq = 0;
@@ -169,6 +194,11 @@ const filters = computed(() => {
 });
 
 const maxMs = computed(() => Math.max(1, ...shown.value.map(e => e.duration_ms || 0)));
+const counts = computed(() => ({
+    requests: rows.value.filter(e => e.kind === 'request' || e.kind === 'stream').length,
+    errors: rows.value.filter(e => e.failed).length,
+}));
+const last = computed<Row | null>(() => rows.value[0] || null);
 
 function isFailed(e: { kind: string, status?: string | null }) {
     return e.kind === 'error' || e.kind === 'console' || e.status === 'error' || e.status === 'interrupted';
@@ -187,6 +217,7 @@ function sub(e: Row): string {
     if (e.kind === 'request') {
         const parts = [d.resource, d.action].filter(Boolean);
         if (Array.isArray(d.agents) && d.agents.length) parts.push(d.agents.join(', '));
+        if (d.rows != null) parts.push(t('artifactActivity.rows', { n: d.rows }));
         if (e.status === 'error' && d.message) parts.push(String(d.message));
         return parts.join(' · ');
     }
@@ -252,7 +283,7 @@ function when(iso: string | null) {
     return sameDay ? time : `${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-function toggle(id: string) { expanded.value = expanded.value === id ? null : id; }
+function toggle(id: string) { expandedRow.value = expandedRow.value === id ? null : id; }
 
 async function load() {
     loading.value = true;
@@ -293,13 +324,13 @@ function startResize(down: MouseEvent) {
 }
 
 onMounted(() => {
-    load();
-    // The agent's preview writes to the same log from the server side: pick it up.
-    poll = setInterval(() => { if (!loading.value && document.visibilityState === 'visible') load(); }, 10000);
+    load();  // the strip's counts need the history too
+    // The agent's preview writes to the same log from the server side: pick it up while open.
+    poll = setInterval(() => { if (expanded.value && !loading.value && document.visibilityState === 'visible') load(); }, 10000);
 });
 onBeforeUnmount(() => { if (poll) clearInterval(poll); });
 
-defineExpose({ push, load });
+defineExpose({ push, load, toggle: () => setExpanded(!expanded.value), expanded });
 </script>
 
 <style scoped>

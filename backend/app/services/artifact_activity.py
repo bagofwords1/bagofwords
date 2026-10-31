@@ -35,7 +35,7 @@ STEPS_BEFORE = 3
 
 # Detail keys a client may send, per kind. Anything else is dropped.
 DETAIL_KEYS = {
-    "request": {"resource", "action", "agents", "message", "http_status", "bytes", "simulated"},
+    "request": {"resource", "action", "agents", "message", "http_status", "bytes", "rows", "simulated"},
     "stream": {"message", "events", "resource", "simulated"},
     "filter": {"params", "queries", "rows", "withheld", "message"},
     "error": {"message", "stack", "where"},
@@ -161,6 +161,8 @@ def describe(e: ArtifactActivityEvent) -> str:
             text += f" {e.error_code}"
         if d.get("message") and e.status == "error":
             text += f": {d['message']}"
+        if d.get("rows") is not None:
+            text += f", {d['rows']} rows"
         if e.duration_ms is not None:
             text += f" [{e.duration_ms} ms]"
     elif e.kind == "stream":

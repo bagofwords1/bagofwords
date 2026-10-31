@@ -4706,7 +4706,11 @@
       "all": "Todos los orígenes",
       "editor": "Editor",
       "preview": "Vista previa"
-    }
+    },
+    "expand": "Mostrar actividad",
+    "collapse": "Contraer",
+    "requestsCount": "{n} solicitudes",
+    "errorsCount": "{n} errores"
   },
   "filter": {
     "selectColumn": "Selecciona una columna",
