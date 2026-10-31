@@ -105,6 +105,12 @@ consent, browser framing, downstream permissions, or an LLM answer.
 
 ## Live setup
 
+Use a worktree-local frontend dependency install (`yarn install --frozen-lockfile`),
+not a symlink to another running checkout's `node_modules`. Sharing it caused
+stale Nuxt generated imports during restarts in this run. For browser component
+tests, point `PW_CHROMIUM_PATH` at an already provisioned Chromium when the
+Playwright package's default browser revision is unavailable.
+
 1. Boot BOW from this branch with a fresh database, stable encryption key,
    a working model provider, and an enabled tenant-specific Entra provider.
    Configure `uid_claim: oid` and BOW's delegated `access_as_user` scope.
@@ -178,6 +184,13 @@ python -m tools.agent.embed.erp_entra
 - Auth regressions: **72 passed, 1 skipped**. Five frontend test files covering
   SDK, expiry/renewal, identity refresh, gate races and chat components passed.
   The new proxy regression also passed (six frontend files total).
+
+```sh
+cd frontend
+node --test tests/unit/devProxyOrigin.mjs tests/unit/embedSdk.mjs \
+  tests/unit/embedSession.mjs tests/unit/embedViewerRefresh.mjs \
+  tests/unit/embeddedArtifactGate.mjs tests/unit/artifactChatComponents.mjs
+```
 
 ## Limits and deployment checks
 
