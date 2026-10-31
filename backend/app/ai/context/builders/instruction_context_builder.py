@@ -18,6 +18,7 @@ from app.models.instruction_version import InstructionVersion
 from app.models.instruction_reference import InstructionReference
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.connected_application import application_channel
 from app.models.user_data_source_overlay import UserDataSourceTable
 from app.core.main_build import resolve_main_build
 
@@ -94,7 +95,7 @@ class InstructionContextBuilder:
     # Untitled catalog entries show this many chars of the body as their title.
     CATALOG_SNIPPET_LEN = 140
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None, application_id: Optional[str] = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
@@ -106,6 +107,10 @@ class InstructionContextBuilder:
         # When either is None, that dimension is not filtered (include all).
         self.mode = mode
         self.channel = channel
+        # Connected application the conversation came through (embed or
+        # OAuth/MCP client), if any. Instructions can target one with an
+        # ``application_channel(id)`` entry in applicable_channels.
+        self.application_id = str(application_id) if application_id else None
         # Resolved per build() from the org setting (see smart_instructions_on_demand).
         self._on_demand = False
 
@@ -148,9 +153,17 @@ class InstructionContextBuilder:
                 return False
         if self.channel and applicable_channels:
             channels = applicable_channels if isinstance(applicable_channels, list) else []
-            if channels and self.channel not in channels:
+            if channels and not any(c in channels for c in self._current_channels()):
                 return False
         return True
+
+    def _current_channels(self) -> List[str]:
+        """The channel values this conversation matches: its delivery channel
+        plus, when it came through a connected application, that app."""
+        current = [self.channel]
+        if self.application_id:
+            current.append(application_channel(self.application_id))
+        return current
     
     def _get_max_instructions(self) -> int:
         """Get max instructions limit from org settings or default."""

@@ -244,6 +244,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "AI-Postfach",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (disabled)",
+    "optChannelAppDeleted": "Deleted application",
     "optStatusActive": "Aktiv",
     "optStatusInactive": "Inaktiv",
     "optStatusPending": "Prüfung ausstehend",
@@ -4102,6 +4104,7 @@
     "APPLICATION_NOT_FOUND": "Application not found",
     "APPLICATION_CAPABILITY_EXISTS": "This application already has this capability",
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
+    "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
   },

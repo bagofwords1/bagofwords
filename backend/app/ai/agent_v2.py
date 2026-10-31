@@ -5484,6 +5484,8 @@ class AgentV2:
                                     organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
                                     mode=self._instruction_mode,
+                                    channel=getattr(self.context_hub, "instruction_channel", None),
+                                    application_id=getattr(self.context_hub, "application_id", None),
                                 )
                                 # On demand: reuse the run-start query so the
                                 # catalog keeps its match ordering. Off: the

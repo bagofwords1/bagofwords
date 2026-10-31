@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import select, update, or_
 
 from app.errors import AppError, ErrorCode
-from app.models.connected_application import ConnectedApplication
+from app.models.connected_application import APPLICATION_CHANNEL_PREFIX, ConnectedApplication
 from app.models.data_source import DataSource
 from app.models.host_application import HostApplication
 from app.models.oauth_server import OAuthClient, OAuthAccessToken, OAuthAuthorizationCode
@@ -83,3 +83,37 @@ async def agent_ceiling(db, organization_id):
 async def filter_agents(db, agents, organization_id):
     ceiling = await agent_ceiling(db, organization_id)
     return list(agents or []) if ceiling is None else [a for a in (agents or []) if str(a.id) in ceiling]
+
+
+async def instruction_targets(db, organization_id):
+    """Apps an instruction can be scoped to: every non-deleted app in the org.
+    Disabled ones are listed (flagged) so an existing scope stays visible."""
+    apps = (await db.execute(select(ConnectedApplication).where(
+        ConnectedApplication.organization_id == str(organization_id),
+        ConnectedApplication.deleted_at.is_(None),
+    ).order_by(ConnectedApplication.name))).scalars().all()
+    return [dict(id=str(a.id), name=a.name, enabled=bool(a.enabled), agent_ids=a.agent_ids) for a in apps]
+
+
+async def validate_instruction_channels(db, organization_id, channels):
+    """Check the app channel values in an instruction's applicable_channels.
+
+    Values naming a deleted app of this org are dropped, so an instruction
+    scoped to an app that was later deleted still saves; values naming no app
+    of this org are rejected. Returns the list to store (None stays None).
+    """
+    if not channels:
+        return channels
+    wanted = {c[len(APPLICATION_CHANNEL_PREFIX):] for c in channels
+              if isinstance(c, str) and c.startswith(APPLICATION_CHANNEL_PREFIX)}
+    if not wanted:
+        return channels
+    rows = (await db.execute(select(ConnectedApplication.id, ConnectedApplication.deleted_at).where(
+        ConnectedApplication.id.in_(wanted),
+        ConnectedApplication.organization_id == str(organization_id),
+    ))).all()
+    if {str(r[0]) for r in rows} != wanted:
+        raise AppError.bad_request(ErrorCode.INSTRUCTION_APPLICATIONS_INVALID,
+                                   'Select existing applications in this organization')
+    deleted = {APPLICATION_CHANNEL_PREFIX + str(r[0]) for r in rows if r[1] is not None}
+    return [c for c in channels if c not in deleted]

@@ -6,6 +6,15 @@ from sqlalchemy.orm import declared_attr, relationship
 from app.models.base import BaseSchema
 
 
+# An instruction targets a connected application by listing this value in its
+# applicable_channels, next to the fixed channels ('app', 'slack', ...).
+APPLICATION_CHANNEL_PREFIX = "connected_app:"
+
+
+def application_channel(application_id) -> str:
+    return f"{APPLICATION_CHANNEL_PREFIX}{application_id}"
+
+
 class ConnectedApplication(BaseSchema):
     __tablename__ = "connected_applications"
 

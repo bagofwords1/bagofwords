@@ -259,6 +259,8 @@
     "optChannelTeams": "Teams",
     "optChannelEmail": "תיבת דואר AI",
     "optChannelMcp": "MCP",
+    "optChannelAppDisabled": "{name} (מושבת)",
+    "optChannelAppDeleted": "יישום שנמחק",
     "optStatusActive": "פעיל",
     "optStatusInactive": "לא פעיל",
     "optStatusPending": "ממתין לבדיקה",
@@ -4439,6 +4441,7 @@
     "APPLICATION_NOT_FOUND": "היישום לא נמצא",
     "APPLICATION_CAPABILITY_EXISTS": "יכולת זו כבר מוגדרת ביישום",
     "APPLICATION_AGENTS_INVALID": "יש לבחור סוכנים קיימים בארגון הזה",
+    "INSTRUCTION_APPLICATIONS_INVALID": "יש לבחור יישומים קיימים בארגון הזה",
     "APPLICATION_AGENT_FORBIDDEN": "ליישום אין גישה לסוכן הזה",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "יש לנהל יישומים ישירות ב-BOW"
   },
