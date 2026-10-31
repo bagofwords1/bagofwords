@@ -108,6 +108,7 @@ class ListEntitiesMCPTool(MCPTool):
     """List the published saved queries available on the agents in play."""
 
     name = "list_entities"
+    read_only_hint = True
     description = (
         "List the organization's published saved queries (metrics and models): the agreed "
         "definitions behind terms like revenue, active user or churn. Returns titles, "
@@ -177,6 +178,7 @@ class DescribeEntityMCPTool(MCPTool):
     """Read one saved query in full: its code, parameters and rows."""
 
     name = "describe_entity"
+    read_only_hint = True
     description = (
         "Read one saved query (from list_entities) in full: its code — the organization's "
         "agreed definition — its parameters, and its rows. Pass `params` to run the saved "

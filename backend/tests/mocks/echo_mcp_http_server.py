@@ -27,6 +27,7 @@ import os
 from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
 
 mcp = FastMCP("mock-ln")
 
@@ -59,7 +60,7 @@ def _write_capture(payload: dict[str, Any]) -> None:
         pass
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description="Query production orders. Echoes the arguments and headers it received.",
 )
 def query_production_orders(

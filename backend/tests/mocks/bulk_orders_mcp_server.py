@@ -30,6 +30,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.types import ToolAnnotations
 
 mcp = FastMCP("mock-mfg")
 
@@ -175,7 +176,7 @@ def _build_payload(rows: int) -> dict[str, Any]:
 _ROWS = 500
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description=(
         "Query manufacturing work orders for a production week. Returns every "
         "work order scheduled in the window with planner, item, quantities and "
@@ -191,7 +192,7 @@ def query_work_orders_with_prompt(
     return json.dumps(_build_payload(_ROWS))
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description=(
         "Fetch one production order by company and order number. Returns "
         "the full BOD ShowResponse envelope with all order header fields."
@@ -239,7 +240,7 @@ def get_production_order(company: str = "", order: str = "", ctx: Context = None
     )
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description=(
         "Return the free-text shift handover notes for the production week. "
         "Plain prose, no structure."
@@ -258,7 +259,7 @@ def get_shift_notes(company: str = "", ctx: Context = None) -> str:
     return "\n\n".join(paragraphs * 12)
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description=(
         "Return the raw machine event log for the production week as plain text. "
         "One event per line, regular format, not delimited."
@@ -285,7 +286,7 @@ def get_machine_log(company: str = "", ctx: Context = None) -> str:
     return "\n".join(lines)
 
 
-@mcp.tool(
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True),
     description="Return the current status of each production line. Small JSON object.",
 )
 def get_line_status(company: str = "", ctx: Context = None) -> str:

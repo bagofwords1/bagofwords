@@ -1193,3 +1193,27 @@ def test_mcp_create_artifact_no_llm(
     content_text = data["result"]["content"][0]["text"]
     # Should indicate some error (either no LLM or no visualizations)
     assert data["result"]["isError"] is True or "error" in content_text.lower() or "no" in content_text.lower()
+
+
+@pytest.mark.e2e
+def test_tools_list_publishes_read_only_and_destructive_hints(
+    enable_mcp, test_client, create_api_key, create_user, login_user, whoami
+):
+    """Clients (another BOW, Claude Desktop) decide approval from these hints."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    response = test_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"X-API-Key": api_key},
+    )
+    assert response.status_code == 200, response.text
+    tools = {t["name"]: t for t in response.json()["result"]["tools"]}
+    assert tools["get_context"]["annotations"]["readOnlyHint"] is True
+    assert tools["delete_instruction"]["annotations"]["destructiveHint"] is True
+    # A tool that writes declares no read-only hint, so clients treat it as a write.
+    assert tools["create_instruction"].get("annotations", {}).get("readOnlyHint") is not True

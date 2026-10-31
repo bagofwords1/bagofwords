@@ -33,6 +33,7 @@ class InspectDataMCPTool(MCPTool):
     """
     
     name = "inspect_data"
+    read_only_hint = True
     description = (
         "Quick data inspection for exploration and debugging. "
         "Use to preview data (head/tail), check column types, understand structure, "

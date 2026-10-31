@@ -29,6 +29,7 @@ class ListAgentToolsMCPTool(MCPTool):
     """
 
     name = "list_agent_tools"
+    read_only_hint = True
     description = (
         "Discover the external tools (MCP servers and custom APIs) an agent can run, "
         "with their full input schemas. Call this BEFORE execute_mcp to get exact "

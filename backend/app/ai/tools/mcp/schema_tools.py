@@ -86,6 +86,7 @@ class DescribeTablesMCPTool(MCPTool):
     """List an agent's tables and columns."""
 
     name = "describe_tables"
+    read_only_hint = True
     description = (
         "List the tables an agent (data source) works with, with columns and types. "
         "Agent managers also see tables that are deselected (is_active=false) and can change the "

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import List, Dict, Any, Optional
 from app.data_sources.clients.tool_provider_base import ToolProviderClient
 from app.utils.tabular_payload import detect_content_type
@@ -31,6 +32,108 @@ def looks_like_json(text: Any) -> bool:
         return False
     head = text.lstrip()[:1]
     return head in ("{", "[")
+
+
+# Unicode TAG characters (U+E0000–U+E007F) render as nothing but are read by
+# the model — a known channel for smuggling instructions through untrusted tool
+# output. Strip them from everything a server sends us, keeping only valid
+# emoji tag sequences (subdivision flags: U+1F3F4, tags, then U+E007F).
+_TAG_SUB_RE = re.compile("(\U0001F3F4[\U000E0020-\U000E007E]+\U000E007F)|[\U000E0000-\U000E007F]")
+_TAG_ANY_RE = re.compile("[\U000E0000-\U000E007F]")
+
+
+def strip_unicode_tags(text: str) -> str:
+    if not isinstance(text, str) or not _TAG_ANY_RE.search(text):
+        return text
+    return _TAG_SUB_RE.sub(lambda m: m.group(1) or "", text)
+
+
+def scrub_tags(value: Any) -> Any:
+    """strip_unicode_tags over every string in a JSON-like value (keys too)."""
+    if isinstance(value, str):
+        return strip_unicode_tags(value)
+    if isinstance(value, list):
+        return [scrub_tags(v) for v in value]
+    if isinstance(value, dict):
+        return {scrub_tags(k): scrub_tags(v) for k, v in value.items()}
+    return value
+
+
+# Tool annotation hints (MCP spec). Advisory, set by the server.
+_HINT_KEYS = ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+
+# Cap tools/list pagination so a misbehaving server can't make us walk forever.
+_MAX_TOOL_PAGES = 50
+
+
+def tool_hints(tool: Any) -> Dict[str, bool]:
+    """The boolean annotation hints a discovered tool declares (others omitted)."""
+    ann = getattr(tool, "annotations", None)
+    if ann is None:
+        return {}
+    out: Dict[str, bool] = {}
+    for key in _HINT_KEYS:
+        val = ann.get(key) if isinstance(ann, dict) else getattr(ann, key, None)
+        if isinstance(val, bool):
+            out[key] = val
+    return out
+
+
+def default_policy_for_hints(hints: Dict[str, bool]) -> Optional[str]:
+    """Starting policy for a newly-discovered tool.
+
+    Only a tool the server marks read-only runs without asking; a destructive
+    tool, or one with no hints at all, starts on "ask". Missing hints are
+    treated as write-capable — the same fail-safe Hermes and OpenClaw use.
+    Returns None for "allow" (the caller's default).
+    """
+    if hints.get("readOnlyHint") is True and hints.get("destructiveHint") is not True:
+        return None
+    return "ask"
+
+
+def is_read_only_tool(metadata: Any) -> bool:
+    """True when a stored ConnectionTool's metadata records readOnlyHint=true."""
+    if not isinstance(metadata, dict):
+        return False
+    hints = metadata.get("annotations")
+    return isinstance(hints, dict) and hints.get("readOnlyHint") is True
+
+
+# A pooled session the server no longer knows answers 404 → the SDK reports
+# "Session terminated". The server rejected the request before running the
+# tool, so one retry on a fresh session is safe for any tool.
+_SESSION_GONE_MARKERS = ("session terminated", "session not found")
+
+# Transport failures where the call MAY have reached the server. Retried only
+# for read-only tools: a write could run twice.
+_TRANSPORT_ERROR_NAMES = {
+    "ClosedResourceError", "BrokenResourceError", "EndOfStream",
+    "RemoteProtocolError", "ReadError", "WriteError", "ConnectError",
+    "ReadTimeout", "ConnectTimeout", "PoolTimeout", "ConnectionResetError",
+    "BrokenPipeError",
+}
+
+
+def _leaf_exceptions(e: BaseException) -> List[BaseException]:
+    if isinstance(e, BaseExceptionGroup):
+        out: List[BaseException] = []
+        for sub in e.exceptions:
+            out.extend(_leaf_exceptions(sub))
+        return out
+    return [e]
+
+
+def retry_kind(e: BaseException) -> Optional[str]:
+    """'session_gone' (safe for any tool), 'transport' (read-only only), or None."""
+    leaves = _leaf_exceptions(e)
+    for leaf in leaves:
+        if any(m in str(leaf).lower() for m in _SESSION_GONE_MARKERS):
+            return "session_gone"
+    for leaf in leaves:
+        if type(leaf).__name__ in _TRANSPORT_ERROR_NAMES:
+            return "transport"
+    return None
 
 
 class McpClient(ToolProviderClient):
@@ -88,18 +191,38 @@ class McpClient(ToolProviderClient):
         return asyncio.get_event_loop().run_until_complete(self._alist_tools())
 
     async def _alist_tools(self) -> List[Dict[str, Any]]:
-        """Async implementation of list_tools using the MCP SDK."""
+        """Async implementation of list_tools using the MCP SDK.
+
+        Follows tools/list nextCursor pagination (capped). Each tool carries
+        its annotation hints in ``metadata`` and, from them, the policy a
+        newly-discovered tool starts on (``default_policy``).
+        """
+        from mcp.types import PaginatedRequestParams
+
         try:
             tools = []
             async with self._connect() as session:
-                result = await session.list_tools()
-                for tool in result.tools:
-                    tools.append({
-                        "name": tool.name,
-                        "description": tool.description or "",
-                        "input_schema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
-                        "output_schema": {},
-                    })
+                cursor = None
+                for _ in range(_MAX_TOOL_PAGES):
+                    result = await (
+                        session.list_tools(params=PaginatedRequestParams(cursor=cursor))
+                        if cursor else session.list_tools()
+                    )
+                    for tool in result.tools:
+                        hints = tool_hints(tool)
+                        tools.append({
+                            "name": tool.name,
+                            "description": strip_unicode_tags(tool.description or ""),
+                            "input_schema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+                            "output_schema": getattr(tool, "outputSchema", None) or {},
+                            "metadata": {"annotations": hints},
+                            "default_policy": default_policy_for_hints(hints),
+                        })
+                    cursor = getattr(result, "nextCursor", None)
+                    if not cursor:
+                        break
+                else:
+                    logger.warning("MCP tools/list: stopped after %d pages", _MAX_TOOL_PAGES)
             return tools
         except BaseException as e:
             raise RuntimeError(self._unwrap_exception(e)) from None
@@ -226,7 +349,7 @@ class McpClient(ToolProviderClient):
                     else:
                         contents.append({
                             "type": "text",
-                            "text": getattr(c, "text", "") or "",
+                            "text": strip_unicode_tags(getattr(c, "text", "") or ""),
                             "mime_type": mime_type,
                             "uri": c_uri,
                         })
@@ -236,48 +359,32 @@ class McpClient(ToolProviderClient):
             logger.error(f"MCP read_resource failed: {uri}: {msg}")
             return {"success": False, "contents": [], "error": msg}
 
-    async def _acall_tool(self, tool_name: str, arguments: Dict[str, Any], pooled: bool = True) -> Dict[str, Any]:
-        """Async implementation of call_tool using the MCP SDK."""
-        from mcp import ClientSession
+    async def _acall_tool(
+        self, tool_name: str, arguments: Dict[str, Any], pooled: bool = True, read_only: bool = False,
+    ) -> Dict[str, Any]:
+        """Async implementation of call_tool using the MCP SDK.
 
+        A pooled session can go stale (server restart, session timeout). The
+        call is retried once on a fresh session when that is safe: always when
+        the server rejected the session outright, and on other transport
+        failures only for read-only tools, since a write might already have run.
+        """
         try:
-            async with (self._call_session() if pooled else self._connect()) as session:
-                result = await session.call_tool(tool_name, arguments)
-
-                # Determine content type from result
-                data = self._extract_result_data(result)
-                binaries = self._extract_binaries(result)
-                if data is None and binaries:
-                    # Files only: give the data artifact a pointer rather than a
-                    # bare null, so the agent knows to look at the saved files.
-                    data = f"Tool returned {len(binaries)} file(s); they are attached to this session."
-                content_type = self._detect_content_type(data)
-
-                is_error = bool(getattr(result, "isError", False))
-                # On a tool-level error (isError=True) the MCP spec puts the
-                # explanation in the content blocks, not in a transport
-                # exception. Surface it in `error` so callers don't see a
-                # useless "None" — otherwise the agent retries blindly.
-                error_msg = self._extract_error_message(data) if is_error else None
-
-                # A payload we declined to parse is still JSON if it looks like
-                # JSON. Say so, or the caller saves 8 MB of records as a .txt
-                # and tells the next tool to read it as prose.
-                parse_skipped = _over_parse_cap(data) and looks_like_json(data)
-
-                return {
-                    "success": not is_error,
-                    "data": data,
-                    "content_type": content_type,
-                    # File blobs a tool returned (EmbeddedResource/blob), surfaced
-                    # so execute_mcp can materialize them into session files.
-                    "binaries": binaries,
-                    "error": error_msg,
-                    "parse_skipped": parse_skipped,
-                    "size_chars": len(data) if isinstance(data, str) else None,
-                }
+            return await self._call_once(tool_name, arguments, pooled)
         except BaseException as e:
+            kind = retry_kind(e)
+            if kind == "session_gone" or (kind == "transport" and read_only):
+                logger.info("MCP tool call %s: %s on a stale session; retrying once", tool_name, kind)
+                try:
+                    return await self._call_once(tool_name, arguments, pooled)
+                except BaseException as e2:
+                    e = e2
             msg = self._unwrap_exception(e)
+            if kind == "transport" and not read_only:
+                msg += (
+                    " (the connection dropped mid-call, so this write-capable tool was NOT"
+                    " retried automatically — it may or may not have run; check before re-running it)"
+                )
             logger.error(f"MCP tool call failed: {tool_name}: {msg}")
             return {
                 "success": False,
@@ -285,6 +392,71 @@ class McpClient(ToolProviderClient):
                 "content_type": "text",
                 "error": msg,
             }
+
+    async def _call_once(self, tool_name: str, arguments: Dict[str, Any], pooled: bool) -> Dict[str, Any]:
+        async with (self._call_session() if pooled else self._connect()) as session:
+            result = await session.call_tool(tool_name, arguments)
+
+        data = self._extract_result_data(result)
+        data = self._merge_structured(result, data)
+        data = scrub_tags(data)
+        binaries = self._extract_binaries(result)
+        if data is None and binaries:
+            # Files only: give the data artifact a pointer rather than a
+            # bare null, so the agent knows to look at the saved files.
+            data = f"Tool returned {len(binaries)} file(s); they are attached to this session."
+        content_type = self._detect_content_type(data)
+
+        is_error = bool(getattr(result, "isError", False))
+        # On a tool-level error (isError=True) the MCP spec puts the
+        # explanation in the content blocks, not in a transport
+        # exception. Surface it in `error` so callers don't see a
+        # useless "None" — otherwise the agent retries blindly.
+        error_msg = self._extract_error_message(data) if is_error else None
+
+        # A payload we declined to parse is still JSON if it looks like
+        # JSON. Say so, or the caller saves 8 MB of records as a .txt
+        # and tells the next tool to read it as prose.
+        parse_skipped = _over_parse_cap(data) and looks_like_json(data)
+
+        return {
+            "success": not is_error,
+            "data": data,
+            "content_type": content_type,
+            # File blobs a tool returned (EmbeddedResource/blob), surfaced
+            # so execute_mcp can materialize them into session files.
+            "binaries": binaries,
+            "error": error_msg,
+            "parse_skipped": parse_skipped,
+            "size_chars": len(data) if isinstance(data, str) else None,
+        }
+
+    @staticmethod
+    def _merge_structured(result, data: Any) -> Any:
+        """Fold a result's ``structuredContent`` into its data.
+
+        The spec says a tool returning structuredContent SHOULD also send it
+        serialized in a text block — when one does (compared as parsed JSON),
+        the content is kept as-is so the model doesn't see it twice. When the
+        structured data is the only copy (no content, or only a status line /
+        prose summary next to it), it is kept: dropping it loses the result.
+        """
+        structured = getattr(result, "structuredContent", None)
+        if structured is None:
+            return data
+        if data is None:
+            return structured
+        candidates = data if isinstance(data, list) else [data]
+        for part in candidates:
+            if part == structured:
+                return data
+            if isinstance(part, str):
+                try:
+                    if json.loads(part) == structured:
+                        return data
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+        return {"structured_content": structured, "content": data}
 
     @staticmethod
     def _parse_text(text: Any) -> Any:
@@ -544,8 +716,8 @@ class McpClient(ToolProviderClient):
     async def alist_tools(self) -> List[Dict[str, Any]]:
         return await self._alist_tools()
 
-    async def acall_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return await self._acall_tool(tool_name, arguments)
+    async def acall_tool(self, tool_name: str, arguments: Dict[str, Any], read_only: bool = False) -> Dict[str, Any]:
+        return await self._acall_tool(tool_name, arguments, read_only=read_only)
 
     async def atest_connection(self) -> Dict[str, Any]:
         return await self._atest_connection()

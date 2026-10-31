@@ -95,6 +95,7 @@ class GetVisualizationMCPTool(MCPTool):
     """
 
     name = "get_visualization"
+    read_only_hint = True
     description = "Fetch visualization data including chart config, rows, columns, and code."
 
     @property
@@ -196,6 +197,7 @@ class GetArtifactDataMCPTool(MCPTool):
     """
 
     name = "get_artifact_data"
+    read_only_hint = True
     description = "Fetch artifact code and visualization data for rendering a dashboard or presentation."
 
     @property
