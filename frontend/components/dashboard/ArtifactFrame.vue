@@ -592,8 +592,9 @@
     <!-- Inspect: the app's activity (requests, streams, filters, clicks,
          errors) docked under it, DevTools-style; opened from the ⋯ menu.
          Editors only: it reads the log the agent reads. -->
-    <ArtifactActivityLog v-if="report && selectedArtifact?.artifact_id && !verificationPreview && viewAsMode === 'you' && dashboardCaps.includes('edit')"
-      ref="activityLogRef" :artifact-id="selectedArtifact.artifact_id" :report-id="reportId" :version="selectedArtifact?.version ?? null" />
+    <ArtifactActivityLog v-if="inspectOpen && report && selectedArtifact?.artifact_id && !verificationPreview" ref="activityLogRef"
+      :artifact-id="selectedArtifact.artifact_id" :report-id="reportId" :version="selectedArtifact?.version ?? null"
+      @close="inspectOpen = false" />
 
     <!-- Fullscreen Modal -->
     <Teleport to="body">
@@ -1902,6 +1903,7 @@ function reviewChanges() {
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
 const activityLogRef = ref<InstanceType<typeof ArtifactActivityLog> | null>(null);
+const inspectOpen = ref(false);
 // Remounting the Publish button re-reads what readers see now.
 const publishKey = ref(0);
 // A roll back changes what is live; a transfer changes who may do what.
@@ -2050,7 +2052,7 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     // History: the conversations, versions and releases (Roll back) -- editors.
     if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('dashboardCollab.conversation.history'), icon: 'i-heroicons-clock', testid: 'history-menu', click: () => { settingsModalRef.value?.open('versions'); } });
     // Activity log: what the app did while it was used (requests, filters, clicks, errors) -- editors.
-    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('artifactActivity.inspect'), icon: 'i-heroicons-code-bracket-square', testid: 'inspect-menu', click: () => { activityLogRef.value?.toggle(); } });
+    if (dashboardCaps.value.includes('edit')) inspectors.push({ label: t('artifactActivity.inspect'), icon: 'i-heroicons-code-bracket-square', testid: 'inspect-menu', click: () => { inspectOpen.value = !inspectOpen.value; } });
     view.unshift(...inspectors);
   }
   return [edit, exports, view].filter(g => g.length > 0);

@@ -4726,11 +4726,7 @@
       "all": "כל המקורות",
       "editor": "עורך",
       "preview": "תצוגה מקדימה"
-    },
-    "expand": "הצגת פעילות",
-    "collapse": "כיווץ",
-    "requestsCount": "{n} בקשות",
-    "errorsCount": "{n} שגיאות"
+    }
   },
   "filter": {
     "selectColumn": "בחר עמודה",
