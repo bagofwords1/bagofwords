@@ -219,7 +219,7 @@ export async function run(basename, scenarios, {viewport = {width: 1100, height:
   const only = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
   let failed = 0;
   try {
-    const env = await openPage(await browser.newContext({viewport}));
+    const env = await openPage(await browser.newContext({viewport, recordVideo: process.env.CHAT_VIDEO_DIR ? {dir: process.env.CHAT_VIDEO_DIR} : undefined}));
     let clockEnv = null;
     for (const sc of scenarios) {
       if (only && !only.test(sc.name)) continue;
