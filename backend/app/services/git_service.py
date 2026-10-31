@@ -34,6 +34,7 @@ from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
 from app.errors.redact import redact_error
+from app.services.git_hardening import ssh_command, with_https_auth
 from app.schemas.git_repository_schema import (
     GitRepositoryCreate,
     GitRepositoryUpdate,
@@ -260,7 +261,7 @@ class GitService:
                 raise HTTPException(status_code=400, detail=f"Invalid SSH key format: {e.stderr}")
             
             git_env = self._git_env(repo_url)
-            git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+            git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
             return git.cmd.Git().ls_remote(repo_url, env=git_env)
         finally:
@@ -271,33 +272,31 @@ class GitService:
     ) -> str:
         """List remote refs using Personal Access Token (HTTPS)."""
         # Convert SSH URL to HTTPS if needed
-        https_url = self._convert_to_https_url(repo_url, access_token, username)
-        return git.cmd.Git().ls_remote(https_url, env=self._git_env(https_url))
+        https_url = self._https_url(repo_url)
+        return git.cmd.Git().ls_remote(https_url, env=self._pat_env(https_url, access_token, username))
 
-    def _convert_to_https_url(
-        self, repo_url: str, access_token: str, username: Optional[str] = None
-    ) -> str:
-        """Convert repo URL to HTTPS URL with embedded credentials."""
-        # When no explicit username is supplied, use a placeholder username
-        # so git doesn't read the bare token as a username and prompt for a
-        # password (which fails with no TTY). GitHub recommends
-        # `x-access-token`; GitLab ignores the username for a token.
-        auth = f"{username or 'x-access-token'}:{access_token}"
-
-        # If already HTTPS, inject credentials
+    @staticmethod
+    def _https_url(repo_url: str) -> str:
+        """The repo's HTTPS URL, WITHOUT credentials (git@host:path → https)."""
         if repo_url.startswith('https://'):
             parsed = urlparse(repo_url)
-            return f"https://{auth}@{parsed.netloc}{parsed.path}"
-
-        # Convert SSH URL to HTTPS
-        # git@github.com:user/repo.git -> https://github.com/user/repo.git
+            # Drop any userinfo someone pasted into the saved URL.
+            return f"https://{parsed.hostname}{':' + str(parsed.port) if parsed.port else ''}{parsed.path}"
         ssh_match = re.match(r'git@([^:]+):(.+)', repo_url)
         if ssh_match:
-            host = ssh_match.group(1)
-            path = ssh_match.group(2)
-            return f"https://{auth}@{host}/{path}"
-        
+            return f"https://{ssh_match.group(1)}/{ssh_match.group(2)}"
         raise ValueError(f"Unsupported URL format: {repo_url}")
+
+    def _pat_env(self, https_url: str, access_token: str, username: Optional[str] = None) -> Dict[str, str]:
+        """Env for one git command authenticating with a PAT over HTTPS.
+
+        The token goes in a per-command Authorization header (``GIT_CONFIG_*``)
+        rather than the remote URL, so it is never written into the clone's
+        ``.git/config``. When no username is supplied, `x-access-token` keeps
+        git from reading the bare token as a username (GitHub's convention;
+        GitLab ignores the username for a token).
+        """
+        return with_https_auth(self._git_env(https_url), username or 'x-access-token', access_token)
 
     async def create_git_repository(
         self,
@@ -730,15 +729,13 @@ class GitService:
             if repository.has_access_token:
                 # Clone via HTTPS with PAT
                 pat = repository.decrypt_access_token()
-                https_url = self._convert_to_https_url(
-                    repository.repo_url, pat, repository.access_token_username
-                )
+                https_url = self._https_url(repository.repo_url)
                 repo = git.Repo.clone_from(
                     https_url,
                     clone_dir,
                     branch=target_branch,
                     depth=1,
-                    env=self._git_env(https_url),
+                    env=self._pat_env(https_url, pat, repository.access_token_username),
                     multi_options=["--single-branch", "--no-tags"]
                 )
             elif repository.has_ssh_key:
@@ -756,7 +753,7 @@ class GitService:
                     os.chmod(ssh_key_path, 0o600)
 
                     git_env = self._git_env(repository.repo_url)
-                    git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                    git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
                     repo = git.Repo.clone_from(
                         repository.repo_url,
@@ -1035,10 +1032,11 @@ class GitService:
         
         if repository.has_access_token:
             pat = repository.decrypt_access_token()
-            https_url = self._convert_to_https_url(
-                repository.repo_url, pat, repository.access_token_username
+            https_url = self._https_url(repository.repo_url)
+            return git.Repo.clone_from(
+                https_url, clone_dir, branch=target_branch,
+                env=self._pat_env(https_url, pat, repository.access_token_username),
             )
-            return git.Repo.clone_from(https_url, clone_dir, branch=target_branch, env=self._git_env(https_url))
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
             try:
@@ -1053,7 +1051,7 @@ class GitService:
                 os.chmod(ssh_key_path, 0o600)
 
                 git_env = self._git_env(repository.repo_url)
-                git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
                 return git.Repo.clone_from(
                     repository.repo_url, clone_dir, branch=target_branch, env=git_env
@@ -1072,10 +1070,13 @@ class GitService:
         - These are feature branches, not protected branches
         """
         if repository.has_access_token:
-            # PAT is already embedded in the remote URL from clone; re-check
-            # (and re-pin) the host right before the network operation.
+            # The clone's remote URL carries no credentials; the PAT rides in a
+            # per-command header. The host is re-checked (and re-pinned) here.
             push_url = next(repo.remote('origin').urls)
-            repo.git.push('origin', branch_name, '--set-upstream', '--force', env=self._git_env(push_url))
+            env = self._pat_env(
+                push_url, repository.decrypt_access_token(), repository.access_token_username
+            )
+            repo.git.push('origin', branch_name, '--set-upstream', '--force', env=env)
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
             try:
@@ -1090,7 +1091,7 @@ class GitService:
                 os.chmod(ssh_key_path, 0o600)
 
                 git_env = self._git_env(repository.repo_url)
-                git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
                 repo.git.push('origin', branch_name, '--set-upstream', '--force', env=git_env)
             finally:

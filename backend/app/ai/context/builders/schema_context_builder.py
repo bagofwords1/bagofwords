@@ -1038,6 +1038,7 @@ class SchemaContextBuilder:
         "documentum",
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
         "outlook_mail", "gmail_mail", "onenote",
+        "github_repo", "gitlab_repo", "bitbucket_repo",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",

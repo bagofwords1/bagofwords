@@ -29,6 +29,19 @@ async def _test_connection(ls_remote_output: str, branch: str):
         return await GitService().test_connection(db=None, git_repo=repo, organization=None)
 
 
+def _header_creds(env):
+    """(username, password) from the http.extraHeader git config in ``env``."""
+    import base64
+    n = int(env.get("GIT_CONFIG_COUNT", 0))
+    for i in range(n):
+        if env.get(f"GIT_CONFIG_KEY_{i}") == "http.extraHeader":
+            value = env[f"GIT_CONFIG_VALUE_{i}"]
+            assert value.startswith("Authorization: Basic ")
+            user, _, pw = base64.b64decode(value.split()[-1]).decode().partition(":")
+            return user, pw
+    return None, None
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("branch", ["main", "develop"])
 async def test_empty_repository_is_reported_as_empty(branch):
@@ -87,8 +100,12 @@ async def test_access_token_is_sent_as_password_for_any_url_form(provider, repo_
     parsed = urlparse(ls.call_args.args[0])
     assert parsed.scheme == "https"
     assert parsed.hostname == host
-    assert parsed.username and parsed.username != token
-    assert parsed.password == token
+    # Credentials travel as a per-command Basic header, never in the URL
+    # (a URL token ends up in the clone's .git/config).
+    assert parsed.username is None and parsed.password is None
+    username, password = _header_creds(ls.call_args.kwargs["env"])
+    assert username and username != token
+    assert password == token
 
 
 @pytest.mark.asyncio
@@ -105,4 +122,5 @@ async def test_explicit_access_token_username_is_used(repo_url):
         await GitService().test_connection(db=None, git_repo=repo, organization=None)
 
     parsed = urlparse(ls.call_args.args[0])
-    assert (parsed.username, parsed.password) == ("someone", "app-password-xyz")
+    assert (parsed.username, parsed.password) == (None, None)
+    assert _header_creds(ls.call_args.kwargs["env"]) == ("someone", "app-password-xyz")

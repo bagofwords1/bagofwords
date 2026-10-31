@@ -125,6 +125,10 @@ from app.schemas.data_sources.configs import (
     # Network Directory (local / mounted file share)
     NetworkDirConfig,
     NetworkDirCredentials,
+    GitRepoConfig,
+    GitTokenCredentials,
+    BitbucketTokenCredentials,
+    GitPublicCredentials,
     # Amazon S3
     S3Config,
     S3KeyCredentials,
@@ -235,6 +239,7 @@ from app.schemas.data_sources.configs import (
     MCPConfig,
     MCPNoAuthCredentials,
     MCPBearerCredentials,
+    MCPBasicCredentials,
     MCPOAuthAppCredentials,
     # Custom API
     CustomAPIConfig,
@@ -430,7 +435,7 @@ class McpPreset(BaseModel):
     title: str
     server_url: str
     transport: str = "streamable_http"   # streamable_http | sse
-    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer
+    auth: str = "oauth"                   # oauth(DCR) | oauth_app | bearer | basic
     description: str = ""
     # UI grouping bucket — same vocabulary as DataSourceRegistryEntry.category.
     # Presets are branded MCP servers, so they slot into a domain category
@@ -438,7 +443,7 @@ class McpPreset(BaseModel):
     # transport-named "MCP" category.
     category: str = "services"
     # Which auth modes the connect form offers for this tile, in form-vocabulary
-    # (none | bearer | api_key | dcr | oauth_app). None → offer all (the generic
+    # (none | bearer | api_key | basic | dcr | oauth_app). None → offer all (the generic
     # / arbitrary-URL case). E.g. X excludes `dcr` (its server has no DCR).
     allowed_auth: Optional[List[str]] = None
     # Provider OAuth constants to pre-fill when `oauth_app` is chosen. None for
@@ -1516,6 +1521,96 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="files",
         catalog_ownership="shared",
     ),
+    # Code connections: one repository, read-only, served from a cached local
+    # clone (app.services.repo_cache) through the same file tools as a network
+    # share. Nothing in the repo is executed. Issues/PRs/pipelines are the
+    # separate GitHub / GitLab / Bitbucket MCP presets.
+    "github_repo": DataSourceRegistryEntry(
+        type="github_repo",
+        category="files",
+        title="GitHub (code)",
+        description=(
+            "Read, search and grep the code of one GitHub repository. The repo is "
+            "cloned read-only into a local cache and refreshed when stale; nothing "
+            "in it is ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create a read-only token",
+                body="In GitHub go to Settings > Developer settings > Fine-grained tokens, choose the repository, and grant Contents: Read-only (Metadata: Read-only is added automatically). Public repositories need no token.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Access token", schema=GitTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public repository", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.GitHubRepoClient",
+        version="beta",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
+    "gitlab_repo": DataSourceRegistryEntry(
+        type="gitlab_repo",
+        category="files",
+        title="GitLab (code)",
+        description=(
+            "Read, search and grep the code of one GitLab project (gitlab.com or "
+            "self-managed). Cloned read-only into a local cache; nothing in it is "
+            "ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create a read-only token",
+                body="Create a project access token (Project > Settings > Access tokens) or a personal access token with the read_repository scope. Public projects need no token. For self-managed GitLab, also fill in Server.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Access token", schema=GitTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public project", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.GitLabRepoClient",
+        version="beta",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
+    "bitbucket_repo": DataSourceRegistryEntry(
+        type="bitbucket_repo",
+        category="files",
+        title="Bitbucket (code)",
+        description=(
+            "Read, search and grep the code of one Bitbucket Cloud repository. "
+            "Cloned read-only into a local cache; nothing in it is ever executed."
+        ),
+        setup_guide=[
+            SetupStep(
+                title="Create an API token",
+                body="In your Atlassian account go to Security > API tokens > Create API token with scopes, pick Bitbucket and grant read:repository:bitbucket. Leave Username empty. For a repository access token, set Username to x-token-auth.",
+            ),
+        ],
+        config_schema=GitRepoConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="API token", schema=BitbucketTokenCredentials, scopes=["system"]),
+                "none": AuthVariant(title="Public repository", schema=GitPublicCredentials, scopes=["system"]),
+            },
+        ),
+        client_path="app.data_sources.clients.git_repo_client.BitbucketRepoClient",
+        version="beta",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+    ),
     "s3": DataSourceRegistryEntry(
         type="s3",
         title="Amazon S3",
@@ -2195,6 +2290,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     schema=CustomAPIKeyCredentials,
                     scopes=["system", "user"],
                 ),
+                "basic": AuthVariant(
+                    title="Email + API token (Basic)",
+                    schema=MCPBasicCredentials,
+                    scopes=["system", "user"],
+                ),
                 "oauth_app": AuthVariant(
                     title="OAuth Client (admin-configured)",
                     schema=MCPOAuthAppCredentials,
@@ -2311,6 +2411,21 @@ _TOOLS_NOTION = [
     "create-database", "update-database", "create-comment", "get-comments", "get-users",
     "get-self", "get-user",
 ]
+ATLASSIAN_MCP_URL = "https://mcp.atlassian.com/v1/mcp/authv2"  # OAuth 2.1 + DCR
+ATLASSIAN_MCP_TOKEN_URL = "https://mcp.atlassian.com/v2/mcp"   # API tokens
+# Retired 2026-06-30; kept so old connections can be recognised and migrated.
+ATLASSIAN_LEGACY_SSE_URL = "https://mcp.atlassian.com/v1/sse"
+
+_TOOLS_GITLAB = [
+    "get_issue", "create_issue", "get_merge_request", "get_merge_request_diffs",
+    "get_merge_request_pipelines", "get_pipeline_jobs", "search", "semantic_code_search",
+]
+# Tool names from Atlassian's Bitbucket announcement (2026-04).
+_TOOLS_BITBUCKET = [
+    "bitbucketWorkspace", "bitbucketRepository", "bitbucketPullRequest",
+    "bitbucketBranch", "bitbucketCommit", "bitbucketPipeline", "bitbucketDeployment",
+]
+
 _TOOLS_ATLASSIAN = [
     "atlassianUserInfo", "getAccessibleAtlassianResources", "getConfluenceSpaces",
     "getConfluencePage", "getPagesInConfluenceSpace", "getConfluencePageAncestors",
@@ -2365,9 +2480,38 @@ MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="notion", title="Notion", server_url="https://mcp.notion.com/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_NOTION,
               description="Pages, databases and search across your Notion workspace."),
-    McpPreset(key="atlassian", title="Jira / Atlassian", server_url="https://mcp.atlassian.com/v1/sse",
-              transport="sse", allowed_auth=["dcr"], sample_tools=_TOOLS_ATLASSIAN,
+    # Atlassian retired the /v1/sse endpoint after 2026-06-30 (OAuth still
+    # succeeds but the MCP handshake 404s). /v1/mcp/authv2 is the Streamable
+    # HTTP endpoint Atlassian recommends for custom clients; same authorization
+    # server and DCR registration endpoint (verified by live discovery 2026-10).
+    # Existing connections are moved over by migration atlv201.
+    McpPreset(key="atlassian", title="Jira / Atlassian", server_url=ATLASSIAN_MCP_URL,
+              allowed_auth=["dcr"], sample_tools=_TOOLS_ATLASSIAN,
               description="Jira issues and Confluence pages."),
+    # Bitbucket Cloud is served by the same Atlassian Rovo MCP server, but its
+    # tools accept API-token auth only (no OAuth yet — Atlassian, 2026-04), and
+    # an org admin must enable API-token auth in Admin Hub → Rovo → MCP server.
+    # API tokens use their own endpoint (/v2/mcp — Atlassian's API-token doc;
+    # /v1/mcp/authv2 is the OAuth one). A personal token goes in as HTTP Basic
+    # (email:api_token); a service-account API key as Bearer.
+    McpPreset(key="bitbucket", title="Bitbucket", server_url=ATLASSIAN_MCP_TOKEN_URL,
+              auth="basic", allowed_auth=["basic", "bearer"], category="dev",
+              sample_tools=_TOOLS_BITBUCKET,
+              description=(
+                  "Bitbucket Cloud repos, pull requests and pipelines via Atlassian's MCP server "
+                  "(needs an Atlassian API token; an org admin must enable API-token auth)."
+              )),
+    # GitLab's official MCP server (GA in GitLab 19.5; all tiers). OAuth 2.1 +
+    # DCR with the single `mcp` scope, which discovery reads from the 401
+    # challenge (verified live 2026-10). A group owner (gitlab.com) or instance
+    # admin (self-managed) must allow MCP access first, or the server answers
+    # 404 after sign-in. Self-managed: https://<host>/api/v4/mcp (18.6+).
+    McpPreset(key="gitlab", title="GitLab", server_url="https://gitlab.com/api/v4/mcp",
+              allowed_auth=["dcr", "bearer"], category="dev", sample_tools=_TOOLS_GITLAB,
+              description=(
+                  "Issues, merge requests, pipelines and repository files from GitLab "
+                  "(a group owner must allow MCP access)."
+              )),
     McpPreset(key="linear", title="Linear", server_url="https://mcp.linear.app/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_LINEAR,
               description="Issues, projects and cycles from Linear."),

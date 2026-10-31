@@ -573,9 +573,9 @@ function selectCatalogEntry(entry: any) {
   // Catalog auth → MCP form auth_type. In the catalog, auth="oauth" means
   // per-user OAuth via Dynamic Client Registration (no admin setup) — the form
   // calls that "dcr". oauth_app needs an admin-registered client; bearer is a
-  // per-user token.
+  // token; basic is an email/username + API token (e.g. Bitbucket).
   const isDcr = entry.auth === 'oauth'
-  const authType = isDcr ? 'dcr' : (entry.auth === 'oauth_app' ? 'oauth_app' : 'bearer')
+  const authType = isDcr ? 'dcr' : (['oauth_app', 'basic'].includes(entry.auth) ? entry.auth : 'bearer')
   selectedDataSource.value = {
     type: 'mcp',
     title: entry.title,

@@ -326,6 +326,16 @@ async def ensure_mcp_oauth_config(db, connection) -> bool:
                     creds["discovered_scopes"] = meta["scopes"]
                     creds["scopes_source"] = meta["scopes_source"]
                     changed = True
+                # The token audience follows the server: a connection moved to
+                # a new endpoint (e.g. Atlassian /v1/sse → /v1/mcp/authv2) must
+                # stop asking for tokens bound to the old resource.
+                if meta.get("resource") and creds.get("audience") != meta["resource"]:
+                    logger.info(
+                        "DCR: audience for connection %s changed %r -> %r",
+                        connection.id, creds.get("audience"), meta["resource"],
+                    )
+                    creds["audience"] = meta["resource"]
+                    changed = True
         if changed:
             connection.encrypt_credentials(creds)
             await db.commit()
