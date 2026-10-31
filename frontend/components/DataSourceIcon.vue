@@ -115,7 +115,7 @@ const iconPath = computed(() => {
         csv: 'csv.png',
         gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',
-        intune: 'intune.svg',
+        intune: 'intune.png',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
         // Same brand asset as the monday MCP preset (CONNECTOR_ICON_FILE above).
