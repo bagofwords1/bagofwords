@@ -86,7 +86,7 @@ def test_members_cannot_register_connected_applications(test_client, create_user
 
 
 def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, create_user, login_user, whoami, create_oauth_client):
-    """Exercise the edited migration against a released client row and live grants."""
+    """The forward migration preserves real OAuth credentials and pending grants."""
     import asyncio
     import importlib.util
     from pathlib import Path
@@ -102,6 +102,11 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
     org = whoami(token)['organizations'][0]['id']
     client = create_oauth_client(user_token=token, org_id=org, name='Existing integration',
                                  redirect_uris=[APP_REDIRECT_URI], scopes='app mcp', trusted=True)
+    # Match the released schema's unrestricted application policy before
+    # round-tripping API-created credentials through the legacy table.
+    assert test_client.patch('/api/connected_applications/' + client['id'],
+                             headers={'Authorization': f'Bearer {token}', 'X-Organization-Id': org},
+                             json={'agent_ids': None}).status_code == 200
     tokens = _issue_token(test_client, login_token=token, client=client, scope='app')
     verifier, challenge = _pkce_pair()
     pending = test_client.post('/api/oauth/authorize', headers={'Authorization': f'Bearer {token}'}, json={
@@ -112,8 +117,8 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
     code = parse_qs(urlparse(pending.json()['redirect_url']).query)['code'][0]
 
     async def migrate():
-        path = Path(__file__).parents[2] / 'alembic/versions/hostapp01_host_applications.py'
-        spec = importlib.util.spec_from_file_location('hostapp01_preservation', path)
+        path = Path(__file__).parents[2] / 'alembic/versions/connapps01_connected_applications.py'
+        spec = importlib.util.spec_from_file_location('connapps01_preservation', path)
         migration = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(migration)
         async with async_session_maker() as db:

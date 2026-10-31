@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 
 from alembic import command
 from tests.fixtures.dashboard_corpus.rows import sync_test_url
@@ -56,6 +56,7 @@ def alembic_pointed_at(url: str) -> Iterator[Config]:
     """
     from app.settings.config import settings
 
+    restore_unstamped_application_schema(url)
     cfg = Config("alembic.ini")
     cfg.set_main_option("sqlalchemy.url", url)
     saved_setting = settings.TEST_DATABASE_URL
@@ -112,12 +113,41 @@ def downgrade_test_db_to_base() -> None:
 # code at head reads their tables and columns, so a corpus stopped before the
 # data migration gets them too: their upgrade() runs on its own, unstamped,
 # and is idempotent, so a later `upgrade head` finds it done.
-SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01")
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01")
+
+
+def restore_unstamped_application_schema(url: str) -> None:
+    """Undo only the corpus's unstamped table move before replaying history.
+
+    The released hostapp01 checks for host_applications before creating its
+    child tables. connapps01 moves that parent, so replaying hostapp01 over an
+    unstamped connapps01 would try to create those children twice. Keep the
+    released migration immutable; restore its parent in the test harness.
+    Normally stamped databases never take this path.
+    """
+    from alembic.operations import Operations
+
+    script = script_directory()
+    engine = create_engine(url)
+    try:
+        with engine.begin() as conn:
+            if not inspect(conn).has_table("connected_applications"):
+                return
+            context = MigrationContext.configure(conn)
+            applied = {revision.revision for revision in
+                       script.iterate_revisions(context.get_current_heads(), "base")}
+            if "connapps01" in applied:
+                return
+            with Operations.context(context):
+                script.get_revision("connapps01").module.downgrade()
+    finally:
+        engine.dispose()
 
 
 def apply_schema_only_revisions(url: str) -> None:
     from alembic.operations import Operations
 
+    restore_unstamped_application_schema(url)
     script = script_directory()
     engine = create_engine(url)
     try:

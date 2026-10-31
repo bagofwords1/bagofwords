@@ -3,7 +3,7 @@
 An administrator should register an ERP or MCP client once, configure its agent
 access, and enable embedding, OAuth, or both. Existing OAuth installations must
 keep their credentials and grants. This loop verifies the shared model, the
-edited unreleased migration, permission boundaries, and an actual embedded chat.
+forward migration from the released schema, permission boundaries, and an actual embedded chat.
 
 ## Root cause and implementation
 
@@ -14,10 +14,12 @@ a host registration without exposing the OAuth/Entra setup beside it.
 - `backend/app/models/connected_application.py:9` owns organization, name,
   enabled state, creator, timestamps and the agent ceiling. Each capability has
   an optional 1:1 row using the same application ID.
-- `backend/alembic/versions/hostapp01_host_applications.py:62` replaces the
-  unreleased host migration in place. It copies released OAuth rows, preserving
-  IDs, secret hashes, redirects, scopes, trust, exchange settings and timestamps.
-  Authorization codes and token rows retain their existing client identifiers.
+- `backend/alembic/versions/connapps01_connected_applications.py` migrates the
+  released OAuth and host registrations into shared identities and capability
+  rows. It preserves IDs, credentials, configuration, timestamps, epochs and
+  disabled/deleted state. Child foreign keys move before the old tables are
+  removed, retaining tokens, assertion replay records and artifact bindings.
+  The shipped `hostapp01` remains byte-for-byte unchanged.
 - `backend/app/services/connected_application_service.py:67` reads the live
   application ceiling from the authenticated request origin. Agent discovery,
   direct reads, run selection, client construction, MCP schema tools and the
@@ -205,8 +207,10 @@ ServiceNow deployment, an air-gapped network, every browser, customer RLS rules,
 or a new live Microsoft Entra/Power BI/Fabric OBO run. The earlier real two-user
 Entra/Fabric evidence remains in `erp-embed-entra-customer.md`.
 
-The migration revision is intentionally unchanged, as requested. Databases that
-already applied the **old unreleased hostapp01** need a fresh disposable sandbox
-or restoration of a pre-migration backup before upgrading with this branch. Do
-not merely stamp the old tables as the new schema. Released OAuth databases
-upgrade through the edited migration without credential rotation.
+`hostapp01` shipped in **v0.0.601**. The initial implementation incorrectly
+rewrote that revision, and the original round-trip test did not exercise a
+released database. This is corrected by restoring the released file and adding
+`connapps01` after `payload01`. Upgrade normally with `alembic upgrade head`;
+existing registrations need no credential rotation or database rebuild.
+See [the released-database regression loop](connected-applications-upgrade.md)
+for PostgreSQL/SQLite evidence and rollback limitations.
