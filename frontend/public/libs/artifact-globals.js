@@ -308,7 +308,12 @@
       'html.dark { color-scheme: dark; }',
       'body { background: var(--bow-bg, #fff); color: var(--bow-ink, #111); font-family: var(--bow-font-body, system-ui, sans-serif); -webkit-font-smoothing: antialiased; }',
       '#root table, #root .tabular { font-variant-numeric: tabular-nums; }',
-      '#root :focus-visible { outline: 2px solid var(--bow-accent); outline-offset: 2px; }',
+      // Fallback ring only: :where() has zero specificity so any outline-*/ring-*
+      // class wins, and text fields are left out (they always match
+      // :focus-visible, so a plain `#root :focus-visible` boxed every focused
+      // input, e.g. ChatComposer's, which styles focus on its wrapper).
+      // Mirrors frontend/assets/css/tokens.css.
+      ':where(#root :is(a[href], button, summary, [role="button"], [role="tab"], [role="menuitem"], [tabindex]:not([tabindex="-1"])):focus-visible) { outline: 2px solid var(--bow-accent); outline-offset: 2px; }',
       '#root ::selection { background: color-mix(in srgb, var(--bow-accent) 22%, transparent); }',
       '@media (prefers-reduced-motion: reduce) { #root * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }',
       '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; } }'
