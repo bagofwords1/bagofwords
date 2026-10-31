@@ -37,7 +37,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-PAUSE_SECONDS = 12
+PAUSE_SECONDS = int(os.environ.get("AZURE_COST_PAUSE_SECONDS", "12"))
 
 
 class RecordingSession:
@@ -106,7 +106,12 @@ def main() -> int:
             "head": df.head(5).to_dict(orient="records"),
         }
 
-    check("1_test_connection", lambda: client.test_connection())
+    def connection():
+        result = client.test_connection()
+        if not result.get("success"):
+            raise RuntimeError(result.get("message"))
+        return result
+    check("1_test_connection", connection)
 
     def dims():
         client._dimensions_cache = None
@@ -114,7 +119,12 @@ def main() -> int:
         tables = client.get_schemas()
         listed = session.log[before:]
         cols = [c.name for c in tables[0].columns]
-        return {"dimensions_api_status": [c["status"] for c in listed], "costs_columns": cols}
+        statuses = [c["status"] for c in listed]
+        if not statuses or statuses[-1] != 200:
+            # get_schemas() falls back to a built-in dimension list on any
+            # failure, so a "pass" here must mean the Dimensions API answered.
+            raise RuntimeError(f"Dimensions API did not answer 200 (statuses: {statuses}); columns are the built-in fallback")
+        return {"dimensions_api_status": statuses, "costs_columns": cols}
     check("2_dimensions_discovery", dims)
 
     def raw_cost_column():
