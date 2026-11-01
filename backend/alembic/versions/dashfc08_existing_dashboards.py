@@ -666,7 +666,8 @@ class Migration:
             return False
         assoc = t["report_data_source_association"]
         ds_ids = [str(r[0]) for r in self.conn.execute(
-            sa.select(assoc.c.data_source_id).where(assoc.c.report_id == rid)).all()]
+            sa.select(assoc.c.data_source_id).where(
+                assoc.c.report_id == rid, assoc.c.data_source_id.isnot(None))).all()]
         if not ds_ids and t.has("data_sources"):
             # No source of its own: it ran on the organization's -- all of them
             # count, as Publish's rule reads it (_org_fallback_ds_ids, no code).

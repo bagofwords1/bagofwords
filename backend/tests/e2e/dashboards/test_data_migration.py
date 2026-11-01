@@ -790,3 +790,32 @@ def test_a_source_or_file_linked_twice_is_linked_once_to_the_release(corpus, cor
         corpus_rows, "SELECT data_source_id FROM artifact_release_data_source_association "
                      "WHERE artifact_release_id = :r", r=release["id"])]
     assert sorted(linked) == sorted(sources)
+
+
+@pytest.mark.e2e
+def test_a_null_source_link_is_judged_by_the_organizations_sources(corpus, corpus_rows):
+    """A conversation whose only source link is NULL has no source of its
+    own: like one with none, it is judged by the organization's sources
+    (one of which is personal), so its release gets no thumbnail."""
+    module = _migration_module()
+    c = corpus
+    rid = c.reports["vis_internal"]
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(text("DELETE FROM report_data_source_association WHERE report_id = :r"), {"r": rid})
+        conn.execute(text("INSERT INTO report_data_source_association (report_id, data_source_id) "
+                          "VALUES (:r, NULL)"), {"r": rid})
+    (version,) = _rows(corpus_rows, "SELECT id FROM artifact_versions WHERE artifact_id = :a",
+                       a=c.ids["vis_internal/dash"])
+    path = module.UPLOADS / "thumbnails" / f"{version['id']}.png"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"\x89PNG null link")
+    corpus_rows.update("artifact_versions", version["id"], thumbnail_path=f"thumbnails/{version['id']}.png")
+    try:
+        _upgrade(MIGRATION)
+        assert _release(corpus_rows, _dash(corpus_rows, c, "vis_internal/dash"))["thumbnail_path"] is None
+    finally:
+        path.unlink(missing_ok=True)
+        for leftover in (module.UPLOADS / "thumbnails").glob("release-*.png"):
+            with contextlib.suppress(OSError):
+                if leftover.read_bytes() == b"\x89PNG null link":
+                    leftover.unlink()
