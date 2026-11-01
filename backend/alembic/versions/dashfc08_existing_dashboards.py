@@ -633,7 +633,10 @@ class Migration:
             if not self.t.has(name) or not self.t.has(target):
                 continue
             src = self.t[name]
-            for (value,) in self.conn.execute(sa.select(src.c[column]).where(src.c.report_id == report["id"])).all():
+            # Legacy data-source links have no uniqueness constraint; a
+            # release records membership once, regardless of repeated links.
+            links = sa.select(src.c[column]).where(src.c.report_id == report["id"]).distinct()
+            for (value,) in self.conn.execute(links).all():
                 self.conn.execute(self.t[target].insert().values(artifact_release_id=release_id, **{column: value}))
 
         self._update("artifacts", artifact_id, {"published_release_id": release_id})

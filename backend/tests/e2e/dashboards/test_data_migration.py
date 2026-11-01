@@ -106,6 +106,38 @@ def test_every_setting_reaches_the_dashboard_as_it_was(migrated_corpus, corpus_r
 # ── which dashboard a conversation's link becomes (decisions 2-4) ────────
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("source,column,target,report_key,duplicates", [
+    ("report_data_source_association", "data_source_id",
+     "artifact_release_data_source_association", "multi_source", 3),
+    ("report_file_association", "file_id",
+     "artifact_release_file_association", "embedded_files", 0),
+])
+def test_published_release_preserves_each_distinct_resource_link(
+        corpus, corpus_rows, source, column, target, report_key, duplicates):
+    report_id = corpus.reports[report_key]
+    links = _rows(corpus_rows, f"SELECT {column} FROM {source} WHERE report_id = :r", r=report_id)
+    expected = {row[column] for row in links}
+    assert len(expected) > 1  # deduplication must also preserve different resources
+    # Legacy data-source associations permit repeated links; today's API
+    # cannot reliably produce that state, so seed it before upgrading.
+    # File associations already have a composite primary key in Alembic.
+    for row in links:
+        for _ in range(duplicates):
+            corpus_rows.insert(source, report_id=report_id, **row)
+    before = _rows(corpus_rows, f"SELECT * FROM {source} WHERE report_id = :r", r=report_id)
+
+    _upgrade(MIGRATION)
+
+    _, release = _published(corpus_rows, corpus, f"{report_key}/dash")
+    copied = _rows(corpus_rows, f"SELECT {column} FROM {target} WHERE artifact_release_id = :r",
+                   r=release["id"])
+    assert {row[column] for row in copied} == expected
+    assert len(copied) == len(expected)
+    after = _rows(corpus_rows, f"SELECT * FROM {source} WHERE report_id = :r", r=report_id)
+    assert sorted(map(str, after)) == sorted(map(str, before))
+
+
+@pytest.mark.e2e
 def test_the_shared_conversations_shown_dashboard_is_published_from_what_it_shows(migrated_corpus, corpus_rows):
     c = migrated_corpus
     dash, release = _published(corpus_rows, c, "vis_internal/dash")
