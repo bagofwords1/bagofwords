@@ -1450,16 +1450,13 @@ Do not use generic placeholders like "value" unless that is the actual column na
     async def _build_sandbox_helpers(self, runtime_ctx: Dict[str, Any], organization_settings):
         """`lists` / `browser` for this run's generated code, per the org's
         Sandbox settings, plus the prompt text that documents them. Returns
-        (None, "") when neither applies. Reruns and dashboard refreshes never
-        get these: only this tool passes them to the executor."""
-        from app.ai.code_execution.sandbox_helpers import (
-            PageTextStore, SandboxBrowser, SandboxHelpers, sandbox_settings,
-        )
+        (None, "") when neither applies. Re-runs of the saved code build theirs
+        with the same build_sandbox_helpers (their `lists` saves nothing)."""
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers, sandbox_settings
         sb = sandbox_settings(organization_settings)
         if not (sb.lists or sb.browser):
             return None, ""
         lists_sink = None
-        browser = None
         if sb.lists and runtime_ctx.get("list_writes_allowed"):
             try:
                 from app.services.agent_lists.sandbox_sink import SandboxListSink, load_sandbox_lists
@@ -1472,23 +1469,14 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     lists_sink = SandboxListSink(lists=_lists, max_rows=sb.max_list_rows)
             except Exception as e:
                 logger.warning("create_data: sandbox lists unavailable: %s", e)
-        page_texts = PageTextStore()
-        if sb.browser:
-            from app.ai.tools.implementations._browser_common import get_browser_connection
-            conn = get_browser_connection(runtime_ctx)
-            if conn is not None:
-                patterns, _allow_dl = conn
-                browser = SandboxBrowser(
-                    asyncio.get_running_loop(), patterns=patterns,
-                    allow_mutating_requests=sb.allow_mutating_requests,
-                    max_pages=sb.max_pages, page_texts=page_texts,
-                )
-        if lists_sink is None and browser is None:
-            return None, ""
-        return (
-            SandboxHelpers(lists=lists_sink, browser=browser, page_texts=page_texts),
-            sandbox_helpers_directive(lists_sink, browser, sb),
+        # The same builder every re-run of this code uses (Publish, refresh).
+        helpers = build_sandbox_helpers(
+            organization_settings, getattr(runtime_ctx.get("report"), "data_sources", None),
+            rerun=False, lists_sink=lists_sink,
         )
+        if helpers is None:
+            return None, ""
+        return helpers, sandbox_helpers_directive(helpers.lists, helpers.browser, sb)
 
     async def _commit_sandbox_helpers(self, helpers, runtime_ctx: Dict[str, Any]) -> Dict[str, Any]:
         """Save queued list rows and summarize what the code did (counts only)."""

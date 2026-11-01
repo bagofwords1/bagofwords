@@ -228,6 +228,12 @@ class BrowserHelper:
         return "<browser helper: goto, click, fill, press, select, scroll, wait_for, text, html, query_all, url>"
 
 
+# What generated code can ask for by parameter name (invoke_generate_df).
+# Every run -- the agent's and each re-run of saved code -- must be able to
+# hand each of these over when the org allows it (test_sandbox_helpers).
+INJECTABLE_NAMES = ("calendar_date_bounds", "http", "load_step", "load_entity", "params", "lists", "browser")
+
+
 def invoke_generate_df(
     fn: Callable, wrapped_clients: Dict, excel_files: List,
     http_client: Any,
@@ -259,5 +265,6 @@ def invoke_generate_df(
         names = set(inspect.signature(fn).parameters.keys())
     except (TypeError, ValueError):
         names = set()
+    assert set(injectables) == set(INJECTABLE_NAMES)
     kwargs = {k: v for k, v in injectables.items() if k in names}
     return fn(wrapped_clients, excel_files, **kwargs)

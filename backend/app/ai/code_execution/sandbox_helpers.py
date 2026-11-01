@@ -9,12 +9,11 @@ Everything here runs on the trusted side. The sandbox child only holds
 stand-in objects whose calls come back over the RPC pipe (sandbox/child.py),
 so the allowlists, limits and audit below apply however the code behaves.
 
-`http` is built for every executor (reruns and dashboard refreshes included,
-as before). `lists` exists only when the agent's own create_data run passes a
-`SandboxHelpers`: a rerun must never write to a list again. `browser` is also
-given to reruns (Publish, refresh, a reader's run) of code that uses it, under
-the same allowlist, read-only guard and page budget (`rerun_sandbox_helpers`);
-without it such a step could never be published.
+`http` is built for every executor from the org settings. `browser` and
+`lists` come from `build_sandbox_helpers`, for the agent's run and every
+re-run of saved code alike (Publish, refresh, a reader's run): saved code
+finds the same helpers when it runs again. A re-run's `lists` saves nothing
+(ReplayLists): the rows were saved when the agent first ran the code.
 """
 from __future__ import annotations
 
@@ -458,19 +457,82 @@ class SandboxHelpers:
 
 
 # ---------------------------------------------------------------------------
-# browser outside the agent's own run
+# One builder for every run
+# ---------------------------------------------------------------------------
+# The agent's create_data run and every re-run of saved code (Publish, a
+# dashboard refresh, a reader's run, a query rerun or preview) build their
+# helpers here, so saved code finds the same helpers when it runs again.
+# Re-runs used to get none, and code that drove `browser` or called
+# `lists.submit` failed on None.
+
+class ReplayLists:
+    """`lists` for a re-run of saved code: accepts what the code submits and
+    saves nothing. The rows were saved when the agent first ran the code; a
+    refresh must not write them again. `available()` is empty: a re-run has
+    no conversation's lists."""
+
+    def submit(self, ref: Any, records: Any) -> Dict[str, Any]:
+        count = len(records) if isinstance(records, (list, tuple)) else 0
+        return {"list": str(ref), "queued": 0, "total_queued": 0, "skipped": count,
+                "note": "re-run of saved code: rows are not saved again"}
+
+    def names(self) -> List[Dict[str, Any]]:
+        return []
+
+    def reset(self) -> None:
+        pass
+
+    def take(self) -> Dict[str, List[Dict[str, Any]]]:
+        return {}
+
+    def queued(self) -> int:
+        return 0
+
+
+def build_sandbox_helpers(organization_settings, data_sources, *, rerun: bool,
+                          lists_sink=None) -> Optional[SandboxHelpers]:
+    """The helpers generated code gets beyond queries, or None.
+
+    `browser`: when the org allows it and a browser connection is among
+    `data_sources` (the page opens on first use, so offering it costs
+    nothing). `lists`: the agent's run passes its sink (None when it may not
+    write); a re-run (`rerun`) always gets ReplayLists. Call on the event
+    loop: the browser schedules its Playwright calls there."""
+    sb = sandbox_settings(organization_settings)
+    page_texts = PageTextStore()
+    browser = None
+    if sb.browser:
+        from app.ai.tools.implementations._browser_common import browser_connection_for
+
+        conn = browser_connection_for(data_sources)
+        if conn is not None:
+            patterns, _allow_downloads = conn
+            browser = SandboxBrowser(
+                asyncio.get_running_loop(), patterns=patterns,
+                allow_mutating_requests=sb.allow_mutating_requests,
+                max_pages=sb.max_pages, page_texts=page_texts,
+            )
+    lists = ReplayLists() if rerun else lists_sink
+    if browser is None and lists is None:
+        return None
+    return SandboxHelpers(lists=lists, browser=browser, page_texts=page_texts)
+
+
+# ---------------------------------------------------------------------------
+# A helper the code uses but this run does not have
 # ---------------------------------------------------------------------------
 
-class BrowserUnavailableError(RuntimeError):
-    """Code drives `browser`, but this run has none. Raised before the code
-    runs, so the reason is readable instead of `'NoneType' object has no
-    attribute 'goto'`."""
+class HelperUnavailableError(RuntimeError):
+    """Code calls `browser` or `lists`, but this run has none. Raised before
+    the code runs, so the reason is readable instead of `'NoneType' object
+    has no attribute 'goto'`."""
 
 
-def code_uses_browser(code: Optional[str]) -> bool:
-    """Does `code` call the `browser` helper (``browser.goto(...)`` etc.)?
-    A local variable that happens to be named `browser` does not count."""
-    if not code or "browser" not in code:
+def code_uses_helper(code: Optional[str], name: str) -> bool:
+    """Does `code` call the `name` helper (``browser.goto(...)``,
+    ``lists.submit(...)``)? A variable of the code's own that happens to have
+    that name does not count."""
+    if not code or name not in code:
         return False
     try:
         tree = ast.parse(code)
@@ -478,47 +540,35 @@ def code_uses_browser(code: Optional[str]) -> bool:
         return False
     used = False
     for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "browser":
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == name:
             used = True
-        elif isinstance(node, ast.Name) and node.id == "browser" and isinstance(node.ctx, (ast.Store, ast.Del)):
-            return False  # the code defines its own `browser`
-        elif isinstance(node, ast.alias) and (node.asname or node.name) == "browser":
+        elif isinstance(node, ast.Name) and node.id == name and isinstance(node.ctx, (ast.Store, ast.Del)):
+            return False  # the code defines its own
+        elif isinstance(node, ast.alias) and (node.asname or node.name) == name:
             return False
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name != "generate_df":
             # generate_df(..., browser=None) receives the helper; any other
-            # function's `browser` argument is the code's own value.
+            # function's argument of that name is the code's own value.
             args = node.args
-            if "browser" in [a.arg for a in args.posonlyargs + args.args + args.kwonlyargs]:
+            if name in [a.arg for a in args.posonlyargs + args.args + args.kwonlyargs]:
                 return False
     return used
 
 
-def browser_unavailable_reason(organization_settings) -> str:
-    if not sandbox_settings(organization_settings).browser:
-        return "the organization's 'Browser in code' setting is off"
-    return "no browser connection is attached to the data sources this run uses"
-
-
-def rerun_sandbox_helpers(code: Optional[str], data_sources, organization_settings) -> Optional[SandboxHelpers]:
-    """A `browser` for a rerun of saved code (Publish, refresh, a reader's
-    run), or None when the code does not use one or none is allowed. Same
-    guards as the agent's run; never `lists`. Call on the event loop: the
-    browser schedules its Playwright calls there."""
-    if not code_uses_browser(code):
-        return None
+def missing_helper_error(code: Optional[str], helpers: Optional[SandboxHelpers],
+                         organization_settings) -> Optional[HelperUnavailableError]:
+    """The error to raise when `code` uses a helper this run lacks, else None."""
     sb = sandbox_settings(organization_settings)
-    if not sb.browser:
-        return None
-    from app.ai.tools.implementations._browser_common import browser_connection_for
-
-    conn = browser_connection_for(data_sources)
-    if conn is None:
-        return None
-    patterns, _allow_downloads = conn
-    page_texts = PageTextStore()
-    browser = SandboxBrowser(
-        asyncio.get_running_loop(), patterns=patterns,
-        allow_mutating_requests=sb.allow_mutating_requests,
-        max_pages=sb.max_pages, page_texts=page_texts,
-    )
-    return SandboxHelpers(browser=browser, page_texts=page_texts)
+    if code_uses_helper(code, "browser") and getattr(helpers, "browser", None) is None:
+        reason = ("the organization's 'Browser in code' setting is off" if not sb.browser
+                  else "no browser connection is attached to the data sources this run uses")
+        return HelperUnavailableError(
+            f"This code uses `browser`, but no browser is available for this run: {reason}. "
+            "Enable it, or rewrite the code to fetch pages with `http`.")
+    if code_uses_helper(code, "lists") and getattr(helpers, "lists", None) is None:
+        reason = ("the organization's 'Write to Agent Lists from code' setting is off" if not sb.lists
+                  else "this conversation has no Agent List the code may write to")
+        return HelperUnavailableError(
+            f"This code uses `lists`, but this run cannot write to Agent Lists: {reason}. "
+            "Remove the `lists` calls, or enable it.")
+    return None

@@ -33,11 +33,9 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
 )
 from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
 from app.ai.code_execution.sandbox_helpers import (
-    BrowserUnavailableError,
     MeteredHttp,
     SandboxHelpers,
-    browser_unavailable_reason,
-    code_uses_browser,
+    missing_helper_error,
     sandbox_settings,
 )
 
@@ -1304,9 +1302,8 @@ class StreamingCodeExecutor:
         self.logger = logger
         self.context_hub = context_hub
         self.usage_context = usage_context
-        # `lists` for the agent's own create_data run only. Reruns and
-        # refreshes pass a browser-only one (rerun_sandbox_helpers) when the
-        # saved code drives `browser`.
+        # `browser` / `lists`: from build_sandbox_helpers, for the agent's run
+        # and every re-run alike (a re-run's `lists` saves nothing).
         self.sandbox_helpers = sandbox_helpers
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
@@ -1350,12 +1347,9 @@ class StreamingCodeExecutor:
             _params_fmt_error = check_params_not_formatted(code)
             if _params_fmt_error:
                 raise UnsafePythonError(_params_fmt_error)
-            if code_uses_browser(code) and getattr(self.sandbox_helpers, "browser", None) is None:
-                raise BrowserUnavailableError(
-                    "This code uses `browser`, but no browser is available for this run: "
-                    f"{browser_unavailable_reason(self.organization_settings)}. "
-                    "Enable it, or rewrite the code to fetch pages with `http`."
-                )
+            _missing = missing_helper_error(code, self.sandbox_helpers, self.organization_settings)
+            if _missing is not None:
+                raise _missing
 
             output_log = ""
             executed_queries: List[str] = captured_queries if captured_queries is not None else []

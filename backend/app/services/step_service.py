@@ -387,10 +387,10 @@ class StepService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients, release=ctx.release)
-        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers
         executor = StreamingCodeExecutor(
             organization_settings=org_settings,
-            sandbox_helpers=rerun_sandbox_helpers(code, ctx.data_sources, org_settings),
+            sandbox_helpers=build_sandbox_helpers(org_settings, ctx.data_sources, rerun=True),
         )
 
         # Execution is fully synchronous (DB drivers + pandas):

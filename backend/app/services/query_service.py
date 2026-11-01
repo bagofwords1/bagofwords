@@ -645,9 +645,9 @@ class QueryService:
         )
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, run_user, report, ds_clients)
-        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context,
-                                         sandbox_helpers=rerun_sandbox_helpers(step.code, run_sources, org_settings))
+                                         sandbox_helpers=build_sandbox_helpers(org_settings, run_sources, rerun=True))
         try:
             captured_queries: list = []
             exec_df, execution_log, _ = await executor.execute_code_async(
@@ -901,10 +901,10 @@ class QueryService:
         )
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, caller, report, ds_clients)
-        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers
         executor = StreamingCodeExecutor(
             organization_settings=org_settings, usage_context=usage_context,
-            sandbox_helpers=rerun_sandbox_helpers(step.code, run_sources, org_settings),
+            sandbox_helpers=build_sandbox_helpers(org_settings, run_sources, rerun=True),
         )
         captured_queries: list = []
         try:
@@ -1241,9 +1241,9 @@ class QueryService:
         org_settings = await org.get_settings(db) if org else None
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, run_user, report, ds_clients)
-        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        from app.ai.code_execution.sandbox_helpers import build_sandbox_helpers
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context,
-                                         sandbox_helpers=rerun_sandbox_helpers(request.code, run_sources, org_settings))
+                                         sandbox_helpers=build_sandbox_helpers(org_settings, run_sources, rerun=True))
 
         # Params: an explicit declarations list on the request is validated
         # against the code (same rule as a builder save); otherwise the
