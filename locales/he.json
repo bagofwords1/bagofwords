@@ -3475,6 +3475,7 @@
       "azureFoundryHint": "יש תמיכה גם ב-Azure OpenAI וגם ב-Azure AI Foundry. מזהה המודל הוא שם ה-deployment שלך.",
       "responsesApiHint": "שימוש ב-Responses API במקום ב-Chat Completions. נדרש לחיפוש באינטרנט, וזמין רק באזורים שתומכים ב-Responses API.",
       "responsesApiFoundryHint": "ב-Foundry זה חל על deployments של OpenAI בלבד.",
+      "responsesApiCustomHint": "שימוש ב-Responses API במקום Chat Completions. הפעילו אם השרת מחזיר קריאות לכלים ב-/v1/responses אך משמיט אותן ב-Chat Completions (למשל gpt-oss על vLLM או NVIDIA NIM).",
       "colCost": "עלות ($/מיליון)",
       "colRouting": "ניתוב",
       "autoRouter": "נתב אוטומטי",

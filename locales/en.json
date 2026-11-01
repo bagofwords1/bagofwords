@@ -3557,6 +3557,7 @@
       "azureFoundryHint": "Azure OpenAI and Azure AI Foundry are both supported. Model ID is your deployment name.",
       "responsesApiHint": "Use the Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.",
       "responsesApiFoundryHint": "On Foundry it applies to OpenAI deployments only.",
+      "responsesApiCustomHint": "Use the Responses API instead of Chat Completions. Turn on if your server returns tool calls on /v1/responses but drops them on Chat Completions (e.g. gpt-oss on vLLM or NVIDIA NIM).",
       "colCost": "Cost ($/M)",
       "colRouting": "Routing",
       "autoRouter": "Auto router",

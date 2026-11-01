@@ -211,6 +211,10 @@ class CustomCredentials(ProviderHeadersMixin):
     # Send Anthropic cache_control marks when the model is Claude (LiteLLM and
     # OpenRouter forward them). False for a gateway that rejects the field.
     prompt_cache_markers: Optional[bool] = None
+    # Opt-in to the Responses API instead of Chat Completions, for servers that
+    # only parse tool calls on /v1/responses (e.g. gpt-oss on vLLM/NIM without
+    # a tool-call parser). Persisted to additional_config, not encrypted.
+    use_responses_api: Optional[bool] = None
 
 class CustomConfig(BaseModel):
     max_tokens: Optional[int] = 4096
