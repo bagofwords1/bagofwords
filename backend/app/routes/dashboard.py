@@ -273,7 +273,8 @@ async def publish_dashboard(
     release = await dashboard_publish.start_publish(db, artifact, current_user, organization,
                                                     version_id=payload.version_id if payload else None,
                                                     force=bool(payload and payload.force))
-    fire_and_forget.spawn(dashboard_publish.run_publish(str(release.id)))
+    fire_and_forget.spawn(dashboard_publish.run_publish(
+        str(release.id), keep_failed=bool(payload and payload.keep_failed)))
     return await dashboard_publish.publish_status(db, artifact)
 
 

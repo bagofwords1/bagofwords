@@ -153,6 +153,13 @@ class DashboardSettingsUpdate(BaseModel):
     notes: str | None = Field(default=None, max_length=20000)
 
 
+class DashboardStepFailureSchema(BaseModel):
+    step: str
+    reason: str
+    keepable: bool = False
+    kept: bool = False
+
+
 class DashboardReleaseSchema(BaseModel):
     id: str
     status: Literal["publishing", "ready", "failed"]
@@ -168,6 +175,10 @@ class DashboardReleaseSchema(BaseModel):
     # app), and their labels: the owner is told which charts start empty.
     steps_needing_input: int = 0
     steps_needing_input_labels: list[str] = []
+    # Copies that could not run at Publish (pubkeep01). On a failed attempt,
+    # all that failed, and whether each may keep its last rows; on a live
+    # release, those that did (kept).
+    step_failures: list[DashboardStepFailureSchema] = []
 
 
 class DashboardPublishStatusSchema(BaseModel):
@@ -201,6 +212,9 @@ class DashboardPublishRequest(BaseModel):
     published since this draft started; collab01)."""
     version_id: str | None = None
     force: bool = False
+    # The owner's answer to a failed attempt's list (pubkeep01): copies that
+    # fail again and may keep their last rows go live with them.
+    keep_failed: bool = False
 
 
 DashboardPublishStatusSchema.model_rebuild()

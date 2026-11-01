@@ -4838,6 +4838,15 @@
       "reload": "Reload",
       "stillRunning": "The queries are still running. Try again in a moment.",
       "stillFailing": "{failed} still failed when run again."
+    },
+    "keepFailed": {
+      "title": "Some charts couldn't refresh",
+      "body": "Publish runs every chart again. These failed this time:",
+      "bodyKeep": "You can publish them with the data they show now. Every other chart gets fresh data.",
+      "cannotKeep": "no data to keep",
+      "publish": "Publish with their last data",
+      "cancel": "Cancel",
+      "publishedKept": "{names} kept its previous data. | {n} charts kept their previous data: {names}"
     }
   },
   "artifactActivity": {
