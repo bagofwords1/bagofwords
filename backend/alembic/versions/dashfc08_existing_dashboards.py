@@ -633,7 +633,11 @@ class Migration:
             if not self.t.has(name) or not self.t.has(target):
                 continue
             src = self.t[name]
-            for (value,) in self.conn.execute(sa.select(src.c[column]).where(src.c.report_id == report["id"])).all():
+            # The old link tables have no unique key (a file is linked once per
+            # completion; a source can be linked twice), the new ones do.
+            for (value,) in self.conn.execute(
+                    sa.select(src.c[column]).distinct()
+                    .where(src.c.report_id == report["id"], src.c[column].isnot(None))).all():
                 self.conn.execute(self.t[target].insert().values(artifact_release_id=release_id, **{column: value}))
 
         self._update("artifacts", artifact_id, {"published_release_id": release_id})
@@ -662,7 +666,8 @@ class Migration:
             return False
         assoc = t["report_data_source_association"]
         ds_ids = [str(r[0]) for r in self.conn.execute(
-            sa.select(assoc.c.data_source_id).where(assoc.c.report_id == rid)).all()]
+            sa.select(assoc.c.data_source_id).where(
+                assoc.c.report_id == rid, assoc.c.data_source_id.isnot(None))).all()]
         if not ds_ids and t.has("data_sources"):
             # No source of its own: it ran on the organization's -- all of them
             # count, as Publish's rule reads it (_org_fallback_ds_ids, no code).
