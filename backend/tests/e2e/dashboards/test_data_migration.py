@@ -765,3 +765,28 @@ def test_a_shared_dashboard_that_cannot_be_published_stays_private(corpus, corpu
     assert dash["published_release_id"] is None
     assert dash["visibility"] == "none"
     assert _grants(corpus_rows, aid) == set()
+
+
+@pytest.mark.e2e
+def test_a_source_or_file_linked_twice_is_linked_once_to_the_release(corpus, corpus_rows):
+    """The old link tables have no unique key: a source can be linked to a
+    conversation twice, and a file once per message that used it. The
+    release's link tables have one, so the upgrade used to stop there."""
+    c = corpus
+    rid = c.reports["multi_source"]
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(text("INSERT INTO report_data_source_association (report_id, data_source_id) "
+                          "SELECT report_id, data_source_id FROM report_data_source_association "
+                          "WHERE report_id = :r"), {"r": rid})
+        conn.execute(text("INSERT INTO report_file_association (report_id, file_id) "
+                          "SELECT report_id, file_id FROM report_file_association WHERE report_id = :r"),
+                     {"r": rid})
+    sources = {r["data_source_id"] for r in _rows(
+        corpus_rows, "SELECT data_source_id FROM report_data_source_association WHERE report_id = :r", r=rid)}
+    assert sources, "the corpus conversation has no source to link twice"
+    _upgrade(MIGRATION)
+    _, release = _published(corpus_rows, c, "multi_source/dash")
+    linked = [r["data_source_id"] for r in _rows(
+        corpus_rows, "SELECT data_source_id FROM artifact_release_data_source_association "
+                     "WHERE artifact_release_id = :r", r=release["id"])]
+    assert sorted(linked) == sorted(sources)

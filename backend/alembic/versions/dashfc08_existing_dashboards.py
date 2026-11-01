@@ -633,7 +633,11 @@ class Migration:
             if not self.t.has(name) or not self.t.has(target):
                 continue
             src = self.t[name]
-            for (value,) in self.conn.execute(sa.select(src.c[column]).where(src.c.report_id == report["id"])).all():
+            # The old link tables have no unique key (a file is linked once per
+            # completion; a source can be linked twice), the new ones do.
+            for (value,) in self.conn.execute(
+                    sa.select(src.c[column]).distinct()
+                    .where(src.c.report_id == report["id"], src.c[column].isnot(None))).all():
                 self.conn.execute(self.t[target].insert().values(artifact_release_id=release_id, **{column: value}))
 
         self._update("artifacts", artifact_id, {"published_release_id": release_id})
