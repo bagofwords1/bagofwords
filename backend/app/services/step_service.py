@@ -387,7 +387,11 @@ class StepService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, ctx.credential_user, ctx.report, db_clients, release=ctx.release)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        executor = StreamingCodeExecutor(
+            organization_settings=org_settings,
+            sandbox_helpers=rerun_sandbox_helpers(code, ctx.data_sources, org_settings),
+        )
 
         # Execution is fully synchronous (DB drivers + pandas):
         # execute_code_async runs it on the bounded code-exec pool (same cap

@@ -551,7 +551,9 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
     loadables = await resolve_loadables_for_code(db, organization, None, caller, step.code,
                                                  enable_load_step=enable_load_step, release=release)
     await install_bow_client(db, organization, credential_user, None, clients, release=release)
-    executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage)
+    from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+    executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage,
+                                     sandbox_helpers=rerun_sandbox_helpers(step.code, sources, org_settings))
     captured: list = []
     try:
         exec_df, _, _ = await executor.execute_code_async(

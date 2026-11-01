@@ -19,10 +19,12 @@ import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.code_execution.sandbox_helpers import (
+    BrowserUnavailableError,
     MeteredHttp,
     PageTextStore,
     SandboxHelpers,
     SandboxSettings,
+    rerun_sandbox_helpers,
     sandbox_settings,
 )
 from app.services.agent_lists.sandbox_sink import SandboxList, SandboxListError, SandboxListSink
@@ -275,3 +277,56 @@ def test_prompt_describes_only_the_helpers_this_run_has():
     assert "blocked" in only_browser
     assert "blocked" not in sandbox_helpers_directive(None, _FakeBrowser(), SandboxSettings(browser=True, allow_mutating_requests=True))
     assert sandbox_helpers_directive(None, None, sb) == ""
+
+
+# ── code that drives `browser` outside the agent's own run ──────────────────
+# Publish, a dashboard refresh and a reader's run re-execute saved code. Code
+# that drives the browser must either get one or stop with a reason; it used
+# to crash on `None.goto`.
+
+def _browser_source(patterns):
+    conn = SimpleNamespace(type="browser", config={"url_patterns": patterns, "allow_downloads": False})
+    return SimpleNamespace(connections=[SimpleNamespace(type="sqlite", config={}), conn])
+
+
+@pytest.mark.parametrize("call", ['browser.goto("https://e.com")', 'browser.text()', 'x = browser.query_all("a")'])
+def test_code_using_the_browser_without_one_stops_with_the_reason(sandbox_mode, call):
+    code = f"def generate_df(ds_clients, excel_files, browser=None):\n    {call}\n    return pd.DataFrame()\n"
+    for settings, reason in ((None, "setting is off"),
+                             (_org(enable_sandbox_browser=True), "no browser connection")):
+        with pytest.raises(BrowserUnavailableError, match=reason) as e:
+            StreamingCodeExecutor(organization_settings=settings).execute_code(code=code, ds_clients={}, excel_files=[])
+        assert "NoneType" not in str(e.value)
+
+
+@pytest.mark.parametrize("code", [
+    # The code's own variable named browser is not the helper.
+    'def generate_df(ds_clients, excel_files):\n    browser = "Firefox"\n'
+    '    return pd.DataFrame([{"b": browser.upper()}])\n',
+    'def label(browser):\n    return browser.title()\n\n'
+    'def generate_df(ds_clients, excel_files):\n    return pd.DataFrame([{"b": label("edge")}])\n',
+    # Only mentions the word.
+    'def generate_df(ds_clients, excel_files):\n    return pd.DataFrame([{"b": "browser.goto"}])\n',
+])
+def test_code_that_does_not_drive_the_helper_runs_without_one(sandbox_mode, code):
+    df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(code=code, ds_clients={}, excel_files=[])
+    assert len(df) == 1
+
+
+def test_a_rerun_gets_a_browser_only_when_the_code_uses_it_and_the_org_allows_it():
+    import asyncio
+
+    uses = 'def generate_df(ds_clients, excel_files, browser):\n    browser.goto("https://e.com/x")\n'
+    plain = 'def generate_df(ds_clients, excel_files):\n    return pd.DataFrame()\n'
+    on = _org(enable_sandbox_browser=True)
+    sources = [SimpleNamespace(connections=[]), _browser_source(["https://e.com/**"])]
+
+    async def build(code, sources, settings):
+        return rerun_sandbox_helpers(code, sources, settings)
+
+    helpers = asyncio.run(build(uses, sources, on))
+    assert helpers is not None and helpers.browser is not None and helpers.lists is None
+    assert helpers.browser._patterns == ["https://e.com/**"]
+    assert asyncio.run(build(plain, sources, on)) is None
+    assert asyncio.run(build(uses, sources, _org())) is None
+    assert asyncio.run(build(uses, [SimpleNamespace(connections=[])], on)) is None

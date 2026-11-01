@@ -622,7 +622,8 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in await self._report_data_sources(db, report, organization_id):
+        run_sources = await self._report_data_sources(db, report, organization_id)
+        for ds in run_sources:
             try:
                 ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
                 ds_clients.update(ds_conns)
@@ -644,7 +645,9 @@ class QueryService:
         )
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, run_user, report, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
+        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context,
+                                         sandbox_helpers=rerun_sandbox_helpers(step.code, run_sources, org_settings))
         try:
             captured_queries: list = []
             exec_df, execution_log, _ = await executor.execute_code_async(
@@ -866,7 +869,8 @@ class QueryService:
         ds_service = DataSourceService()
         ds_clients = {}
         ds_errors = []
-        for ds in await self._report_data_sources(db, report, organization_id):
+        run_sources = await self._report_data_sources(db, report, organization_id)
+        for ds in run_sources:
             try:
                 # Each connection builds on its own: a viewer missing one
                 # connection's credential still gets its sibling connections.
@@ -897,8 +901,10 @@ class QueryService:
         )
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, caller, report, ds_clients)
+        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
         executor = StreamingCodeExecutor(
-            organization_settings=org_settings, usage_context=usage_context
+            organization_settings=org_settings, usage_context=usage_context,
+            sandbox_helpers=rerun_sandbox_helpers(step.code, run_sources, org_settings),
         )
         captured_queries: list = []
         try:
@@ -1219,7 +1225,8 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in await self._report_data_sources(db, report, organization_id):
+        run_sources = await self._report_data_sources(db, report, organization_id)
+        for ds in run_sources:
             try:
                 ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
                 ds_clients.update(ds_conns)
@@ -1234,7 +1241,9 @@ class QueryService:
         org_settings = await org.get_settings(db) if org else None
         from app.data_sources.clients.bow_client import install_bow_client
         await install_bow_client(db, org, run_user, report, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
+        from app.ai.code_execution.sandbox_helpers import rerun_sandbox_helpers
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context,
+                                         sandbox_helpers=rerun_sandbox_helpers(request.code, run_sources, org_settings))
 
         # Params: an explicit declarations list on the request is validated
         # against the code (same rule as a builder save); otherwise the

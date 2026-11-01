@@ -10,12 +10,15 @@ stand-in objects whose calls come back over the RPC pipe (sandbox/child.py),
 so the allowlists, limits and audit below apply however the code behaves.
 
 `http` is built for every executor (reruns and dashboard refreshes included,
-as before). `browser` and `lists` exist only when the agent's own create_data
-run passes a `SandboxHelpers`: a rerun must never click through a site or
-write to a list again.
+as before). `lists` exists only when the agent's own create_data run passes a
+`SandboxHelpers`: a rerun must never write to a list again. `browser` is also
+given to reruns (Publish, refresh, a reader's run) of code that uses it, under
+the same allowlist, read-only guard and page budget (`rerun_sandbox_helpers`);
+without it such a step could never be published.
 """
 from __future__ import annotations
 
+import ast
 import asyncio
 import logging
 import threading
@@ -452,3 +455,70 @@ class SandboxHelpers:
             if self.browser.blocked_requests:
                 out["browser_requests_blocked"] = self.browser.blocked_requests
         return out
+
+
+# ---------------------------------------------------------------------------
+# browser outside the agent's own run
+# ---------------------------------------------------------------------------
+
+class BrowserUnavailableError(RuntimeError):
+    """Code drives `browser`, but this run has none. Raised before the code
+    runs, so the reason is readable instead of `'NoneType' object has no
+    attribute 'goto'`."""
+
+
+def code_uses_browser(code: Optional[str]) -> bool:
+    """Does `code` call the `browser` helper (``browser.goto(...)`` etc.)?
+    A local variable that happens to be named `browser` does not count."""
+    if not code or "browser" not in code:
+        return False
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return False
+    used = False
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "browser":
+            used = True
+        elif isinstance(node, ast.Name) and node.id == "browser" and isinstance(node.ctx, (ast.Store, ast.Del)):
+            return False  # the code defines its own `browser`
+        elif isinstance(node, ast.alias) and (node.asname or node.name) == "browser":
+            return False
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name != "generate_df":
+            # generate_df(..., browser=None) receives the helper; any other
+            # function's `browser` argument is the code's own value.
+            args = node.args
+            if "browser" in [a.arg for a in args.posonlyargs + args.args + args.kwonlyargs]:
+                return False
+    return used
+
+
+def browser_unavailable_reason(organization_settings) -> str:
+    if not sandbox_settings(organization_settings).browser:
+        return "the organization's 'Browser in code' setting is off"
+    return "no browser connection is attached to the data sources this run uses"
+
+
+def rerun_sandbox_helpers(code: Optional[str], data_sources, organization_settings) -> Optional[SandboxHelpers]:
+    """A `browser` for a rerun of saved code (Publish, refresh, a reader's
+    run), or None when the code does not use one or none is allowed. Same
+    guards as the agent's run; never `lists`. Call on the event loop: the
+    browser schedules its Playwright calls there."""
+    if not code_uses_browser(code):
+        return None
+    sb = sandbox_settings(organization_settings)
+    if not sb.browser:
+        return None
+    from app.ai.tools.implementations._browser_common import browser_connection_for
+
+    conn = browser_connection_for(data_sources)
+    if conn is None:
+        return None
+    patterns, _allow_downloads = conn
+    page_texts = PageTextStore()
+    browser = SandboxBrowser(
+        asyncio.get_running_loop(), patterns=patterns,
+        allow_mutating_requests=sb.allow_mutating_requests,
+        max_pages=sb.max_pages, page_texts=page_texts,
+    )
+    return SandboxHelpers(browser=browser, page_texts=page_texts)
