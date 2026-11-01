@@ -1,5 +1,30 @@
 # Changelog
 
+## 3.1.0
+
+### Upgrades now stop the old pods first (`strategy: Recreate`)
+
+The Deployment now defaults to `strategy.type: Recreate` instead of the
+Kubernetes default (`RollingUpdate`). Each new pod runs the database
+migrations before it serves (`start.sh`), in one transaction that takes
+exclusive table locks. Under a rolling update the old pods keep querying the
+same tables meanwhile, and the migration can fail with
+`psycopg2.errors.DeadlockDetected` on every retry. Even when it succeeds, the
+old code can break against the new schema once it commits.
+
+**What changes for you:** each upgrade has a short outage while the old pods
+stop and the new ones start and migrate. The first upgrade to 3.1.0 is itself
+a recreate.
+
+**To keep rolling updates**, set them explicitly, accepting that an upgrade
+whose migrations the previous version can't run against may deadlock or
+break the old pods:
+
+```yaml
+strategy:
+  type: RollingUpdate
+```
+
 ## 3.0.0 — Breaking change
 
 ### ⚠ Breaking: bundled PostgreSQL no longer uses the Bitnami subchart
