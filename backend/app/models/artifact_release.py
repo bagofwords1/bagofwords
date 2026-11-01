@@ -53,6 +53,10 @@ class ArtifactRelease(BaseSchema):
     # then whoever each refresh ran as. NULL reads as published_by.
     run_by = Column(String(36), nullable=True)
     bow_source_access = Column(JSON, nullable=True)
+    # Copies that could not run at Publish (pubkeep01): [{step, reason,
+    # keepable, kept}]. On a failed attempt, what failed; on a live release,
+    # the copies that kept the rows they were published with.
+    step_failures = Column(JSON, nullable=True)
     theme_name = Column(String, nullable=True)
     theme_overrides = Column(JSON, nullable=True)
     thumbnail_path = Column(String(512), nullable=True)

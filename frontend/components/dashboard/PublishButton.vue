@@ -89,6 +89,34 @@
             </div>
         </div>
     </UModal>
+
+    <!-- Publish runs every chart again (pubkeep01): some failed. When each of
+         them may keep the data it shows now, the owner can publish anyway. -->
+    <UModal v-model="keepOpen" :ui="{ width: 'sm:max-w-md' }">
+        <div class="p-5 space-y-3" data-testid="publish-keep-failed-dialog">
+            <div class="flex items-start gap-3">
+                <Icon name="heroicons:exclamation-triangle" class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div class="space-y-2 min-w-0">
+                    <h3 class="text-sm font-semibold text-ink">{{ $t('artifactFrame.keepFailed.title') }}</h3>
+                    <p class="text-sm text-ink-2">{{ $t('artifactFrame.keepFailed.body') }}</p>
+                    <ul class="space-y-1.5" data-testid="publish-keep-failed-list">
+                        <li v-for="(f, i) in keepFailures" :key="i" class="text-xs">
+                            <div class="font-medium text-ink">{{ f.step }}</div>
+                            <div class="text-ink-muted break-words line-clamp-2">{{ f.reason }}</div>
+                            <div v-if="!f.keepable" class="text-ink-muted">({{ $t('artifactFrame.keepFailed.cannotKeep') }})</div>
+                        </li>
+                    </ul>
+                    <p v-if="canKeepAll" class="text-sm text-ink-2">{{ $t('artifactFrame.keepFailed.bodyKeep') }}</p>
+                </div>
+            </div>
+            <div class="flex flex-wrap justify-end gap-2 pt-2">
+                <UButton color="gray" variant="ghost" size="xs" data-testid="publish-keep-failed-cancel" @click="keepOpen = false">{{ $t('artifactFrame.keepFailed.cancel') }}</UButton>
+                <UButton v-if="canKeepAll" color="amber" size="xs" icon="i-heroicons-rocket-launch" data-testid="publish-keep-failed-confirm" @click="publishKeepingFailed">
+                    {{ $t('artifactFrame.keepFailed.publish') }}
+                </UButton>
+            </div>
+        </div>
+    </UModal>
 </template>
 
 <script setup lang="ts">
@@ -189,7 +217,15 @@ async function load(announce = false) {
     }
     if (announce && previous === 'publishing') {
         if (latest?.status === 'ready') {
-            toast.add({ title: tm('artifactFrame.published', props.artifact?.mode), color: 'green' });
+            const kept = (latest.step_failures || []).filter((f: any) => f.kept).map((f: any) => f.step);
+            toast.add({
+                title: tm('artifactFrame.published', props.artifact?.mode), color: kept.length ? 'amber' : 'green',
+                description: kept.length ? t('artifactFrame.keepFailed.publishedKept', { n: kept.length, names: kept.join(', ') }, kept.length) : undefined,
+            });
+        } else if (latest?.status === 'failed' && (latest.step_failures || []).length) {
+            // Every chart that could not run, and the choice to publish anyway.
+            keepFailures.value = latest.step_failures;
+            keepOpen.value = true;
         } else if (latest?.status === 'failed') {
             toast.add({ title: t('artifactFrame.publishFailed'), description: latest.error || undefined, color: 'red' });
         }
@@ -197,13 +233,21 @@ async function load(announce = false) {
     }
 }
 
-async function publish(force = false) {
+// The charts the last attempt could not run (pubkeep01), and whether the
+// owner may publish them with the data they show now: only if every one may.
+const keepOpen = ref(false);
+const keepFailures = ref<{ step: string; reason: string; keepable: boolean; kept: boolean }[]>([]);
+const canKeepAll = computed(() => keepFailures.value.length > 0 && keepFailures.value.every(f => f.keepable));
+let lastForce = false;
+
+async function publish(force = false, keepFailed = false) {
     if (publishing.value || !dashboardId.value) return;
     starting.value = true;
+    lastForce = force;
     try {
         const { data, error } = await useMyFetch(`/api/artifacts/${encodeURIComponent(dashboardId.value)}/publish`, {
             method: 'POST',
-            body: { version_id: props.artifact?.id || null, force },
+            body: { version_id: props.artifact?.id || null, force, keep_failed: keepFailed },
         });
         if (error.value) {
             if (getErrorCode(error.value) === 'dashboard.published_since') {
@@ -231,6 +275,11 @@ async function publish(force = false) {
 function publishAnyway() {
     sinceOpen.value = false;
     publish(true);
+}
+
+function publishKeepingFailed() {
+    keepOpen.value = false;
+    publish(lastForce, true);
 }
 
 function review() {

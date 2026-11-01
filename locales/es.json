@@ -4758,6 +4758,15 @@
       "reload": "Recargar",
       "stillRunning": "Las consultas siguen en ejecución. Inténtalo de nuevo en un momento.",
       "stillFailing": "{failed} siguen fallando al ejecutarse de nuevo."
+    },
+    "keepFailed": {
+      "title": "Algunos gráficos no se pudieron actualizar",
+      "body": "Al publicar se vuelven a ejecutar todos los gráficos. Estos fallaron esta vez:",
+      "bodyKeep": "Puedes publicarlos con los datos que muestran ahora. Los demás gráficos se publican con datos nuevos.",
+      "cannotKeep": "sin datos que conservar",
+      "publish": "Publicar con sus últimos datos",
+      "cancel": "Cancelar",
+      "publishedKept": "{names} conservó sus datos anteriores. | {n} gráficos conservaron sus datos anteriores: {names}"
     }
   },
   "artifactActivity": {

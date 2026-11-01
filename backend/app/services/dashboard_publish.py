@@ -76,6 +76,7 @@ def _release_view(release: ArtifactRelease | None, version: ArtifactVersion | No
         "source_version_name": version.name if version is not None else None,
         "published_by": str(release.published_by) if release.published_by else None,
         "started_at": release.created_at, "published_at": release.published_at,
+        "step_failures": list(release.step_failures or []),
     }
 
 
@@ -420,6 +421,7 @@ def _after_commit(db, action) -> None:
 # ── running ──────────────────────────────────────────────────────────────
 
 _ABANDONED = object()
+_NEXT_SESSION = object()  # a step failed: the run goes on in a fresh session (run_publish)
 
 
 class RunFailure(str):
@@ -437,20 +439,59 @@ class RunFailure(str):
         return (RunFailure, (self.source, self.reason))
 
 
+class StepFailure:
+    """A copy that could not run at Publish. `keepable`: it may go live with
+    the rows it was copied with (the conversation's last run) -- not when
+    its parameters or identity binding are what failed, nor when it has no
+    rows to keep. `kept`: it did."""
+
+    def __init__(self, step: str, reason: str, *, keepable: bool, kept: bool):
+        self.step, self.reason, self.keepable, self.kept = step, reason, keepable, kept
+
+    def as_dict(self) -> dict:
+        return {"step": self.step, "reason": self.reason[:_ERROR_LIMIT],
+                "keepable": self.keepable, "kept": self.kept}
+
+
+async def _keepable(db, step_id: str, error: Exception) -> bool:
+    from app.ai.code_execution.query_params import ParamError
+
+    if isinstance(error, ParamError):
+        return False  # a parameter or the reader's identity: old rows could be the wrong scope
+    data = (await db.execute(select(Step.data).where(Step.id == step_id))).scalar()
+    return isinstance(data, dict) and bool(data.get("rows"))
+
+
 def _reason(e: Exception) -> str:
     return str(getattr(e, "detail", None) or e)[:_ERROR_LIMIT] or e.__class__.__name__
 
 
-async def run_publish(release_id: str) -> None:
-    """The background half: run the copies, then go live or fail."""
+async def run_publish(release_id: str, *, keep_failed: bool = False) -> None:
+    """The background half: run the copies, then go live or fail.
+
+    Every copy runs, also after one failed, so the owner learns all that
+    failed at once (`step_failures`). A failed step rolls its session back,
+    which expires everything loaded in it: the rest run in a fresh session,
+    past the steps already done. `keep_failed` -- the owner's answer to such
+    a list -- lets a copy that fails keep the rows it was published with,
+    when it may (StepFailure.keepable); the release records which."""
     import asyncio
 
     from app.dependencies import async_session_maker
 
+    failures: list[StepFailure] = []
+    done: set[str] = set()
     beating = asyncio.create_task(_keep_beating(str(release_id)))
     try:
-        async with async_session_maker() as db:
-            outcome = await _run_copies(db, str(release_id))
+        while True:
+            async with async_session_maker() as db:
+                outcome = await _run_copies(db, str(release_id), failures=failures, done=done,
+                                            keep_failed=keep_failed)
+            if outcome is not _NEXT_SESSION:
+                break
+        if outcome is None:
+            failed = next((f for f in failures if not f.kept), None)
+            outcome = RunFailure(failed.step, failed.reason) if failed is not None else None
     except Exception as e:
         logger.warning("Publish %s failed while running", release_id, exc_info=True)
         outcome = f"Publishing failed: {_reason(e)}"
@@ -458,12 +499,13 @@ async def run_publish(release_id: str) -> None:
         beating.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await beating
+    recorded = [f.as_dict() for f in failures] or None
     async with async_session_maker() as db:
         if outcome is None:
-            if await _go_live(db, str(release_id)):
+            if await _go_live(db, str(release_id), step_failures=recorded):
                 return
             outcome = _ABANDONED
-        await _fail(db, str(release_id), None if outcome is _ABANDONED else outcome)
+        await _fail(db, str(release_id), None if outcome is _ABANDONED else outcome, step_failures=recorded)
 
 
 async def _keep_beating(release_id: str) -> None:
@@ -493,10 +535,12 @@ async def _beat(db, release_id: str) -> bool:
     return alive.rowcount == 1
 
 
-async def _run_copies(db, release_id: str):
-    """None when every copy ran, else the reason (or _ABANDONED). Each step
-    commits as it goes: nothing reads a release before it goes live, and a
-    failure deletes every copy anyway."""
+async def _run_copies(db, release_id: str, *, failures: list | None = None, done: set | None = None,
+                      keep_failed: bool = False):
+    """None when every copy ran, else the reason (or _ABANDONED, or
+    _NEXT_SESSION: see run_release_copies). Each step commits as it goes:
+    nothing reads a release before it goes live, and a failure deletes every
+    copy anyway."""
     from app.models.organization import Organization
 
     release = await db.get(ArtifactRelease, release_id)
@@ -521,18 +565,27 @@ async def _run_copies(db, release_id: str):
         step.status = "success"
         await db.commit()
 
-    return await run_release_copies(db, release, publisher, organization, before_step=beat, after_step=write)
+    return await run_release_copies(db, release, publisher, organization, before_step=beat, after_step=write,
+                                    failures=failures, done=done, keep_failed=keep_failed)
 
 
 async def run_release_copies(db, release: ArtifactRelease, run_user: User, organization, *,
-                             after_step, before_step=None):
+                             after_step, before_step=None, failures: list | None = None,
+                             done: set | None = None, keep_failed: bool = False):
     """Run every copied default step of `release` with `run_user`'s
     credentials, what a step loads first: Publish's run, and a refresh's
     (phase 6). `after_step(step, data, params)` is handed each result --
     Publish writes it at once, a refresh keeps it until every step ran.
     `before_step()` returning False stops the run (_ABANDONED). None when
     every step ran, else the reason; a step that fails rolls the session
-    back."""
+    back.
+
+    Without `failures` the run stops at the first step that fails (a
+    refresh). With it (Publish) a failure is appended (a StepFailure; kept
+    when `keep_failed` and it may keep its copied rows) and the run returns
+    _NEXT_SESSION: the rollback expired what this session loaded, so the
+    caller goes on in a fresh one. `done` holds the steps finished (run or
+    failed) so far, skipped there."""
     from app.ai.code_execution.query_params import missing_required_inputs
     from app.ai.tools.implementations.agent_focus_common import accessible_agents
     from app.services.dashboard_runs import (in_dependency_order, loaded_input_wait, needs_input_frame,
@@ -583,6 +636,8 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
     lookup = await release_step_lookup(db, release_id)
     service = StepService()
     for step_id, code in order:
+        if done is not None and step_id in done:
+            continue
         if before_step is not None and not await before_step():
             return _ABANDONED
         if not (code or "").strip():
@@ -619,10 +674,19 @@ async def run_release_copies(db, release: ArtifactRelease, run_user: User, organ
                                                         param_specs=specs)
         except Exception as e:
             await db.rollback()
-            return RunFailure(label, _reason(e))
+            if failures is None:
+                return RunFailure(label, _reason(e))
+            # The copy keeps its rows as copied: what loads it reads those.
+            keepable = await _keepable(db, step_id, e)
+            failures.append(StepFailure(label, _reason(e), keepable=keepable, kept=keep_failed and keepable))
+            if done is not None:
+                done.add(step_id)
+            return _NEXT_SESSION
         if step_id in loaded:
             ctx.fresh_rows[step_id] = data
         await after_step(step, data, params)
+        if done is not None:
+            done.add(step_id)
     return None
 
 
@@ -672,7 +736,7 @@ async def _frozen_rows_producer(db, release: ArtifactRelease) -> str | None:
     return str(report.user_id) if report is not None and report.user_id else None
 
 
-async def _go_live(db, release_id: str) -> bool:
+async def _go_live(db, release_id: str, *, step_failures: list | None = None) -> bool:
     """The switch: this release live, every other one of the dashboard gone,
     in one transaction under the dashboard's row lock -- so a publish that
     goes live right after never deletes this one, nor this one it. False
@@ -710,7 +774,8 @@ async def _go_live(db, release_id: str) -> bool:
     async def switch() -> bool:
         switched = await db.execute(
             update(ArtifactRelease).where(ArtifactRelease.id == release_id, ArtifactRelease.status == "publishing")
-            .values(status="ready", error=None, published_at=datetime.utcnow(), run_by=run_by)
+            .values(status="ready", error=None, published_at=datetime.utcnow(), run_by=run_by,
+                    step_failures=step_failures)
         )
         if switched.rowcount != 1:
             return False
@@ -788,7 +853,7 @@ async def _mark_promoted(db, release_id: str, version_id: str) -> None:
         await db.commit()
 
 
-async def _fail(db, release_id: str, error: str | None) -> None:
+async def _fail(db, release_id: str, error: str | None, *, step_failures: list | None = None) -> None:
     """Failed with its reason (unless already failed); its copies and files go."""
     from app.ee.audit.service import audit_service
 
@@ -799,7 +864,7 @@ async def _fail(db, release_id: str, error: str | None) -> None:
     if error is not None:
         await db.execute(
             update(ArtifactRelease).where(ArtifactRelease.id == release_id, ArtifactRelease.status == "publishing")
-            .values(status="failed", error=error[:_ERROR_LIMIT])
+            .values(status="failed", error=error[:_ERROR_LIMIT], step_failures=step_failures)
         )
     await db.refresh(release)
     if release.status == "ready":

@@ -19,10 +19,12 @@ import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.code_execution.sandbox_helpers import (
+    HelperUnavailableError,
     MeteredHttp,
     PageTextStore,
     SandboxHelpers,
     SandboxSettings,
+    build_sandbox_helpers,
     sandbox_settings,
 )
 from app.services.agent_lists.sandbox_sink import SandboxList, SandboxListError, SandboxListSink
@@ -275,3 +277,101 @@ def test_prompt_describes_only_the_helpers_this_run_has():
     assert "blocked" in only_browser
     assert "blocked" not in sandbox_helpers_directive(None, _FakeBrowser(), SandboxSettings(browser=True, allow_mutating_requests=True))
     assert sandbox_helpers_directive(None, None, sb) == ""
+
+
+# ── code that drives `browser` outside the agent's own run ──────────────────
+# Publish, a dashboard refresh and a reader's run re-execute saved code. It
+# gets its helpers from the same builder as the agent's run; a helper a run
+# cannot have stops the code with a reason. Both used to crash on None.
+
+def _browser_source(patterns):
+    conn = SimpleNamespace(type="browser", config={"url_patterns": patterns, "allow_downloads": False})
+    return SimpleNamespace(connections=[SimpleNamespace(type="sqlite", config={}), conn])
+
+
+@pytest.mark.parametrize("call", ['browser.goto("https://e.com")', 'browser.text()', 'x = browser.query_all("a")'])
+def test_code_using_the_browser_without_one_stops_with_the_reason(sandbox_mode, call):
+    code = f"def generate_df(ds_clients, excel_files, browser=None):\n    {call}\n    return pd.DataFrame()\n"
+    for settings, reason in ((None, "setting is off"),
+                             (_org(enable_sandbox_browser=True), "no browser connection")):
+        with pytest.raises(HelperUnavailableError, match=reason) as e:
+            StreamingCodeExecutor(organization_settings=settings).execute_code(code=code, ds_clients={}, excel_files=[])
+        assert "NoneType" not in str(e.value)
+
+
+@pytest.mark.parametrize("code", [
+    # The code's own variable named browser is not the helper.
+    'def generate_df(ds_clients, excel_files):\n    browser = "Firefox"\n'
+    '    return pd.DataFrame([{"b": browser.upper()}])\n',
+    'def label(browser):\n    return browser.title()\n\n'
+    'def generate_df(ds_clients, excel_files):\n    return pd.DataFrame([{"b": label("edge")}])\n',
+    # Only mentions the word.
+    'def generate_df(ds_clients, excel_files):\n    return pd.DataFrame([{"b": "browser.goto"}])\n',
+])
+def test_code_that_does_not_drive_the_helper_runs_without_one(sandbox_mode, code):
+    df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(code=code, ds_clients={}, excel_files=[])
+    assert len(df) == 1
+
+
+def _build(settings, sources, **kw):
+    import asyncio
+
+    async def build():
+        return build_sandbox_helpers(settings, sources, **kw)
+
+    return asyncio.run(build())
+
+
+def test_the_browser_follows_the_setting_and_the_browser_connection():
+    on = _org(enable_sandbox_browser=True)
+    sources = [SimpleNamespace(connections=[]), _browser_source(["https://e.com/**"])]
+    for rerun in (False, True):
+        helpers = _build(on, sources, rerun=rerun)
+        assert helpers.browser is not None and helpers.browser._patterns == ["https://e.com/**"]
+        assert getattr(_build(_org(), sources, rerun=rerun), "browser", None) is None
+        assert getattr(_build(on, [SimpleNamespace(connections=[])], rerun=rerun), "browser", None) is None
+
+
+def test_lists_without_a_sink_stop_the_agents_code_with_the_reason(sandbox_mode):
+    code = 'def generate_df(ds_clients, excel_files, lists):\n    lists.submit("companies", [{"company": "Acme"}])\n' \
+           '    return pd.DataFrame()\n'
+    for settings, reason in ((None, "setting is off"), (_org(enable_sandbox_lists=True), "no Agent List")):
+        with pytest.raises(HelperUnavailableError, match=reason) as e:
+            StreamingCodeExecutor(organization_settings=settings).execute_code(code=code, ds_clients={}, excel_files=[])
+        assert "NoneType" not in str(e.value)
+
+
+@pytest.mark.parametrize("lists_on", [False, True], ids=["lists-setting-off", "lists-setting-on"])
+def test_a_rerun_of_code_that_submits_list_rows_runs_and_saves_nothing(sandbox_mode, lists_on):
+    """The rows were saved when the agent first ran the code."""
+    code = (
+        "def generate_df(ds_clients, excel_files, lists):\n"
+        "    out = lists.submit('companies', [{'company': 'Acme'}, {'company': 'Globex'}])\n"
+        "    return pd.DataFrame([{'queued': out['queued'], 'available': len(lists.available())}])\n"
+    )
+    settings = _org(enable_sandbox_lists=lists_on)
+    helpers = _build(settings, [], rerun=True)
+    df, _, _ = StreamingCodeExecutor(organization_settings=settings, sandbox_helpers=helpers).execute_code(
+        code=code, ds_clients={}, excel_files=[])
+    assert int(df["queued"][0]) == 0 and int(df["available"][0]) == 0
+    assert helpers.lists.take() == {}
+
+
+@pytest.mark.parametrize("rerun", [False, True], ids=["agent-run", "re-run"])
+def test_every_helper_the_code_can_ask_for_reaches_it_in_every_kind_of_run(sandbox_mode, rerun):
+    """Saved code must find on a re-run every helper it had when the agent ran
+    it. Generated from the injectable names, so a helper added later that a
+    re-run does not get fails here."""
+    from app.ai.code_execution.sandbox.namespace import INJECTABLE_NAMES
+
+    settings = _org(enable_sandbox_browser=True, enable_sandbox_lists=True, enable_sandbox_web_fetch=True,
+                    enable_load_step=True)
+    sources = [_browser_source(["https://e.com/**"])]
+    helpers = _build(settings, sources, rerun=rerun, lists_sink=None if rerun else _sink())
+    args = ", ".join(INJECTABLE_NAMES)
+    checks = ", ".join(f"{n!r}: {n} is None" for n in INJECTABLE_NAMES)
+    code = f"def generate_df(ds_clients, excel_files, {args}):\n    return pd.DataFrame([{{{checks}}}])\n"
+    df, _, _ = StreamingCodeExecutor(organization_settings=settings, sandbox_helpers=helpers).execute_code(
+        code=code, ds_clients={}, excel_files=[])
+    missing = [n for n in INJECTABLE_NAMES if bool(df[n][0])]
+    assert missing == []
