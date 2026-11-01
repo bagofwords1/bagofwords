@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.604 (November 1, 2026)
+- Fixed upgrades failing on duplicate or empty dashboard data-source links (#1549)
+
 ## Version 0.0.603 (October 31, 2026)
 - Added scoping instructions to a connected application, so a rule applies only in conversations started from that app (#1542) — instruction editor → Channels
 - Added GitLab and Bitbucket as MCP connections, with sign-in per user for GitLab and email + API token for Bitbucket (#1541)
