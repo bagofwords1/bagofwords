@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.605 (November 1, 2026)
+- Added a Responses API option for custom OpenAI-compatible LLM providers, for servers like gpt-oss on vLLM or NVIDIA NIM (#1551) — Settings → LLMs → "Use Responses API"
+
 ## Version 0.0.604 (November 1, 2026)
 - Fixed upgrades failing on duplicate or empty dashboard data-source links (#1549)
 
