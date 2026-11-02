@@ -30,7 +30,7 @@ const MINUTE = 60_000
 // `credentials` answers each host.requestCredential in turn; `sessions` each
 // POST /session ({ ok, status, body }, or a promise of one: an exchange still
 // in flight).
-function mountGate({ credentials, sessions, boot, deletes = [] }) {
+function mountGate({ credentials, sessions, boot, deletes = [], setLocale = async () => {} }) {
   const credential = ref(null)
   const requested = []
   const posted = []
@@ -60,7 +60,7 @@ function mountGate({ credentials, sessions, boot, deletes = [] }) {
     useErrorMessage: () => ({ getErrorMessage: (e) => `error:${e?.data?.error_code}` }),
     useRuntimeConfig: () => ({ public: { baseURL: '/api' } }),
     useEmbedCredential: () => credential,
-    useNuxtApp: () => ({}),
+    useNuxtApp: () => ({ $setLocale: setLocale }),
     useEmbedHost: (_origins, handlers) => {
       hostHandlers = handlers
       return {
@@ -102,7 +102,7 @@ function mountGate({ credentials, sessions, boot, deletes = [] }) {
   let exposed = {}
   const bindings = exports.default.setup({ hostApplication: 'host_1' }, { expose: (o) => { exposed = o }, emit: () => {} })
   return { bindings, credential, requested, posted, deleted, log, exposed: () => exposed || {}, mounted: () => mounted(),
-    init: () => { if (!started) return; bound = true; hostHandlers.onInit({ context: null }) },
+    init: (extra = {}) => { if (!started) return; bound = true; return hostHandlers.onInit({ context: null, ...extra }) },
     logout: () => hostHandlers.onLogout(),
     // SSO: the popup posts its one-time code back (bound to the state in its URL).
     ssoCode: (code) => sso.onMessage({ origin: 'https://bow.test', source: popup,
@@ -522,3 +522,26 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: a second logout, a retry and an SSO exchange during sign-out leave no live session and no stale signed_out')
+
+// ── the host's language is in place before the artifact frame is built ────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // $setLocale loads the catalog first; the sign-in that leads to the
+  // artifact (built with the page's <html lang>) waits for it.
+  const catalog = deferred()
+  const order = []
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }],
+    setLocale: async (code) => { order.push(`locale:start:${code}`); await catalog.promise; order.push(`locale:done:${code}`) } })
+  await gate.mounted()
+  gate.init({ locale: 'he' })
+  await settle()
+  assert.equal(gate.requested.length, 0, 'no sign-in before the language is applied')
+  catalog.resolve()
+  await settle()
+  assert.deepEqual(order, ['locale:start:he', 'locale:done:he'])
+  assert.equal(gate.requested.length, 1, 'then the sign-in starts')
+  assert.equal(gate.bindings.status.value, 'ready')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: the gate applies the host language before it signs in, so the artifact frame is built in it')

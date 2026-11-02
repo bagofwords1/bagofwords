@@ -78,10 +78,13 @@ let startupFailure: { reason: EmbedUnavailableReason, message: string } | null =
 const api = (path: string) => `${config.public.baseURL}/embed/${encodeURIComponent(props.hostApplication)}${path}`;
 
 const host = useEmbedHost(() => allowedOrigins, {
-    onInit: (init) => {
+    onInit: async (init) => {
         if (startupFailure) { host.post('bow:unavailable', startupFailure); return; }
         emit('context', init.context);
-        if (init.locale) applyLocale(init.locale);
+        // The artifact frame takes the page's language when it is built (its
+        // <html lang>, which the sandbox's own words follow), so the host's
+        // language is in place before the sign-in that leads to it.
+        if (init.locale) await applyLocale(init.locale);
         signIn();
     },
     onContext: (context) => emit('context', context),
@@ -89,8 +92,8 @@ const host = useEmbedHost(() => allowedOrigins, {
     onLogout: () => signOut(),
 });
 
-function applyLocale(locale: string) {
-    try { $setLocale?.(locale); } catch { /* unknown locale: keep the current one */ }
+async function applyLocale(locale: string) {
+    try { await $setLocale?.(locale); } catch { /* unknown locale: keep the current one */ }
 }
 
 function fail(next: Status, text: string) {
