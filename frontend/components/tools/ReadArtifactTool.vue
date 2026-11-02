@@ -18,7 +18,7 @@
       <span
         v-if="artifactMode && status === 'success'"
         :class="[
-          'ms-2 px-1.5 py-0.5 rounded text-2xs font-medium',
+          'ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium',
           artifactMode === 'slides'
             ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
             : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
@@ -28,13 +28,13 @@
       </span>
 
       <!-- Version Badge -->
-      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-2xs text-ink-muted">
+      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-chat-3 text-ink-muted">
         v{{ artifactVersion }}
       </span>
     </div>
 
     <!-- Error message -->
-    <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ errorMessage }}
     </div>
 
@@ -58,14 +58,14 @@
             />
           </div>
           <div class="flex-1 min-w-0">
-            <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ artifactTitle || 'Untitled' }}</div>
-            <div class="text-2xs text-ink-muted">
+            <div class="text-chat-2 font-medium text-gray-700 dark:text-gray-300 truncate">{{ artifactTitle || 'Untitled' }}</div>
+            <div class="text-chat-3 text-ink-muted">
               {{ codeStats }}
             </div>
             <button
               v-if="artifactId"
               @click.stop="copyArtifactId"
-              class="flex items-center gap-0.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono mt-0.5"
+              class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono mt-0.5"
               title="Click to copy ID"
             >
               <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
@@ -89,7 +89,7 @@
           <!-- Code Preview -->
           <Transition name="fade">
             <div v-if="isCodeExpanded" class="mt-2">
-              <pre class="text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700 dark:text-gray-300">{{ artifactCode }}</code></pre>
+              <pre class="text-chat-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-2 overflow-x-auto max-h-80 overflow-y-auto"><code class="text-gray-700 dark:text-gray-300">{{ artifactCode }}</code></pre>
             </div>
           </Transition>
         </div>

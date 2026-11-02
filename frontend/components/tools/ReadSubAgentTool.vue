@@ -15,7 +15,7 @@
         </span>
       </template>
     </div>
-    <p v-if="latest" class="ms-4 text-2xs text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>
+    <p v-if="latest" class="ms-4 text-chat-2 text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>
   </div>
 </template>
 

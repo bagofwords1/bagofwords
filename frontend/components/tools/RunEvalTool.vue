@@ -20,7 +20,7 @@
       </span>
 
       <!-- Live counters -->
-      <span v-if="progress.total > 0" class="ms-2 text-2xs text-gray-500 dark:text-gray-400">
+      <span v-if="progress.total > 0" class="ms-2 text-chat-3 text-gray-500 dark:text-gray-400">
         <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
         <span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span>
         <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
@@ -37,7 +37,7 @@
       <!-- Stop button (only while in-flight) -->
       <button
         v-if="canStop"
-        class="ms-auto inline-flex items-center gap-0.5 text-2xs text-red-600 hover:text-red-800"
+        class="ms-auto inline-flex items-center gap-0.5 text-chat-2 text-red-600 hover:text-red-800"
         @click.stop="stopRun"
         :disabled="isStopping"
         :title="t('tools.runEval.stopTitle')"
@@ -60,7 +60,7 @@
     </div>
 
     <!-- Per-case rows (collapsed by default) -->
-    <ul v-if="progress.cases.length && expanded" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <ul v-if="progress.cases.length && expanded" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <!-- Static glyph in a transcript: a spinner would imply live work. -->
         <Spinner
@@ -74,8 +74,8 @@
           :class="caseIconColor(c.status)"
         />
         <span class="truncate" :title="c.case_name || c.case_id">{{ c.case_name || c.case_id }}</span>
-        <span class="ms-2 text-2xs flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
-        <span v-if="c.failure_reason" class="ms-2 text-2xs text-ink-muted truncate" :title="c.failure_reason">
+        <span class="ms-2 text-chat-3 flex-shrink-0" :class="caseStatusColor(c.status)">{{ c.status }}</span>
+        <span v-if="c.failure_reason" class="ms-2 text-chat-2 text-ink-muted truncate" :title="c.failure_reason">
           — {{ c.failure_reason }}
         </span>
       </li>
@@ -83,7 +83,7 @@
 
     <!-- Run-id link (part of the expandable detail). The run page is
          authenticated; a shared link's reader cannot open it. -->
-    <div v-if="!readonly && progress.run_id && expanded" class="mt-1 text-2xs text-ink-muted ms-1">
+    <div v-if="!readonly && progress.run_id && expanded" class="mt-1 text-chat-2 text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${progress.run_id}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.runEval.openRun') }}

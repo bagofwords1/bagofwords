@@ -40,8 +40,8 @@
     </div>
 
     <!-- Stopped/Error message below header -->
-    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-xs text-ink-muted italic">{{ $t('tools.common.generationStopped') }}</div>
-    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-chat-2 text-ink-muted italic">{{ $t('tools.common.generationStopped') }}</div>
+    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ lastErrorMessage }}
     </div>
 
@@ -61,12 +61,12 @@
           </div>
           <Transition name="fade">
             <div v-if="attemptCodeExpanded[idx]" class="mt-1 ms-4">
-              <div v-if="attempt.code" class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 font-mono text-2xs max-h-28 overflow-y-auto mb-1">
+              <div v-if="attempt.code" class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 font-mono text-chat-3 max-h-28 overflow-y-auto mb-1">
                 <pre class="text-gray-600 dark:text-gray-400 whitespace-pre-wrap m-0">{{ attempt.code }}</pre>
               </div>
             </div>
           </Transition>
-          <div class="mt-0.5 ms-4 text-2xs text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
+          <div class="mt-0.5 ms-4 text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
             {{ attempt.error }}
           </div>
         </div>
@@ -89,7 +89,7 @@
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed && codeContent" class="mt-1 ms-4">
-              <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
+              <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-chat-2 max-h-42 overflow-y-auto relative">
                 <button
                   class="absolute top-2 end-2 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200"
                   :disabled="!canOpenEditor"
@@ -119,7 +119,7 @@
             <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-ink-muted">· {{ formatExecutionDuration }}</span>
           </div>
           <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
-          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-2xs text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
+          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
             <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
           </div>
         </div>
@@ -142,7 +142,7 @@
             <span v-else class="text-gray-700 dark:text-gray-300">{{ chartTypeLabel }}</span>
             <span v-if="vizSummary && !vizError" class="ms-1.5 text-ink-muted">· {{ vizSummary }}</span>
           </div>
-          <div v-if="vizError" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">{{ vizError }}</div>
+          <div v-if="vizError" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">{{ vizError }}</div>
         </div>
       </div>
     </Transition>

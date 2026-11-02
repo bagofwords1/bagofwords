@@ -19,13 +19,13 @@
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- What was declared: type, default, bound column -->
-      <div v-if="status === 'success' && !hasError" class="mt-1 ms-[18px] flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="status === 'success' && !hasError" class="mt-1 ms-[18px] flex flex-wrap gap-x-3 gap-y-0.5 text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="param.type">{{ $t('tools.addParameter.type', { type: param.type }) }}</span>
         <span>{{ $t('tools.addParameter.default', { value: defaultLabel }) }}</span>
         <span v-if="column">{{ $t('tools.addParameter.column', { column }) }}</span>
       </div>
       <!-- Error -->
-      <div v-if="hasError && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="hasError && errorMessage" class="mt-1 ms-[18px] text-chat-2 text-gray-500 dark:text-gray-400">
         {{ errorMessage }}
       </div>
     </template>

@@ -12,9 +12,10 @@
           type="button"
           :disabled="disabled"
           @click="select(q)"
+          :dir="rowDir(q)"
           class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-sm leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          <span class="truncate" dir="auto">{{ q }}</span>
+          <span class="truncate">{{ q }}</span>
           <!-- The hover slide lives on the wrapper: a translate on the icon
                itself would replace its RTL mirror transform. -->
           <span class="flex-shrink-0 inline-flex opacity-0 -translate-x-1 rtl:translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition duration-150">
@@ -32,6 +33,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { dominantTextDir } from '~/utils/textDirection'
 
 const props = defineProps<{
   suggestions?: string[] | null
@@ -44,12 +46,17 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-// The section (heading, alignment, arrow) follows the UI locale like the rest
-// of the chat chrome. Suggestions are generated in the conversation's language,
-// so each one keeps its own text direction via dir="auto" on its label.
+// The heading follows the UI locale like the rest of the chat chrome.
+// Suggestions are generated in the language of the user's last message, so
+// each row takes its own direction from its text: a Hebrew suggestion in an
+// English UI sits on the right with its arrow on the left.
 const items = computed(() =>
   (props.suggestions || []).map((s) => String(s ?? '').trim()).filter(Boolean)
 )
+
+function rowDir(q: string) {
+  return dominantTextDir(q) ?? undefined
+}
 
 function select(q: string) {
   if (props.disabled) return

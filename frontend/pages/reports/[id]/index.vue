@@ -1086,6 +1086,8 @@
 <script setup lang="ts">
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
+import { useChatDisplay } from '~/composables/useChatDisplay'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -1205,6 +1207,11 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 import { MarkdownRender } from 'markstream-vue'
 import { dominantTextDir, type TextDir } from '~/utils/textDirection'
 import 'markstream-vue/index.css'
+
+// Charts and grids in this conversation follow the chat text size
+// (utils/chatVizText.ts); the dashboard panel resets it for its own widgets.
+provide(CHAT_VIZ_TEXT_PX, useChatDisplay().textSizePx)
+
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 

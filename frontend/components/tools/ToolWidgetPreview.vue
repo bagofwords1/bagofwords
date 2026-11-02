@@ -9,7 +9,7 @@
           <Icon v-if="!expanded" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
           <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
-          <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-2xs text-ink-muted inline-flex items-center gap-1">
+          <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-chat-3 text-ink-muted inline-flex items-center gap-1">
             <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
             {{ $t('tools.createData.bowSource') }}
           </span>
@@ -27,18 +27,18 @@
           <UTooltip v-if="queryId" :text="$t('tools.widgetPreview.copyIdTooltip')">
             <button
               @click.stop="copyQueryId"
-              class="flex items-center gap-0.5 text-2xs text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
+              class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
             >
               <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
               {{ queryId.slice(0, 8) }}
             </button>
           </UTooltip>
-          <div v-if="rowCount" class="text-2xs text-ink-muted leading-none flex items-center gap-1 whitespace-nowrap" data-testid="widget-row-count">
+          <div v-if="rowCount" class="text-chat-3 text-ink-muted leading-none flex items-center gap-1 whitespace-nowrap" data-testid="widget-row-count">
             <Spinner v-if="isHydratingStep" class="w-3 h-3 text-ink-muted" :title="$t('tools.widgetPreview.loadingRows')" />
             {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
           <UTooltip v-if="cardParamSpecs.length" text="Parameterized query">
-            <div class="text-2xs text-ink-muted leading-none flex items-center gap-0.5" data-testid="card-param-chip">
+            <div class="text-chat-3 text-ink-muted leading-none flex items-center gap-0.5" data-testid="card-param-chip">
               <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ cardParamSpecs.length }}
             </div>
           </UTooltip>
@@ -138,7 +138,7 @@
               v-if="showVisual"
               @click="activeTab = 'chart'"
               :class="[
-                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                'px-3 py-1.5 text-chat-2 font-medium border-b-2 transition-colors',
                 activeTab === 'chart'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
@@ -150,7 +150,7 @@
               v-if="hasData"
               @click="activeTab = 'table'"
               :class="[
-                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                'px-3 py-1.5 text-chat-2 font-medium border-b-2 transition-colors',
                 activeTab === 'table'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
@@ -162,7 +162,7 @@
               v-if="hasCode"
               @click="activeTab = 'code'"
               :class="[
-                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                'px-3 py-1.5 text-chat-2 font-medium border-b-2 transition-colors',
                 activeTab === 'code'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
@@ -302,7 +302,7 @@
                             minimap: { enabled: false },
                             wordWrap: 'on',
                             scrollBeyondLastLine: false,
-                            fontSize: 12,
+                            fontSize: 13,
                             lineNumbers: 'off',
                             folding: false,
                             renderLineHighlight: 'none',
@@ -328,7 +328,7 @@
                 </div>
 
                 <!-- Execution details -->
-                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-2xs text-ink-muted flex-shrink-0">
+                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-chat-3 text-ink-muted flex-shrink-0">
                   <span v-if="executionDuration">
                     <Icon name="heroicons-clock" class="w-3 h-3 inline-block me-1" />
                     {{ executionDuration }}
@@ -350,7 +350,7 @@
                   </div>
                   <Transition name="fade">
                     <div v-if="attemptsExpanded" class="mt-2 ms-4">
-                      <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
+                      <ul class="text-chat-2 text-gray-600 dark:text-gray-400 space-y-1.5">
                         <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
                           <span class="text-ink-muted me-2 flex-shrink-0">{{ idx + 1 }}.</span>
                           <span class="text-red-500">{{ att }}</span>
@@ -1642,7 +1642,7 @@ onMounted(() => {
 }
 
 .widget-title {
-  @apply text-xs font-medium text-gray-700 dark:text-gray-300 select-none;
+  @apply text-chat-2 font-medium text-gray-700 dark:text-gray-300 select-none;
 }
 
 .widget-content {

@@ -26,12 +26,12 @@
     <div v-if="needsSelection && selectionGroups.length" class="ms-1 mb-1 flex items-center gap-1 flex-wrap">
       <span
         v-for="g in selectionGroups" :key="g.label"
-        class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+        class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
       >{{ g.label }} · {{ g.count }}</span>
     </div>
 
     <!-- Failure / rejection detail -->
-    <div v-else-if="status !== 'running' && !succeeded && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-1">
+    <div v-else-if="status !== 'running' && !succeeded && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-1">
       {{ message }}
     </div>
 
@@ -46,32 +46,32 @@
           <div class="flex items-center gap-2">
             <Icon name="heroicons-cpu-chip" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ agentName }}</span>
-            <span class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded-full flex-shrink-0"
+            <span class="inline-flex items-center gap-1 text-chat-3 px-1.5 py-0.5 rounded-full flex-shrink-0"
               :class="agentActive ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'">
               <span class="w-1.5 h-1.5 rounded-full" :class="agentActive ? 'bg-emerald-500' : 'bg-gray-400'"></span>
               {{ agentActive ? $t('tools.createAgent.statusActive') : $t('tools.createAgent.statusInactive') }}
             </span>
-            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
               {{ isPublic ? $t('tools.createAgent.public') : $t('tools.createAgent.private') }}
             </span>
             <span class="flex-1"></span>
             <NuxtLink
               :to="`/agents/${agentId}`"
-              class="text-2xs text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
+              class="text-chat-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
             >
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
               {{ $t('tools.createAgent.open') }}
             </NuxtLink>
           </div>
-          <div v-if="description" class="mt-1 text-2xs text-gray-500 dark:text-gray-400 leading-snug">{{ description }}</div>
-          <div v-if="connections.length" class="mt-1 text-2xs text-ink-muted">
+          <div v-if="description" class="mt-1 text-chat-2 text-gray-500 dark:text-gray-400 leading-snug">{{ description }}</div>
+          <div v-if="connections.length" class="mt-1 text-chat-2 text-ink-muted">
             {{ $t('tools.createAgent.on') }} {{ connections.join(', ') }}
           </div>
-          <div v-if="requiresConnect" class="mt-1 text-2xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+          <div v-if="requiresConnect" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400 flex items-center gap-1">
             <Icon name="heroicons-key" class="w-3 h-3" />
             {{ $t('tools.createAgent.requiresConnect') }}
           </div>
-          <div v-if="unresolved.length" class="mt-1 text-2xs text-amber-600 dark:text-amber-400">
+          <div v-if="unresolved.length" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400">
             {{ $t('tools.createAgent.unresolved', { items: unresolved.join(', ') }) }}
           </div>
         </div>
@@ -80,7 +80,7 @@
         <div class="px-3 pb-2 flex items-center gap-1.5 flex-wrap border-t border-gray-100 dark:border-gray-800 pt-2">
           <button
             v-for="section in visibleSections" :key="section"
-            class="inline-flex items-center gap-1 text-2xs px-2 py-1 rounded-md border transition-colors"
+            class="inline-flex items-center gap-1 text-chat-2 px-2 py-1 rounded-md border transition-colors"
             :class="openSection === section
               ? 'border-blue-300 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300'
               : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
@@ -88,7 +88,7 @@
           >
             <Icon :name="sectionIcon(section)" class="w-3 h-3" />
             {{ $t(`tools.createAgent.tab.${section}`) }}
-            <span class="text-2xs opacity-70">{{ sectionCount(section) }}</span>
+            <span class="text-chat-3 opacity-70">{{ sectionCount(section) }}</span>
             <Icon :name="openSection === section ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-2.5 h-2.5 opacity-60" />
           </button>
         </div>
@@ -121,37 +121,37 @@
               :can-update="true"
               :show-header="false"
             />
-            <div v-else class="text-2xs text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Files -->
           <div v-else-if="openSection === 'files'" class="max-h-64 overflow-y-auto">
-            <ul v-if="fileNames.length" class="space-y-0.5 leading-snug text-2xs">
+            <ul v-if="fileNames.length" class="space-y-0.5 leading-snug text-chat-2">
               <li v-for="f in fileNames" :key="f" class="flex items-center py-0.5">
                 <Icon name="heroicons-document" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
                 <span class="text-gray-700 dark:text-gray-300 font-mono truncate">{{ f }}</span>
               </li>
             </ul>
-            <div v-else class="text-2xs text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Instructions — compact agent-scoped list. -->
           <div v-else-if="openSection === 'instructions'" class="max-h-64 overflow-y-auto">
-            <ul v-if="instructions.length" class="space-y-1 leading-snug text-2xs">
+            <ul v-if="instructions.length" class="space-y-1 leading-snug text-chat-2">
               <li v-for="inst in instructions" :key="inst.id" class="flex items-start py-0.5 gap-1.5">
                 <Icon name="heroicons-document-text" class="w-3 h-3 mt-0.5 text-indigo-400 flex-shrink-0" />
                 <span class="text-gray-700 dark:text-gray-300">{{ instructionLabel(inst) }}</span>
                 <span v-if="inst.status && inst.status !== 'published'"
-                      class="text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">
+                      class="text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">
                   {{ inst.status }}
                 </span>
                 <span v-if="inst.load_mode === 'always'"
-                      class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+                      class="text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
                   {{ getLoadModeLabel(inst.load_mode) }}
                 </span>
               </li>
             </ul>
-            <div v-else class="text-2xs text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Evals — the real per-agent evals panel. -->
@@ -313,6 +313,6 @@ watch(succeeded, (ok) => { if (ok) loadAgentState() })
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 /* Keep the embedded selectors compact inside the chat card. */
-.create-agent-selector :deep(table) { font-size: 11px; }
-.create-agent-selector :deep(h1) { font-size: 13px; }
+.create-agent-selector :deep(table) { font-size: var(--bow-chat-font-size-2); }
+.create-agent-selector :deep(h1) { font-size: var(--bow-chat-font-size-2); }
 </style>

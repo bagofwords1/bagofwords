@@ -267,8 +267,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
+import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
@@ -381,6 +383,10 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 // both written against this renderer's DOM.
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
+
+// Charts and grids in this conversation follow the chat text size
+// (utils/chatVizText.ts).
+provide(CHAT_VIZ_TEXT_PX, useChatDisplay().textSizePx)
 
 const route = useRoute()
 const token = route.params.token as string

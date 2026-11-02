@@ -13,13 +13,13 @@
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-green-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editPrompt.updatedPrefix', { title: promptTitle }) }}</span>
-          <span v-if="changedFields.length" class="ms-1.5 text-2xs text-ink-muted shrink-0">· {{ changedFields.join(', ') }}</span>
+          <span v-if="changedFields.length" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">· {{ changedFields.join(', ') }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.editPrompt.notUpdated') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-2xs">({{ rejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -34,23 +34,23 @@
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 dark:border-gray-700 rounded-md p-3 transition-colors">
-          <div v-if="newText" class="prompt-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
+          <div v-if="newText" class="prompt-content text-chat-2 text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
             <MDC :value="newText" class="markdown-content" />
           </div>
-          <div class="flex flex-wrap items-center gap-2 text-2xs mb-1">
+          <div class="flex flex-wrap items-center gap-2 text-chat-3 mb-1">
             <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editPrompt.changed') }}</span>
-            <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
+            <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
             <span v-if="!changedFields.length" class="text-ink-muted">{{ $t('tools.editPrompt.noFields') }}</span>
           </div>
           <div v-if="isSuccess" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
-            <button class="ms-auto text-2xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
+            <span class="text-chat-3 font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
+            <button class="ms-auto text-chat-2 text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
               <span>{{ $t('tools.editPrompt.openInPrompts') }}</span>
             </button>
           </div>
-          <div v-if="errorMessage" class="text-2xs text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>
@@ -117,8 +117,8 @@ function openPrompts() { navigateTo('/prompts') }
 .slide-enter-active, .slide-leave-active { transition: all 0.15s ease; overflow: hidden; }
 .slide-enter-from, .slide-leave-to { opacity: 0; max-height: 0; }
 .slide-enter-to, .slide-leave-from { opacity: 1; max-height: 500px; }
-.prompt-content :deep(.markdown-content) { font-size: 12px; line-height: 1.5; }
+.prompt-content :deep(.markdown-content) { font-size: var(--bow-chat-font-size-2); line-height: 1.5; }
 .prompt-content :deep(.markdown-content p) { margin: 0 0 0.5em 0; }
 .prompt-content :deep(.markdown-content p:last-child) { margin-bottom: 0; }
-.prompt-content :deep(.markdown-content code) { font-size: 10px; padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
+.prompt-content :deep(.markdown-content code) { font-size: var(--bow-chat-font-size-2); padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
 </style>

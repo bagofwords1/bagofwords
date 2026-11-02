@@ -17,11 +17,11 @@
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-ink-muted" />
           <span>{{ modelTitle || $t('tools.readFile.read', { name: fileLabel }) }}</span>
-          <span v-if="contentType" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
+          <span v-if="contentType" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
           <span v-if="rowCount != null" class="ms-2 text-ink-muted">{{ $t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span>
-          <span v-if="truncated" class="ms-2 text-2xs text-yellow-600">{{ $t('tools.readFile.truncated') }}</span>
-          <span v-if="windowed" class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
-          <span v-if="pagesShown" class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ pagesTotal
+          <span v-if="truncated" class="ms-2 text-chat-3 text-yellow-600">{{ $t('tools.readFile.truncated') }}</span>
+          <span v-if="windowed" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
+          <span v-if="pagesShown" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ pagesTotal
             ? $t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
             : $t('tools.readFile.pages', { shown: pagesShown }) }}</span>
         </span>
@@ -37,7 +37,7 @@
     <button
       v-if="derivedGalleryCollapsed"
       type="button"
-      class="mb-2 text-2xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+      class="mb-2 text-chat-2 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
       @click="galleryOpen = true"
     >
       <Icon name="heroicons-photo" class="w-3 h-3 inline align-text-bottom me-1" />
@@ -71,14 +71,14 @@
     <ImagePreviewModal ref="imageModal" />
 
     <Transition name="fade" appear>
-      <div v-if="expanded && expandable" class="text-xs text-gray-600 dark:text-gray-400">
-        <div v-if="filePath" class="mb-1 text-2xs text-gray-500 dark:text-gray-400">
+      <div v-if="expanded && expandable" class="text-chat-2 text-gray-600 dark:text-gray-400">
+        <div v-if="filePath" class="mb-1 text-chat-3 text-gray-500 dark:text-gray-400">
           <span class="text-ink-muted">{{ $t('tools.readFile.pathLabel') }}</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
         </div>
         <!-- The document/picture IS the content — don't repeat it as a text dump. -->
-        <pre v-if="hasContent && !showVisualPreview" class="text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
-        <div v-if="sessionFileId" class="mt-2 text-2xs text-gray-500 dark:text-gray-400">
+        <pre v-if="hasContent && !showVisualPreview" class="text-chat-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+        <div v-if="sessionFileId" class="mt-2 text-chat-2 text-gray-500 dark:text-gray-400">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
           {{ $t('tools.readFile.attachedAsSessionFile') }}
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
@@ -87,7 +87,7 @@
       </div>
     </Transition>
 
-    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-chat-2 text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 

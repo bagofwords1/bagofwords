@@ -27,11 +27,11 @@
              plain full read shows nothing, exactly as before. -->
         <span
           v-if="succeeded && windowLabel"
-          class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 whitespace-nowrap"
+          class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 whitespace-nowrap"
           dir="ltr"
         >{{ windowLabel }}</span>
-        <span v-if="succeeded && truncated" class="ms-2 text-2xs text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.truncated') }}</span>
-        <span v-if="succeeded && grepTruncated" class="ms-2 text-2xs text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.moreMatches') }}</span>
+        <span v-if="succeeded && truncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.truncated') }}</span>
+        <span v-if="succeeded && grepTruncated" class="ms-2 text-chat-3 text-yellow-600 whitespace-nowrap">{{ t('tools.readInstruction.moreMatches') }}</span>
       </template>
     </div>
 
@@ -39,7 +39,7 @@
       <div v-if="open && succeeded" class="mt-1 ms-4 space-y-1.5">
         <!-- GREP READ: matching lines with line numbers; click one for its context. -->
         <template v-if="readMode === 'grep'">
-          <ul v-if="matches.length" class="space-y-0.5 leading-snug text-xs text-gray-600 dark:text-gray-400">
+          <ul v-if="matches.length" class="space-y-0.5 leading-snug text-chat-2 text-gray-600 dark:text-gray-400">
             <li v-for="(m, idx) in matches.slice(0, MAX_MATCHES_SHOWN)" :key="idx">
               <div
                 class="flex items-center py-0.5 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
@@ -47,29 +47,29 @@
                 :aria-expanded="isMatchOpen(idx)"
               >
                 <Icon :name="isMatchOpen(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip flex-shrink-0" />
-                <span class="font-mono text-2xs text-ink-muted flex-shrink-0" dir="ltr">:{{ m.line_no }}</span>
-                <span class="ms-2 truncate font-mono text-2xs text-gray-600 dark:text-gray-400">{{ m.line }}</span>
+                <span class="font-mono text-chat-3 text-ink-muted flex-shrink-0" dir="ltr">:{{ m.line_no }}</span>
+                <span class="ms-2 truncate font-mono text-chat-2 text-gray-600 dark:text-gray-400">{{ m.line }}</span>
               </div>
               <Transition name="fade">
                 <div v-if="isMatchOpen(idx)" class="ps-5 pe-1 pb-1">
-                  <pre class="text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap" dir="ltr">{{ contextBlock(m) }}</pre>
-                  <div v-if="m.col_start != null" class="mt-0.5 text-2xs text-yellow-600">
+                  <pre class="text-chat-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap" dir="ltr">{{ contextBlock(m) }}</pre>
+                  <div v-if="m.col_start != null" class="mt-0.5 text-chat-3 text-yellow-600">
                     {{ t('tools.readInstruction.longLine', { start: m.col_start, end: m.col_end, length: m.line_length }) }}
                   </div>
                 </div>
               </Transition>
             </li>
-            <li v-if="matches.length > MAX_MATCHES_SHOWN" class="ps-1 text-2xs text-ink-muted">
+            <li v-if="matches.length > MAX_MATCHES_SHOWN" class="ps-1 text-chat-3 text-ink-muted">
               {{ t('tools.readInstruction.moreShown', { count: matches.length - MAX_MATCHES_SHOWN }) }}
             </li>
           </ul>
-          <div v-else class="text-2xs text-ink-muted">{{ t('tools.readInstruction.noMatches') }}</div>
+          <div v-else class="text-chat-2 text-ink-muted">{{ t('tools.readInstruction.noMatches') }}</div>
         </template>
 
         <!-- FULL / RANGE / HEAD READ: the verbatim text the agent received. -->
         <template v-else-if="text">
           <div
-            class="px-2 py-1.5 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 text-2xs leading-snug text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto"
+            class="px-2 py-1.5 rounded border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 text-chat-2 leading-snug text-gray-600 dark:text-gray-400 whitespace-pre-wrap max-h-48 overflow-y-auto"
           >{{ text }}</div>
         </template>
 
@@ -77,7 +77,7 @@
              Sent on a head read and on a grep with no matches. -->
         <div v-if="outline">
           <div
-            class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
+            class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300 py-0.5"
             @click.stop="outlineOpen = !outlineOpen"
             :aria-expanded="outlineOpen"
           >
@@ -86,7 +86,7 @@
             <span>{{ t('tools.readInstruction.outline') }}</span>
           </div>
           <Transition name="fade">
-            <pre v-if="outlineOpen" class="mt-1 text-2xs bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap" dir="ltr">{{ outline }}</pre>
+            <pre v-if="outlineOpen" class="mt-1 text-chat-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-48 overflow-auto whitespace-pre-wrap" dir="ltr">{{ outline }}</pre>
           </Transition>
         </div>
 

@@ -647,7 +647,8 @@
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
-import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ArtifactActivityLog from './ArtifactActivityLog.vue';
@@ -666,6 +667,10 @@ import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from 
 import { polishPromptPosition as computePolishPromptPosition, buildPolishPrompt } from '~/utils/polishPrompt';
 import { newestVersionOf } from '~/utils/artifactVersionLatest';
 import { viewingPath } from '~/utils/dashboardViewing';
+
+// A dashboard keeps its own dense chart and grid sizes even when it sits
+// beside a conversation that scales them (utils/chatVizText.ts).
+provide(CHAT_VIZ_TEXT_PX, ref(0))
 
 const { t } = useI18n();
 const { tm } = useArtifactWording();

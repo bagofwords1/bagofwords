@@ -8,23 +8,23 @@
       <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-queue-list" class="w-3 h-3 me-1 text-purple-400" />
         <span class="align-middle">{{ t('tools.getEvalRuns.listed') }}</span>
-        <span v-if="items.length" class="ms-1.5 text-2xs text-ink-muted">· {{ items.length === 1 ? t('tools.getEvalRuns.runSingular', { count: items.length }) : t('tools.getEvalRuns.runPlural', { count: items.length }) }}</span>
+        <span v-if="items.length" class="ms-1.5 text-chat-3 text-ink-muted">· {{ items.length === 1 ? t('tools.getEvalRuns.runSingular', { count: items.length }) : t('tools.getEvalRuns.runPlural', { count: items.length }) }}</span>
       </span>
     </div>
 
-    <ul v-if="items.length" class="text-xs text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <ul v-if="items.length" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="r in items" :key="r.run_id" class="flex items-center py-0.5 px-1 rounded">
         <Icon name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
         <NuxtLink :to="`/evals/runs/${r.run_id}`" class="font-medium text-gray-700 dark:text-gray-300 truncate hover:text-blue-600" :title="r.title || r.run_id">
           {{ r.title || r.run_id }}
         </NuxtLink>
-        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-2xs font-medium flex-shrink-0" :class="runStatusClass(r.status)">{{ r.status }}</span>
-        <span v-if="r.total" dir="ltr" class="ms-1.5 text-2xs text-gray-500 dark:text-gray-400 flex-shrink-0">{{ r.passed }}/{{ r.total }}</span>
-        <span v-if="r.build_number" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">#{{ r.build_number }}</span>
+        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-chat-3 font-medium flex-shrink-0" :class="runStatusClass(r.status)">{{ r.status }}</span>
+        <span v-if="r.total" dir="ltr" class="ms-1.5 text-chat-3 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ r.passed }}/{{ r.total }}</span>
+        <span v-if="r.build_number" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">#{{ r.build_number }}</span>
       </li>
     </ul>
 
-    <div v-if="status !== 'running' && !items.length" class="text-xs text-ink-muted ms-1">
+    <div v-if="status !== 'running' && !items.length" class="text-chat-2 text-ink-muted ms-1">
       {{ t('tools.getEvalRuns.empty') }}
     </div>
   </div>

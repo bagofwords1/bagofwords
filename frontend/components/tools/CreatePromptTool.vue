@@ -14,15 +14,15 @@
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-bookmark-square" class="w-3 h-3 me-1.5 text-green-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ promptTitle }}</span>
-          <span class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs shrink-0">{{ scope }}</span>
-          <span v-if="isStarter" class="ms-1 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 rounded text-2xs shrink-0">{{ $t('tools.createPrompt.starter') }}</span>
-          <span v-if="paramCount > 0" class="ms-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded text-2xs shrink-0">{{ $t('tools.createPrompt.paramsBadge', { n: paramCount }) }}</span>
+          <span class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ scope }}</span>
+          <span v-if="isStarter" class="ms-1 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 rounded text-chat-3 shrink-0">{{ $t('tools.createPrompt.starter') }}</span>
+          <span v-if="paramCount > 0" class="ms-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded text-chat-3 shrink-0">{{ $t('tools.createPrompt.paramsBadge', { n: paramCount }) }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
           <span>{{ $t('tools.createPrompt.notSaved') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-2xs">({{ rejectedReason }})</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
@@ -38,19 +38,19 @@
       <div v-if="isExpanded && (status !== 'running' || promptText)" class="mt-2 space-y-2">
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 dark:border-gray-700 rounded-md p-3 transition-colors">
           <!-- Prompt text -->
-          <div v-if="promptText" class="prompt-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
+          <div v-if="promptText" class="prompt-content text-chat-2 text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
             <MDC :value="promptText" class="markdown-content" />
           </div>
 
           <!-- Metadata row -->
-          <div class="flex flex-wrap items-center gap-2 text-2xs mb-1">
+          <div class="flex flex-wrap items-center gap-2 text-chat-3 mb-1">
             <div class="flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createPrompt.scope') }}</span>
-              <span class="px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ scope }}</span>
+              <span class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ scope }}</span>
             </div>
             <div v-if="mode && mode !== 'chat'" class="flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createPrompt.mode') }}</span>
-              <span class="px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ mode }}</span>
+              <span class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ mode }}</span>
             </div>
             <div v-if="isStarter" class="flex items-center gap-1">
               <Icon name="heroicons-sparkles" class="w-3 h-3 text-amber-500" />
@@ -64,22 +64,22 @@
 
           <!-- Parameters -->
           <div v-if="paramCount > 0" class="flex flex-wrap items-center gap-1 mb-2">
-            <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('tools.createPrompt.parameters') }}</span>
-            <code v-for="chip in paramChips" :key="chip" class="text-2xs px-1 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded">{{ chip }}</code>
+            <span class="text-chat-3 text-gray-500 dark:text-gray-400">{{ $t('tools.createPrompt.parameters') }}</span>
+            <code v-for="chip in paramChips" :key="chip" class="text-chat-3 px-1 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded">{{ chip }}</code>
           </div>
 
           <!-- Live + open -->
           <div v-if="isSuccess" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createPrompt.live') }}</span>
-            <button class="ms-auto text-2xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
+            <span class="text-chat-3 font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createPrompt.live') }}</span>
+            <button class="ms-auto text-chat-2 text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
               <span>{{ $t('tools.createPrompt.openInPrompts') }}</span>
             </button>
           </div>
 
           <!-- Error / rejection message -->
-          <div v-if="errorMessage" class="text-2xs text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>
@@ -161,8 +161,8 @@ function openPrompts() {
 .slide-enter-active, .slide-leave-active { transition: all 0.15s ease; overflow: hidden; }
 .slide-enter-from, .slide-leave-to { opacity: 0; max-height: 0; }
 .slide-enter-to, .slide-leave-from { opacity: 1; max-height: 500px; }
-.prompt-content :deep(.markdown-content) { font-size: 12px; line-height: 1.5; }
+.prompt-content :deep(.markdown-content) { font-size: var(--bow-chat-font-size-2); line-height: 1.5; }
 .prompt-content :deep(.markdown-content p) { margin: 0 0 0.5em 0; }
 .prompt-content :deep(.markdown-content p:last-child) { margin-bottom: 0; }
-.prompt-content :deep(.markdown-content code) { font-size: 10px; padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
+.prompt-content :deep(.markdown-content code) { font-size: var(--bow-chat-font-size-2); padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
 </style>

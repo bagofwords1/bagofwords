@@ -22,7 +22,7 @@
     </Transition>
     <!-- Preview of top results (click to toggle details) -->
     <Transition name="fade" appear>
-    <div v-if="topResults && topResults.length" class="text-xs text-gray-600 dark:text-gray-400">
+    <div v-if="topResults && topResults.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
       <ul class="ms-1 space-y-1 leading-snug">
         <li v-for="(item, idx) in topResults.slice(0, 10)" :key="idx">
           <!-- Header row -->
@@ -43,7 +43,7 @@
               <!-- DBT (verbose) -->
               <template v-if="isDbt(item)">
                 <div class="text-gray-600 dark:text-gray-400 mb-1 flex items-center flex-wrap">
-                  <span class="inline-block text-2xs uppercase tracking-wide bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded me-2">
+                  <span class="inline-block text-chat-3 uppercase tracking-wide bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded me-2">
                     {{ simplifyDbtType(item.resource_type) }}
                   </span>
                   <span v-if="item.database || item.schema" class="text-ink-muted">

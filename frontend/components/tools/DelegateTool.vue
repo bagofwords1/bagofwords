@@ -11,14 +11,14 @@
       <span class="font-medium text-gray-700 dark:text-gray-300 truncate" :class="isLive ? 'tool-shimmer' : ''" dir="auto">{{ title }}</span>
 
       <!-- Outcome badge -->
-      <span v-if="outcome" class="px-1.5 py-0.5 rounded text-2xs font-medium flex-shrink-0" :class="outcomeClass">
+      <span v-if="outcome" class="px-1.5 py-0.5 rounded text-chat-3 font-medium flex-shrink-0" :class="outcomeClass">
         {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span>
       </span>
-      <span v-else-if="refused" class="px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span>
-      <span v-else class="text-2xs text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span>
+      <span v-else-if="refused" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span>
+      <span v-else class="text-chat-3 text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span>
 
       <!-- Counters -->
-      <span class="text-2xs text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
+      <span class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
         <template v-if="stepsLabel">{{ stepsLabel }}</template>
         <template v-if="elapsedLabel"> · {{ elapsedLabel }}</template>
         <template v-if="tokensLabel"> · {{ tokensLabel }}</template>
@@ -29,7 +29,7 @@
       <!-- Stop (only while live, only when interactive) -->
       <button
         v-if="isLive && !readonly"
-        class="ms-auto inline-flex items-center gap-0.5 text-2xs text-red-600 hover:text-red-800 flex-shrink-0"
+        class="ms-auto inline-flex items-center gap-0.5 text-chat-2 text-red-600 hover:text-red-800 flex-shrink-0"
         :disabled="stopping"
         :title="t('tools.delegate.stop')"
         data-testid="delegate-stop"
@@ -41,52 +41,52 @@
     </div>
 
     <!-- Refused: say why -->
-    <p v-if="refused" dir="auto" class="ms-5 mt-0.5 text-2xs text-gray-500 dark:text-gray-400">{{ refused }}</p>
+    <p v-if="refused" dir="auto" class="ms-5 mt-0.5 text-chat-2 text-gray-500 dark:text-gray-400">{{ refused }}</p>
 
     <!-- Body -->
-    <div v-if="expanded && canExpand" class="ms-5 mt-1.5 space-y-2 text-xs text-gray-600 dark:text-gray-400">
+    <div v-if="expanded && canExpand" class="ms-5 mt-1.5 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
       <!-- Goal -->
-      <p class="text-2xs text-gray-500 dark:text-gray-500 line-clamp-3" dir="auto" :title="goal">{{ goal }}</p>
+      <p class="text-chat-2 text-gray-500 dark:text-gray-500 line-clamp-3" dir="auto" :title="goal">{{ goal }}</p>
 
       <!-- Live: latest tool calls -->
       <ul v-if="isLive && calls.length" class="space-y-0.5" data-testid="delegate-steps">
-        <li v-for="(c, i) in calls.slice(-6)" :key="i" class="flex items-center gap-1 text-2xs">
+        <li v-for="(c, i) in calls.slice(-6)" :key="i" class="flex items-center gap-1 text-chat-2">
           <Spinner v-if="c.status === 'in_progress' || c.status === 'running'" class="w-2.5 h-2.5 text-blue-400 flex-shrink-0" />
           <Icon v-else :name="c.status === 'success' ? 'heroicons-check' : 'heroicons-x-mark'" class="w-3 h-3 flex-shrink-0" :class="c.status === 'success' ? 'text-green-500' : 'text-ink-muted'" />
           <span class="truncate" dir="auto" :title="c.summary || c.title">{{ c.title }}</span>
-          <span v-if="c.duration_ms" class="text-2xs text-ink-muted flex-shrink-0 tabular-nums">{{ Math.round(c.duration_ms / 1000) }}s</span>
+          <span v-if="c.duration_ms" class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums">{{ Math.round(c.duration_ms / 1000) }}s</span>
         </li>
       </ul>
-      <p v-else-if="isLive" class="text-2xs text-ink-muted">{{ t('tools.delegate.noCallsYet') }}</p>
+      <p v-else-if="isLive" class="text-chat-2 text-ink-muted">{{ t('tools.delegate.noCallsYet') }}</p>
 
       <!-- Finished: the record -->
       <template v-if="record">
         <p v-if="record.summary" dir="auto" class="text-gray-700 dark:text-gray-300">{{ record.summary }}</p>
         <div v-if="record.findings?.length">
-          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.findings') }}</div>
+          <div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.findings') }}</div>
           <ul class="list-disc ms-4 space-y-0.5">
             <li v-for="(f, i) in record.findings" :key="i"><bdi>{{ f.claim }}</bdi><span v-if="f.magnitude" class="text-ink-muted"> ({{ f.magnitude }})</span></li>
           </ul>
         </div>
         <div v-if="record.ruled_out?.length">
-          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.ruledOut') }}</div>
+          <div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.ruledOut') }}</div>
           <ul class="list-disc ms-4 space-y-0.5"><li v-for="(r, i) in record.ruled_out" :key="i"><bdi>{{ r }}</bdi></li></ul>
         </div>
         <div v-if="record.caveats?.length">
-          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.caveats') }}</div>
+          <div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-0.5">{{ t('tools.delegate.caveats') }}</div>
           <ul class="list-disc ms-4 space-y-0.5"><li v-for="(c, i) in record.caveats" :key="i"><bdi>{{ c }}</bdi></li></ul>
         </div>
         <p v-if="record.unknown" class="text-amber-700 dark:text-amber-400"><span class="font-medium">{{ t('tools.delegate.unknown') }}:</span> <bdi>{{ record.unknown }}</bdi></p>
         <div v-if="record.evidence?.length" class="flex flex-wrap gap-1">
-          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-2xs text-gray-500" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
+          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-chat-3 text-gray-500" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
         </div>
-        <p v-if="record.synthesized" class="text-2xs text-ink-muted italic">{{ t('tools.delegate.synthesized') }}</p>
+        <p v-if="record.synthesized" class="text-chat-2 text-ink-muted italic">{{ t('tools.delegate.synthesized') }}</p>
       </template>
 
       <div v-if="detail?.messages?.length" class="space-y-2" data-testid="sub-agent-message-history">
-        <div class="text-2xs uppercase tracking-wide text-ink-muted">{{ t('tools.messageSubAgent.messages') }}</div>
+        <div class="text-chat-3 uppercase tracking-wide text-ink-muted">{{ t('tools.messageSubAgent.messages') }}</div>
         <div v-for="message in detail.messages" :key="message.message_id" class="rounded-md border border-gray-200 dark:border-gray-700 p-2">
-          <div class="flex flex-wrap items-center gap-1 text-2xs text-gray-500">
+          <div class="flex flex-wrap items-center gap-1 text-chat-3 text-gray-500">
             <span>{{ message.sender === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
             <span aria-hidden="true" class="inline-block rtl:rotate-180">→</span>
             <span>{{ message.recipient === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
@@ -97,7 +97,7 @@
       </div>
 
       <!-- Envelope line -->
-      <div v-if="envelope" class="text-2xs text-ink-muted flex flex-wrap gap-x-2">
+      <div v-if="envelope" class="text-chat-3 text-ink-muted flex flex-wrap gap-x-2">
         <span v-if="envelope.exit_reason">{{ t('tools.delegate.exit') }}: {{ envelope.exit_reason }}</span>
         <span v-if="envelope.model">{{ envelope.model }}</span>
         <span v-if="noteId" class="cursor-pointer hover:text-blue-600" @click.stop="emit('openNote', noteId)">{{ t('tools.delegate.openNote') }}</span>

@@ -46,13 +46,13 @@
     </Transition>
 
     <!-- Missing parameters: what the agent still needs from the user -->
-    <div v-if="!detailsCollapsed && missingParams.length" class="ms-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="!detailsCollapsed && missingParams.length" class="ms-4 mt-1 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ $t('tools.runQuery.needsValues') }}
       <span class="font-medium">{{ missingParams.map((p: any) => p.name).join(', ') }}</span>
     </div>
 
     <!-- Error -->
-    <div v-if="!detailsCollapsed && hasError" class="ms-4 mt-1 text-xs text-red-500">
+    <div v-if="!detailsCollapsed && hasError" class="ms-4 mt-1 text-chat-2 text-red-500">
       {{ errorMessage }}
     </div>
   </div>

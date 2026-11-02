@@ -34,20 +34,20 @@
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="border border-gray-150 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 flex items-center gap-2">
-            <span class="text-2xs text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.sendEmail.subject') }}</span>
-            <span dir="auto" class="text-2xs text-gray-800 dark:text-gray-200 truncate">{{ subject }}</span>
+            <span class="text-chat-3 text-gray-600 dark:text-gray-400 font-medium">{{ $t('tools.sendEmail.subject') }}</span>
+            <span dir="auto" class="text-chat-2 text-gray-800 dark:text-gray-200 truncate">{{ subject }}</span>
           </div>
           <div v-if="recipient" class="px-3 py-1 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
-            <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('tools.sendEmail.to') }}</span>
-            <span dir="auto" class="text-2xs text-gray-700 dark:text-gray-300">{{ recipient }}</span>
+            <span class="text-chat-3 text-gray-500 dark:text-gray-400">{{ $t('tools.sendEmail.to') }}</span>
+            <span dir="auto" class="text-chat-2 text-gray-700 dark:text-gray-300">{{ recipient }}</span>
           </div>
           <div v-if="body" class="px-3 py-2 bg-white dark:bg-gray-900">
-            <pre dir="auto" class="text-2xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans m-0">{{ truncatedBody }}</pre>
+            <pre dir="auto" class="text-chat-2 text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans m-0">{{ truncatedBody }}</pre>
           </div>
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

@@ -10,7 +10,8 @@
 </template>
 
 <script setup lang="ts">
-import { toRefs, ref, watch, computed } from 'vue'
+import { toRefs, ref, watch, computed, inject } from 'vue'
+import { CHAT_VIZ_TEXT_PX, applyChatChartText } from '~/utils/chatVizText'
 const colorMode = useColorMode()
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 import { use } from 'echarts/core'
@@ -37,6 +38,8 @@ const props = defineProps<{
 
 const { reportThemeName, reportOverrides } = toRefs(props)
 const { tokens } = useDashboardTheme(reportThemeName, reportOverrides, props.view || null)
+// Set only inside a conversation (widget preview); dashboards keep their sizes.
+const chatTextPx = inject(CHAT_VIZ_TEXT_PX, null)
 
 type EChartsOption = Record<string, any>
 
@@ -972,6 +975,7 @@ function buildOptions() {
     
     chartOptions.value = { ...base, ...specific }
     const merged = chartOptions.value as any
+    if (chatTextPx?.value) applyChatChartText(merged, chatTextPx.value)
     if (typeof merged.tooltip?.formatter === 'function') {
       const original = merged.tooltip.formatter
       merged.tooltip.formatter = (params: any, ...rest: any[]) => {
@@ -1000,13 +1004,14 @@ function inputSignature(): string | null {
       props.data_model ?? null,
       props.view ?? null,
       tokens.value ?? null,
+      chatTextPx?.value ?? null,
     ])
   } catch {
     return null // not serializable — always rebuild
   }
 }
 
-watch(() => [props.step?.id, props.data?.rows, props.data?.columns, props.data_model, props.view, tokens.value], () => {
+watch(() => [props.step?.id, props.data?.rows, props.data?.columns, props.data_model, props.view, tokens.value, chatTextPx?.value], () => {
   const signature = inputSignature()
   if (signature !== null && signature === lastInputSignature) return
   lastInputSignature = signature

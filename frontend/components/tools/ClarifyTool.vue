@@ -13,7 +13,7 @@
 
       <div v-for="(q, i) in questions" :key="i" class="space-y-1.5">
         <p class="text-sm font-medium text-gray-900 dark:text-white" dir="auto">{{ q.text }}</p>
-        <p v-if="isMulti(q)" class="text-xs text-ink-muted" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
+        <p v-if="isMulti(q)" class="text-chat-2 text-ink-muted" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
 
         <!-- Lettered options -->
         <div v-if="q.options?.length" class="space-y-1" :role="isMulti(q) ? 'group' : 'radiogroup'" :aria-label="q.text">
@@ -36,7 +36,7 @@
           >
             <span
               :class="[
-                'w-5 h-5 rounded text-2xs font-bold flex-shrink-0 flex items-center justify-center transition-colors duration-100',
+                'w-5 h-5 rounded text-chat-3 font-bold flex-shrink-0 flex items-center justify-center transition-colors duration-100',
                 isSelected(i, opt) ? 'bg-sky-500 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
               ]"
             >
@@ -98,7 +98,7 @@
           :disabled="!allAnswered || saving"
           @click="submit"
           :class="[
-            'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
+            'px-2.5 py-1 text-chat-2 font-medium rounded-md transition-colors duration-100',
             allAnswered && !saving
               ? 'bg-sky-500 text-white hover:bg-sky-600 cursor-pointer'
               : 'bg-gray-100 dark:bg-gray-800 text-ink-muted cursor-not-allowed',
@@ -109,12 +109,12 @@
         <button
           type="button"
           :disabled="saving"
-          class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          class="text-chat-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           @click="skip"
         >
           {{ $t('tools.clarify.skip') }}
         </button>
-        <span v-if="saveError" class="text-xs text-red-500" role="alert">{{ $t('tools.clarify.saveFailed') }}</span>
+        <span v-if="saveError" class="text-chat-2 text-red-500" role="alert">{{ $t('tools.clarify.saveFailed') }}</span>
       </div>
     </div>
   </div>

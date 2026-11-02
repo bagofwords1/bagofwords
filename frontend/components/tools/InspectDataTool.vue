@@ -67,20 +67,20 @@
     <!-- Live progress while running -->
     <Transition name="slide">
       <div v-if="status === 'running' && progressStage" class="mt-1.5 ms-5 space-y-1">
-        <div class="flex items-center text-2xs text-gray-500 dark:text-gray-400">
+        <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
           <Spinner v-if="isCodeGenerating" class="w-2.5 h-2.5 me-1 text-ink-muted" />
           <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-2.5 h-2.5 me-1 text-green-500" />
           <span v-if="isCodeGenerating" class="tool-shimmer">{{ $t('tools.inspectData.generatingCode') }}</span>
           <span v-else-if="codeGenDone" class="text-gray-500 dark:text-gray-400">{{ $t('tools.inspectData.generatedCode') }}</span>
         </div>
-        <div v-if="showExecutingStep" class="flex items-center text-2xs text-gray-500 dark:text-gray-400">
+        <div v-if="showExecutingStep" class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
           <Spinner v-if="isExecuting" class="w-2.5 h-2.5 me-1 text-ink-muted" />
           <Icon v-else-if="executionDone" name="heroicons-check" class="w-2.5 h-2.5 me-1 text-green-500" />
           <span v-if="isExecuting" class="tool-shimmer">{{ $t('tools.inspectData.executing') }}</span>
           <span v-else-if="executionDone" class="text-gray-500 dark:text-gray-400">{{ $t('tools.inspectData.executed') }}</span>
         </div>
         <!-- Execution error from stdout -->
-        <div v-if="latestStdoutError" class="text-2xs text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
+        <div v-if="latestStdoutError" class="text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
           <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
         </div>
       </div>
@@ -92,7 +92,7 @@
         <!-- Code section -->
         <div v-if="code" class="group">
           <div
-            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="toggleCode"
           >
             <Icon
@@ -102,14 +102,14 @@
             <span>{{ $t('tools.common.code') }}</span>
           </div>
           <div v-if="showCode" class="max-h-24 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ code }}</pre>
+            <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ code }}</pre>
           </div>
         </div>
 
         <!-- Output section -->
         <div v-if="output" class="group">
           <div
-            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click="toggleOutput"
           >
             <Icon
@@ -119,12 +119,12 @@
             <span>{{ $t('tools.common.output') }}</span>
           </div>
           <div v-if="showOutput" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ output }}</pre>
+            <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ output }}</pre>
           </div>
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

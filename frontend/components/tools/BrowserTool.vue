@@ -15,7 +15,7 @@
           <span class="truncate">{{ doneLabel }}</span>
           <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ $t('tools.browser.updateStates.pending') }}</span>
           <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-ink-muted">{{ displayUrl }}</span>
-          <span v-if="blockedReason" class="ms-1.5 text-2xs text-amber-500 shrink-0">{{ blockedReason }}</span>
+          <span v-if="blockedReason" class="ms-1.5 text-chat-3 text-amber-500 shrink-0">{{ blockedReason }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ms-1 text-ink-muted rtl-flip shrink-0"
@@ -27,11 +27,11 @@
     <!-- Expanded content -->
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
-        <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
 
-        <div v-if="rj.artifact" class="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+        <div v-if="rj.artifact" class="space-y-1 text-chat-2 text-gray-500 dark:text-gray-400">
           <div>{{ $t('tools.browser.checkedVersion', { version: rj.artifact.version }) }}</div>
           <div v-if="rj.evidence?.update_status">{{ $t('tools.browser.updateState') }}: {{ $t('tools.browser.updateStates.' + rj.evidence.update_status) }}</div>
           <div v-for="q in rj.evidence?.queries || []" :key="q.request_id" class="rounded border border-gray-100 dark:border-gray-800 p-2">
@@ -45,7 +45,7 @@
 
         <!-- Downloads -->
         <div v-if="downloads.length" class="flex flex-col gap-0.5">
-          <div v-for="d in downloads" :key="d.file_id" class="flex items-center gap-1 text-2xs text-gray-600 dark:text-gray-300">
+          <div v-for="d in downloads" :key="d.file_id" class="flex items-center gap-1 text-chat-2 text-gray-600 dark:text-gray-300">
             <Icon name="heroicons-arrow-down-tray" class="w-3 h-3 text-ink-muted" />
             <span class="truncate">{{ d.filename }}</span>
           </div>
@@ -53,20 +53,20 @@
 
         <!-- Extracted text -->
         <div v-if="text" class="max-h-40 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-          <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ text }}</pre>
+          <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words">{{ text }}</pre>
         </div>
 
         <!-- Accessibility snapshot -->
         <div v-if="snapshot" class="group">
           <div
-            class="flex items-center text-2xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
+            class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-600 dark:hover:text-gray-300 mb-0.5"
             @click.stop="showSnapshot = !showSnapshot"
           >
             <Icon :name="showSnapshot ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip" />
             <span>{{ $t('tools.browser.snapshot') }}</span>
           </div>
           <div v-if="showSnapshot" class="max-h-48 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
-            <pre class="text-2xs leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ snapshot }}</pre>
+            <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ snapshot }}</pre>
           </div>
         </div>
       </div>

@@ -41,13 +41,13 @@
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">
+    <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">
       {{ message }}
       <ul v-if="errors.length" class="mt-1 list-disc ms-4 space-y-0.5" data-testid="list-schema-errors">
-        <li v-for="e in errors" :key="e" class="font-mono text-2xs">{{ e }}</li>
+        <li v-for="e in errors" :key="e" class="font-mono text-chat-2">{{ e }}</li>
       </ul>
     </div>
-    <div v-if="phase === 'declined' && feedback" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 italic" dir="auto">
+    <div v-if="phase === 'declined' && feedback" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 italic" dir="auto">
       “{{ feedback }}”
     </div>
 
@@ -62,13 +62,13 @@
           <div class="flex items-center gap-2 min-w-0">
             <Icon name="heroicons-table-cells" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto" data-testid="list-schema-name">{{ listName }}</span>
-            <span v-if="previousName" class="text-2xs text-ink-muted line-through truncate" dir="auto">{{ previousName }}</span>
-            <span class="text-2xs px-1.5 py-0.5 rounded-full flex-shrink-0" :class="badgeClass" data-testid="list-schema-badge">{{ badgeLabel }}</span>
+            <span v-if="previousName" class="text-chat-3 text-ink-muted line-through truncate" dir="auto">{{ previousName }}</span>
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full flex-shrink-0" :class="badgeClass" data-testid="list-schema-badge">{{ badgeLabel }}</span>
             <span class="flex-1"></span>
-            <span v-if="agentName" class="hidden sm:inline text-2xs text-ink-muted truncate" dir="auto">{{ agentName }}</span>
+            <span v-if="agentName" class="hidden sm:inline text-chat-3 text-ink-muted truncate" dir="auto">{{ agentName }}</span>
           </div>
-          <div v-if="description" class="mt-1 text-2xs text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ description }}</div>
-          <div v-if="isEdit && change === 'breaking' && phase !== 'done'" class="mt-1.5 text-2xs text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="list-schema-breaking">
+          <div v-if="description" class="mt-1 text-chat-2 text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ description }}</div>
+          <div v-if="isEdit && change === 'breaking' && phase !== 'done'" class="mt-1.5 text-chat-2 text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="list-schema-breaking">
             <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 flex-shrink-0" />
             <span>{{ $t('tools.listSchema.breakingHint', { n: rowCount, v: (version || 1) + 1 }, rowCount) }}</span>
           </div>
@@ -76,7 +76,7 @@
 
         <!-- Fields -->
         <div class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="flex items-center text-2xs uppercase tracking-wide text-ink-muted mb-1">
+          <div class="flex items-center text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
             <span>{{ $t('tools.listSchema.fields', { count: visibleFields.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="keyField" class="normal-case tracking-normal inline-flex items-center gap-1" data-testid="list-schema-key">
@@ -87,7 +87,7 @@
           <ul class="space-y-0.5" data-testid="list-schema-fields">
             <li
               v-for="f in fields" :key="f.name"
-              class="text-2xs flex items-start gap-2 py-0.5 rounded px-1 -mx-1"
+              class="text-chat-2 flex items-start gap-2 py-0.5 rounded px-1 -mx-1"
               :class="rowClass(f)"
               :data-testid="`list-field-${f.name}`"
             >
@@ -100,10 +100,10 @@
               <span v-if="f.enum && f.enum.length" class="text-ink-muted truncate hidden sm:inline" :title="f.enum.join(', ')">{{ f.enum.join(' / ') }}</span>
               <span v-else-if="f.description" class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ f.description }}</span>
               <span class="flex-1"></span>
-              <span v-if="f.status && f.status !== 'unchanged'" class="text-2xs px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ $t('tools.listSchema.status.' + f.status) }}</span>
+              <span v-if="f.status && f.status !== 'unchanged'" class="text-chat-3 px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ $t('tools.listSchema.status.' + f.status) }}</span>
             </li>
           </ul>
-          <div v-if="requireEvidence || keepHumanEdits" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-2xs text-ink-muted">
+          <div v-if="requireEvidence || keepHumanEdits" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-chat-3 text-ink-muted">
             <span v-if="requireEvidence" class="inline-flex items-center gap-1"><Icon name="heroicons-document-magnifying-glass" class="w-3 h-3" />{{ $t('tools.listSchema.requireEvidence') }}</span>
             <span v-if="keepHumanEdits" class="inline-flex items-center gap-1"><Icon name="heroicons-lock-closed" class="w-3 h-3" />{{ $t('tools.listSchema.keepHumanEdits') }}</span>
           </div>
@@ -111,7 +111,7 @@
 
         <!-- Review actions -->
         <div v-if="interactive" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2" data-testid="list-schema-review">
-          <div v-if="reason" class="mb-1.5 text-2xs text-gray-500 dark:text-gray-400 italic" dir="auto">{{ reason }}</div>
+          <div v-if="reason" class="mb-1.5 text-chat-2 text-gray-500 dark:text-gray-400 italic" dir="auto">{{ reason }}</div>
           <div v-if="showFeedback" class="mb-2">
             <textarea
               v-model="feedbackDraft"
@@ -125,13 +125,13 @@
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
               <button
-                class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="responding"
                 data-testid="list-schema-request-changes"
                 @click="showFeedback = true"
               >{{ $t('tools.listSchema.requestChanges') }}</button>
               <button
-                class="px-2.5 py-1 text-xs font-medium rounded-md text-white disabled:opacity-50 inline-flex items-center gap-1"
+                class="px-2.5 py-1 text-chat-2 font-medium rounded-md text-white disabled:opacity-50 inline-flex items-center gap-1"
                 :class="change === 'breaking' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'"
                 :disabled="responding"
                 data-testid="list-schema-approve"
@@ -143,12 +143,12 @@
             </template>
             <template v-else>
               <button
-                class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
               >{{ $t('tools.listSchema.cancel') }}</button>
               <button
-                class="px-2.5 py-1 text-xs font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+                class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
                 data-testid="list-schema-send-feedback"
                 @click="respond(false)"
@@ -158,11 +158,11 @@
               </button>
             </template>
           </div>
-          <div v-if="respondError" class="mt-1 text-2xs text-red-500">{{ respondError }}</div>
+          <div v-if="respondError" class="mt-1 text-chat-2 text-red-500">{{ respondError }}</div>
         </div>
 
         <!-- Result footer -->
-        <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-2xs text-ink-muted" data-testid="list-schema-result">
+        <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-chat-2 text-ink-muted" data-testid="list-schema-result">
           <span v-if="output.tool_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.toolHint') }} <bdi class="font-mono">{{ output.tool_name }}</bdi></span></span>
           <span v-if="output.table_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-circle-stack" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.queryHint') }} <bdi class="font-mono">{{ output.table_name }}</bdi></span></span>
           <span v-if="isEdit && output.change === 'breaking'" class="text-amber-600 dark:text-amber-400">{{ $t('tools.listSchema.versionBumped', { v: output.version }) }}</span>

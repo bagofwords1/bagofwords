@@ -1,6 +1,6 @@
 <template>
   <div class="mt-1">
-    <div class="mb-2 flex items-center text-xs text-gray-700 dark:text-gray-300">
+    <div class="mb-2 flex items-center text-chat-2 text-gray-700 dark:text-gray-300">
       <Icon
         :name="status === 'running' ? 'heroicons-arrow-path' : 'heroicons-arrows-right-left'"
         class="w-3 h-3 me-1 text-ink-muted flex-shrink-0"

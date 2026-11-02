@@ -23,13 +23,13 @@
     <Transition name="fade">
       <div v-if="!isCollapsed" class="mt-1 ms-4">
         <!-- Minimalistic code display -->
-        <div v-if="codeContent" class="text-xs mb-2">
-          <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
+        <div v-if="codeContent" class="text-chat-2 mb-2">
+          <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-chat-2 max-h-42 overflow-y-auto">
             <pre class="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{{ codeContent }}</pre>
           </div>
 
           <!-- Run status below code -->
-          <div class="mt-2 text-xs bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
+          <div class="mt-2 text-chat-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
             <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.generic.running') }}</span>
             <span v-else-if="status === 'success'" class="flex items-center">
               <span class="text-green-500 flex items-center">
@@ -50,11 +50,11 @@
 
 
         <!-- Loading state -->
-        <div v-else-if="status === 'running'" class="text-xs text-gray-500 dark:text-gray-400 italic">
+        <div v-else-if="status === 'running'" class="text-chat-2 text-gray-500 dark:text-gray-400 italic">
         </div>
 
         <!-- Result summary fallback -->
-        <div v-else-if="resultSummary" class="text-xs text-gray-600 dark:text-gray-400">
+        <div v-else-if="resultSummary" class="text-chat-2 text-gray-600 dark:text-gray-400">
           {{ resultSummary }}
         </div>
 
