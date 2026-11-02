@@ -1942,7 +1942,7 @@ class MessageContextBuilder:
                                         digest_parts.append(f"columns: {cols}")
                                     # Include a data sample from execution log
                                     exec_log = rj.get('execution_log') or ''
-                                    if exec_log:
+                                    if exec_log and allow_llm_see_data:
                                         sample_lines = exec_log.strip().split('\n')[:8]
                                         digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                     if obs.get('success') is False:
@@ -2649,7 +2649,7 @@ class MessageContextBuilder:
                                     digest_parts.append(f"columns: {cols}")
                                 # Include a data sample from execution log
                                 exec_log = rj.get('execution_log') or ''
-                                if exec_log:
+                                if exec_log and allow_llm_see_data:
                                     sample_lines = exec_log.strip().split('\n')[:8]
                                     digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                 if obs.get('success') is False:

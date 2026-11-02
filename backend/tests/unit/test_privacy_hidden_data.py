@@ -10,12 +10,13 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
-from app.ai.code_execution.code_execution import format_execution_failure
+from app.ai.code_execution.code_execution import StreamingCodeExecutor, format_execution_failure
 from app.ai.context.builders.message_context_builder import _compaction_observation_text
 from app.ai.context.builders.query_context_builder import QueryContextBuilder
 from app.ai.context.durable_transcript import _result_content
@@ -23,6 +24,8 @@ from app.ai.context.hidden_data import hide_data_for_replay
 from app.ai.context.parts import Outcome
 from app.ai.persisted_summary import TOOL_CONTEXT_KIND_FIELD, TOOL_CONTEXT_OBSERVATION_KIND
 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+from app.ai.code_execution import code_execution
+from app.ai.tools.implementations import write_csv
 from app.ai.tools.implementations.write_csv import _model_data_fields
 from app.schemas.ai.planner import PlannerInput
 
@@ -185,3 +188,32 @@ def test_visualization_profile_min_max_only_for_dates_when_hidden():
     assert hidden["columns"][1]["min"] == "2026-01-01"
     shown = CreateArtifactTool._build_viz_profile(None, viz, True)
     assert shown["columns"][0]["min"] == SSN
+
+
+def test_a_long_quoted_cell_is_hidden_too():
+    cell = "x" * 500
+    exc = ValueError(f"could not convert string to float: '{cell}'")
+    assert cell not in format_execution_failure(exc, f"Execution error: {exc}", False)
+    quoted = ValueError('invalid literal for int(): "O\'Brien"')
+    assert "Brien" not in format_execution_failure(quoted, f"Execution error: {quoted}", False)
+
+
+def test_the_executor_retry_follows_the_organization_setting():
+    exc = ValueError(f"could not convert string to float: '{SSN}'")
+    exc.captured_stdout = SSN
+    executor = StreamingCodeExecutor.__new__(StreamingCodeExecutor)
+    executor.organization_settings = _Settings(False)
+    assert SSN not in executor._retry_feedback(exc, f"Execution error: {exc}")
+    executor.organization_settings = _Settings(True)
+    assert SSN in executor._retry_feedback(exc, f"Execution error: {exc}")
+    # Both retry sites use it (no call bypasses the setting).
+    source = Path(code_execution.__file__).read_text()
+    assert source.count("self._retry_feedback(e, msg)") == 2
+    assert source.count("format_execution_failure(") == 2  # the definition and _retry_feedback
+
+
+def test_write_csv_emits_the_model_fields_in_its_observation():
+    source = Path(write_csv.__file__).read_text()
+    observation = source[source.index("        observation = {"):source.index("        if current_step_id:")]
+    assert '"data_preview": model_preview' in observation and '"stats": model_stats' in observation
+    assert "data_preview\": data_preview" not in observation

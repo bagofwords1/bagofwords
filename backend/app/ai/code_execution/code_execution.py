@@ -183,7 +183,7 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
 
 # A quoted literal in an error message: conversion errors quote the cell
 # ("could not convert string to float: 'Jane Doe'").
-_QUOTED_LITERAL = re.compile(r"'[^'\n]{1,200}'|\"[^\"\n]{1,200}\"")
+_QUOTED_LITERAL = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"")
 
 
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
@@ -1685,6 +1685,11 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.total_ms", round((_time.monotonic() - started) * 1000.0, 3))
             return result
 
+    def _retry_feedback(self, exc: BaseException, message: str) -> str:
+        """What the coder's next attempt sees about a failed run, under this
+        organization's "Allow LLM to see data" setting."""
+        return format_execution_failure(exc, message, _settings_allow_data(self.organization_settings))
+
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""
         def convert_to_native(obj):
@@ -1970,7 +1975,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg, _settings_allow_data(self.organization_settings))))
+                code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -2235,7 +2240,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg, _settings_allow_data(self.organization_settings))))
+                code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
