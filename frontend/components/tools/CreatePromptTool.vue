@@ -164,5 +164,5 @@ function openPrompts() {
 .prompt-content :deep(.markdown-content) { font-size: var(--bow-chat-font-size-2); line-height: 1.5; }
 .prompt-content :deep(.markdown-content p) { margin: 0 0 0.5em 0; }
 .prompt-content :deep(.markdown-content p:last-child) { margin-bottom: 0; }
-.prompt-content :deep(.markdown-content code) { font-size: var(--bow-chat-font-size-2); padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
+.prompt-content :deep(.markdown-content code) { font-size: 0.9em; padding: 0.1em 0.3em; background: rgba(0,0,0,0.05); border-radius: 3px; }
 </style>

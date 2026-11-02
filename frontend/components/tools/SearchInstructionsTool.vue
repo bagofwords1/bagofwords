@@ -158,20 +158,14 @@ function displayTitle(item: any): string {
   transform: translateY(2px);
 }
 
-.instruction-content :deep(.markdown-content) {
+/* The instruction body follows the chat text size, one step below the answer
+   (text-chat-2). instruction-prose.css styles the rest and keeps 13px for the
+   Knowledge pages and the editor, so the size is set here, for the chat. */
+.instruction-content :deep(.instruction-prose) {
   font-size: var(--bow-chat-font-size-2);
-  line-height: 1.5;
+  line-height: 1.6;
 }
-.instruction-content :deep(.markdown-content p) {
-  margin: 0 0 0.4em 0;
-}
-.instruction-content :deep(.markdown-content p:last-child) {
-  margin-bottom: 0;
-}
-.instruction-content :deep(.markdown-content code) {
-  font-size: var(--bow-chat-font-size-2);
-  padding: 0.1em 0.3em;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
+.instruction-content :deep(.instruction-prose pre code) {
+  font-size: 0.9em;
 }
 </style>
