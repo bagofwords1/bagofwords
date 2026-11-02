@@ -116,12 +116,10 @@ export default <Partial<Config>>{
        * had drifted to 672px and ~53vw respectively, so the composer
        * visibly resized the moment a report was created. It is a multiple
        * of the chat font clamped to the screen (see tokens.css), so it scales
-       * with the reader's text size and grows with the screen. `chat-data`
-       * is the wider measure for tables, charts and code.
+       * with the reader's text size and grows with the screen.
        */
       maxWidth: {
         chat: 'var(--bow-measure-chat)',
-        'chat-data': 'var(--bow-measure-data)',
       },
 
       /*

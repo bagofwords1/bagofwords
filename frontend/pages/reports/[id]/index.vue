@@ -6626,43 +6626,6 @@ onMounted(async () => {
 	font-size: var(--bow-chat-font-size-2) !important;
 }
 
-/*
- * Data blocks break out of the prose column.
- *
- * Prose is capped at --bow-measure-chat (long lines stop being readable);
- * tables, charts/data grids (the tool card's widget preview) and code only
- * get better with room, so they widen to --bow-measure-data, centred on the
- * prose column. Both measures grow with the screen (assets/css/tokens.css).
- *
- * The breakout is bounded by the scroll pane (`100cqi`, the pane is the
- * size container), so in the split view or on a phone it never overflows:
- * when the pane is narrow the breakout width falls back to the column's
- * own width and the negative margins go to zero. Excel's compact transcript
- * keeps its fixed layout.
- */
-.chat-messages:not(.compact-messages) {
-	container-type: inline-size;
-}
-.chat-messages:not(.compact-messages) :deep(.widget-container:not(.widget-container--expanded)),
-.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node-wrapper),
-.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre) {
-	--bow-breakout: min(var(--bow-measure-data), calc(100cqi - 4rem));
-	width: max(100%, var(--bow-breakout));
-	max-width: none;
-	margin-inline: min(0px, calc((100% - var(--bow-breakout)) / 2));
-}
-/* A table keeps its natural width (at least the prose column's, so a small
-   table lines up with the text) and is centred in the breakout; `safe`
-   keeps a table wider than the pane scrollable from its first column. */
-.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node-wrapper) {
-	display: flex;
-	justify-content: safe center;
-}
-.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node) {
-	width: auto;
-	min-width: min(100%, var(--bow-measure-chat));
-	table-layout: auto;
-}
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
 .simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }

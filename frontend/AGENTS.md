@@ -99,10 +99,9 @@ drifted to 672px and ~53vw, so the composer resized the moment you pressed
 enter. The measure is a multiple of the chat font, clamped to the screen
 (`48em … 62vw … 60em`), so it scales with the reader's text size and grows
 smoothly with the screen: 720px on laptops, ~890px at 1440, capped at
-900px at the 15px default. Data blocks (tables, chart/grid widget previews,
-code) break out of it to `--bow-measure-data` (`48em … 78vw … 80em`, capped
-at 1200px), centred on the prose column — see the report page's breakout
-rules. Both are maximums, so a narrow pane still fits.
+900px at the 15px default. Everything in the transcript — text, tables,
+tool cards, data previews — stays inside that column; nothing is wider than
+the chat. It is a maximum, so a narrow pane still fits.
 
 Chat copy uses a three-step ramp, all derived from one variable so that a
 single message stops mixing unrelated systems: `text-chat` for body

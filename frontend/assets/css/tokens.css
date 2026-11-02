@@ -112,20 +112,15 @@
    * The conversation measure, in multiples of the chat font so it scales with
    * the reader's text size, and proportional to the screen between a floor
    * and a cap so it grows smoothly instead of in breakpoint jumps:
+   * 48em … 62vw … 60em — at 15px, 720px on laptops, ~890px at 1440, capped
+   * at 900px (longer lines stop being comfortable to read).
    *
-   *   prose  — paragraphs, lists, the composer: 48em … 62vw … 60em
-   *            at 15px: 720px on laptops, ~890px at 1440, capped at 900px.
-   *            Longer lines stop being comfortable to read, so prose caps.
-   *   data   — tables, charts, data grids, code, tool cards: 48em … 78vw … 80em
-   *            at 15px: 720px on laptops, ~1120px at 1440, capped at 1200px.
-   *            A table or chart only gets better with room.
-   *
-   * Both are maximums: the transcript is `w-full`, so a narrow pane (the
-   * split view, mobile) still fits. Data blocks break out of the prose
-   * column centred on it (see the report page's `.chat-breakout` rules).
+   * Everything in the transcript — text, tables, tool cards, data previews —
+   * stays inside this one column: nothing breaks out wider than the chat.
+   * It is a maximum: the transcript is `w-full`, so a narrow pane (the split
+   * view, mobile) still fits.
    */
   --bow-measure-chat: clamp(calc(48 * var(--bow-chat-font-size)), 62vw, calc(60 * var(--bow-chat-font-size)));
-  --bow-measure-data: clamp(calc(48 * var(--bow-chat-font-size)), 78vw, calc(80 * var(--bow-chat-font-size)));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against
@@ -268,7 +263,6 @@ button:not(:disabled):not([aria-disabled='true']):active,
  */
 :root[data-chat-width='wide'] {
   --bow-measure-chat: 100%;
-  --bow-measure-data: 100%;
 }
 
 /* Numeric alignment. A data product's figures should not shift column
