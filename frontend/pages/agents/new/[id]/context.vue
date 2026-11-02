@@ -454,7 +454,7 @@ onMounted(() => {
 
 .mention-backdrop,
 .mention-textarea {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
   font-size: 12px;
   line-height: 1.625;
   padding: 16px;

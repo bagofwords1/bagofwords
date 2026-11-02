@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss'
+import defaultTheme from 'tailwindcss/defaultTheme'
 
 /*
  * The app shell's design system.
@@ -28,6 +29,16 @@ import type { Config } from 'tailwindcss'
 export default <Partial<Config>>{
   theme: {
     extend: {
+      /*
+       * The Apple system font comes first. `ui-sans-serif` names SF Pro
+       * alone, which has no Hebrew, so Chrome on macOS picked its own (larger)
+       * fallback for Hebrew; `-apple-system` is the system font family, Hebrew
+       * included — the stack comparable chat products lead with. Latin text
+       * renders the same either way; other platforms are unaffected.
+       */
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', ...defaultTheme.fontFamily.sans],
+      },
       /*
        * Semantic colors, backed by the variables in tokens.css.
        *

@@ -27,7 +27,7 @@
   font-size: 13px;
   line-height: 1.625;
   color: #111827;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
   /* `start` resolves against each block's own dir (set per block from its first
    * strong character), so RTL blocks right-align. */
   text-align: start;
