@@ -5,13 +5,14 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {webcrypto} from 'node:crypto';
 import {chromium} from 'playwright';
+import {CHROME_PATH} from './support/chromium.mjs';
 const source=fs.readFileSync(new URL('../../utils/artifactIframe.ts',import.meta.url),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const sandbox={exports:{},crypto:webcrypto,window:{location:{origin:'https://assets.example.test'}}};
 vm.runInNewContext(compiled,sandbox);
 const policies=[...new Set(['../../components/dashboard/ArtifactFrame.vue','../../pages/r/[id]/index.vue'].flatMap(p=>[...fs.readFileSync(new URL(p,import.meta.url),'utf8').matchAll(/\bsandbox="([^"]+)"/g)].map(m=>m[1])))];
 assert.ok(policies.length);
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true, executablePath:CHROME_PATH});
 try{
  for(const policy of policies){
   assert.ok(!policy.includes('allow-same-origin'));

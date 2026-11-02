@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
 import {chromium} from 'playwright';
+import {CHROME_PATH} from './support/chromium.mjs';
 const root=new URL('../../',import.meta.url);
 const source=fs.readFileSync(process.env.ARTIFACT_IFRAME_SOURCE || new URL('utils/artifactIframe.ts',root),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true, executablePath:CHROME_PATH});
 try{
  for(const resourceApp of [false,true]){
   const page=await browser.newPage();let remoteImages=0;

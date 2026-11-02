@@ -4469,7 +4469,7 @@
     "embed.user_inactive": "חשבון ה־BOW שלך מושבת.",
     "embed.session_invalid": "החיבור הסתיים. יש להתחבר שוב.",
     "conversation.not_found": "השיחה הזו לא קיימת.",
-    "conversation.unavailable": "שיחות לא מופעלות כאן.",
+    "conversation.unavailable": "שיחות לא זמינות לך כאן.",
     "conversation.agent_forbidden": "אי אפשר להשתמש בסוכן הזה כאן.",
     "conversation.limit": "יותר מדי הודעות. כדאי לחכות רגע ולנסות שוב.",
     "conversation.no_agents": "אין כאן סוכן זמין עבורך. כדאי לשאול את הבעלים באילו סוכנים האפליקציה יכולה להשתמש.",

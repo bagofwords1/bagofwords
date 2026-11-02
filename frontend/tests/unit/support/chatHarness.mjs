@@ -19,7 +19,8 @@ if (!fs.existsSync(new URL('public/libs/babel-standalone.min.js', root))) {
 const source = fs.readFileSync(new URL('utils/artifactIframe.ts', root), 'utf8');
 const compiled = ts.transpileModule(source, {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022}}).outputText;
 
-export const CHROME_PATH = process.env.PW_CHROMIUM_PATH || process.env.PW_CHROMIUM || process.env.BOW_CHROMIUM_EXECUTABLE || undefined;
+import {CHROME_PATH} from './chromium.mjs';
+export {CHROME_PATH};
 export const browser = await chromium.launch({headless: true, executablePath: CHROME_PATH});
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

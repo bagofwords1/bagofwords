@@ -4469,7 +4469,7 @@
     "embed.user_inactive": "Tu cuenta de BOW está desactivada.",
     "embed.session_invalid": "Tu sesión terminó. Vuelve a iniciar sesión.",
     "conversation.not_found": "Esa conversación no existe.",
-    "conversation.unavailable": "Las conversaciones no están activadas aquí.",
+    "conversation.unavailable": "Las conversaciones no están disponibles para ti aquí.",
     "conversation.agent_forbidden": "No puedes usar ese agente aquí.",
     "conversation.limit": "Demasiados mensajes. Espera un momento e inténtalo de nuevo.",
     "conversation.no_agents": "No tienes ningún agente disponible aquí. Pregunta al propietario qué agentes puede usar esta app.",

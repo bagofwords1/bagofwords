@@ -10,13 +10,14 @@
 // 3. Tabs keep a visited panel mounted, so its chart is never re-initialised.
 //
 //   cd frontend && node tests/unit/artifactMotion.mjs
-//   (PW_CHROMIUM=/opt/pw-browsers/chromium when the pinned Playwright's own
+//   (PW_CHROMIUM_PATH=/opt/pw-browsers/chromium when the pinned Playwright's own
 //    browser is not installed)
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import ts from 'typescript';
 import {chromium} from 'playwright';
+import {CHROME_PATH} from './support/chromium.mjs';
 
 const root = new URL('../../', import.meta.url);
 const source = fs.readFileSync(new URL('utils/artifactIframe.ts', root), 'utf8');
@@ -99,7 +100,7 @@ function App() {
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>`;
 
-const launch = process.env.PW_CHROMIUM ? {headless: true, executablePath: process.env.PW_CHROMIUM} : {headless: true};
+const launch = {headless: true, executablePath: CHROME_PATH};
 const browser = await chromium.launch(launch);
 
 // A real local server (not page.route): request interception does not reach
