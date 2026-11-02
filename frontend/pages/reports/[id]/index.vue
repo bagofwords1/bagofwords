@@ -162,7 +162,7 @@
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
@@ -273,7 +273,7 @@
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" dir="auto">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
@@ -354,7 +354,7 @@
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 													</div>
-													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 														<div v-if="s.prompt?.content" class="pt-1">
 															<InstructionText
 																:text="s.prompt.content"
@@ -379,7 +379,7 @@
 												/>
 											</Transition>
 											<!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
@@ -419,7 +419,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper" dir="auto">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -485,7 +485,7 @@
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
 													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
 												</div>
-												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" dir="auto">
+												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 													<div v-if="s.prompt?.content" class="pt-1">
 														<InstructionText
 															:text="s.prompt.content"
@@ -1203,6 +1203,7 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 	return out
 })
 import { MarkdownRender } from 'markstream-vue'
+import { dominantTextDir, type TextDir } from '~/utils/textDirection'
 import 'markstream-vue/index.css'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
@@ -1621,6 +1622,32 @@ function isBlockFolded(m: ChatMessage, block: any): boolean {
 
 // Label/ticker rendering lives in BlockGroupTicker.vue (crossfade with a
 // minimum display time so fast parallel batches coalesce instead of strobing).
+
+// A user bubble takes the direction of its own words. The bubble used to be
+// `dir="auto"` around an inner `dir="auto"` span; the browser skips a child
+// that has its own dir, finds no text, and resolves the bubble LTR — so every
+// Hebrew question rendered left-aligned in every locale. Mentions don't vote.
+function promptDir(text?: string | null): TextDir | 'auto' {
+	return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
+}
+
+// The direction of the question each reply answers, keyed by the reply's
+// message id. The answer mirrors the user's language, so useMarkdownAutoDir
+// uses it until the streamed answer has enough words to vote on its own —
+// a Hebrew reply that opens with "**Revenue**" no longer paints LTR first.
+const replyDirHints = computed(() => {
+	const hints = new Map<string, TextDir>()
+	let last: TextDir | null = null
+	for (const m of messages.value) {
+		if (m.role === 'user') {
+			const d = dominantTextDir((m.prompt?.content || '').replace(/@\S+/g, ' '))
+			if (d) last = d
+		} else if (last) {
+			hints.set(String(m.id), last)
+		}
+	}
+	return hints
+})
 
 const visibleMessages = computed(() => {
 	const base = messages.value.filter(m => !(m.role === 'user' && m.status === 'queued'))
@@ -6389,7 +6416,9 @@ onMounted(async () => {
 	h2 { @apply text-xl; }
 	h3 { @apply text-lg; }
 
-	ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
+	/* Marker gutter lives on each <li> (assets/css/rtl.css rule 7), so it
+	   follows the item's own direction. */
+	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; unicode-bidi: plaintext; }
@@ -6452,7 +6481,7 @@ onMounted(async () => {
 	a:hover::before {
 		opacity: 1;
 	}
-	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
+	blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
 	table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 

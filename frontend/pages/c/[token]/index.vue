@@ -97,7 +97,7 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
                                                 <InstructionText
@@ -138,7 +138,7 @@
                                                 />
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -172,7 +172,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.content || block.plan_decision?.assistant || ''"
                                                     :final="true"
@@ -216,7 +216,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
                                                     :final="true"
@@ -350,6 +350,7 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import { dominantTextDir, type TextDir } from '~/utils/textDirection'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -412,6 +413,27 @@ const visibleCompletions = computed<any[]>(() =>
         return (m.completion_blocks?.length || 0) > 0 || m.status === 'stopped' || m.status === 'error'
     })
 )
+
+// Prompt bubbles take the direction of their own words (a nested
+// `dir="auto"` pair resolves LTR — see docs/design/i18n.md "Content
+// direction"); each reply carries its question's direction as the hint
+// useMarkdownAutoDir uses while the answer is still short.
+function promptDir(text?: string | null): TextDir | 'auto' {
+    return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
+}
+const replyDirHints = computed(() => {
+    const hints = new Map<string, TextDir>()
+    let last: TextDir | null = null
+    for (const m of visibleCompletions.value) {
+        if (m.role === 'user') {
+            const d = dominantTextDir((m.prompt?.content || '').replace(/@\S+/g, ' '))
+            if (d) last = d
+        } else if (last) {
+            hints.set(String(m.id), last)
+        }
+    }
+    return hints
+})
 
 // ---------------------------------------------------------------------------
 // The knowledge harness (the post-analysis reflection sub-loop) runs as its own
@@ -1051,7 +1073,9 @@ onUnmounted(() => {
     h2 { @apply text-xl; }
     h3 { @apply text-lg; }
 
-    ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
+    /* Marker gutter lives on each <li> (assets/css/rtl.css rule 7), so it
+	   follows the item's own direction. */
+	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
     ul { @apply list-disc; }
     ol { @apply list-decimal; }
     li { @apply mb-1.5; unicode-bidi: plaintext; }
@@ -1095,7 +1119,7 @@ onUnmounted(() => {
     /* Physical l/pl, matching the report view verbatim. Both put a blockquote's
        rule on the left edge under RTL — one pre-existing nit, kept identical
        rather than fixed on one side only. */
-    blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
+    blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
     table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
     table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 

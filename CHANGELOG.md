@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.606 (November 2, 2026)
+- Fixed Hebrew questions and answers showing left-to-right in reports and shared links, including lists, tables, headings and notes (#1554)
+- Fixed Hebrew answers jumping from left-to-right to right-to-left while they stream (#1554)
+- Fixed Hebrew dashboards laying out left-to-right and signed values like +12% showing as 12%+ (#1554)
+- Fixed Hebrew values aligning left in data tables (#1554)
+
 ## Version 0.0.605 (November 1, 2026)
 - Added a Responses API option for custom OpenAI-compatible LLM providers, for servers like gpt-oss on vLLM or NVIDIA NIM (#1551) — Settings → LLMs → "Use Responses API"
 

@@ -24,7 +24,7 @@
     <Transition name="slide">
       <div v-if="isExpanded && content" class="mt-2 ms-[18px]">
         <div class="rounded-md border border-amber-100 dark:border-amber-950/60 bg-amber-50/40 dark:bg-amber-950/20 px-3 py-2">
-          <div v-if="title" class="text-2xs font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
+          <div v-if="title" dir="auto" class="text-2xs font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
           <div dir="auto" class="text-xs text-gray-700 dark:text-gray-300 note-markdown">
             <MarkdownRender :content="content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
           </div>
