@@ -57,6 +57,20 @@ let renewFailures = 0;
 // Bumped by a sign-out (and unmount). A sign-in still in flight from before
 // it is dropped when its answer comes: the host signed the user out meanwhile.
 let generation = 0;
+// Exchanges still in flight (a sign-in or renewal, an SSO code): a sign-out
+// waits for them, so the session one returns late is revoked before the host
+// hears signed_out and may remove this frame.
+const pendingExchanges = new Set<Promise<unknown>>();
+function track<T>(p: Promise<T>): Promise<T> {
+    pendingExchanges.add(p);
+    p.catch(() => {}).finally(() => pendingExchanges.delete(p));
+    return p;
+}
+// Bumped when a sign-in starts: a sign-out still cleaning up then stays
+// silent (the host hears this sign-in instead of a stale signed_out).
+let signInEpoch = 0;
+// The sign-out cleaning up now; a second logout waits for it too.
+let signingOut: Promise<void> | null = null;
 // Why the frame cannot start although the host may be told (bootstrap
 // answered, so its origins are known): said once the host's init arrives.
 let startupFailure: { reason: EmbedUnavailableReason, message: string } | null = null;
@@ -195,6 +209,7 @@ defineExpose({ artifactUnavailable, artifactOpened });
 let inflight: Promise<void> | null = null;
 function signIn(): Promise<void> {
     if (inflight) return inflight;
+    signInEpoch++;
     const gen = generation;
     const current: Promise<void> = (async () => {
         if (mode.value === 'sso') { fail('sign_in_required', t('embed.gate.signInRequired')); return; }
@@ -223,6 +238,7 @@ function signIn(): Promise<void> {
         }
     })().finally(() => { if (inflight === current) inflight = null; });
     inflight = current;
+    track(current);
     return current;
 }
 
@@ -243,30 +259,34 @@ async function signInWithPopup() {
     if (!popup) { fail('sign_in_required', t('embed.gate.popupBlocked')); return; }
     status.value = 'signing_in';
     message.value = t('embed.gate.signingIn');
+    signInEpoch++;
     const onMessage = async (event: MessageEvent) => {
         if (event.origin !== window.location.origin || event.source !== popup) return;
         const data = event.data;
         if (data?.type !== 'bow:sso-code' || data.state !== state) return;
         window.removeEventListener('message', onMessage);
         try { popup.close(); } catch { /* already closed */ }
-        try {
-            const session = await exchange({ sso_code: String(data.code || ''), code_verifier: verifier });
-            if (gen !== generation) { revoke(session?.token); return; }  // signed out meanwhile
-            await accept(session);
-        } catch (e: any) {
-            if (gen !== generation) return;
-            fail('failed', getErrorMessage(e));
-        }
+        await track((async () => {
+            try {
+                const session = await exchange({ sso_code: String(data.code || ''), code_verifier: verifier });
+                if (gen !== generation) { await revoke(session?.token); return; }  // signed out meanwhile
+                await accept(session);
+            } catch (e: any) {
+                if (gen !== generation) return;
+                fail('failed', getErrorMessage(e));
+            }
+        })());
     };
     window.addEventListener('message', onMessage);
 }
 
 // The host hears signed_out only once this frame has done its part: the
-// session revoked, and a sign-in still in flight settled (its late session is
-// revoked in signIn). At most 5 s, so a stuck request cannot hold the host.
-async function signOut() {
+// session revoked, and every exchange still in flight settled (the session
+// one returns late is revoked where it lands), including an earlier
+// sign-out's. At most 5 s, so a stuck request cannot hold the host.
+function signOut(): Promise<void> {
     const gen = ++generation;
-    const pending = inflight;
+    const epoch = signInEpoch;
     inflight = null;  // a sign-in from before is dropped; the next one starts afresh
     if (renewTimer) clearTimeout(renewTimer);
     const had = credential.value?.token;
@@ -274,10 +294,17 @@ async function signOut() {
     status.value = 'signed_out';
     message.value = t('embed.gate.signedOut');
     toldUnavailable = null;
-    const cleanup = Promise.all([revoke(had), pending?.catch(() => {})]);
-    await Promise.race([cleanup, new Promise((resolve) => setTimeout(resolve, 5000))]);
-    if (gen !== generation) return;  // signed out again meanwhile: that one tells the host
-    host.post('bow:auth', { status: 'signed_out', error: message.value });
+    const waits: Promise<unknown>[] = [revoke(had), ...[...pendingExchanges].map((p) => p.catch(() => {}))];
+    if (signingOut) waits.push(signingOut);
+    const current = (async () => {
+        await Promise.race([Promise.all(waits), new Promise((resolve) => setTimeout(resolve, 5000))]);
+        // Signed out again (that one tells the host), or signed in again meanwhile.
+        if (gen !== generation || epoch !== signInEpoch) return;
+        host.post('bow:auth', { status: 'signed_out', error: message.value });
+    })();
+    signingOut = current;
+    current.finally(() => { if (signingOut === current) signingOut = null; });
+    return current;
 }
 
 onMounted(async () => {
