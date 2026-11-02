@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -6,6 +6,20 @@ import uuid
 
 class Membership(BaseSchema):
     __tablename__ = 'memberships'
+    __table_args__ = (
+        # One live membership per (user, organization). Mirrors migration
+        # memberdup01 exactly; the partial predicate leaves open invites
+        # (user_id NULL) and any soft-deleted rows unconstrained. Declared here
+        # so ORM-metadata schema builds and `alembic revision --autogenerate`
+        # keep the index instead of proposing to drop it.
+        Index(
+            'uq_memberships_one_live_per_user_org',
+            'user_id', 'organization_id',
+            unique=True,
+            sqlite_where=text('user_id IS NOT NULL AND deleted_at IS NULL'),
+            postgresql_where=text('user_id IS NOT NULL AND deleted_at IS NULL'),
+        ),
+    )
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), primary_key=True)

@@ -278,9 +278,7 @@ class ScimUserService:
             # invite + SSO duplicate). A pending invite already counts toward the
             # seat cap, so claiming reuses its seat and runs before enforcement.
             from app.core.permission_resolver import claim_pending_invite
-            claimed = await claim_pending_invite(
-                db, existing_user, organization_id, directory_provider="scim"
-            )
+            claimed = await claim_pending_invite(db, existing_user, organization_id)
             if claimed is not None:
                 existing_user.is_active = data.active
                 if data.externalId:
@@ -348,9 +346,7 @@ class ScimUserService:
         # Claim that open invite (reusing its seat) instead of creating a second
         # membership that the user's later sign-in would duplicate.
         from app.core.permission_resolver import claim_pending_invite
-        claimed = await claim_pending_invite(
-            db, user, organization_id, directory_provider="scim"
-        )
+        claimed = await claim_pending_invite(db, user, organization_id)
         if claimed is not None:
             await db.commit()
             await db.refresh(user)

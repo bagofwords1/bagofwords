@@ -825,3 +825,69 @@ def test_duplicate_membership_does_not_block_querying_models(
 
     # The duplicate state must be unreachable on the fixed code.
     assert duplicate_created is False, "a second live membership should be rejected by the unique index"
+
+
+@pytest.mark.e2e
+def test_attach_dedups_multiple_open_invites_to_one_membership(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """When more than one open invite exists for a user in one org, accepting them
+    yields exactly ONE live membership: _attach_open_memberships claims one and
+    retires (hard-deletes) the rest onto it, instead of creating duplicate rows.
+    """
+    import asyncio
+    import uuid as _uuid
+    from sqlalchemy import select, func
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+
+    email = f"invitee_{_uuid.uuid4().hex[:8]}@test.com"
+    r = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers={"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id},
+    )
+    assert r.status_code == 200, r.json()
+
+    # Seed a SECOND open invite for the same email+org directly (the API guard
+    # blocks a duplicate invite; this models a pre-existing duplicate / race),
+    # with a different role so the retire path exercises role preservation.
+    async def _seed_second_invite():
+        async with async_session_maker() as db:
+            db.add(Membership(email=email, organization_id=org_id, role="admin"))
+            await db.commit()
+
+    asyncio.run(_seed_second_invite())
+
+    # The invitee registers → _attach claims one invite and retires the other.
+    create_user(email=email, password="test123")
+    invitee_id = whoami(login_user(email, "test123"))["id"]
+
+    async def _check():
+        async with async_session_maker() as db:
+            rows = (await db.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == invitee_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            assert len(rows) == 1, f"expected one membership, got {len(rows)}"
+            # Retired invite is hard-deleted and the claimed one cleared its email,
+            # so no email-keyed rows linger for this address in the org.
+            leftovers = (await db.execute(
+                select(func.count(Membership.id)).where(
+                    Membership.organization_id == org_id,
+                    func.lower(Membership.email) == email.lower(),
+                )
+            )).scalar()
+            assert leftovers == 0
+
+    asyncio.run(_check())

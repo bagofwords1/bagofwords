@@ -296,12 +296,35 @@ class LDAPGroupSyncService:
 
         # Candidates: users in LDAP groups but not yet bound to the org.
         candidates = sorted(user_ids - existing_ids)
+        if not candidates:
+            return
 
         from app.core.seats import seats_remaining
-        from app.core.permission_resolver import ensure_system_role_assignment, claim_pending_invite
+        from app.core.permission_resolver import (
+            ensure_system_role_assignment, claim_pending_invite, insert_membership_if_absent,
+        )
         from app.core.user_lifecycle import reactivate_user_for_membership
         from app.models.user import User
-        from sqlalchemy.exc import IntegrityError
+
+        # Batch-fetch the candidate users and the set of emails that have an open
+        # invite in this org, so the loop issues no per-candidate lookups (a large
+        # initial sync would otherwise be thousands of round-trips).
+        users_by_id = {
+            u.id: u for u in (await db.execute(
+                select(User).where(User.id.in_(candidates))
+            )).scalars().all()
+        }
+        invited_emails = {
+            (e or "").strip().lower()
+            for (e,) in (await db.execute(
+                select(Membership.email).where(
+                    Membership.organization_id == organization_id,
+                    Membership.user_id.is_(None),
+                    Membership.deleted_at.is_(None),
+                    Membership.email.isnot(None),
+                )
+            )).all()
+        }
 
         # Seat cap applies only to genuinely NEW memberships. Claiming an open
         # invite is seat-neutral (the invite already counts in count_org_memberships),
@@ -311,42 +334,30 @@ class LDAPGroupSyncService:
         created = 0
         skipped = 0
         for user_id in candidates:
-            invited_user = (await db.execute(
-                select(User).where(User.id == user_id).limit(1)
-            )).scalars().first()
+            user = users_by_id.get(user_id)
             # Claim an open email invite rather than creating a second row that
             # invite acceptance would later duplicate (the invite + SSO duplicate).
-            claimed = None
-            if invited_user is not None:
-                claimed = await claim_pending_invite(
-                    db, invited_user, organization_id,
-                    directory_provider=self.connection.provider_id,
-                )
-            if claimed is not None:
-                await reactivate_user_for_membership(db, str(user_id))
-                logger.info(f"LDAP sync: claimed open invite as org membership for user {user_id} in org {organization_id}")
-                continue
+            if user is not None and (user.email or "").strip().lower() in invited_emails:
+                claimed = await claim_pending_invite(db, user, organization_id)
+                if claimed is not None:
+                    await reactivate_user_for_membership(db, str(user_id))
+                    logger.info(f"LDAP sync: claimed open invite as org membership for user {user_id} in org {organization_id}")
+                    continue
 
             # Genuinely new member — enforce the seat cap here only.
             if remaining is not None and created >= remaining:
                 skipped += 1
                 continue
 
-            new_membership = Membership(
+            # Shared race-safe insert: a concurrent create of the same (user, org)
+            # loses the race (unique index) without poisoning the batch transaction.
+            _, was_created = await insert_membership_if_absent(db, Membership(
                 user_id=user_id,
                 organization_id=organization_id,
                 role="member",
                 directory_provider=self.connection.provider_id,
-            )
-            db.add(new_membership)
-            # SAVEPOINT so a concurrent insert of the same (user, org) — now barred
-            # by the partial unique index — loses the race without poisoning the
-            # whole batch transaction (which commits once for the entire sync).
-            try:
-                async with db.begin_nested():
-                    await db.flush([new_membership])
-            except IntegrityError:
-                db.expunge(new_membership)
+            ))
+            if not was_created:
                 logger.info(f"LDAP sync: membership already exists (race) for user {user_id} in org {organization_id}")
                 continue
             created += 1

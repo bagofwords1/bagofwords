@@ -390,9 +390,49 @@ async def materialize_pending_rbac(
         pass
 
 
-async def claim_pending_invite(
-    db: AsyncSession, user, org_id: str, directory_provider: str | None = None
-):
+async def insert_membership_if_absent(db: AsyncSession, membership):
+    """Insert ``membership`` unless a live row for its (user_id, organization_id)
+    already exists. Returns ``(row, created)``.
+
+    Race-safe against the partial unique index ``uq_memberships_one_live_per_user_org``:
+    a concurrent insert that loses the race raises IntegrityError, which is caught
+    inside a SAVEPOINT (so the outer transaction — e.g. an LDAP batch — is not
+    poisoned and a login is not 500'd) and the already-present row is returned.
+
+    This is the single membership-insert primitive; every path that creates a
+    ``user_id``-keyed membership routes through it so none hits an unguarded
+    IntegrityError. Pending invites (``user_id`` NULL) are not constrained by the
+    index, so for them the insert simply succeeds. The returned row is always
+    present (never ``None``): if the conflict has no surviving live row to return
+    (the winner was deleted in the same window — pathological), the original error
+    is re-raised rather than handing the caller a ``None`` to dereference. Does
+    NOT commit.
+    """
+    from app.models.membership import Membership
+    from sqlalchemy.exc import IntegrityError
+
+    db.add(membership)
+    try:
+        async with db.begin_nested():
+            await db.flush([membership])
+        return membership, True
+    except IntegrityError:
+        db.expunge(membership)
+        if membership.user_id is None:
+            raise
+        existing = (await db.execute(
+            select(Membership).where(
+                Membership.user_id == membership.user_id,
+                Membership.organization_id == membership.organization_id,
+                Membership.deleted_at.is_(None),
+            ).limit(1)
+        )).scalars().first()
+        if existing is None:
+            raise
+        return existing, False
+
+
+async def claim_pending_invite(db: AsyncSession, user, org_id: str):
     """Attach an open email invite to ``user`` instead of creating a second row.
 
     An invite is a ``Membership`` row with ``user_id IS NULL`` and ``email`` set.
@@ -407,19 +447,28 @@ async def claim_pending_invite(
     pending RBAC materialized), or ``None`` when there is no open invite to claim.
     Expiry is intentionally ignored — this mirrors ``_attach_open_memberships``,
     which claims invites regardless of ``invite_expires_at``. Does NOT commit.
+
+    An invite is always admin intent, so ``directory_provider`` is deliberately
+    left as-is (NULL for a hand-issued invite): stamping it would make an
+    admin-granted membership eligible for directory cleanup (``_cleanup_org_memberships``
+    deletes by ``directory_provider``). Multiple open invites for one email are
+    allowed, so the most-privileged (then oldest) is claimed deterministically —
+    the same ordering the dedup migration uses — instead of an arbitrary row.
     """
     from app.models.membership import Membership
+    from sqlalchemy import case
 
     email = (getattr(user, "email", None) or "").strip().lower()
     if not email:
         return None
+    role_rank = case((Membership.role == "admin", 0), (Membership.role == "member", 1), else_=2)
     invite = (await db.execute(
         select(Membership).where(
             func.lower(Membership.email) == email,
             Membership.organization_id == str(org_id),
             Membership.user_id.is_(None),
             Membership.deleted_at.is_(None),
-        ).limit(1)
+        ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc()).limit(1)
     )).scalars().first()
     if invite is None:
         return None
@@ -427,8 +476,6 @@ async def claim_pending_invite(
     invite.user_id = user.id
     invite.email = None
     invite.invite_token = None
-    if directory_provider is not None:
-        invite.directory_provider = directory_provider
     # SAVEPOINT around the claim: between the caller's existence check and here, a
     # concurrent path may have created the live (user, org) membership that the
     # partial unique index now bars. Losing that race must not poison the outer
