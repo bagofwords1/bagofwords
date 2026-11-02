@@ -376,12 +376,11 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 // to raw diagram source while the same diagram written into an instruction
 // card — which uses InstructionText — rendered fine on this very page.
 // markstream dispatches on fence language before the render-code-blocks-as-pre
-// flag, so diagrams and math survive it. useMarkdownAutoDir (already mounted
-// below) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
+// flag, so diagrams and math survive it. useMarkdownAutoDir (started app-wide by
+// plugins/markdown-auto-dir.client.ts) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
 // both written against this renderer's DOM.
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
-import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
 
 const route = useRoute()
 const token = route.params.token as string
@@ -965,17 +964,12 @@ function handleScroll(event: Event) {
     }
 }
 
-// Fixes list-marker direction for RTL content (see useMarkdownAutoDir).
-const markdownAutoDir = ref<{ stop: () => void } | null>(null)
-
 onMounted(() => {
     loadConversation()
-    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 onUnmounted(() => {
     if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
-    markdownAutoDir.value?.stop()
 })
 </script>
 

@@ -5123,8 +5123,6 @@ const handleOfficeJsResult = async (event: MessageEvent) => {
     }
 }
 
-const markdownAutoDir = ref<{ stop: () => void } | null>(null)
-
 onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
@@ -5138,7 +5136,6 @@ onMounted(() => {
     // Scoped to this report; reuses the debounced, mid-stream-safe reload.
     window.addEventListener('report:mutated', onReportMutated as EventListener)
     window.addEventListener('report:updated', onReportUpdatedEvent as EventListener)
-    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 // Mirror a report's agent scope into the user's default (memberships
@@ -5333,7 +5330,6 @@ onUnmounted(() => {
 	stopWatchStream()
 	stopKickoffWatchdog()
 	document.removeEventListener('visibilitychange', onStreamVisibilityChange)
-	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 	// Tear down lazy step-data hydration

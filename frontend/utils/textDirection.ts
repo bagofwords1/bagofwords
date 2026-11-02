@@ -102,6 +102,96 @@ export function dominantTextDir(text: string | null | undefined): TextDir | null
   return decideDir(countDirWords(text || ''))
 }
 
+// ─── Direction for a whole rendered document ─────────────────────────────────
+// One algorithm for every surface that renders blocks of user/model text: the
+// chat markdown observer (DOM), the instruction read view (markdown-it tokens)
+// and the instruction editor (ProseMirror nodes). Each builds this small tree
+// of its blocks and applies the result its own way, so the three can never
+// disagree about which way a block reads.
+
+export type DirNodeKind = 'list' | 'item' | 'table' | 'row' | 'cell' | 'quote' | 'block'
+
+export interface DirNode<R = unknown> {
+  kind: DirNodeKind
+  /** Word counts of the node's prose, code excluded, nested blocks included. */
+  counts: DirCounts
+  /** Plain text, needed for cells only (signed-number check). */
+  text?: string
+  children: DirNode<R>[]
+  /** The caller's handle (an element, a token, a node position). */
+  ref: R
+  /** Set by resolveDirTree. */
+  dir?: TextDir | null
+  /** Set by resolveDirTree: a cell holding only "+12%" laid out LTR in an RTL table. */
+  signedNumber?: boolean
+}
+
+// Below this many voting words a document has no reliable direction yet.
+export const ROOT_MIN_WORDS = 4
+
+export interface ResolveOptions {
+  /** A strong prior, e.g. the direction of the question a reply answers. The
+   *  document keeps it unless its text is almost entirely the other script. */
+  hint?: TextDir | null
+  /** A weak prior (the UI direction), used only while the text is too short. */
+  fallback?: TextDir | null
+}
+
+/**
+ * Decide a direction for every node, top-down:
+ *  - the document votes once (with the hint as a sticky prior);
+ *  - paragraphs, headings and quotes vote on their own words, and blocks of
+ *    three words or fewer follow the surrounding direction ("Summary");
+ *  - a list or table keeps the surrounding direction unless almost entirely
+ *    the other script;
+ *  - an item follows its list unless it is more than three words and almost
+ *    entirely the other script; an item's own paragraph follows the item;
+ *  - rows and cells follow their table; a signed number in an RTL table is
+ *    laid out LTR (flagged so the caller keeps it right-aligned).
+ * Returns the document direction.
+ */
+export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opts: ResolveOptions = {}): TextDir | null {
+  const total = docCounts.rtl + docCounts.ltr
+  const docDir = opts.hint
+    ? decideDir(docCounts, { context: opts.hint, container: true })
+    : total < ROOT_MIN_WORDS
+      ? (opts.fallback ?? decideDir(docCounts))
+      : decideDir(docCounts)
+
+  const visit = (node: DirNode<R>, parent: DirNode<R> | null, context: TextDir | null, tableDir: TextDir | null) => {
+    let dir: TextDir | null
+    node.signedNumber = false
+    switch (node.kind) {
+      case 'item':
+        dir = decideDir(node.counts, { context, container: true, minWords: SHORT_BLOCK_WORDS })
+        break
+      case 'row':
+        dir = tableDir ?? context
+        break
+      case 'cell':
+        dir = tableDir ?? context
+        if (dir === 'rtl' && isSignedNumber(node.text)) {
+          dir = 'ltr'
+          node.signedNumber = true
+        }
+        break
+      case 'list':
+      case 'table':
+        dir = decideDir(node.counts, { context, container: true })
+        break
+      default: // block, quote
+        dir = parent?.kind === 'item' && node.kind === 'block'
+          ? context
+          : decideDir(node.counts, { context })
+    }
+    node.dir = dir
+    const nextTable = node.kind === 'table' ? dir : tableDir
+    for (const child of node.children) visit(child, node, dir ?? context, nextTable)
+  }
+  for (const root of roots) visit(root, null, docDir, null)
+  return docDir
+}
+
 // Locales whose UI direction is RTL — used as the direction fallback for empty
 // inputs, where there is no content to derive a direction from (same set as
 // PromptBoxV2's MentionInput).
