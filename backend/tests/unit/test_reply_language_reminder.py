@@ -56,7 +56,15 @@ def _input(user_message: str, *, tool_results: int = 2, **kw) -> PlannerInput:
 
 
 def _last_message_text(v3) -> str:
-    return json.dumps(v3.messages[-1]["content"], ensure_ascii=False, default=str)
+    """The text the model reads last: a plain string on the legacy path, the
+    text parts of the newest user turn (after its tool results) otherwise."""
+    content = v3.messages[-1]["content"]
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        part.get("text", "") for part in content
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
 
 
 @pytest.fixture(params=["transcript", "legacy"])
@@ -84,7 +92,7 @@ def test_newest_message_names_the_users_language_after_english_tool_results(
     assert "<reply_language>" in tail
     assert f"in {language}" in tail
     # The reminder is the very end of what the model reads before answering.
-    assert tail.rstrip('"').rstrip().endswith("</reply_language>")
+    assert tail.rstrip().endswith("</reply_language>")
 
 
 def test_reminder_stays_out_of_the_cached_system_prompt(planner_path):
