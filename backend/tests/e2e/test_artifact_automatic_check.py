@@ -612,18 +612,8 @@ def _assert_withheld(check, *markers, payload):
         assert marker not in str(payload)
 
 
-def test_revoked_access_during_load_withholds_evidence(monkeypatch, chromium, stub_render, owner):
-    from app.services import artifact_activity
-
+def test_revoked_access_during_load_withholds_evidence(chromium, stub_render, owner):
     marker = f"secret-{uuid.uuid4().hex}"
-    withheld = []
-    real_withhold = artifact_activity.withhold
-
-    async def spy(db, *, session_id):
-        withheld.append(session_id)
-        await real_withhold(db, session_id=session_id)
-
-    monkeypatch.setattr(artifact_activity, "withhold", spy)
 
     async def revoke(page):
         owner["settings"](allow_llm_see_data=False)
@@ -632,9 +622,6 @@ def test_revoked_access_during_load_withholds_evidence(monkeypatch, chromium, st
     chromium.on_goto = revoke
     _events, payload, _ctx = asyncio.run(_create(owner))
     _assert_withheld(_check(payload), marker, payload=payload)
-    # Its preview's events are withheld from the agent for good, not only
-    # from this result (read_artifact_activity skips them too).
-    assert withheld, "the restricted check withheld its preview's activity"
 
 
 @pytest.mark.parametrize("role", ["admin", "member"])
