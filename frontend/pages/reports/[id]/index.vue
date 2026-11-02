@@ -131,7 +131,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
+					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -3515,7 +3515,7 @@ function updatePinSpacer(trim = false) {
   if (!container || !content) return
   const contentTop = offsetInContainer(content, container)
   const padBottom = parseFloat(getComputedStyle(container).paddingBottom) || 0
-  const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-message-id="${pinnedId.value}"]`) : null
+  const el = pinnedId.value && pinScrolled ? container.querySelector(`[data-scroll-key="${CSS.escape(pinnedId.value)}"]`) : null
   if (el) {
     const target = offsetInContainer(el, container) - pinOffsetPx
     const floor = Math.ceil(target + container.clientHeight - padBottom - contentTop + PIN_SLACK_PX)
@@ -3567,15 +3567,19 @@ function animateScrollTo(container: HTMLElement, target: number) {
 // The user just sent `messageId`. Its answer streams in below it without the
 // view chasing the bottom. Every submission moves the prompt near the top.
 function pinTurnToTop(messageId: string) {
-  pinnedId.value = messageId
+  // The server replaces optimistic IDs on reload, but preserves _render_key.
+  // Use that same stable identity for both the DOM and the scroll hold.
+  const message = messages.value.find(m => String(m.id) === String(messageId))
+  const scrollKey = String(message?._render_key || messageId)
+  pinnedId.value = scrollKey
   pinScrolled = false
   isFollowing.value = false
   forceNextScroll = false
   if (typeof window === 'undefined') return
   nextTick(() => window.requestAnimationFrame(() => {
     const container = scrollContainer.value
-    const el = container?.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement | null
-    if (!container || !el || pinnedId.value !== messageId) return
+    const el = container?.querySelector(`[data-scroll-key="${CSS.escape(scrollKey)}"]`) as HTMLElement | null
+    if (!container || !el || pinnedId.value !== scrollKey) return
     const top = offsetInContainer(el, container)
     // Keep the preceding answer's footer fully visible above the new prompt.
     let previous = el.previousElementSibling
@@ -3591,7 +3595,7 @@ function pinTurnToTop(messageId: string) {
     updatePinSpacer()
     startPinWatch()
     nextTick(() => {
-      if (pinnedId.value !== messageId) return
+      if (pinnedId.value !== scrollKey) return
       animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
     })
   }))
