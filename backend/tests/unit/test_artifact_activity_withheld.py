@@ -88,3 +88,26 @@ async def test_marking_shown_never_unwithholds(db):
         await artifact_activity.context_section(fresh, report_id=report_id, completion_id=str(uuid.uuid4()))
         event = await fresh.get(ArtifactActivityEvent, withheld_new)
         assert event.shown_in_completion_id == artifact_activity.WITHHELD
+
+
+@pytest.mark.asyncio
+async def test_a_check_withheld_while_the_section_was_built_stays_withheld(db, monkeypatch):
+    """context_section reads unstamped failures, then stamps them. A restricted
+    check that withholds them in between must win."""
+    report_id, withheld_new, _withheld_shown, visible = await _seed(db)
+    async with async_session_maker() as fresh:
+        event = await fresh.get(ArtifactActivityEvent, visible)
+        session_id = event.session_id
+    real_recent = artifact_activity.recent
+
+    async def recent_then_withhold(*args, **kwargs):
+        rows = await real_recent(*args, **kwargs)
+        async with async_session_maker() as other:
+            await artifact_activity.withhold(other, session_id=session_id)
+        return rows
+
+    monkeypatch.setattr(artifact_activity, "recent", recent_then_withhold)
+    async with async_session_maker() as fresh:
+        await artifact_activity.context_section(fresh, report_id=report_id, completion_id=str(uuid.uuid4()))
+    async with async_session_maker() as fresh:
+        assert (await fresh.get(ArtifactActivityEvent, visible)).shown_in_completion_id == artifact_activity.WITHHELD

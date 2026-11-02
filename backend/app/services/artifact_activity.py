@@ -488,7 +488,10 @@ async def context_section(db, *, report_id: str, completion_id: Optional[str] = 
         text = text[-6000:]
     if mark and completion_id:
         ids = list({rows[j].id for j in keep} | {rows[i].id for i in unseen})
-        await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.id.in_(ids))
+        # Only rows still unstamped: a restricted check may have withheld some
+        # of them since they were read, and that must not be undone.
+        await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.id.in_(ids),
+                                                             ArtifactActivityEvent.shown_in_completion_id.is_(None))
                          .values(shown_in_completion_id=str(completion_id)))
         await db.commit()
     return text
