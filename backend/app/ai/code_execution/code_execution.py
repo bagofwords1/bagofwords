@@ -181,33 +181,15 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
-# A quoted literal in an error message: conversion errors quote the cell
-# ("could not convert string to float: 'Jane Doe'").
-_QUOTED_LITERAL = re.compile(r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"")
-
-
-def _redact_quoted_cells(message: str) -> str:
-    """Quoted literals become '<hidden>'. When a quote is left over (a repr
-    cut short, a library that quotes raw text with quotes or line breaks in
-    it), the message is cut at its first quote: losing part of an error is
-    better than showing a cell."""
-    redacted = _QUOTED_LITERAL.sub("'<hidden>'", message)
-    if re.search(r"['\"]", redacted.replace("'<hidden>'", "")) or re.search(r"'<hidden>'[^\s,.;:)\]]", redacted):
-        return _cut_at_first_quote(message)
-    return redacted
-
-
 def _cut_before_value(text: str) -> str:
-    """``text`` up to its first quote or ": ", where a parsing error's value starts."""
-    starts = [m.start() for m in (re.search(r"['\"]", text), re.search(r": ", text)) if m]
-    if not starts:
+    """``text`` up to where an error names a value: its first quote, ": " or
+    " (" ("could not convert string to float: <cell>", "new category (<cell>)").
+    The cell may hold anything (quotes, line breaks, a repr cut short), so
+    nothing after that point is kept."""
+    match = re.search(r"['\"]|: | \(", text)
+    if match is None:
         return text
-    return text[:min(starts)].rstrip(" :") + ": <value hidden>"
-
-
-def _cut_at_first_quote(message: str) -> str:
-    match = re.search(r"['\"]", message)
-    return message if match is None else message[:match.start()].rstrip() + " <value hidden>"
+    return text[:match.start()].rstrip(" :") + ": <value hidden>"
 
 
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
@@ -217,21 +199,17 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     the codegen prompt gets the evidence.
 
     When the organization hides data from the model, what the code printed
-    is left out (it is usually data), and a ValueError/TypeError's quoted
-    literals become '<hidden>' (they are cell values). Other errors keep their
-    text: a missing column or a SQL error names structure, which a fix needs."""
+    is left out (it is usually data), and a ValueError/TypeError's own text
+    stops where it names a value. Other errors keep their text: a missing
+    column or a SQL error names structure, which a fix needs."""
     if not allow_llm_see_data:
-        if isinstance(exc, ValueError):
-            # Conversion and parsing errors put the cell after a quote or a
-            # ": " ("unable to parse: <cell>"), and the cell may hold anything
-            # (quotes, line breaks, a repr cut short): the error's own text
-            # stops there.
+        if isinstance(exc, (ValueError, TypeError)):
+            # Conversion, parsing and categorical errors name the cell: the
+            # error's own text stops where it starts.
             raw = str(exc)
             if raw and raw in message:
                 return message.replace(raw, _cut_before_value(raw))
             return _cut_before_value(message)
-        if isinstance(exc, TypeError):
-            return _redact_quoted_cells(message)
         return message
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:

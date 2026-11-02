@@ -237,9 +237,10 @@ def _conversion_errors():
     yield lambda: pd.to_numeric(['x"' + SSN + '"y'])  # balanced quotes inside it
     yield lambda: pd.to_datetime([SSN])                # no quotes: "unable to parse: <cell>"
     yield lambda: __import__("datetime").datetime.strptime("2024-01-01" + SSN, "%Y-%m-%d")
+    yield lambda: pd.Series(["a"], dtype="category").__setitem__(0, SSN)  # "new category (<cell>)"
 
 
-@pytest.mark.parametrize("raise_it", list(_conversion_errors()), ids=["int-truncated", "pandas-quote", "pandas-newline", "pandas-balanced", "pandas-datetime", "strptime"])
+@pytest.mark.parametrize("raise_it", list(_conversion_errors()), ids=["int-truncated", "pandas-quote", "pandas-newline", "pandas-balanced", "pandas-datetime", "strptime", "categorical"])
 def test_library_conversion_errors_never_show_the_cell(raise_it):
     try:
         raise_it()
