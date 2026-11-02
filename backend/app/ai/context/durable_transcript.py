@@ -14,6 +14,7 @@ from collections import OrderedDict
 from types import SimpleNamespace
 from typing import Any
 
+from app.ai.context.hidden_data import hide_data_for_replay
 from app.ai.context.parts import (
     Outcome,
     ToolCallPart,
@@ -40,34 +41,6 @@ def _outcome(status: Any) -> Outcome:
     # it automatically: the side effect may have happened before the process
     # died.
     return Outcome.OUTCOME_UNKNOWN
-
-
-def _hide_rows(body: dict) -> dict:
-    """A copy of ``body`` whose data previews carry no row values.
-
-    Stored summaries may hold rows captured while the organization still let
-    the model see data; once it no longer does, history must not replay them.
-    Shape (columns, row_count, stats) and references stay.
-    """
-    def _hidden(preview: Any) -> Any:
-        if not isinstance(preview, dict):
-            return preview
-        return {
-            **{key: value for key, value in preview.items() if key != "rows"},
-            "data_hidden": True,
-        }
-
-    hidden = dict(body)
-    if "data_preview" in hidden:
-        hidden["data_preview"] = _hidden(hidden["data_preview"])
-    if isinstance(hidden.get("results"), list):
-        hidden["results"] = [
-            {**item, "data_preview": _hidden(item["data_preview"])}
-            if isinstance(item, dict) and "data_preview" in item
-            else item
-            for item in hidden["results"]
-        ]
-    return hidden
 
 
 def _result_content(
@@ -99,7 +72,7 @@ def _result_content(
         if not body:
             body = {"summary": "The call completed without a stored result body."}
         if not allow_llm_see_data:
-            body = _hide_rows(body)
+            body = hide_data_for_replay(body, getattr(tool_execution, "tool_name", None))
 
     content = json.dumps(body, default=str, ensure_ascii=False, separators=(",", ":"))
     digest = getattr(tool_execution, "result_summary", None)
