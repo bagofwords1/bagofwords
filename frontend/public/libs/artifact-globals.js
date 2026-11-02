@@ -1359,6 +1359,37 @@
     var ltr = (sample.match(/[A-Za-z]/g) || []).length;
     return rtl > ltr ? 'rtl' : 'ltr';
   }
+  // The table's own words. `labels` wins; otherwise Hebrew or English, from
+  // (in order) a language hint (ChatResult passes one), the page's <html lang>
+  // (the viewer's BOW language), and only without either, the table's text.
+  var _DT_LABELS = {
+    en: { search: 'Search...', download: 'Download CSV', csv: 'CSV', range: '{start}–{end} of {total}',
+      matches: '{shown} of {total} rows match', printCap: 'first {n} rows in print/PDF', empty: 'No data available' },
+    he: { search: 'חיפוש...', download: 'הורדת CSV', csv: 'CSV', range: '\u2066{start}–{end}\u2069 מתוך {total}',
+      matches: '{shown} מתוך {total} שורות תואמות', printCap: '{n} השורות הראשונות בהדפסה/PDF', empty: 'אין נתונים להצגה' }
+  };
+  var _HE_CHARS = /[\u0590-\u05FF]/g;
+  function _dtIsHe(lang) { return /^(he|iw)\b/i.test(String(lang || '')); }
+  function _dtLang(hint, cols, rows) {
+    if (hint) return _dtIsHe(hint) ? 'he' : 'en';
+    var docLang = typeof document !== 'undefined' && document.documentElement ? document.documentElement.getAttribute('lang') : '';
+    if (docLang) return _dtIsHe(docLang) ? 'he' : 'en';
+    var sample = '';
+    for (var i = 0; i < cols.length; i++) sample += (cols[i].header || '') + ' ';
+    for (var r = 0; r < rows.length && r < 5; r++) {
+      var row = rows[r] || {};
+      for (var c = 0; c < cols.length; c++) { var v = row[cols[c].field]; if (typeof v === 'string') sample += v + ' '; }
+    }
+    return (sample.match(_HE_CHARS) || []).length > (sample.match(/[A-Za-z]/g) || []).length ? 'he' : 'en';
+  }
+  function _dtLabels(labels, lang) {
+    var base = _DT_LABELS[lang] || _DT_LABELS.en, out = {};
+    for (var k in base) out[k] = labels && typeof labels[k] === 'string' ? labels[k] : base[k];
+    return out;
+  }
+  function _dtFill(template, vars) {
+    return String(template).replace(/\{(start|end|total|shown|n)\}/g, function(m, k) { return vars && vars[k] != null ? String(vars[k]) : m; });
+  }
   function _dtColIsNumeric(col, rows) {
     if (col.dtype && /int|float|double|decimal|number/i.test(String(col.dtype))) return true;
     var seen = 0;
@@ -1439,6 +1470,7 @@
     var _q = React.useState(''), query = _q[0], setQuery = _q[1];
     var _sel = React.useState(null), selRow = _sel[0], setSelRow = _sel[1];
     var dir = props.dir || _dtDetectDir(cols, baseRows);
+    var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
     var numericByField = React.useMemo(function() {
       var m = {};
       for (var i = 0; i < cols.length; i++) m[cols[i].field] = _dtColIsNumeric(cols[i], baseRows);
@@ -1489,11 +1521,11 @@
     var toolbar = null;
     if (searchable || exportable) {
       toolbar = h('div', { key: 'tb', className: 'bow-dt-chrome flex items-center justify-between gap-2 mb-2' }, [
-        searchable ? h('input', { key: 's', type: 'text', value: query, 'data-testid': 'bow-dt-search', placeholder: props.searchPlaceholder || 'Search...',
+        searchable ? h('input', { key: 's', type: 'text', value: query, 'data-testid': 'bow-dt-search', placeholder: props.searchPlaceholder || L.search,
           onChange: function(e) { setQuery(e.target.value); setPage(0); }, className: DT.input }) : h('span', { key: 's' }),
-        exportable ? h('button', { key: 'x', type: 'button', 'data-testid': 'bow-dt-export', title: 'Download CSV',
+        exportable ? h('button', { key: 'x', type: 'button', 'data-testid': 'bow-dt-export', title: L.download,
           onClick: function() { window.exportCSV(sorted, { columns: cols.map(function(c) { return c.field; }), filename: (viz.title || 'table') }); },
-          className: DT.btn }, [h(window.Icon, { key: 'i', name: 'download', size: 12 }), h('span', { key: 't' }, 'CSV')]) : null
+          className: DT.btn }, [h(window.Icon, { key: 'i', name: 'download', size: 12 }), h('span', { key: 't' }, L.csv)]) : null
       ]);
     }
     var thead = h('thead', { key: 'h', className: DT.thead }, h('tr', {}, cols.map(function(c, i) {
@@ -1523,11 +1555,11 @@
     }));
     var footer = null;
     var footBits = [];
-    if (query) footBits.push(sorted.length + ' of ' + baseRows.length + ' rows match');
-    if (sorted.length > printCap) footBits.push('first ' + printCap + ' rows in print/PDF');
+    if (query) footBits.push(_dtFill(L.matches, { shown: sorted.length, total: baseRows.length }));
+    if (sorted.length > printCap) footBits.push(_dtFill(L.printCap, { n: printCap }));
     if (paged && sorted.length > pageSize) {
       footer = h('div', { key: 'f', className: 'bow-dt-chrome ' + DT.foot }, [
-        h('span', { key: 'c', 'data-testid': 'bow-dt-range' }, (sorted.length ? (start + 1) : 0) + '–' + end + ' of ' + sorted.length + (footBits.length ? '  ·  ' + footBits.join('  ·  ') : '')),
+        h('span', { key: 'c', dir: 'auto', 'data-testid': 'bow-dt-range' }, _dtFill(L.range, { start: sorted.length ? (start + 1) : 0, end: end, total: sorted.length }) + (footBits.length ? '  ·  ' + footBits.join('  ·  ') : '')),
         h('span', { key: 'nav', className: 'inline-flex items-center gap-1' }, [
           h('button', { key: 'p', type: 'button', 'data-testid': 'bow-dt-prev', disabled: curPage === 0, onClick: function() { setPage(Math.max(0, curPage - 1)); }, className: DT.nav }, isRtl ? '›' : '‹'),
           h('span', { key: 'pg', className: 'px-1 tabular-nums' }, (curPage + 1) + '/' + pageCount),
@@ -1535,12 +1567,12 @@
         ])
       ]);
     } else if (footBits.length) {
-      footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-ink-3', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
+      footer = h('div', { key: 'f', dir: 'auto', className: 'bow-dt-chrome pt-2 text-xs text-ink-3', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
     }
     var infoBtn = (props.info && props.viz) ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null;
     var empty = !cols.length || !baseRows.length;
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
-      empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || 'No data available')]
+      empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || L.empty)]
         : [infoBtn, toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer]);
   };
 
@@ -2122,6 +2154,14 @@
     return L.partial;
   }
 
+  // Chat labels in Hebrew mean a Hebrew app, even when result columns are
+  // English field names: its tables follow (null leaves it to <html lang>).
+  function _chatLabelsLang(labels) {
+    if (!labels || typeof labels !== 'object') return null;
+    for (var k in labels) if (typeof labels[k] === 'string' && /[\u0590-\u05FF]/.test(labels[k])) return 'he';
+    return null;
+  }
+
   // <ChatResult result={r} height={260} pageSize={10} labels={...} className />
   var _CHAT_NO_ROWS = [];
   var ChatResult = React.memo(function ChatResult(props) {
@@ -2140,7 +2180,8 @@
     return h('div', { 'data-testid': 'bow-chat-result', className: _chatCls(CHAT.result, props.className) }, [
       title ? h('div', { key: 't', dir: 'auto', 'data-testid': 'bow-chat-result-title', className: CHAT.title }, title) : null,
       option ? h(_EChart, { key: 'c', option: option, height: props.height || 260 }) : null,
-      h(_DataTable, { key: 'd', rows: rows, columns: columns, pageSize: props.pageSize != null ? props.pageSize : 10, density: 'compact' }),
+      h(_DataTable, { key: 'd', rows: rows, columns: columns, pageSize: props.pageSize != null ? props.pageSize : 10, density: 'compact',
+        labels: props.labels, lang: _chatLabelsLang(props.labels) }),
       note ? h('p', { key: 'n', dir: 'auto', 'data-testid': 'bow-chat-result-note', className: CHAT.note }, note) : null
     ]);
   });

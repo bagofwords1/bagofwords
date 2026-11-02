@@ -248,7 +248,7 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
-import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode, inlineableArtifactLibs, artifactPageLibs, viewerLang } from '~/utils/artifactIframe';
 import { artifactLibSources, ensureArtifactLibs, whenArtifactLibsSettled } from '~/utils/artifactLibs';
 import { exportsHidden } from '~/utils/dashboardExportsHidden';
 import { embedLoadFailure, embedSessionEnded, type EmbedLoadFailure } from '~/utils/embedSession';
@@ -1653,6 +1653,7 @@ function iframeOptions(art: any, seed: any) {
         mode: art?.mode || 'page',
         resourceApp: art?.content?.sdk_version === 1,
         colorMode: artifactColorMode,
+        locale: viewerLang(),
         // Used only when its key matches the code above (else in-iframe Babel).
         precompiled: { js: art?.compiled_js, key: art?.compiled_js_key },
     };

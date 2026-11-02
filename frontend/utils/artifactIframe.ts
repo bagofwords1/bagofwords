@@ -119,6 +119,12 @@ export interface ArtifactIframeOptions {
    */
   colorMode?: 'light' | 'dark';
   /**
+   * The viewer's BOW language (e.g. 'he'), set as the iframe's <html lang>
+   * only (never dir: an artifact lays itself out). The sandbox globals read it
+   * for their own words, such as the table's "Search..." and "1–10 of 24".
+   */
+  locale?: string | null;
+  /**
    * The artifact code precompiled by the backend exactly as babel-standalone
    * would compile it here (ArtifactSchema.compiled_js / compiled_js_key).
    * Used only when `key` matches precompiledKey(code) for the code being
@@ -146,6 +152,12 @@ const LIB_HASHES: Record<string, string> =
   typeof __BOW_LIB_HASHES__ !== 'undefined' && __BOW_LIB_HASHES__ ? __BOW_LIB_HASHES__ : {};
 
 /** URL for a vendored lib, carrying its content hash when known. */
+/** The viewer's BOW language, as the i18n plugin set it on this page's <html
+ * lang>. Read once per frame build, so a language switch does not reload it. */
+export function viewerLang(): string | null {
+  return typeof document !== 'undefined' ? document.documentElement.getAttribute('lang') : null;
+}
+
 export function libUrl(file: string, query = ''): string {
   const hash = LIB_HASHES[file];
   const parts = [query, hash ? `h=${hash}` : ''].filter(Boolean);
@@ -164,7 +176,7 @@ export function artifactPageLibs(opts: { reactBuild?: 'production' | 'developmen
     libUrl('echarts-5.min.js'),
     libUrl('lucide.min.js'),
     ...(opts.pdf === false ? [] : [libUrl('pdf.min.js')]),
-    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-ui-4`),
+    libUrl('artifact-globals.js', `v=${ARTIFACT_GLOBALS_VERSION}&revision=chat-ui-5`),
     libUrl('artifact-sdk.js', 'v=6'),
   ];
 }
@@ -534,9 +546,10 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}${opts.resourceApp ? '' : ' https:'}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
   const polish = opts.polishMode ? polishScript() : '';
   const isDark = opts.colorMode === 'dark';
+  const lang = typeof opts.locale === 'string' && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(opts.locale) ? opts.locale : '';
 
   return `<!DOCTYPE html>
-<html${isDark ? ' class="dark"' : ''}>
+<html${lang ? ` lang="${lang}"` : ''}${isDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${isolationPolicy}">
