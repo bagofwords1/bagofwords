@@ -32,7 +32,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
-from app.models.instruction import Instruction
+from app.models.instruction import Instruction, instruction_data_source_association
 from app.errors.redact import redact_error
 from app.services.git_hardening import ssh_command, with_https_auth
 from app.schemas.git_repository_schema import (
@@ -1138,6 +1138,65 @@ class GitService:
         
         return simple_refs
 
+    async def _resolve_build_agent_folders(
+        self, db: AsyncSession, instruction_ids: List[str]
+    ) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
+        """
+        Map each instruction to its data sources ("agents") and compute a
+        unique, filesystem-safe folder name per data source.
+
+        Returns (instr_to_ds_ids, ds_folder, ds_id_to_name):
+        - instr_to_ds_ids: {instruction_id: [data_source_id, ...]}
+        - ds_folder: {data_source_id: "safe-folder-name"}
+        - ds_id_to_name: {data_source_id: "Original Agent Name"} (for frontmatter)
+
+        Folder names come from the agent name (sanitized). When two different
+        agents sanitize to the same name - or to a reserved name ("shared"/
+        "global") - they are disambiguated with a short id suffix so they
+        never collide on disk.
+        """
+        instr_to_ds_ids: Dict[str, List[str]] = {}
+        ds_id_to_name: Dict[str, str] = {}
+
+        if instruction_ids:
+            assoc = instruction_data_source_association
+            stmt = (
+                select(
+                    assoc.c.instruction_id,
+                    DataSource.id,
+                    DataSource.name,
+                )
+                .join(DataSource, DataSource.id == assoc.c.data_source_id)
+                .where(assoc.c.instruction_id.in_(instruction_ids))
+            )
+            result = await db.execute(stmt)
+            for instr_id, ds_id, ds_name in result:
+                instr_to_ds_ids.setdefault(instr_id, []).append(ds_id)
+                ds_id_to_name[ds_id] = ds_name
+
+        # Sanitize each agent name into a base folder name.
+        base_names: Dict[str, str] = {}
+        for ds_id, name in ds_id_to_name.items():
+            safe = re.sub(r'[^\w\s-]', '', name or '').strip().replace(' ', '-').lower()
+            base_names[ds_id] = safe or ds_id
+
+        # Count collisions so only ambiguous names get an id suffix. Reserved
+        # folder names ("shared"/"global") are also disambiguated so an agent
+        # that happens to share one of those names never lands in them.
+        reserved = {"shared", "global"}
+        name_counts: Dict[str, int] = {}
+        for safe in base_names.values():
+            name_counts[safe] = name_counts.get(safe, 0) + 1
+
+        ds_folder: Dict[str, str] = {}
+        for ds_id, safe in base_names.items():
+            if name_counts[safe] > 1 or safe in reserved:
+                ds_folder[ds_id] = f"{safe}-{ds_id[:8]}"
+            else:
+                ds_folder[ds_id] = safe
+
+        return instr_to_ds_ids, ds_folder, ds_id_to_name
+
     async def _write_build_to_repo(
         self, db: AsyncSession, build: InstructionBuild, repo_path: str
     ):
@@ -1147,12 +1206,34 @@ class GitService:
         Path logic:
         - Linked git instructions (source_sync_enabled=True): SKIP, already in Git
         - Unlinked git instructions (source_sync_enabled=False): Write to original source_file_path
-        - User-created instructions (no source_file_path): Write to bow/{category}/{filename}.md
+        - User-created instructions (no source_file_path):
+          - linked to one agent   -> bow/{agent}/{filename}.md
+          - linked to no agent     -> bow/global/{filename}.md (applies to all)
+          - linked to several      -> bow/shared/{filename}.md, with the agent
+            names recorded in the file's `agents:` frontmatter
         """
         from app.services.build_service import BuildService
-        
+
         build_service = BuildService()
         contents = await build_service.get_build_contents(db, build.id)
+
+        # Organize user-created instructions by agent (data source) rather than
+        # by category. data_sources is lazy="raise" on the ORM, so resolve the
+        # associations explicitly up front.
+        instruction_ids = [
+            content.instruction.id
+            for content in contents
+            if content.instruction_version and content.instruction
+        ]
+        instr_to_ds_ids, ds_folder, ds_id_to_name = await self._resolve_build_agent_folders(
+            db, instruction_ids
+        )
+
+        # Track what this push writes (and which linked-git files to preserve)
+        # so stale BOW files can be pruned afterwards - see the cleanup below.
+        bow_root = Path(repo_path) / "bow"
+        written_paths: set = set()
+        keep_paths: set = set()
 
         written_count = 0
         skipped_linked = 0
@@ -1166,36 +1247,40 @@ class GitService:
                 skipped_no_version += 1
                 continue
 
-            # RULE 1: Skip linked git instructions - they're already in Git
+            # RULE 1: Skip linked git instructions - they're already in Git.
+            # Preserve their file so the cleanup below never prunes it.
             if instruction.source_type == 'git' and instruction.source_sync_enabled:
                 logger.debug(f"Skipping linked git instruction: {instruction.source_file_path}")
+                if instruction.source_file_path:
+                    keep_paths.add((Path(repo_path) / instruction.source_file_path).resolve())
                 skipped_linked += 1
                 continue
             
+            # agents are written to frontmatter only for instructions shared
+            # across multiple agents (a single agent is implied by its folder).
+            agent_names: List[str] = []
+
             # RULE 2: Unlinked git instruction - write to original path (preserve extension)
             if instruction.source_file_path:
                 filepath = Path(repo_path) / instruction.source_file_path
                 filepath.parent.mkdir(parents=True, exist_ok=True)
             else:
-                # RULE 3: User-created instruction - write to bow/{category}/{filename}.md
-                category = instruction.category or 'general'
-                
-                # Map category names to directory names
-                category_dir_map = {
-                    'code_gen': 'code',
-                    'data_modeling': 'data-modeling',
-                    'visualizations': 'visualizations',
-                    'dashboard': 'dashboard',
-                    'system': 'system',
-                    'general': 'general',
-                }
-                safe_category = category_dir_map.get(category, category)
-                # Fallback sanitization for unknown categories
-                safe_category = re.sub(r'[^\w\s-]', '', safe_category).strip().replace(' ', '-').lower()
-                if not safe_category:
-                    safe_category = 'general'
-                
-                bow_dir = Path(repo_path) / "bow" / safe_category
+                # RULE 3: User-created instruction - organize by agent (data source).
+                # One linked agent -> that agent's folder; no linked agent
+                # (applies to all) -> "global"; multiple linked agents ->
+                # "shared", with the agent names recorded in the frontmatter.
+                ds_ids = instr_to_ds_ids.get(instruction.id, [])
+                if len(ds_ids) == 1:
+                    folder = ds_folder.get(ds_ids[0]) or 'global'
+                elif len(ds_ids) == 0:
+                    folder = 'global'
+                else:
+                    folder = 'shared'
+                    agent_names = sorted(
+                        ds_id_to_name.get(ds_id, ds_id) for ds_id in ds_ids
+                    )
+
+                bow_dir = Path(repo_path) / "bow" / folder
                 bow_dir.mkdir(parents=True, exist_ok=True)
                 
                 title = version.title or instruction.title or str(instruction.id)
@@ -1206,31 +1291,57 @@ class GitService:
                 filename = f"{safe_title}.md"
                 filepath = bow_dir / filename
 
-            # Only write references to frontmatter (if present)
-            # status, load_mode, category are BOW-only metadata - not written to git
-            # This avoids noisy diffs and lets git be the source of truth for content
+            # Frontmatter carries the agents (for shared instructions) and the
+            # table references. status, load_mode, category stay BOW-only
+            # metadata - not written to git - to avoid noisy diffs and let git
+            # be the source of truth for content.
             simple_refs = []
             if version.references_json and isinstance(version.references_json, list):
                 simple_refs = await self._resolve_reference_names(db, version.references_json)
 
             # Write file
             with open(filepath, 'w') as f:
-                # Only write frontmatter block if there are references
-                if simple_refs:
+                # Only write a frontmatter block if there is something to put in it
+                if agent_names or simple_refs:
                     f.write("---\n")
-                    f.write("references:\n")
-                    for ref in simple_refs:
-                        f.write(f"  - {ref}\n")
+                    if agent_names:
+                        f.write("agents:\n")
+                        for agent_name in agent_names:
+                            f.write(f"  - {agent_name}\n")
+                    if simple_refs:
+                        f.write("references:\n")
+                        for ref in simple_refs:
+                            f.write(f"  - {ref}\n")
                     f.write("---\n\n")
-                
+
                 if version.title:
                     f.write(f"# {version.title}\n\n")
                 f.write(version.text or "")
 
+            written_paths.add(filepath.resolve())
             written_count += 1
             logger.debug(f"Wrote instruction to {filepath}")
-        
-        logger.info(f"Push to git: wrote {written_count} file(s), skipped {skipped_linked} linked, {skipped_no_version} without version")
+
+        # Targeted cleanup: prune stale BOW-exported markdown under bow/ that
+        # this build no longer produces (old category layout, deleted
+        # instructions), while leaving linked-git files and any non-.md files
+        # alone, then drop directories the pruning left empty.
+        pruned_count = 0
+        if bow_root.exists():
+            for path in bow_root.rglob("*.md"):
+                resolved = path.resolve()
+                if resolved not in written_paths and resolved not in keep_paths:
+                    path.unlink()
+                    pruned_count += 1
+            for dir_path in sorted(
+                (p for p in bow_root.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ):
+                if not any(dir_path.iterdir()):
+                    dir_path.rmdir()
+
+        logger.info(f"Push to git: wrote {written_count} file(s), pruned {pruned_count} stale, skipped {skipped_linked} linked, {skipped_no_version} without version")
 
     # ==================== PR Creation ====================
 
