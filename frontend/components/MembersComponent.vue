@@ -342,7 +342,7 @@
                                     </div>
                                 </td>
                                 <td class="px-4 py-2 min-w-[18rem]">
-                                    <input
+                                    <input v-text-dir
                                         v-if="useCan('update_organization_members')"
                                         :value="member.note || ''"
                                         :title="member.note || ''"
@@ -353,7 +353,7 @@
                                         class="w-full text-sm text-gray-700 dark:text-gray-300 placeholder:text-gray-300 dark:placeholder:text-gray-600 border border-transparent hover:bg-gray-100 dark:hover:bg-gray-800/70 focus:bg-white dark:focus:bg-gray-800 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 rounded-md px-2 py-1 outline-none bg-transparent transition-colors"
                                     />
                                     <UTooltip v-else-if="member.note" :text="member.note">
-                                        <span class="text-sm text-gray-700 dark:text-gray-300 truncate block max-w-[16rem]">{{ member.note }}</span>
+                                        <span v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate block max-w-[16rem]">{{ member.note }}</span>
                                     </UTooltip>
                                     <span v-else class="text-ink-muted italic text-sm">—</span>
                                 </td>

@@ -1166,6 +1166,7 @@
       "textSize": "Text size",
       "pixels": "{n}px",
       "scales": {
+        "small": "Small",
         "default": "Default",
         "large": "Large",
         "larger": "Larger",

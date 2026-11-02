@@ -22,7 +22,7 @@
 
     <!-- Collapsible details -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed" class="ms-4 text-xs text-gray-600 dark:text-gray-400 space-y-2">
+      <div v-if="!detailsCollapsed" class="ms-4 text-chat-2 text-gray-600 dark:text-gray-400 space-y-2">
         <!-- Error -->
         <div v-if="errorMessage" class="text-red-500">{{ errorMessage }}</div>
 
@@ -34,11 +34,11 @@
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
-            <span>{{ $t('tools.common.code') }}</span>
+            <span>{{ t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-2xs text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
+              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-chat-2 text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ generatedCode }}</pre>
             </div>
           </Transition>
         </div>
@@ -60,6 +60,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 

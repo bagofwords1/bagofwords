@@ -44,7 +44,7 @@
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
                 <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
-                        <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
+                        <h1 v-text-dir class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
                         <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->
@@ -124,7 +124,7 @@
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full md:ms-4 max-w-chat">
+                                <div class="flex-1 min-w-0 md:ms-4">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in timelineBlocks(m)" :key="block.id">
@@ -138,7 +138,7 @@
                                                 />
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -172,7 +172,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.content || block.plan_decision?.assistant || ''"
                                                     :final="true"
@@ -216,7 +216,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
                                                     :final="true"
@@ -267,8 +267,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
+import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
@@ -376,12 +378,15 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 // to raw diagram source while the same diagram written into an instruction
 // card — which uses InstructionText — rendered fine on this very page.
 // markstream dispatches on fence language before the render-code-blocks-as-pre
-// flag, so diagrams and math survive it. useMarkdownAutoDir (already mounted
-// below) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
+// flag, so diagrams and math survive it. useMarkdownAutoDir (started app-wide by
+// plugins/markdown-auto-dir.client.ts) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
 // both written against this renderer's DOM.
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
-import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
+
+// Charts and grids in this conversation follow the chat text size
+// (utils/chatVizText.ts).
+provide(CHAT_VIZ_TEXT_PX, useChatDisplay().textSizePx)
 
 const route = useRoute()
 const token = route.params.token as string
@@ -965,17 +970,12 @@ function handleScroll(event: Event) {
     }
 }
 
-// Fixes list-marker direction for RTL content (see useMarkdownAutoDir).
-const markdownAutoDir = ref<{ stop: () => void } | null>(null)
-
 onMounted(() => {
     loadConversation()
-    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 onUnmounted(() => {
     if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
-    markdownAutoDir.value?.stop()
 })
 </script>
 

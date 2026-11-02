@@ -28,7 +28,7 @@
             @editQuery="$emit('editQuery', $event)"
             @openDataPanel="$emit('openDataPanel', $event)"
           />
-          <div v-else-if="result.error" class="ms-4 text-xs text-red-500">
+          <div v-else-if="result.error" class="ms-4 text-chat-2 text-red-500">
             {{ result.error }}
           </div>
         </div>
@@ -36,7 +36,7 @@
     </Transition>
 
     <!-- Global errors -->
-    <div v-if="hasErrors && !detailsCollapsed" class="ms-4 mt-2 text-xs text-red-500">
+    <div v-if="hasErrors && !detailsCollapsed" class="ms-4 mt-2 text-chat-2 text-red-500">
       <div v-for="(err, idx) in globalErrors" :key="idx">{{ err }}</div>
     </div>
   </div>

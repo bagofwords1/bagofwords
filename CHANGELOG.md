@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.607 (November 2, 2026)
+- Updated chat typography, message spacing, tool cards and right-to-left layouts (#1557)
+
 ## Version 0.0.606 (November 2, 2026)
 - Fixed Hebrew questions and answers showing left-to-right in reports and shared links, including lists, tables, headings and notes (#1554)
 - Fixed Hebrew answers jumping from left-to-right to right-to-left while they stream (#1554)

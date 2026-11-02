@@ -7,16 +7,16 @@
     >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ $t('tools.createNote.writing') }}
+        {{ t('tools.createNote.writing') }}
       </span>
       <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-amber-500" />
-        <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.createNote.wrotePrefix', { text: title || $t('tools.createNote.untitled') }) }}</span>
+        <span dir="auto" class="truncate max-w-[300px]">{{ t('tools.createNote.wrotePrefix', { text: title || t('tools.createNote.untitled') }) }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
       </span>
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-        <span>{{ $t('tools.createNote.failed') }}</span>
+        <span>{{ t('tools.createNote.failed') }}</span>
       </span>
     </div>
 
@@ -24,8 +24,8 @@
     <Transition name="slide">
       <div v-if="isExpanded && content" class="mt-2 ms-[18px]">
         <div class="rounded-md border border-amber-100 dark:border-amber-950/60 bg-amber-50/40 dark:bg-amber-950/20 px-3 py-2">
-          <div v-if="title" dir="auto" class="text-2xs font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
-          <div dir="auto" class="text-xs text-gray-700 dark:text-gray-300 note-markdown">
+          <div v-if="title" dir="auto" class="text-chat-2 font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
+          <div class="text-chat-2 text-gray-700 dark:text-gray-300 note-markdown">
             <MarkdownRender :content="content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
           </div>
         </div>
@@ -35,6 +35,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import { MarkdownRender } from 'markstream-vue'
 
@@ -60,8 +62,8 @@ const content = computed(() => props.toolExecution.arguments_json?.content || ''
 .note-markdown :deep(ul) { list-style: disc; padding-inline-start: 1.1rem; margin: 0.25rem 0; }
 .note-markdown :deep(li) { margin: 0.1rem 0; }
 /* Note-scale headings — MarkdownRender's defaults are far too large in a card */
-.note-markdown :deep(h1) { font-size: 0.8125rem; font-weight: 600; margin: 0.5rem 0 0.2rem; }
-.note-markdown :deep(h2) { font-size: 0.8125rem; font-weight: 600; margin: 0.45rem 0 0.15rem; }
-.note-markdown :deep(h3) { font-size: 0.75rem; font-weight: 600; margin: 0.4rem 0 0.15rem; color: rgb(107 114 128); }
+.note-markdown :deep(h1) { font-size: var(--bow-chat-font-size-2); font-weight: 600; margin: 0.5rem 0 0.2rem; }
+.note-markdown :deep(h2) { font-size: var(--bow-chat-font-size-2); font-weight: 600; margin: 0.45rem 0 0.15rem; }
+.note-markdown :deep(h3) { font-size: var(--bow-chat-font-size-2); font-weight: 600; margin: 0.4rem 0 0.15rem; color: rgb(107 114 128); }
 .note-markdown :deep(h1:first-child), .note-markdown :deep(h2:first-child) { margin-top: 0; }
 </style>

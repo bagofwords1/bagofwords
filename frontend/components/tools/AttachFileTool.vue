@@ -10,13 +10,13 @@
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
           <span>Attached {{ attachedCount }} file{{ attachedCount === 1 ? '' : 's' }} to the report</span>
-          <span v-if="failedCount" class="ms-2 text-2xs px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
+          <span v-if="failedCount" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
         </span>
       </div>
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="files.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="files.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <div
           class="flex items-center py-1 px-1 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800"
           @click="expanded = !expanded"
@@ -36,15 +36,15 @@
                 :class="['w-3 h-3 me-1.5', f.session_file_id ? 'text-green-600 dark:text-green-500' : 'text-yellow-600']"
               />
               <span class="truncate text-gray-700 dark:text-gray-300">{{ f.name || f.file_id }}</span>
-              <span v-if="f.size != null" class="ms-2 text-ink-muted text-2xs">{{ humanSize(f.size) }}</span>
-              <span v-if="f.error" class="ms-2 text-red-600 text-2xs">{{ f.error }}</span>
+              <span v-if="f.size != null" class="ms-2 text-ink-muted text-chat-3">{{ humanSize(f.size) }}</span>
+              <span v-if="f.error" class="ms-2 text-red-600 text-chat-2">{{ f.error }}</span>
             </div>
           </div>
         </Transition>
       </div>
     </Transition>
 
-    <div v-if="status !== 'running' && !files.length && errorMessage" class="text-xs text-red-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !files.length && errorMessage" class="text-chat-2 text-red-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 

@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-1 text-xs">
+  <div class="mt-1 text-chat-2">
     <div class="flex items-center text-gray-700 dark:text-gray-300">
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
@@ -28,7 +28,7 @@
       data-testid="agent-approval-card"
     >
       <div class="flex items-center gap-3">
-        <span class="text-xs text-gray-800 dark:text-gray-200 min-w-0 truncate flex items-center gap-1">
+        <span class="text-chat-2 text-gray-800 dark:text-gray-200 min-w-0 truncate flex items-center gap-1">
           <span>Add</span>
           <template v-for="a in confAgents" :key="a.id">
             <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon-token="a.icon_token" :icon="a.icon" class="w-3.5 h-3.5 flex-shrink-0" />
@@ -40,15 +40,15 @@
         <span class="ms-auto flex items-center gap-1 flex-shrink-0">
           <button
             @click="respond(true)" :disabled="responding"
-            class="px-2.5 py-1 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
           >Allow</button>
           <button
             @click="respond(false)" :disabled="responding"
-            class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+            class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >Deny</button>
         </span>
       </div>
-      <div v-if="confReason" class="mt-0.5 text-2xs text-ink-muted truncate">{{ confReason }}</div>
+      <div v-if="confReason" class="mt-0.5 text-chat-2 text-ink-muted truncate">{{ confReason }}</div>
     </div>
   </div>
 </template>

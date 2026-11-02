@@ -12,7 +12,7 @@
             class="h-full ag-grid-themed ag-theme-custom"
             :style="agGridStyles"
         >
-            <AgGridComponent class="text-xs" :columnDefs="columnDefs" :rowData="rowData" />
+            <AgGridComponent :columnDefs="columnDefs" :rowData="rowData" />
         </div>
     </div>
     <div 
@@ -31,7 +31,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, toRefs, computed } from 'vue';
+import { ref, watch, toRefs, computed, inject } from 'vue';
+import { CHAT_VIZ_TEXT_PX, chatGridPx } from '~/utils/chatVizText'
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
 const props = defineProps<{
@@ -47,6 +48,8 @@ const { step, reportThemeName, reportOverrides } = toRefs(props)
 
 // Get theme tokens
 const { tokens } = useDashboardTheme(reportThemeName?.value, reportOverrides?.value, props.view || null)
+// Inside a conversation the grid follows the chat text size; elsewhere 12px.
+const chatTextPx = inject(CHAT_VIZ_TEXT_PX, null)
 
 // Create AG Grid themed styles using CSS custom properties
 const agGridStyles = computed(() => {
@@ -74,7 +77,7 @@ const agGridStyles = computed(() => {
     '--ag-odd-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-even-row-background-color': tokens.value.cardBackground || tokens.value.background,
     '--ag-font-family': tokens.value.fontFamily,
-    '--ag-font-size': '12px',
+    '--ag-font-size': chatTextPx?.value ? `${chatGridPx(chatTextPx.value)}px` : '12px',
     fontFamily: tokens.value.fontFamily,
   }
 })

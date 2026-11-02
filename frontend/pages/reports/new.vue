@@ -6,14 +6,7 @@
 	     composer sits in the same place, so the hand-off changes nothing on
 	     screen except the conversation appearing. -->
 	<div class="flex flex-col h-dvh overflow-y-hidden bg-white dark:bg-gray-900 relative">
-		<header class="sticky top-0 bg-white dark:bg-gray-900 z-10 flex flex-col border-gray-200 dark:border-gray-700">
-			<div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
-				<GoBackChevron />
-				<h1 class="text-sm md:text-start text-center w-[500px]">
-					<span class="font-semibold text-sm p-1 text-ink-muted">{{ $t('reports.newReport') }}</span>
-				</h1>
-			</div>
-		</header>
+		<ReportHeader :report="null" :is-split-screen="false" :is-streaming="false" />
 
 		<!-- Where the conversation will go. Same scroll container and column as
 		     the report view, so the empty state lands in the same spot. -->
@@ -80,7 +73,7 @@
 
 <script setup lang="ts">
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
-import GoBackChevron from '@/components/excel/GoBackChevron.vue'
+import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import { useExcel } from '~/composables/useExcel'

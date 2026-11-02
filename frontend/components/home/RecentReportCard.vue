@@ -53,7 +53,7 @@
     <!-- Content -->
     <div class="p-3 text-start">
       <h3 class="font-medium text-gray-900 dark:text-white truncate text-sm flex items-center gap-1.5">
-        <span class="truncate">{{ report.title || 'Untitled' }}</span>
+        <span v-text-dir class="truncate">{{ report.title || 'Untitled' }}</span>
         <ReportStatusDot :report-id="report.id" />
       </h3>
       <p class="text-xs text-ink-muted mt-1 truncate">

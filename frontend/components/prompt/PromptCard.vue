@@ -48,12 +48,12 @@
     </div>
 
     <!-- Title -->
-    <div class="text-sm font-medium text-gray-900 dark:text-white line-clamp-1 mb-1">
+    <div v-text-dir class="text-sm font-medium text-gray-900 dark:text-white line-clamp-1 mb-1">
       {{ prompt.title || $t('prompts.untitled') }}
     </div>
 
     <!-- Text preview with {{param}} highlighted -->
-    <div class="text-xs leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-4 flex-1">
+    <div v-text-dir.align class="text-xs leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-4 flex-1">
       <template v-for="(seg, i) in previewSegments" :key="i">
         <span
           v-if="seg.param"

@@ -236,7 +236,7 @@
               <UIcon name="heroicons-check-circle-solid" class="w-3.5 h-3.5 text-green-500 shrink-0" />
               <span class="text-gray-600 dark:text-gray-300 truncate">
                 {{ $t('triggers.eventReceived', { time: formatRelativeTime(lastEvent.received_at) }) }}
-                <span v-if="lastEvent.summary" class="text-ink-muted">— {{ lastEvent.summary }}</span>
+                <span v-text-dir v-if="lastEvent.summary" class="text-ink-muted">— {{ lastEvent.summary }}</span>
               </span>
               <button class="shrink-0 text-blue-500 hover:text-blue-600" data-testid="trigger-toggle-payload" @click="showPayload = !showPayload">
                 {{ showPayload ? $t('triggers.hidePayload') : $t('triggers.viewPayload') }}
@@ -345,7 +345,7 @@
           </label>
           <div v-if="form.classify_enabled" class="mt-2">
             <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.classifierGuidance') }}</label>
-            <textarea v-model="form.classifier_prompt" rows="2" :placeholder="$t('triggers.classifierPlaceholder')"
+            <textarea v-text-dir.align v-model="form.classifier_prompt" rows="2" :placeholder="$t('triggers.classifierPlaceholder')"
               class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
           </div>
         </section>
@@ -384,7 +384,7 @@
                 @click="showModal = false"
               >
                 <AutomationsRunStatusDot :report-id="run.report_id" :status="run.status" />
-                <span class="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
+                <span v-text-dir class="flex-1 min-w-0 truncate text-xs text-gray-700 dark:text-gray-300">{{ run.event_summary || run.title }}</span>
                 <span class="shrink-0 text-2xs text-ink-muted">{{ formatRunDate(run.created_at) }}</span>
               </NuxtLink>
             </li>

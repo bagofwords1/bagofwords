@@ -131,7 +131,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<li v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="text-gray-700 dark:text-gray-300 mb-2 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
+					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -140,7 +140,7 @@
 						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/10 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
-								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
+								<span class="font-medium">{{ responseT('reportView.summaryOfOriginal') }}</span>
 							</div>
 							<div class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
@@ -152,7 +152,7 @@
 								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
-								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
+								<span class="font-medium text-gray-500">{{ responseT('reportView.scheduledRun') }}</span>
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
 								<span v-if="getScheduledStats(m)" class="text-ink-muted">{{ getScheduledStats(m) }}</span>
@@ -162,7 +162,7 @@
 							<div v-if="isScheduledExpanded(m.id)" class="flex rounded-lg p-1 justify-end">
 								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
-										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
+										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :dir="promptDir(m.prompt?.content)">
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
@@ -195,9 +195,7 @@
 						     borderless, compact line aligned into the agent column —
 						     same gutter as system messages, styled like a tool card. -->
 						<div v-else-if="m.role === 'external' && (m as any).trigger_source && !(m as any).webhook_id" class="flex justify-start my-1.5">
-							<!-- avatar-width spacer so the line lines up with agent content -->
-							<div class="me-2 flex-shrink-0 hidden md:block w-7"></div>
-							<div class="w-full ms-0 md:ms-4 max-w-chat">
+							<div class="flex-1 min-w-0">
 								<div
 									class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 min-w-0"
 									:class="isQuietCheckinStrip(m) ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
@@ -237,13 +235,13 @@
 							<!-- The delivery itself: what arrived, and with which headers. -->
 							<div v-if="expandedWebhookIds.has(m.id)" class="mt-1 rounded-lg border border-gray-100 dark:border-gray-800 overflow-hidden" :data-testid="`webhook-payload-${m.id}`">
 								<div v-if="webhookHeaders(m)" class="px-3 py-2 border-b border-gray-100 dark:border-gray-800">
-									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.headers') }}</div>
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ responseT('triggers.headers') }}</div>
 									<div v-for="(v, k) in webhookHeaders(m)" :key="k" class="text-chat-3 font-mono text-gray-500 dark:text-gray-400 truncate">
 										<span class="text-ink-muted">{{ k }}:</span> {{ v }}
 									</div>
 								</div>
 								<div class="px-3 py-2">
-									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ $t('triggers.body') }}</div>
+									<div class="text-chat-3 font-medium uppercase tracking-wide text-ink-muted mb-1">{{ responseT('triggers.body') }}</div>
 									<pre class="text-chat-3 font-mono text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all max-h-64 overflow-y-auto">{{ webhookRawPayload(m) }}</pre>
 								</div>
 							</div>
@@ -258,22 +256,22 @@
 						<!-- Regular message rendering -->
 						<div
 							v-else
-							class="flex rounded-lg p-1"
+							class="flex rounded-lg px-1"
 							:class="m.role === 'user' ? 'justify-end' : 'justify-start'"
 						>
 							<!-- User message (start-edge bubble; flips to opposite edge under RTL via ul dir) -->
 							<template v-if="m.role === 'user'">
-								<div class="group/usermsg flex flex-col items-end max-w-[85%] w-full mb-3 ms-auto">
+								<div class="group/usermsg relative flex flex-col items-end max-w-[85%] w-full ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 me-[36px] mb-0.5 text-chat-3" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 mb-0.5 text-chat-3" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-										<span>{{ (m as any).steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+										<span>{{ (m as any).steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
-											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
+											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
 												<div v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
@@ -295,20 +293,17 @@
 												</div>
 											</div>
 										</div>
-										<!-- User avatar on the right (hidden on mobile) -->
-										<div class="flex-shrink-0 hidden md:block md:w-[28px]">
-											<div class="h-7 w-7 uppercase flex items-center justify-center text-xs rounded-full inline-block overflow-hidden" :class="report?.user?.image_url ? 'bg-gray-100 dark:bg-gray-800' : 'border border-blue-200 dark:border-blue-900/60 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'"><img v-if="report?.user?.image_url" :src="report.user.image_url" alt="" class="h-7 w-7 rounded-full object-cover" /><span v-else>{{ report?.user?.name?.charAt(0) || '?' }}</span></div>
-										</div>
+
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
-									<div class="flex items-center gap-2 me-[36px] mt-1 opacity-0 group-hover/usermsg:opacity-100 transition-opacity duration-150">
-										<UTooltip :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'bottom' }">
+									<div class="mt-1 flex items-center gap-2 opacity-0 group-hover/usermsg:opacity-100 group-focus-within/usermsg:opacity-100 transition-opacity duration-150">
+										<UTooltip :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
 												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
-												{{ copiedMessageId === m.id ? $t('common.copied') : $t('common.copy') }}
+												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
 											</button>
 										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
@@ -318,20 +313,14 @@
 
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
-								<!-- AI avatar (hidden on mobile): org brand image + model badge -->
-								<div class="me-2 flex-shrink-0 hidden md:block">
-									<UTooltip :text="m.model ? `Generated with ${modelDisplayName(m.model)}` : 'AI Analyst'" :popper="{ placement: 'top' }">
-										<div class="relative inline-flex">
-											<!-- Company brand image (falls back to BoW logo). Height-bound, width capped. -->
-											<img :src="orgIconUrl || '/assets/logo-128.png'" alt="" class="h-7 w-auto max-w-[72px] object-contain rounded-lg" />
-											<!-- Model brand overlay -->
-											<span v-if="m.model" class="absolute -bottom-1 -end-1 h-4 w-4 rounded-full bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 flex items-center justify-center overflow-hidden">
-												<LLMProviderIcon :provider="modelBrandFor(m.model)" :icon="true" class="h-3 w-3" />
-											</span>
-										</div>
-									</UTooltip>
-								</div>
-								<div class="w-full ms-0 md:ms-4 max-w-chat">
+                                <div class="flex w-full min-w-0 items-start gap-3" :dir="responseDir">
+                                    <div v-if="!isMobile" class="w-7 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
+                                        <img :src="assistantLogoUrl" alt="" class="h-7 w-7 rounded object-contain" @error="assistantLogoFailed = true" />
+                                    </div>
+                                    <div class="assistant-content min-w-0 flex-1 text-start">
+                                        <div class="mb-1 flex min-h-5 items-center text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
+                                            <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
+                                        </div>
 									<!-- System message -->
 									<div>
 										<!-- Sub-agent waves launched by this turn: one group line per wave -->
@@ -344,7 +333,7 @@
 											@stopWave="stopWave"
 										/>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
+										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution) }">
 											<!-- Steering messages interleave into the block stream at the
 											     moment they arrived: before the first block that started
 											     after them. -->
@@ -352,9 +341,9 @@
 												<div class="flex flex-col items-end max-w-[85%]">
 													<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-														<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+														<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 													</div>
-													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
+													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 														<div v-if="s.prompt?.content" class="pt-1">
 															<InstructionText
 																:text="s.prompt.content"
@@ -378,14 +367,42 @@
 													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
 												/>
 											</Transition>
-											<!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+											<div v-for="reasoningBlock in reasoningForGroup(m, block)" :key="`group-reasoning-${reasoningBlock.id}`" v-show="isGroupExpanded(groupHeaderFor(m, block).id)" class="thinking-box grouped-thinking">
+												<button type="button" class="thinking-header" :aria-expanded="!isReasoningCollapsed(reasoningBlock.id)" @click="toggleReasoning(reasoningBlock.id)">
+													<Icon :name="isReasoningCollapsed(reasoningBlock.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
+													<span v-if="hasCompletedContent(block) || reasoningBlock.tool_execution" class="ms-1">
+														{{ getThoughtProcessLabel(reasoningBlock) }}
+													</span>
+													<span v-else class="ms-1">
+														<div class="dots" />
+													</span>
+												</button>
+												<Transition name="fade">
+													<div 
+														v-if="!isReasoningCollapsed(reasoningBlock.id)" 
+														:ref="el => setReasoningRef(reasoningBlock.id, el)"
+														class="thinking-content"
+													>
+														<template v-if="reasoningBlock.plan_decision?.reasoning || reasoningBlock.reasoning">
+															<MarkdownRender
+																:content="reasoningBlock.reasoning || reasoningBlock.plan_decision?.reasoning || ''"
+																:final="isBlockFinalized(reasoningBlock)"
+																:typewriter="!isBlockFinalized(reasoningBlock)"
+																:render-code-blocks-as-pre="true"
+																class="markdown-content"
+															/>
+														</template>
+													</div>
+												</Transition>
+											</div>
+<!-- Keep prose visible when only this verification step is collapsed. -->
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))" :data-response-dir="m.prompt?.response_locale ? responseDir : undefined">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
-                                            <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
+                                            <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
-											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
-												<div class="thinking-header" @click="toggleReasoning(block.id)">
+											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning)" class="thinking-box">
+												<button type="button" class="thinking-header" :aria-expanded="!isReasoningCollapsed(block.id)" @click="toggleReasoning(block.id)">
 													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
 														{{ getThoughtProcessLabel(block) }}
@@ -393,7 +410,7 @@
 													<span v-else class="ms-1">
 														<div class="dots" />
 													</span>
-												</div>
+												</button>
 												<Transition name="fade">
 													<div 
 														v-if="!isReasoningCollapsed(block.id)" 
@@ -409,9 +426,6 @@
 																class="markdown-content"
 															/>
 														</template>
-														<template v-else-if="block.status === 'stopped'">
-															<div class="text-ink-muted italic">{{ $t('reportView.generationStoppedBefore') }}</div>
-														</template>
 													</div>
 												</Transition>
 											</div>
@@ -419,7 +433,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))" :data-response-dir="m.prompt?.response_locale ? responseDir : undefined">
 								<MarkdownRender
 									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
 									:final="isBlockFinalized(block)"
@@ -430,7 +444,7 @@
 											</div>
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+											<div v-if="block.tool_execution" class="tool-execution-container text-start" :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
@@ -462,16 +476,16 @@
 														</span>
 														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-ink-muted bg-gray-50 dark:bg-gray-900 p-2 rounded">
 															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-															<div v-if="block.tool_execution.duration_ms">{{ $t('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
-															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ $t('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
-															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">{{ $t('reportView.stepRef', { id: block.tool_execution.created_step_id }) }}</div>
+															<div v-if="block.tool_execution.duration_ms">{{ responseT('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
+															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">{{ responseT('reportView.widgetRef', { id: block.tool_execution.created_widget_id }) }}</div>
+															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">{{ responseT('reportView.stepRef', { id: block.tool_execution.created_step_id }) }}</div>
 														</div>
 													</div>
 												</div>
 											</div>
 											
 											<!-- Tool widget preview -->
-											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+											<div class="tool-preview text-start" :dir="responseDir" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
@@ -483,9 +497,9 @@
 											<div class="flex flex-col items-end max-w-[85%]">
 												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
 													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-													<span>{{ s.steering_applied ? $t('reportView.steeringApplied') : $t('reportView.steered') }}</span>
+													<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 												</div>
-												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
+												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 													<div v-if="s.prompt?.content" class="pt-1">
 														<InstructionText
 															:text="s.prompt.content"
@@ -506,7 +520,7 @@
 											<div class="flex items-center gap-1.5" :class="rn.message ? 'cursor-pointer select-none' : ''" @click="rn.message && ((rn as any).expanded = !(rn as any).expanded)">
 												<Icon name="heroicons-arrow-path" class="w-3.5 h-3.5 flex-shrink-0" />
 												<span>
-													{{ $t('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
+													{{ responseT('reportView.loopRetryNotice', { attempt: rn.attempt, max: rn.max_attempts || rn.attempt }) }}
 												</span>
 												<Icon v-if="rn.message" :name="(rn as any).expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 flex-shrink-0 opacity-60 rtl-flip" />
 											</div>
@@ -525,22 +539,23 @@
 											@published="() => loadCompletions({ skipEstimate: true })"
 										/>
 
-										<!-- Thinking dots when system is working but no visible progress - moved to end -->
-										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
-											<div class="simple-dots"></div>
-										</div>
+
 									</div>
 
+                                    <div v-if="showWaitingIndicator(m)" class="flex h-6 items-center text-ink-muted" role="status" :aria-label="$t('prompt.working')">
+                                        <span class="h-2.5 w-2.5 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
+                                    </div>
+
 									<!-- Show status messages for stopped/error completions -->
-									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
+									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
 										<div class="flex items-center gap-1">
-											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? $t('common.copied') : $t('common.copy')" :popper="{ placement: 'top' }">
+											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'top' }">
 												<UButton
 													:icon="copiedMessageId === m.id ? 'i-heroicons-check' : 'i-heroicons-clipboard'"
 													color="gray"
 													variant="ghost"
 													size="xs"
-													:aria-label="$t('common.copy')"
+													:aria-label="responseT('common.copy')"
 													@click="copyToClipboard(responseText(m), m.id)"
 												/>
 											</UTooltip>
@@ -556,11 +571,11 @@
 											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
 												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
 													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-													<span class="text-xs text-gray-700 dark:text-gray-300 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
+													<span class="text-xs text-gray-700 dark:text-gray-300 font-normal">{{ responseT('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
-														<div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-2">{{ $t('reportView.instructionsLoaded') }}</div>
+														<div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-2">{{ responseT('reportView.instructionsLoaded') }}</div>
 														<div class="space-y-0.5">
 															<div
 																v-for="ins in visibleInstructions(m)"
@@ -570,7 +585,7 @@
 															>
 																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
+																<span v-text-dir class="flex-1 truncate">{{ ins.title || responseT('reportView.untitled') }}</span>
 																<span class="text-chat-3 text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-chat-3 px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always'
@@ -589,7 +604,7 @@
 												v-if="canViewTrace"
 												@click="openTraceModal(m.system_completion_id || m.id)"
 												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors group"
-												:title="$t('reportView.viewAgentTrace')"
+												:title="responseT('reportView.viewAgentTrace')"
 											>
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900 dark:group-hover:text-gray-100" />
 											</button>
@@ -623,14 +638,15 @@
 											@select="handleFollowUpClick"
 										/>
 									</RevealTransition>
-									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
-										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
-										Generation stopped
+									<div v-if="m.status === 'stopped'" class="flex items-center gap-1 text-chat-3 text-ink-muted mt-2">
+										<Icon name="heroicons-stop-circle" class="w-4 h-4 shrink-0" />
+										{{ responseT('reportView.generationStopped') }}
 									</div>
 									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2">
 										{{ getMessageError(m) || 'An error occurred' }}
 									</div>
 								</div>
+                                </div>
 							</template>
 						</div>
 
@@ -644,13 +660,13 @@
 							data-testid="compaction-divider"
 						>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
-							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="$t('prompt.compactTooltip')">
+							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider" :title="responseT('prompt.compactTooltip')">
 								<Icon name="heroicons:archive-box-arrow-down" class="w-3 h-3" />
-								{{ $t('prompt.compactedHistoryAbove') }}
+								{{ responseT('prompt.compactedHistoryAbove') }}
 							</span>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 						</div>
-					</li>
+					</ResponseLanguageScope>
 			</ul>
 			<div v-else-if="!completionsLoaded" class="mt-32 flex items-center justify-center text-ink-muted">
 				<Spinner class="w-4 h-4 me-2" />
@@ -895,7 +911,7 @@
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
-					<span class="truncate">{{ panelData.title || $t('tools.widgetPreview.dataTab') }}</span>
+					<span v-text-dir class="truncate">{{ panelData.title || $t('tools.widgetPreview.dataTab') }}</span>
 					<Icon
 						name="heroicons:x-mark"
 						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
@@ -1084,8 +1100,12 @@
 </template>
 
 <script setup lang="ts">
+import { useModelLabels } from '~/composables/useModelLabels'
+import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
+import { useChatDisplay } from '~/composables/useChatDisplay'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -1205,6 +1225,11 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 import { MarkdownRender } from 'markstream-vue'
 import { dominantTextDir, type TextDir } from '~/utils/textDirection'
 import 'markstream-vue/index.css'
+
+// Charts and grids in this conversation follow the chat text size
+// (utils/chatVizText.ts); the dashboard panel resets it for its own widgets.
+provide(CHAT_VIZ_TEXT_PX, useChatDisplay().textSizePx)
+
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 
@@ -1256,7 +1281,7 @@ interface ChatMessage {
 	status?: ChatStatus
 	// LLM model id used for this completion (e.g. "claude-sonnet-4-6"); drives the avatar brand overlay
 	model?: string | null
-	prompt?: { content: string; mentions?: Array<{ name: string; items: any[] }> }
+	prompt?: { content?: string; mentions?: Array<{ name: string; items: any[] }>; response_locale?: string; reasoning_effort?: string }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
 	created_at?: string
@@ -1293,6 +1318,7 @@ interface ChatMessage {
 	parent_id?: string | null
 	// Stable v-for key carried over from an optimistic placeholder (user-<ts> /
 	// system-<ts>) so the canonical reload doesn't remount the whole turn.
+	_animateEntry?: boolean
 	_render_key?: string
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
@@ -1327,43 +1353,13 @@ onBeforeUnmount(() => window.removeEventListener('artifact:open-version', onOpen
 // Excel add-in mode detection (for compact UI)
 const { isExcel, excelSelection } = useExcel()
 
-// Organization branding: use the company-uploaded icon as the assistant avatar
-// (falls back to the BoW logo). Each assistant message overlays its model brand.
-const { settings: orgSettings } = useOrgSettings()
-const orgIconUrl = computed<string | null>(() => orgSettings.value?.config?.general?.icon_url || null)
-
-// LLM models for resolving a completion's `model` field to a friendly name + brand.
-// `completion.model` may be a model UUID (live/optimistic message, from the picker)
-// or a model_id string (persisted) — so index the map by both.
-const llmModels = ref<any[]>([])
-const llmModelMap = computed(() => {
-	const map: Record<string, any> = {}
-	for (const m of llmModels.value) {
-		if (m.id) map[m.id] = m
-		if (m.model_id) map[m.model_id] = m
-	}
-	return map
+// Home and the picker seed these labels before navigation. Refresh the
+// catalog on direct report loads without delaying the first prompt.
+const { rememberModels, modelLabel: responseModelName } = useModelLabels()
+onMounted(async () => {
+    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true } })
+    if (Array.isArray(data.value)) rememberModels(data.value)
 })
-async function loadLlmModels() {
-	try {
-		const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
-		if (Array.isArray(data.value)) llmModels.value = data.value as any[]
-	} catch { /* non-fatal: avatar falls back to name-based resolution */ }
-}
-// Friendly label for the model tooltip (e.g. "Claude 4.6 Sonnet").
-function modelDisplayName(model?: string | null): string {
-	if (!model) return ''
-	const m = llmModelMap.value[model]
-	return m?.name || model
-}
-// Provider brand for the overlay icon: prefer the resolved model's id/type,
-// falling back to name-based resolution (handles Bedrock/custom-hosted models).
-function modelBrandFor(model?: string | null) {
-	const m = model ? llmModelMap.value[model] : null
-	// Include the display name so name-carried brands (e.g. "… (NVIDIA DGX)")
-	// resolve even when the model_id alone is unrecognizable.
-	return resolveModelBrand(`${m?.model_id || model || ''} ${m?.name || ''}`, m?.provider?.provider_type)
-}
 
 // Permissions
 // Agent trace ("debugger") on an assistant message. `view_console` never
@@ -1374,7 +1370,12 @@ function modelBrandFor(model?: string | null) {
 const canViewTrace = computed(() => useCanViewReportTrace(report.value?.data_sources))
 
 // Org settings (follow-up suggestions toggle)
-const { isFollowUpsEnabled } = useOrgSettings()
+const { isFollowUpsEnabled, settings: responseOrgSettings } = useOrgSettings()
+const assistantLogoFailed = ref(false)
+const companyLogoUrl = computed(() => responseOrgSettings.value?.config?.general?.icon_url || null)
+const assistantLogoUrl = computed(() => !assistantLogoFailed.value && companyLogoUrl.value
+    ? companyLogoUrl.value : '/assets/logo-128.png')
+watch(companyLogoUrl, () => { assistantLogoFailed.value = false })
 
 const messages = ref<ChatMessage[]>([])
 
@@ -1555,6 +1556,31 @@ const blockGroupings = computed(() => {
 	return out
 })
 
+function effortLabel(effort: string): string {
+    const key = `prompt.effort.levels.${effort}`
+    return ['off', 'low', 'medium', 'high', 'max'].includes(effort)
+        ? t(key)
+        : effort.charAt(0).toUpperCase() + effort.slice(1)
+}
+
+// Reasoning immediately after a research group belongs inside its disclosure.
+// Its answer and deliverable stay outside, in their original order.
+function reasoningActivityGroup(m: ChatMessage, block: any) {
+    const blocks = visibleBlocks(m)
+    const index = blocks.findIndex(b => b.id === block.id)
+    if (index < 1 || steersBeforeBlock(m, index).length) return null
+    const grouping = blockGroupings.value.get(String(m.id))
+    if (grouping?.groupOf[String(block.id)]) return null
+    const group = grouping?.groupOf[String(blocks[index - 1].id)]
+    return group && !group.verification ? group : null
+}
+function reasoningForGroup(m: ChatMessage, block: any) {
+    const group = groupHeaderFor(m, block)
+    return group ? visibleBlocks(m).filter(b =>
+        (b.reasoning || b.plan_decision?.reasoning) && reasoningActivityGroup(m, b)?.id === group.id
+    ) : []
+}
+
 function groupHeaderFor(m: ChatMessage, block: any) {
 	return blockGroupings.value.get(String(m.id))?.headerAt[String(block.id)]
 }
@@ -1732,12 +1758,8 @@ let transcriptResizeObserver: ResizeObserver | null = null
 // reader's own wheel/touch, the jump pill or the next send end the hold.
 const PIN_TOP_GAP_PX = 48
 const PIN_SCROLL_MS = 380
-// Leave the view alone when the sent prompt is visible with at least this
-// share of the view free below it for the answer to start in.
-const PIN_MIN_ROOM_RATIO = 0.35
 let pinScrolled = false
-// Where the held turn sits in the view: PIN_TOP_GAP_PX once scrolled to the
-// top, or wherever it already was when there was room and nothing moved.
+// Where the held turn sits, allowing room for the preceding footer.
 let pinOffsetPx = PIN_TOP_GAP_PX
 // Extra floor below the held position. The view grows when the composer's
 // "Working" row goes away at the end of a run; without slack that clamps the
@@ -2018,7 +2040,6 @@ function onInstructionResolved(_e: Event) {
     loadReportSummary().catch(() => {})
 }
 onMounted(() => {
-    loadLlmModels()
     if (typeof window !== 'undefined') {
         window.addEventListener('instruction:resolved', onInstructionResolved)
     }
@@ -3012,10 +3033,6 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
-function hasClarifyBlock(m: ChatMessage): boolean {
-	return (m.completion_blocks || []).some(b => b.tool_execution?.tool_name === 'clarify')
-}
-
 function getToolComponent(toolName: string) {
 	// Native per-list tools (submit_<list>) stream under their own name
 	// before the gateway rewrite to submit_list.
@@ -3226,66 +3243,16 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
-function shouldShowWorkingDots(message: ChatMessage): boolean {
-	// Only show for system messages that are in progress
-	if (message.role !== 'system' || message.status !== 'in_progress') {
-		return false
-	}
-	
-	// Don't show dots if the message was killed (sigkill timestamp exists)
-	if (message.sigkill) {
-		return false
-	}
-	
-	// CASE 1: No blocks yet - show dots (initial startup phase)
-	if (!message.completion_blocks || message.completion_blocks.length === 0) {
-		return true
-	}
-	
-	// CASE 2: Blocks exist but no meaningful content yet (early startup)
-	const hasAnyMeaningfulContent = message.completion_blocks.some(block => 
-		block.plan_decision?.reasoning || 
-		block.reasoning || 
-		block.content ||
-		block.tool_execution
-	)
-	
-	// If no meaningful content yet, show dots
-	if (!hasAnyMeaningfulContent) {
-		return true
-	}
-	
-	// CASE 3: Check if we're in a "gap" between blocks during streaming
-	const lastBlock = message.completion_blocks[message.completion_blocks.length - 1]
-	
-	// If the last block has final_answer and analysis_complete, we're truly done
-	if (lastBlock?.plan_decision?.analysis_complete === true) {
-		return false
-	}
-	
-	// Check if the last block has finished its main content but no tools are running
-	const lastBlockHasContent = lastBlock && (
-		lastBlock.content ||
-		lastBlock.plan_decision?.final_answer
-	)
-	
-	// Check if tools are actively running
-	const hasActiveTools = message.completion_blocks.some(block => 
-		block.tool_execution?.status === 'running' || 
-		block.status === 'in_progress'
-	)
-	
-	// Check if any block is actively streaming text (has reasoning but no assistant yet)
-	const hasStreamingContent = message.completion_blocks.some(block => 
-		(block.plan_decision?.reasoning && !block.content) ||
-		(block.reasoning && !block.content)
-	)
-	
-	// Show dots when:
-	// 1. System is in progress AND
-	// 2. No active tools/streaming AND
-	// 3. Last block has content but system continues (preparing next block)
-	return !hasActiveTools && !hasStreamingContent && (!!lastBlockHasContent && message.status === 'in_progress')
+// Run-level activity stays visible even while reasoning is collapsed or a
+// tool is waiting without emitting text. Terminal states remove it immediately.
+function showWaitingIndicator(message: ChatMessage): boolean {
+    if (message.role !== 'system' || message.status !== 'in_progress' || message.sigkill) return false
+    // A visible running tool supplies its own progress indicator.
+    return !visibleBlocks(message).some(block =>
+        block.tool_execution?.status === 'running'
+        && !isBlockFolded(message, block)
+        && !isEditRunFolded(message, block)
+    )
 }
 
 function getThoughtProcessLabel(block: CompletionBlock): string {
@@ -3378,9 +3345,9 @@ function goBack() {
 }
 
 function toggleReasoning(messageId: string) {
-	// Mark as manually toggled so auto-collapse won't override user's choice
+	const wasCollapsed = isReasoningCollapsed(messageId)
 	manuallyToggledReasoning.value.add(messageId)
-	if (collapsedReasoning.value.has(messageId)) {
+	if (wasCollapsed) {
 		collapsedReasoning.value.delete(messageId)
 	} else {
 		collapsedReasoning.value.add(messageId)
@@ -3388,7 +3355,7 @@ function toggleReasoning(messageId: string) {
 }
 
 function isReasoningCollapsed(messageId: string) {
-	return collapsedReasoning.value.has(messageId)
+	return !manuallyToggledReasoning.value.has(messageId) || collapsedReasoning.value.has(messageId)
 }
 
 function toggleToolDetails(toolId: string) {
@@ -3598,8 +3565,7 @@ function animateScrollTo(container: HTMLElement, target: number) {
 }
 
 // The user just sent `messageId`. Its answer streams in below it without the
-// view chasing the bottom. If the prompt is already on screen with room under
-// it, nothing moves; otherwise the view eases the prompt up near the top.
+// view chasing the bottom. Every submission moves the prompt near the top.
 function pinTurnToTop(messageId: string) {
   pinnedId.value = messageId
   pinScrolled = false
@@ -3611,23 +3577,22 @@ function pinTurnToTop(messageId: string) {
     const el = container?.querySelector(`[data-message-id="${messageId}"]`) as HTMLElement | null
     if (!container || !el || pinnedId.value !== messageId) return
     const top = offsetInContainer(el, container)
-    const viewTop = container.scrollTop
-    const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
-    if (top >= viewTop && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
-      // Room to answer in place: don't scroll, but keep the turn where it is.
-      pinOffsetPx = top - viewTop
-      pinScrolled = true
-      updatePinSpacer()
-      startPinWatch()
-      return
+    // Keep the preceding answer's footer fully visible above the new prompt.
+    let previous = el.previousElementSibling
+    let footer: Element | null = null
+    while (previous && !footer) {
+      footer = previous.querySelector('[data-completion-footer]')
+      previous = previous.previousElementSibling
     }
-    pinOffsetPx = PIN_TOP_GAP_PX
+    const footerTop = footer ? offsetInContainer(footer, container) : null
+    const topGap = footerTop === null ? PIN_TOP_GAP_PX : Math.max(PIN_TOP_GAP_PX, top - footerTop + 12)
+    pinOffsetPx = topGap
     pinScrolled = true
     updatePinSpacer()
     startPinWatch()
     nextTick(() => {
       if (pinnedId.value !== messageId) return
-      animateScrollTo(container, offsetInContainer(el, container) - PIN_TOP_GAP_PX)
+      animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
     })
   }))
 }
@@ -3793,6 +3758,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					sysMessage._loaded_instructions.push({ ...inst, source: payload.source || 'context_build' })
 				}
 			}
+			break
+
+		case 'completion.effort':
+			sysMessage.prompt = { ...(sysMessage.prompt || {}), reasoning_effort: payload.reasoning_effort }
+			break
+
+		case 'completion.language':
+			sysMessage.prompt = { ...(sysMessage.prompt || {}), response_locale: payload.locale }
 			break
 
 		case 'completion.follow_ups':
@@ -5123,8 +5096,6 @@ const handleOfficeJsResult = async (event: MessageEvent) => {
     }
 }
 
-const markdownAutoDir = ref<{ stop: () => void } | null>(null)
-
 onMounted(() => {
     window.addEventListener('dashboard:ensure_open', () => {
         if (!isSplitScreen.value) toggleSplitScreen()
@@ -5138,7 +5109,6 @@ onMounted(() => {
     // Scoped to this report; reuses the debounced, mid-stream-safe reload.
     window.addEventListener('report:mutated', onReportMutated as EventListener)
     window.addEventListener('report:updated', onReportUpdatedEvent as EventListener)
-    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 // Mirror a report's agent scope into the user's default (memberships
@@ -5333,7 +5303,6 @@ onUnmounted(() => {
 	stopWatchStream()
 	stopKickoffWatchdog()
 	document.removeEventListener('visibilitychange', onStreamVisibilityChange)
-	markdownAutoDir.value?.stop()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 	// Tear down lazy step-data hydration
@@ -5613,8 +5582,9 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function createSystemPlaceholder(id: string, model?: string): ChatMessage {
+function createSystemPlaceholder(id: string, model?: string, effort?: string | null): ChatMessage {
 	return { id, role: 'system', status: 'in_progress', model: model || undefined,
+		_animateEntry: true, prompt: { reasoning_effort: effort || undefined },
 		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
 }
 
@@ -5637,7 +5607,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 
 	// Append placeholder system message for streaming
 	const sysId = `system-${Date.now()}`
-	const sysMsg = createSystemPlaceholder(sysId, data.model_id)
+	const sysMsg = createSystemPlaceholder(sysId, data.model_id, data.reasoning_effort || report.value?.reasoning_effort)
 	messages.value.push(sysMsg)
 	pinTurnToTop(userMsg.id)
 
@@ -6324,13 +6294,26 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* One spacing rule for both directions; hidden event rows add no gaps. */
+.transcript-message:has(> *) ~ .transcript-message:has(> *) {
+  margin-block-start: 2rem;
+}
+/* The user metadata row already adds separation above the answer. */
+.transcript-message[data-message-role="user"] + .transcript-message[data-message-role="system"] {
+  margin-block-start: 1rem;
+}
+
 .overflow-y-auto {
 	overflow-y: auto !important;
 }
 
 /* Thinking box - collapsible reasoning */
 .thinking-box {
-	margin-bottom: 4px;
+	margin: 0;
+}
+.grouped-thinking {
+    margin-block: 8px;
+    padding-inline-start: 16px;
 }
 
 .thinking-header {
@@ -6378,12 +6361,38 @@ onMounted(async () => {
 
 /* Tool execution - clear visual separation */
 .tool-execution-container {
-	margin: 8px 0;
+    margin: 0;
+}
+/* The transcript owns outer spacing; tool components own their interiors. */
+.tool-execution-container > :deep(*) {
+    margin-block: 0;
+}
+.response-block-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.response-block-body > .block-content:not(:first-child),
+.response-block-body > .block-content + * {
+    margin-block-start: 8px;
+}
+.response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview))
+~ .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview)) {
+    margin-block-start: var(--response-block-gap, 16px);
+}
+.response-block:has(> [data-testid="block-group-header"]) > .response-block-body:not([style*="display: none"]) {
+    margin-block-start: 8px;
+}
+.response-block.activity-only + .response-block.activity-only {
+    --response-block-gap: 8px;
+}
+.tool-preview > :deep(*) {
+    margin-block: 0;
 }
 
 /* Block content - assistant messages */
 .block-content {
-	margin-bottom: 4px;
+	margin-bottom: 0;
 	font-size: 13px;
 }
 
@@ -6393,19 +6402,36 @@ onMounted(async () => {
 	@apply leading-relaxed;
 	font-size: 13px;
 	--typewriter-fade-duration: 180ms;
+	/* Markstream otherwise paints bullets pale gray and counters slate. */
+	--list-item-marker: currentColor;
+	--list-item-counter-marker: currentColor;
 	--stream-update-fade-duration: 180ms;
 	--typewriter-fade-ease: ease-out;
 	--stream-update-fade-ease: ease-out;
 	contain: content;
 
-	/* Paragraph spacing to match streaming text appearance */
+	/* Markstream wraps every paragraph in its own node-content, so each
+	   paragraph is a last child. Space sibling blocks at the slot level. */
 	p {
-		margin-bottom: 1em;
+		margin-bottom: 0;
 		unicode-bidi: plaintext;
 	}
 	p:last-child {
 		margin-bottom: 0;
 	}
+    > .node-slot {
+        margin-block: 0;
+    }
+    > .node-slot + .node-slot {
+        margin-block-start: 10px;
+    }
+    > .node-slot + .node-slot[data-node-type="table"],
+    > .node-slot[data-node-type="table"] + .node-slot {
+        margin-block-start: 16px;
+    }
+    .table-node-wrapper, .table-node {
+        margin-block: 0;
+    }
 
 	:where(h1, h2, h3, h4, h5, h6) {
 		@apply font-bold mb-4 mt-6;
@@ -6421,7 +6447,10 @@ onMounted(async () => {
 	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
-	li { @apply mb-1.5; unicode-bidi: plaintext; }
+	/* Override both margins from the renderer's my-2. Keep compact rows,
+	   including nested lists, without adding space around the whole list. */
+	li { margin-block: 0; unicode-bidi: plaintext; }
+	li + li { margin-block-start: 0.285714em; }
 	li > p:only-child,
 	li > p:last-child { margin-bottom: 0; }
 
@@ -6482,7 +6511,7 @@ onMounted(async () => {
 		opacity: 1;
 	}
 	blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
-	table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
+	table { @apply w-full border-collapse; margin-block: 0; unicode-bidi: plaintext; }
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 
 	/* useMarkdownAutoDir stamps an explicit dir (dominant-direction estimate)
@@ -6542,6 +6571,18 @@ onMounted(async () => {
 
 
 /* The turn just sent rises into place as the view eases it to the top. */
+/* Fade only the avatar and model label, without shifting the response. */
+@keyframes completion-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.completion-enter {
+  animation: completion-enter 180ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .completion-enter { animation: none; }
+}
+
 @keyframes turn-enter {
   from { opacity: 0; transform: translateY(12px); }
   to { opacity: 1; transform: none; }
@@ -6593,7 +6634,8 @@ onMounted(async () => {
  * Chat reading size.
  *
  * One size at every viewport, scaled by the reader's own preference
- * (`--bow-chat-font-size`, default 16px/24px — see assets/css/tokens.css).
+ * (`--bow-chat-font-size`, default 15px with a 1.6 line height — see
+ * assets/css/tokens.css).
  * What this replaces was a `max-width: 767px` block that raised the
  * transcript to 15px on phones only, leaving the desktop transcript on the
  * 14px it inherited from the row's `text-sm` — so the product read *smaller*
@@ -6602,7 +6644,7 @@ onMounted(async () => {
  *
  * The secondary tiers use --bow-chat-font-size-2 rather than a pinned px
  * value, so a reader who scales up gets larger code and reasoning text too.
- * At the default it is 13px, which is what they were pinned to.
+ * At the 15px default it is about 14px.
  */
 .chat-messages:not(.compact-messages) .block-content,
 .chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
@@ -6629,8 +6671,12 @@ onMounted(async () => {
 	font-size: var(--bow-chat-font-size-2) !important;
 }
 
-@keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
-.simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }
+
+/* Identity and content share one row, mirrored for RTL responses. */
+.assistant-content {
+    position: relative;
+}
+
 
 @keyframes shimmer {
 	0% { background-position: -100% 0; }

@@ -28,8 +28,7 @@
  *    words or fewer ("Summary", "Key Drivers") follow the surrounding
  *    direction.
  *  - A list or table decides once; its `<th>` / `<td>` take that direction
- *    and its `<li>` do too unless an item is more than three words and almost
- *    entirely the other script. A list item's own paragraph follows the item, so text and
+ *    and every `<li>` takes that same direction. A list item's own paragraph follows the item, so text and
  *    marker stay together. A list or table keeps the answer's direction
  *    unless it is almost entirely the other script.
  *
@@ -41,15 +40,14 @@
  * chat pages' CSS switches stamped blocks from `unicode-bidi: plaintext` to
  * `isolate` so the explicit dir governs alignment.
  */
-import { countDirWords, decideDir, isSignedNumber, SHORT_BLOCK_WORDS, type DirCounts, type TextDir } from '~/utils/textDirection'
+import { countDirWords, decideDir, resolveDirTree, type DirCounts, type DirNode, type DirNodeKind, type TextDir } from '~/utils/textDirection'
 
-const BLOCK_SELECTOR = 'ol, ul, li, p, h1, h2, h3, h4, h5, h6, blockquote, table, th, td'
+const BLOCK_SELECTOR = 'ol, ul, li, p, h1, h2, h3, h4, h5, h6, blockquote, table, tr, th, td'
 // `.markstream-vue` is the renderer's own root class, so every MarkdownRender
-// (note cards, modals) is covered, not only the chat containers.
-const SCOPE_SELECTOR = '.markdown-wrapper, .markdown-content, .markstream-vue'
-const CONTAINER_TAGS = new Set(['UL', 'OL', 'TABLE'])
-// Below this many voting words the root has no reliable direction yet.
-const ROOT_MIN_WORDS = 4
+// (note cards, modals) is covered, not only the chat containers. `<MDC>`
+// renders carry `.markdown-content`; `.chat-md` is the shared-dashboard chat
+// and `.rendered-html` the dashboard text widget.
+const SCOPE_SELECTOR = '.markdown-wrapper, .markdown-content, .markstream-vue, .chat-md, .rendered-html'
 
 function isDir(v: string | null | undefined): v is TextDir {
   return v === 'rtl' || v === 'ltr'
@@ -108,62 +106,58 @@ function stamp(el: Element, dir: TextDir | null) {
   if (el.getAttribute('dir') !== dir) el.setAttribute('dir', dir)
 }
 
-export function stampRoot(root: Element) {
-  const counts = countElementWords(root)
-  const total = counts.rtl + counts.ltr
-  const replyHint = replyHintOf(root)
-  const rootDir = replyHint
-    ? decideDir(counts, { context: replyHint, container: true })
-    : total < ROOT_MIN_WORDS
-      ? (uiDir() ?? decideDir(counts))
-      : decideDir(counts)
-
-  const decided = new Map<Element, TextDir | null>()
-  const contextFor = (el: Element): TextDir | null => {
-    const parentBlock = el.parentElement?.closest(BLOCK_SELECTOR)
-    if (parentBlock && root.contains(parentBlock) && decided.has(parentBlock)) {
-      return decided.get(parentBlock) ?? rootDir
-    }
-    return rootDir
-  }
-
-  // querySelectorAll is document order: every block's ancestors are decided
-  // before the block itself.
-  root.querySelectorAll(BLOCK_SELECTOR).forEach((el) => {
-    let dir: TextDir | null
-    const parentBlock = el.parentElement?.closest(BLOCK_SELECTOR)
-    if (el.tagName === 'LI') {
-      // An item keeps its list's direction (markers on one side) unless it
-      // is more than a few words and almost entirely the other script — an
-      // English sentence bullet in a Hebrew list gets its own LTR marker and
-      // text, while "North: 1.2M USD" stays with its Hebrew list.
-      const list = el.parentElement?.closest('ul, ol')
-      const listDir = (list && decided.get(list)) || contextFor(el)
-      dir = decideDir(countElementWords(el), { context: listDir, container: true, minWords: SHORT_BLOCK_WORDS })
-    } else if (parentBlock?.tagName === 'LI' && root.contains(parentBlock) && /^(P|H[1-6])$/.test(el.tagName)) {
-      // An item's own paragraph aligns with its marker.
-      dir = decided.get(parentBlock) || contextFor(el)
-    } else if (el.tagName === 'TH' || el.tagName === 'TD') {
-      const table = el.closest('table')
-      dir = (table && decided.get(table)) || contextFor(el)
-      // "+12%" in an RTL table: lay the value out LTR so the sign stays in
-      // front; rtl.css keeps it aligned to the table's start (right) edge.
-      const signed = dir === 'rtl' && isSignedNumber(el.textContent)
-      if (signed) dir = 'ltr'
-      el.toggleAttribute('data-bidi-num', signed)
-    } else {
-      dir = decideDir(countElementWords(el), {
-        context: contextFor(el),
-        container: CONTAINER_TAGS.has(el.tagName),
-      })
-    }
-    decided.set(el, dir)
-    stamp(el, dir)
-  })
+const KIND_BY_TAG: Record<string, DirNodeKind> = {
+  UL: 'list', OL: 'list', LI: 'item', TABLE: 'table', TR: 'row', TH: 'cell', TD: 'cell', BLOCKQUOTE: 'quote',
 }
+
+// The answer's blocks as a tree (each block under its nearest block
+// ancestor), in document order, for resolveDirTree.
+function blockTree(root: Element): DirNode<Element>[] {
+  const roots: DirNode<Element>[] = []
+  const byEl = new Map<Element, DirNode<Element>>()
+  root.querySelectorAll(BLOCK_SELECTOR).forEach((el) => {
+    const kind = KIND_BY_TAG[el.tagName] ?? 'block'
+    const node: DirNode<Element> = {
+      kind,
+      counts: kind === 'row' ? { rtl: 0, ltr: 0 } : countElementWords(el),
+      text: kind === 'cell' ? el.textContent || '' : undefined,
+      children: [],
+      ref: el,
+    }
+    byEl.set(el, node)
+    const parentEl = el.parentElement?.closest(BLOCK_SELECTOR)
+    const parent = parentEl && root.contains(parentEl) ? byEl.get(parentEl) : undefined
+    ;(parent ? parent.children : roots).push(node)
+  })
+  return roots
+}
+
+export function stampRoot(root: Element) {
+  const tree = blockTree(root)
+  // A reply carries the question's direction as a hint and may still be
+  // streaming; anything else (notes, eval/trace markdown, MDC) is settled.
+  const hint = replyHintOf(root)
+  const savedDirection = root.closest('[data-response-dir]')?.getAttribute('data-response-dir')
+  resolveDirTree(tree, countElementWords(root), {
+    hint, direction: isDir(savedDirection) ? savedDirection : null,
+    fallback: uiDir(), settled: !hint,
+  })
+  const apply = (node: DirNode<Element>) => {
+    stamp(node.ref, node.dir ?? null)
+    // "+12%" in an RTL table is laid out LTR; rtl.css keeps it right-aligned.
+    if (node.kind === 'cell') node.ref.toggleAttribute('data-bidi-num', !!node.signedNumber)
+    node.children.forEach(apply)
+  }
+  tree.forEach(apply)
+}
+
+// One observer for the whole app (plugins/markdown-auto-dir.client.ts starts
+// it); later calls reuse it.
+let active: { stop: () => void } | null = null
 
 export function useMarkdownAutoDir() {
   if (typeof window === 'undefined') return { stop: () => {} }
+  if (active) return active
 
   const restamp = (roots: Set<Element>) => {
     roots.forEach((root) => { if (root.isConnected) stampRoot(root) })
@@ -179,7 +173,7 @@ export function useMarkdownAutoDir() {
     for (const m of mutations) {
       if (m.type === 'attributes') {
         const el = m.target as Element
-        if (m.attributeName === 'data-dir-hint') {
+        if (m.attributeName === 'data-dir-hint' || m.attributeName === 'data-response-dir') {
           el.querySelectorAll(SCOPE_SELECTOR).forEach((s) => add(s))
           continue
         }
@@ -205,7 +199,7 @@ export function useMarkdownAutoDir() {
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['dir', 'data-dir-hint'],
+    attributeFilter: ['dir', 'data-dir-hint', 'data-response-dir'],
   })
 
   const initial = new Set<Element>()
@@ -215,5 +209,6 @@ export function useMarkdownAutoDir() {
   })
   restamp(initial)
 
-  return { stop() { observer.disconnect() } }
+  active = { stop() { observer.disconnect(); active = null } }
+  return active
 }

@@ -1,5 +1,5 @@
 <template>
-  <div class="mb-2 text-xs text-gray-600 dark:text-gray-300">
+  <div class="mb-2 text-chat-2 text-gray-600 dark:text-gray-300">
     <button type="button" class="flex items-center gap-1.5 text-start" :aria-expanded="expanded" @click="expanded = !expanded">
       <UIcon :name="expanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
       <UIcon :name="failed ? 'i-heroicons-exclamation-circle' : 'i-heroicons-circle-stack'" :class="failed ? 'text-amber-500' : 'text-blue-500'" class="w-4 h-4" />
@@ -11,8 +11,8 @@
       <p v-if="result.committed === false">{{ t('tools.resource.noChanges') }}</p>
       <p v-else-if="result.records_preserved">{{ t('tools.resource.preserved') }}</p>
       <dl v-if="result.changed_sections?.length" class="flex gap-2"><dt>{{ t('tools.resource.changed') }}</dt><dd>{{ result.changed_sections.join(', ') }}</dd></dl>
-      <details v-if="result.changes && Object.keys(result.changes).length"><summary class="cursor-pointer">{{ t('tools.resource.changed') }}</summary><pre class="mt-2 text-2xs whitespace-pre-wrap break-words max-h-64 overflow-auto">{{ JSON.stringify(result.changes, null, 2) }}</pre></details>
-      <details v-if="result.definition"><summary class="cursor-pointer">{{ t('artifactResources.schema') }}</summary><pre class="mt-2 text-2xs whitespace-pre-wrap break-words max-h-64 overflow-auto">{{ JSON.stringify(result.definition, null, 2) }}</pre></details>
+      <details v-if="result.changes && Object.keys(result.changes).length"><summary class="cursor-pointer">{{ t('tools.resource.changed') }}</summary><pre class="mt-2 text-chat-2 whitespace-pre-wrap break-words max-h-64 overflow-auto">{{ JSON.stringify(result.changes, null, 2) }}</pre></details>
+      <details v-if="result.definition"><summary class="cursor-pointer">{{ t('artifactResources.schema') }}</summary><pre class="mt-2 text-chat-2 whitespace-pre-wrap break-words max-h-64 overflow-auto">{{ JSON.stringify(result.definition, null, 2) }}</pre></details>
       <UButton v-if="artifactId" size="xs" color="gray" variant="ghost" icon="i-heroicons-circle-stack" @click="inspect = true">{{ t('artifactResources.data') }}</UButton>
     </div>
     <ArtifactResourceExplorer v-if="inspect && artifactId" :artifact-id="artifactId" @close="inspect = false" />
@@ -20,7 +20,7 @@
 </template>
 <script setup lang="ts">
 const props = defineProps<{toolExecution: any}>()
-const {t} = useI18n()
+const {t} = useResponseI18n()
 const expanded = ref(false), inspect = ref(false)
 const result = computed(()=>({...props.toolExecution.result_json, ...props.toolExecution.result_json?.observation}))
 const args = computed(()=>props.toolExecution.arguments_json || {})

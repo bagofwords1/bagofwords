@@ -2203,6 +2203,22 @@ Do not use generic placeholders like "value" unless that is the actual column na
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
         formatted = await streamer.format_df_for_widget_async(exec_df)
+        response_locale = runtime_ctx.get("response_locale")
+        if response_locale:
+            from app.ai.response_language import localize_column_headers
+            language_llm = LLM(
+                runtime_ctx.get("small_model") or runtime_ctx.get("model"),
+                usage_session_maker=async_session_maker,
+                usage_context=runtime_ctx.get("usage_limit_context"),
+            )
+            async def infer_labels(prompt):
+                chunks = []
+                async for chunk in language_llm.inference_stream(
+                    prompt, usage_scope="response.column_labels", max_output_tokens=1024,
+                ):
+                    chunks.append(chunk)
+                return "".join(chunks)
+            await localize_column_headers(infer_labels, formatted, response_locale)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)

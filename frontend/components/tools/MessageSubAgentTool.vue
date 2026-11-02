@@ -1,5 +1,5 @@
 <template>
-  <div class="my-1 text-xs" data-testid="sub-agent-message">
+  <div class="my-1 text-chat-2" data-testid="sub-agent-message">
     <div v-if="sending" class="flex items-center gap-1.5 text-gray-500 tool-shimmer">
       <Spinner class="w-3 h-3" />{{ t('tools.messageSubAgent.sending') }}
     </div>
@@ -12,7 +12,7 @@
       <div class="mt-1.5 ms-5 space-y-2">
         <p class="whitespace-pre-wrap break-words text-gray-700 dark:text-gray-300" dir="auto">{{ body }}</p>
         <p v-if="failed" class="text-amber-700 dark:text-amber-400">{{ error || t('tools.messageSubAgent.failedHint') }}</p>
-        <p v-else class="text-2xs text-gray-500">{{ t('tools.messageSubAgent.sentHint') }}</p>
+        <p v-else class="text-chat-2 text-gray-500">{{ t('tools.messageSubAgent.sentHint') }}</p>
       </div>
     </details>
   </div>
@@ -20,9 +20,9 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any; error_message?: string; result_summary?: string } }>()
 const subAgents = inject<any>('subAgents', null)
 const result = computed(() => props.toolExecution.result_json || {})

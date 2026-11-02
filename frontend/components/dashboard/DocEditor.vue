@@ -198,6 +198,11 @@ const isDirty = ref(false)
 // re-keys this component — but reset here too rather than depend on that.
 watch(() => props.markdown, () => { isDirty.value = false })
 
+function editorDir(text: string): 'rtl' | 'ltr' {
+  if (text.trim()) return detectDocDir(text)
+  return document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : 'ltr'
+}
+
 onMounted(() => {
   editor.value = new Editor({
     content: preprocessForEditor(props.markdown),
@@ -221,7 +226,9 @@ onMounted(() => {
       // Direction inferred from the doc content (Hebrew/Arabic → RTL), not the
       // UI locale — a Hebrew doc edited by an English-UI user stays RTL. An
       // explicit dir (never dir="auto") keeps the caret placed correctly.
-      attributes: { class: 'focus:outline-none', dir: detectDocDir(props.markdown) },
+      // Re-evaluated on every edit (it used to be frozen at mount, so typing
+      // Hebrew into a new doc stayed LTR); an empty doc follows the UI.
+      attributes: (state: any) => ({ class: 'focus:outline-none', dir: editorDir(state.doc.textContent) }),
     },
     onUpdate: () => { isDirty.value = true },
   })

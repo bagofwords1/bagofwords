@@ -49,7 +49,8 @@ Hebrew vocabulary conventions: "הנחיות" (never "הוראות"), "גלרי�
   `:dir` to the active locale.
 - Content direction (chat answers, prompt bubbles, notes, dashboards) follows
   the text, not the locale: `frontend/utils/textDirection.ts` (word vote) and
-  `frontend/composables/useMarkdownAutoDir.ts`. Never nest `dir="auto"`
+  `frontend/composables/useMarkdownAutoDir.ts` (app-wide), `v-text-dir`
+  (`frontend/plugins/text-dir.ts`) for titles and inputs. Never nest `dir="auto"`
   inside `dir="auto"` — the outer one resolves LTR. Rules and rationale:
   `docs/design/i18n.md` → "Content direction".
 

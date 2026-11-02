@@ -15,16 +15,16 @@
         </span>
       </template>
     </div>
-    <p v-if="latest" class="ms-4 text-2xs text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>
+    <p v-if="latest" class="ms-4 text-chat-2 text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})

@@ -62,7 +62,7 @@
                         <section v-show="tab === 'general'" class="space-y-6" data-testid="settings-general">
                             <div data-testid="settings-name">
                                 <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5" for="dashboard-settings-name">{{ $t('dashboardSettings.nameTitle') }}</label>
-                                <input id="dashboard-settings-name" v-model="nameDraft" type="text" maxlength="255" :disabled="!rename"
+                                <input v-text-dir id="dashboard-settings-name" v-model="nameDraft" type="text" maxlength="255" :disabled="!rename"
                                     :placeholder="tm('artifactFrame.renamePlaceholder', artifactMode)"
                                     class="w-full h-9 px-3 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60" />
                                 <!-- No rename here: the owner renames it from a conversation of their own. -->

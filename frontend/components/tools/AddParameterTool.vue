@@ -8,10 +8,10 @@
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else name="heroicons-adjustments-horizontal" class="w-3 h-3 me-1.5 text-ink-muted" />
 
-      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.addParameter.adding', { name: paramLabel }) }}</span>
-      <span v-else-if="hasError" class="text-gray-700 dark:text-gray-300">{{ $t('tools.addParameter.failed', { name: paramLabel }) }}</span>
-      <span v-else-if="queryTitle" class="text-gray-700 dark:text-gray-300">{{ $t('tools.addParameter.added', { name: paramLabel, query: queryTitle }) }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.addParameter.addedNoQuery', { name: paramLabel }) }}</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.addParameter.adding', { name: paramLabel }) }}</span>
+      <span v-else-if="hasError" class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.failed', { name: paramLabel }) }}</span>
+      <span v-else-if="queryTitle" class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.added', { name: paramLabel, query: queryTitle }) }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.addedNoQuery', { name: paramLabel }) }}</span>
 
       <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
@@ -19,13 +19,13 @@
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- What was declared: type, default, bound column -->
-      <div v-if="status === 'success' && !hasError" class="mt-1 ms-[18px] flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
-        <span v-if="param.type">{{ $t('tools.addParameter.type', { type: param.type }) }}</span>
-        <span>{{ $t('tools.addParameter.default', { value: defaultLabel }) }}</span>
-        <span v-if="column">{{ $t('tools.addParameter.column', { column }) }}</span>
+      <div v-if="status === 'success' && !hasError" class="mt-1 ms-[18px] flex flex-wrap gap-x-3 gap-y-0.5 text-chat-2 text-gray-500 dark:text-gray-400">
+        <span v-if="param.type">{{ t('tools.addParameter.type', { type: param.type }) }}</span>
+        <span>{{ t('tools.addParameter.default', { value: defaultLabel }) }}</span>
+        <span v-if="column">{{ t('tools.addParameter.column', { column }) }}</span>
       </div>
       <!-- Error -->
-      <div v-if="hasError && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="hasError && errorMessage" class="mt-1 ms-[18px] text-chat-2 text-gray-500 dark:text-gray-400">
         {{ errorMessage }}
       </div>
     </template>
@@ -60,7 +60,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const isCollapsed = ref(true)
 const status = computed(() => props.toolExecution.status)

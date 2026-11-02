@@ -6,24 +6,24 @@
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">
             <template v-if="modelTitle">{{ modelTitle }}</template>
-            <template v-else>{{ $t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
+            <template v-else>{{ t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
           </span>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
-          <span>{{ modelTitle || $t('tools.webFetch.fetched') }}</span>
+          <span>{{ modelTitle || t('tools.webFetch.fetched') }}</span>
           <span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
-          <span v-if="statusCode" class="ms-1.5 text-2xs text-ink-muted shrink-0">{{ statusCode }}</span>
+          <span v-if="statusCode" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">{{ statusCode }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ $t('tools.webFetch.failed') }}</span>
+          <span>{{ t('tools.webFetch.failed') }}</span>
           <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
         </span>
       </div>
     </Transition>
 
-    <div v-if="!isSuccess && status !== 'running' && errorMessage" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="!isSuccess && status !== 'running' && errorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ errorMessage }}
     </div>
   </div>
@@ -31,10 +31,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

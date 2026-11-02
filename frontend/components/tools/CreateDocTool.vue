@@ -8,13 +8,13 @@
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
       <Icon v-else name="heroicons-document-text" class="w-3 h-3 me-1.5 text-ink-muted" />
 
-      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.createDoc.writing') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.created') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.failed') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.label') }}</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.createDoc.writing') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.created') }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.failed') }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.label') }}</span>
 
-      <span v-if="vizCount > 0" class="ms-2 px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-        {{ $t('tools.createDoc.chartsCount', { n: vizCount }) }}
+      <span v-if="vizCount > 0" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+        {{ t('tools.createDoc.chartsCount', { n: vizCount }) }}
       </span>
       <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
@@ -22,11 +22,11 @@
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- Outline -->
-      <div v-if="outline.length" class="mt-1 ms-[18px] text-xs text-ink-muted space-y-0.5">
-        <div v-for="(h, i) in outline" :key="i" class="truncate font-mono text-2xs">{{ h }}</div>
+      <div v-if="outline.length" class="mt-1 ms-[18px] text-chat-2 text-ink-muted space-y-0.5">
+        <div v-for="(h, i) in outline" :key="i" class="truncate font-mono text-chat-2">{{ h }}</div>
       </div>
       <!-- Error -->
-      <div v-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-xs text-gray-500 dark:text-gray-400">
+      <div v-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-chat-2 text-gray-500 dark:text-gray-400">
         {{ errorMessage }}
       </div>
     </template>
@@ -42,11 +42,11 @@
           <Icon name="heroicons:document-text" class="w-5 h-5 text-emerald-500" />
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">
-            {{ docTitle || $t('tools.createDoc.untitled') }}
+          <div class="text-chat-2 font-medium text-gray-700 dark:text-gray-300 truncate">
+            {{ docTitle || t('tools.createDoc.untitled') }}
           </div>
-          <div class="text-2xs text-ink-muted">
-            {{ status === 'running' ? $t('tools.createDoc.writing') : $t('tools.createDoc.openDocument') }}
+          <div class="text-chat-3 text-ink-muted">
+            {{ status === 'running' ? t('tools.createDoc.writing') : t('tools.createDoc.openDocument') }}
           </div>
         </div>
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-gray-600 dark:group-hover:text-gray-400 flex-shrink-0" />
@@ -56,6 +56,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'

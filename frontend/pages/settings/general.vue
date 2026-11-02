@@ -42,7 +42,7 @@
             <!-- AI Analyst Name -->
             <div class="md:w-2/3 space-y-2">
                 <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.aiAnalystName') }}</div>
-                <UInput v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
+                <UInput v-text-dir v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
             </div>
 
             <!-- Credit toggle -->

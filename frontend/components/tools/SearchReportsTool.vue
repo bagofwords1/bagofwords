@@ -18,12 +18,12 @@
         />
         <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
         <span class="align-middle">Searched reports{{ queryLabel ? ` for ${queryLabel}` : '' }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-2xs text-ink-muted">· {{ total }} {{ total === 1 ? 'match' : 'matches' }}</span>
+        <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total }} {{ total === 1 ? 'match' : 'matches' }}</span>
       </span>
     </div>
 
     <!-- Results list -->
-    <div v-if="reports.length && !isCollapsed" class="text-xs text-gray-600 dark:text-gray-400">
+    <div v-if="reports.length && !isCollapsed" class="text-chat-2 text-gray-600 dark:text-gray-400">
       <ul class="ms-1 space-y-0.5 leading-snug">
         <li v-for="(item, idx) in reports" :key="item.id || idx">
           <div class="flex items-center py-1 px-1 rounded">
@@ -31,12 +31,12 @@
             <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ item.title || 'Untitled' }}</div>
             <span
               v-if="item.status"
-              class="ms-1.5 text-2xs px-1 py-0.5 rounded flex-shrink-0"
+              class="ms-1.5 text-chat-3 px-1 py-0.5 rounded flex-shrink-0"
               :class="item.status === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"
             >
               {{ item.status }}
             </span>
-            <span v-if="item.mode && item.mode !== 'chat'" class="ms-1 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.mode }}</span>
+            <span v-if="item.mode && item.mode !== 'chat'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.mode }}</span>
             <Icon v-if="item.has_artifacts" name="heroicons-chart-bar-square" class="ms-1 w-3 h-3 text-ink-muted flex-shrink-0" title="Has artifacts" />
           </div>
         </li>
@@ -44,7 +44,7 @@
     </div>
 
     <!-- Empty state -->
-    <div v-if="status !== 'running' && !reports.length" class="text-xs text-ink-muted ms-1">
+    <div v-if="status !== 'running' && !reports.length" class="text-chat-2 text-ink-muted ms-1">
       No reports found.
     </div>
   </div>

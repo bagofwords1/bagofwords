@@ -49,7 +49,7 @@
     </Transition>
     <!-- Preview of top tables (collapsed by default; click header to toggle) -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && topTables && topTables.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="!isCollapsed && topTables && topTables.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in topTables.slice(0, 10)" :key="idx">
             <!-- Header row -->
@@ -60,7 +60,7 @@
             >
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
               <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" />
-              <span v-if="item.connection_name" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
+              <span v-if="item.connection_name" class="text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1 flex-shrink-0 truncate max-w-[100px]">{{ item.connection_name }}</span>
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">
                 {{ item.full_name || item.name || 'table' }}
               </div>
@@ -70,7 +70,7 @@
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1">
                 <!-- Columns -->
                 <div v-if="(item.columns || []).length" class="text-gray-500 dark:text-gray-400 mb-1">
-                  <table class="min-w-0 text-2xs">
+                  <table class="min-w-0 text-chat-2">
                     <thead class="text-ink-muted">
                       <tr>
                         <th class="text-start pe-4 font-normal">Column</th>
@@ -123,7 +123,7 @@
                      @click="emit('openInstruction', ins.id)">
                   <Icon name="heroicons-cube" class="w-3 h-3 text-indigo-400 flex-shrink-0" />
                   <span class="truncate">{{ ins.title || ins.text || 'Untitled' }}</span>
-                  <span v-if="ins.category" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
+                  <span v-if="ins.category" class="text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
                 </div>
               </div>
             </Transition>

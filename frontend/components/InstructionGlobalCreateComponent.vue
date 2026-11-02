@@ -363,7 +363,7 @@
 
                 <!-- Title row: inline input + mode toggle + git sync -->
                 <div class="flex items-center justify-between gap-3">
-                    <input
+                    <input v-text-dir
                         v-model="instructionForm.title"
                         type="text"
                         :placeholder="$t('instructionGlobalCreate.titlePlaceholder')"
@@ -2174,7 +2174,7 @@ watch(isViewMode, (newVal) => {
     }
     
     blockquote { 
-        @apply border-l-4 border-gray-200 pl-4 italic my-3 text-gray-600; 
+        @apply border-s-4 border-gray-200 ps-4 italic my-3 text-gray-600; 
     }
     
     table { @apply w-full border-collapse mb-3; }

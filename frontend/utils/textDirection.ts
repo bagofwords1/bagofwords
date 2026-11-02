@@ -16,9 +16,11 @@ export type TextDir = 'rtl' | 'ltr'
 const RTL_CHAR = /[֐-ࣿיִ-﷿ﹰ-ﻼ]/
 const LTR_CHAR = /[A-Za-zÀ-ɏ]/
 // A word that opens with a digit, sign or currency symbol is a quantity
-// ("1.2M", "$118", "-5%", "2024"), not prose. Its unit letters must not vote,
-// or a Hebrew list of amounts reads as English.
-const QUANTITY_START = /^[\p{N}\p{Sc}+\-−±~≈<>(]/u
+// ("1.2M", "$118", "-5%", "2024", "(5%)"), not prose. Its unit letters must
+// not vote, or a Hebrew list of amounts reads as English. Opening brackets and
+// quotes are skipped first: "(אלטרנטיבי)" is a Hebrew word, "(5%)" a quantity.
+const QUANTITY_START = /^[\p{N}\p{Sc}+\-−±~≈<>]/u
+const LEADING_OPENERS = /^[(\[{"'«“„‘‚]+/u
 
 // RTL wins below 50%: RTL prose embeds far more Latin identifiers, acronyms
 // and URLs than the reverse, so mostly-Latin text with a stray RTL word stays
@@ -48,8 +50,9 @@ export function firstStrongDir(text: string): TextDir | null {
 }
 
 export function wordDir(word: string): TextDir | null {
-  if (!word || QUANTITY_START.test(word)) return null
-  return firstStrongDir(word)
+  const core = (word || '').replace(LEADING_OPENERS, '')
+  if (!core || QUANTITY_START.test(core)) return null
+  return firstStrongDir(core)
 }
 
 export interface DirCounts { rtl: number; ltr: number }
@@ -102,7 +105,118 @@ export function dominantTextDir(text: string | null | undefined): TextDir | null
   return decideDir(countDirWords(text || ''))
 }
 
+// ─── Direction for a whole rendered document ─────────────────────────────────
+// One algorithm for every surface that renders blocks of user/model text: the
+// chat markdown observer (DOM), the instruction read view (markdown-it tokens)
+// and the instruction editor (ProseMirror nodes). Each builds this small tree
+// of its blocks and applies the result its own way, so the three can never
+// disagree about which way a block reads.
+
+export type DirNodeKind = 'list' | 'item' | 'table' | 'row' | 'cell' | 'quote' | 'block'
+
+export interface DirNode<R = unknown> {
+  kind: DirNodeKind
+  /** Word counts of the node's prose, code excluded, nested blocks included. */
+  counts: DirCounts
+  /** Plain text, needed for cells only (signed-number check). */
+  text?: string
+  children: DirNode<R>[]
+  /** The caller's handle (an element, a token, a node position). */
+  ref: R
+  /** Set by resolveDirTree. */
+  dir?: TextDir | null
+  /** Set by resolveDirTree: a cell holding only "+12%" laid out LTR in an RTL table. */
+  signedNumber?: boolean
+}
+
+// Below this many voting words a document has no reliable direction yet.
+export const ROOT_MIN_WORDS = 4
+
+export interface ResolveOptions {
+  /** Saved response language: authoritative for the document and containers. */
+  direction?: TextDir | null
+  /** A strong prior, e.g. the direction of the question a reply answers. The
+   *  document keeps it unless its text is almost entirely the other script. */
+  hint?: TextDir | null
+  /** A weak prior (the UI direction), used only while the text is too short. */
+  fallback?: TextDir | null
+  /** The content is complete (an instruction, a note, a finished render), not
+   *  a reply still streaming in. Lists and tables then decide from 4 words
+   *  instead of 8: the higher bar only exists so a table's header row, which
+   *  arrives before its rows, doesn't flip the table mid-stream. */
+  settled?: boolean
+}
+
+/**
+ * Decide a direction for every node, top-down:
+ *  - the document votes once (with the hint as a sticky prior);
+ *  - paragraphs, headings and quotes vote on their own words, and blocks of
+ *    three words or fewer follow the surrounding direction ("Summary");
+ *  - a list or table keeps the surrounding direction unless almost entirely
+ *    the other script;
+ *  - every item follows its list; an item's own paragraph follows the item;
+ *  - rows and cells follow their table; a signed number in an RTL table is
+ *    laid out LTR (flagged so the caller keeps it right-aligned).
+ * Returns the document direction.
+ */
+export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opts: ResolveOptions = {}): TextDir | null {
+  const total = docCounts.rtl + docCounts.ltr
+  const docDir = opts.direction ?? (opts.hint
+    ? decideDir(docCounts, { context: opts.hint, container: true })
+    : total < ROOT_MIN_WORDS
+      ? (opts.fallback ?? decideDir(docCounts))
+      : decideDir(docCounts))
+
+  const visit = (node: DirNode<R>, parent: DirNode<R> | null, context: TextDir | null, tableDir: TextDir | null) => {
+    let dir: TextDir | null
+    node.signedNumber = false
+    switch (node.kind) {
+      case 'item':
+        // One list has one marker edge. Names or quoted English in a Hebrew
+        // item must not move just that bullet to the opposite side.
+        dir = context
+        break
+      case 'row':
+        dir = tableDir ?? context
+        break
+      case 'cell':
+        dir = tableDir ?? context
+        if (dir === 'rtl' && isSignedNumber(node.text)) {
+          dir = 'ltr'
+          node.signedNumber = true
+        }
+        break
+      case 'list':
+      case 'table':
+        dir = opts.direction ? context : decideDir(node.counts, { context, container: true, minWords: opts.settled ? SHORT_BLOCK_WORDS : undefined })
+        break
+      default: // block, quote
+        dir = parent?.kind === 'item' && node.kind === 'block'
+          ? context
+          : decideDir(node.counts, { context, container: !!opts.direction, minWords: SHORT_BLOCK_WORDS })
+    }
+    node.dir = dir
+    const nextTable = node.kind === 'table' ? dir : tableDir
+    for (const child of node.children) visit(child, node, dir ?? context, nextTable)
+  }
+  for (const root of roots) visit(root, null, docDir, null)
+  return docDir
+}
+
 // Locales whose UI direction is RTL — used as the direction fallback for empty
 // inputs, where there is no content to derive a direction from (same set as
 // PromptBoxV2's MentionInput).
 export const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+
+/** Resolve language direction independently of available translation catalogs. */
+export function localeTextDir(locale: string): TextDir {
+  try {
+    const language = new Intl.Locale(locale) as Intl.Locale & {
+      textInfo?: { direction: string }
+      getTextInfo?: () => { direction: string }
+    }
+    const direction = language.getTextInfo?.().direction || language.textInfo?.direction
+    if (direction === 'rtl' || direction === 'ltr') return direction
+  } catch { /* Fall back for older browsers and malformed locale tags. */ }
+  return /^(he|iw|ar|fa|ur|yi|ps|sd|ug|ckb|dv|syr|nqo)(-|$)/i.test(locale) ? 'rtl' : 'ltr'
+}

@@ -28,7 +28,7 @@
                             <div class="flex-1">
                                 <!-- Collapsed view with highlighted snippet -->
                                 <div v-if="expandedInstructionId !== inst.id">
-                                    <p class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
+                                    <p v-text-dir.align class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
                                     <div class="mt-1 flex items-center gap-2">
                                         <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
                                               :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
@@ -46,7 +46,7 @@
                                 <!-- Expanded view with full MDC content -->
                                 <div v-else class="space-y-2">
                                     <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 border border-gray-100 dark:border-gray-800">
-                                        <MDC :value="inst.text" class="text-xs text-gray-900 dark:text-white prose prose-xs max-w-none" />
+                                        <MDC :value="inst.text" class="markdown-content text-xs text-gray-900 dark:text-white prose prose-xs max-w-none" />
                                     </div>
                                     <div class="flex items-center gap-2">
                                         <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"

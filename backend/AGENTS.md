@@ -100,5 +100,15 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   the content's language. Code/artifact agents (coder, dashboard_designer,
   excel, doc, data_source) stay English so identifiers, SQL, and JSON
   fields don't get translated.
+  The planner also gets `reply_language_reminder` at the end of the
+  per-step head (the text that rides with the newest tool results, both
+  transcript and legacy paths). In a tool loop every tool result reaches
+  the model as a user-role message, so the system-prompt rule alone lets
+  the reply drift into the tool output's language. The reminder is built
+  from the user's own words (newest steer wins; a too-short ask falls back
+  to `recent_user_messages`, then the org locale). It names the language
+  only for one-language scripts (Hebrew, Greek, Thai, Korean, Japanese
+  kana) and quotes the user otherwise. Never move it into the system
+  prompt — it changes per conversation and would break prompt caching.
 
 See `docs/design/i18n.md` for the full design and authoring rules.

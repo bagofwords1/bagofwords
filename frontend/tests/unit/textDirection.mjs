@@ -9,6 +9,7 @@ import {
   dominantTextDir,
   firstStrongDir,
   isSignedNumber,
+  resolveDirTree,
   wordDir,
 } from '../../utils/textDirection.ts'
 
@@ -24,6 +25,12 @@ assert.equal(wordDir('$118'), null)
 assert.equal(wordDir('-5%'), null)
 assert.equal(wordDir('2024'), null)
 assert.equal(wordDir('—'), null)
+// Brackets and quotes are skipped: a parenthesised Hebrew word votes RTL, a
+// parenthesised amount stays neutral.
+assert.equal(wordDir('(אלטרנטיבי)'), 'rtl')
+assert.equal(wordDir('“Genre'), 'ltr')
+assert.equal(wordDir('(5%)'), null)
+assert.equal(wordDir('($1.2M)'), null)
 
 // --- plain strings (user prompts) -------------------------------------------
 
@@ -89,5 +96,95 @@ assert.equal(decideDir(c('1,200')), null)
 // Signed numbers need LTR layout inside RTL text.
 for (const v of ['+12%', '-2%', '−5', '+1.2M', '-$5', '+ 14%']) assert.equal(isSignedNumber(v), true, v)
 for (const v of ['12%', '1,200', '2024', 'ל-2.1%', '+972 3 1234567', 'abc', '']) assert.equal(isSignedNumber(v), false, v)
+
+// --- resolveDirTree: one decision per document -------------------------------
+// Shared by the chat observer, the instruction view and the instruction editor.
+
+const node = (kind, text, children = []) => {
+  const counts = countDirWords(text)
+  for (const ch of children) { counts.rtl += ch.counts.rtl; counts.ltr += ch.counts.ltr }
+  return { kind, counts, text, children, ref: text }
+}
+const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr: a.ltr + n.counts.ltr }), { rtl: 0, ltr: 0 })
+
+{
+  // A Hebrew instruction: English heading, mixed list, English bullet, table.
+  const heading = node('block', 'Summary')
+  const intro = node('block', 'Revenue בחודש מרץ עלה ב-12% לעומת פברואר')
+  const itemShort = node('item', 'North: 1.2M USD')
+  const itemHe = node('item', 'אזור המרכז: 0.7M USD')
+  const para = node('block', 'Sub point: SQL query ran on')
+  const itemEn = node('item', '', [para])
+  const list = node('list', '', [itemShort, itemHe, itemEn])
+  const cellEn = node('cell', 'Region')
+  const cellSigned = node('cell', '+14%')
+  const cellHe = node('cell', 'חברת אלפא בע״מ')
+  const row = node('row', '', [cellEn, cellSigned, cellHe])
+  const table = node('table', '', [row])
+  const roots = [heading, intro, list, table]
+  assert.equal(resolveDirTree(roots, sum(roots)), 'rtl')
+  assert.equal(heading.dir, 'rtl', 'short English heading follows the Hebrew document')
+  assert.equal(intro.dir, 'rtl', 'Hebrew sentence opening with an English word')
+  assert.equal(list.dir, 'rtl')
+  assert.equal(itemShort.dir, 'rtl', 'short Latin item stays with its list')
+  assert.equal(itemHe.dir, 'rtl')
+  assert.equal(itemEn.dir, 'rtl', 'all markers stay on the list edge, including English items')
+  assert.equal(para.dir, 'rtl', "an item's paragraph follows the list")
+  assert.equal(table.dir, 'rtl')
+  assert.equal(row.dir, 'rtl')
+  assert.equal(cellEn.dir, 'rtl', 'cells follow their table')
+  assert.equal(cellSigned.dir, 'ltr', 'signed number laid out LTR in an RTL table')
+  assert.equal(cellSigned.signedNumber, true)
+  assert.equal(cellHe.dir, 'rtl')
+}
+{
+  // An English bullet with a Hebrew sub-list: the item votes on its own text.
+  const sub = node('list', '', [node('item', 'תת-נקודה: לא לכלול הזמנות שבוטלו בחודש האחרון'), node('item', 'נקודה נוספת בעברית לגבי הדיווח')])
+  const item = node('item', 'Always use the fiscal calendar from the finance team', [sub])
+  const list = node('list', '', [item, node('item', 'נקודה ראשונה בעברית על הכנסות')])
+  const roots = [node('block', 'הכנסות מחושבות תמיד לפני מע״מ ולאחר החזרות'), list]
+  resolveDirTree(roots, sum(roots))
+  assert.equal(item.dir, list.dir, 'an English item keeps its parent list marker edge')
+  assert.equal(sub.dir, 'rtl', 'the Hebrew sub-list keeps its own direction')
+}
+{
+  // An English document is untouched: Hebrew word in a sentence, short Hebrew item.
+  const p = node('block', 'The orders table includes the column סטטוס for each order')
+  const he = node('item', 'בחר משתמשים')
+  const en = node('item', 'Click Share')
+  const list = node('list', '', [en, he])
+  const roots = [p, list]
+  assert.equal(resolveDirTree(roots, sum(roots)), 'ltr')
+  assert.deepEqual([p.dir, list.dir, en.dir, he.dir], ['ltr', 'ltr', 'ltr', 'ltr'])
+}
+{
+  // Too short to vote: the hint wins; without one, the fallback (UI direction).
+  const roots = [node('block', 'Revenue')]
+  assert.equal(resolveDirTree(roots, sum(roots), { hint: 'rtl' }), 'rtl')
+  assert.equal(roots[0].dir, 'rtl')
+  assert.equal(resolveDirTree(roots, sum(roots), { fallback: 'rtl' }), 'rtl')
+  assert.equal(resolveDirTree(roots, sum(roots)), 'ltr')
+  // A hint is sticky, but an answer almost entirely in the other script wins.
+  const en = [node('block', 'Here is the full translation of the paragraph into English as requested')]
+  assert.equal(resolveDirTree(en, sum(en), { hint: 'rtl' }), 'ltr')
+}
+
+{
+  // Settled content (an instruction): a short all-Hebrew table in an English
+  // document is RTL — the 8-word streaming guard applies to live replies only.
+  const cells = ['מדד', 'טבלה', 'נסיעות', 'חיובים'].map((t) => node('cell', t))
+  const rows = [node('row', '', cells.slice(0, 2)), node('row', '', cells.slice(2))]
+  const heTable = node('table', '', rows)
+  const enTable = node('table', '', [node('row', '', [node('cell', 'Table'), node('cell', 'one row per trip')])])
+  const intro = node('block', 'Filter the trips table on the void flag before you aggregate anything')
+  const roots = [intro, enTable, heTable]
+  resolveDirTree(roots, sum(roots), { settled: true })
+  assert.equal(enTable.dir, 'ltr')
+  assert.equal(heTable.dir, 'rtl', 'short all-Hebrew table in a settled English doc is RTL')
+  assert.equal(cells[0].dir, 'rtl')
+  // A live reply (not settled) keeps the guard: a short table follows the answer.
+  resolveDirTree(roots, sum(roots))
+  assert.equal(heTable.dir, 'ltr')
+}
 
 console.log('textDirection: ok')

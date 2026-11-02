@@ -38,7 +38,7 @@
                 class="w-3 h-3 shrink-0"
                 :class="inst.isEdit ? 'text-blue-500' : 'text-green-500'"
               />
-              <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ inst.title }}</span>
+              <span v-text-dir class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ inst.title }}</span>
             </div>
             <div class="flex items-center gap-2 mt-0.5 ms-[18px]">
               <span v-if="inst.category" class="text-2xs text-ink-muted">{{ inst.category }}</span>
