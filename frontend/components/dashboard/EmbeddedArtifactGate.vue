@@ -264,20 +264,24 @@ function b64url(bytes: ArrayBuffer | Uint8Array) {
     return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// The listener of the SSO attempt in progress: a new attempt, a sign-out or
-// an unmount removes it, so abandoned popups leave nothing behind.
-let ssoCleanup: (() => void) | null = null;
+// The SSO attempt in progress (one at a time): a new attempt, a sign-out or
+// an unmount ends it and removes its listener, so abandoned popups leave
+// nothing behind. Each attempt only ever removes its own listener.
+let ssoAttempt: { cleanup: () => void } | null = null;
 function endSsoAttempt() {
-    ssoCleanup?.();
-    ssoCleanup = null;
+    ssoAttempt?.cleanup();
+    ssoAttempt = null;
 }
 
 async function signInWithPopup() {
     endSsoAttempt();
+    const attempt = { cleanup: () => {} };
+    ssoAttempt = attempt;
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const state = crypto.randomUUID();
     const gen = generation;
+    if (ssoAttempt !== attempt) return;  // a newer attempt started while this one hashed
     const url = `/embed-signin?host=${encodeURIComponent(props.hostApplication)}&challenge=${challenge}&state=${state}`;
     const popup = window.open(url, 'bow-embed-signin', 'popup,width=480,height=640');
     if (!popup) { fail('sign_in_required', t('embed.gate.popupBlocked')); return; }
@@ -291,14 +295,14 @@ async function signInWithPopup() {
         if (data?.type === 'bow:sso-error') {
             // BOW refused the sign-in (a disabled app, for one): the popup shows
             // why, and the frame stops waiting.
-            endSsoAttempt();
+            attempt.cleanup();
             if (gen !== generation) return;
             retryable.value = !PERMANENT_ERROR_CODES.includes(String(data.error_code));
             fail('failed', typeof data.message === 'string' && data.message ? data.message : t('embed.gate.failed'));
             return;
         }
         if (data?.type !== 'bow:sso-code') return;
-        endSsoAttempt();
+        attempt.cleanup();
         try { popup.close(); } catch { /* already closed */ }
         await track((async () => {
             try {
@@ -314,7 +318,10 @@ async function signInWithPopup() {
         })());
     };
     window.addEventListener('message', onMessage);
-    ssoCleanup = () => window.removeEventListener('message', onMessage);
+    attempt.cleanup = () => {
+        window.removeEventListener('message', onMessage);
+        if (ssoAttempt === attempt) ssoAttempt = null;
+    };
 }
 
 // The host hears signed_out only once this frame has done its part: the

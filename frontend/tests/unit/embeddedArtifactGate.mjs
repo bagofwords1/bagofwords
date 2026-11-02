@@ -619,6 +619,9 @@ try {
   await gate.bindings.signInWithPopup()
   await gate.bindings.signInWithPopup()
   assert.equal(gate.ssoListeners(), 1, 'a new attempt replaces the abandoned one')
+  // Two attempts started together (each awaits its PKCE hash): one listener.
+  await Promise.all([gate.bindings.signInWithPopup(), gate.bindings.signInWithPopup()])
+  assert.equal(gate.ssoListeners(), 1, 'overlapping attempts leave one listener')
   gate.logout()
   await settle()
   assert.equal(gate.ssoListeners(), 0, 'a sign-out removes it')

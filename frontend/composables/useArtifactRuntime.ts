@@ -272,8 +272,9 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
           const response = await fetch(base + '/view-token?surface=' + surface, {headers:headers(),credentials:'omit'})
           if (!response.ok) { await responseEnded(response, viewAuthorization); return }
           const view = await response.json()
+          const recordAuthorization = token.value || ''
           const recorded = await fetch(base + '/views', {method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(view),credentials:'omit'})
-          await responseEnded(recorded, viewAuthorization)
+          await responseEnded(recorded, recordAuthorization)
         } catch { /* Analytics never blocks the artifact. */ }
       })
       const rendered = (e:MessageEvent) => {
