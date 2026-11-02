@@ -1296,7 +1296,12 @@ function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearn
 // Admin-only "show all" toggle: include every agent in the org, not just the
 // caller's memberships. Re-fetches the agent list when flipped.
 const showAllAgents = ref(false)
-watch(showAllAgents, () => { fetchAgents() })
+watch(showAllAgents, () => {
+  fetchAgents()
+  // Keep an active "Search everything" in sync with the toggle: its agent
+  // results are show_all-scoped too (see runSearch).
+  if (search.value.trim()) runSearch(search.value)
+})
 const labels = ref<{ id: string; name: string }[]>([])
 const categories = ref<string[]>([])
 const search = ref('')
@@ -1312,7 +1317,11 @@ const runSearch = async (q: string) => {
   if (!term) { searchResults.value = null; searching.value = false; return }
   searching.value = true
   try {
-    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 30 } })
+    // Mirror the tree's "Show all agents" toggle so admin-only agents visible in
+    // the tree are searchable too (the server gates show_all on permission).
+    const query: Record<string, any> = { q: term, limit: 30 }
+    if (showAllAgents.value) query.show_all = true
+    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query })
     // A newer query superseded this response.
     if (req !== searchRequest) return
     searchResults.value = { agents: data.value?.agents || [], instructions: data.value?.instructions || [] }
@@ -3576,7 +3585,12 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || [])
+      .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+      // Alphabetical by name. The server returns no explicit order, so sort
+      // here; localeCompare groups by the active locale (so Hebrew and Latin
+      // each sort naturally).
+      .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')

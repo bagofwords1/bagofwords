@@ -826,7 +826,7 @@ class InstructionService:
 
     async def search_knowledge(
         self, db, organization, current_user, q: str, limit: int = 20,
-        data_source_id: Optional[str] = None,
+        data_source_id: Optional[str] = None, show_all: bool = False,
     ) -> dict:
         """Cross-entity search for the /agents 'Search everything' box. Returns a
         grouped shape (distinct from the instruction list): matching agents
@@ -854,9 +854,14 @@ class InstructionService:
             return {"agents": [], "instructions": instructions}
 
         # Agents: filter the caller's visible data sources by name (small list).
+        # show_all mirrors the /agents tree's "Show all agents" toggle so that an
+        # admin who sees an agent there only via show-all (not an explicit
+        # membership) can still find it here. get_active_data_sources gates
+        # show_all behind can_view_all_data_sources, so a non-admin can't widen
+        # the result by passing the flag.
         ql = q.lower()
         agents_all = await DataSourceService().get_active_data_sources(
-            db, organization, current_user, include_unconnected=True
+            db, organization, current_user, include_unconnected=True, show_all=show_all
         )
         agents = [a for a in agents_all if ql in (getattr(a, "name", "") or "").lower()][:limit]
 
