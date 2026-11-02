@@ -47,6 +47,11 @@ Hebrew vocabulary conventions: "הנחיות" (never "הוראות"), "גלרי�
   third-party overrides in `frontend/assets/css/rtl.css`; opt out per element
   with `rtl-no-flip`. Never `dir="auto"` on empty contenteditable — bind
   `:dir` to the active locale.
+- Content direction (chat answers, prompt bubbles, notes, dashboards) follows
+  the text, not the locale: `frontend/utils/textDirection.ts` (word vote) and
+  `frontend/composables/useMarkdownAutoDir.ts`. Never nest `dir="auto"`
+  inside `dir="auto"` — the outer one resolves LTR. Rules and rationale:
+  `docs/design/i18n.md` → "Content direction".
 
 **Backend**:
 - Dependencies: `get_current_locale(request)` (unauthed-safe, header→default),

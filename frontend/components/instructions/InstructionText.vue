@@ -1,8 +1,9 @@
 <template>
-  <span v-if="!markdown" dir="auto" class="whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-white">
+  <span v-if="!markdown" :dir="plainDir" class="whitespace-pre-wrap text-sm leading-relaxed text-gray-900 dark:text-white">
     <template v-for="(segment, i) in segments" :key="i">
       <span
         v-if="segment.ref || segment.mention"
+        dir="auto"
         class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-400/[0.18] border border-indigo-100 dark:border-transparent text-2xs font-sans font-medium text-indigo-700 dark:text-indigo-200 align-baseline"
       >
         <template v-if="segment.ref">
@@ -48,7 +49,7 @@ import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import DocMermaid from '~/components/dashboard/DocMermaid.vue'
-import { firstStrongDir } from '~/utils/textDirection'
+import { dominantTextDir, firstStrongDir } from '~/utils/textDirection'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -121,6 +122,13 @@ const segments = computed((): Segment[] =>
     const ref = refByName.value.get(seg.label.toLowerCase())
     return ref ? { ref, raw: seg.label } : { mention: seg.label }
   })
+)
+
+// Plain-text direction from a word vote over the typed text, mention chips
+// excluded: a Hebrew question that opens with "@Sales DB" or an English term
+// is still RTL. `auto` only when there is no letter to vote with.
+const plainDir = computed(() =>
+  dominantTextDir(segments.value.map(s => s.text || '').join(' ')) || 'auto'
 )
 
 // ─── Markdown rendering ──────────────────────────────────────────────────────
