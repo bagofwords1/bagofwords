@@ -728,3 +728,100 @@ def test_invite_link_regenerates_when_expired(test_client, create_user, login_us
     assert test_client.post("/api/auth/register", json={
         "name": "Exp", "email": email, "password": "test123", "invite_token": new_token,
     }).status_code == 201
+
+
+@pytest.mark.e2e
+def test_second_live_membership_for_same_user_and_org_is_rejected(
+    create_user,
+    login_user,
+    whoami,
+):
+    """The database enforces one live membership per (user, organization).
+
+    This is the backstop for the duplicate that broke principal_belongs_to_org
+    (two live rows -> MultipleResultsFound -> org-scoped routes 500, i.e. the
+    "no available models" the customer hit). Open invites (user_id NULL) are
+    intentionally NOT constrained, so this only covers user-bound rows.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _attempt_duplicate():
+        async with async_session_maker() as db:
+            # The admin already holds exactly one live membership (created with
+            # the org). A second live row for the same (user, org) must be refused.
+            existing = (await db.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == user_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            assert len(existing) == 1
+            db.add(Membership(user_id=user_id, organization_id=org_id, role="member"))
+            with pytest.raises(IntegrityError):
+                await db.flush()
+
+    asyncio.run(_attempt_duplicate())
+
+
+@pytest.mark.e2e
+def test_duplicate_membership_does_not_block_querying_models(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Reproduction of the customer bug ("no available models", cannot query).
+
+    A user with two live membership rows for one org made
+    principal_belongs_to_org raise MultipleResultsFound, so
+    get_current_organization 500'd and GET /api/llm/models (the model picker's
+    source) failed -> the UI showed no models. This asserts the promised
+    end-state: the duplicate can no longer be created AND the model endpoint
+    stays 200 for the member.
+
+    Against the PRE-FIX code this test fails: the second row inserts and
+    GET /api/llm/models returns 500.
+    """
+    import asyncio
+    from sqlalchemy.exc import IntegrityError
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _try_make_duplicate():
+        async with async_session_maker() as db:
+            db.add(Membership(user_id=user_id, organization_id=org_id, role="member"))
+            try:
+                await db.commit()
+                return True   # pre-fix: a duplicate live membership was created
+            except IntegrityError:
+                await db.rollback()
+                return False  # fixed: barred by the partial unique index
+
+    duplicate_created = asyncio.run(_try_make_duplicate())
+
+    # The exact endpoint behind "no available models" must never 500 for a member.
+    resp = test_client.get(
+        "/api/llm/models",
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+    )
+    assert resp.status_code == 200, f"model list returned {resp.status_code}: {resp.text}"
+
+    # The duplicate state must be unreachable on the fixed code.
+    assert duplicate_created is False, "a second live membership should be rejected by the unique index"

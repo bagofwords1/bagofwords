@@ -270,8 +270,34 @@ async def _ensure_org_membership(
         .where(Membership.user_id == user_id)
         .where(Membership.deleted_at.is_(None))
     )
-    existing = (await db.execute(stmt)).scalar_one_or_none()
+    existing = (await db.execute(stmt.limit(1))).scalars().first()
     if not existing:
+        # Before creating a fresh row, claim any open email invite for this user
+        # in the org. Without this the invite stays open and a later acceptance
+        # (_attach_open_memberships) turns it into a SECOND membership — the
+        # invite + SSO combination that produced the customer's duplicate rows.
+        # Mirrors SAML's invite-attach behavior; claiming reuses the invite's
+        # existing seat, so no seat-cap check is needed on this branch.
+        from app.models.user import User
+        from app.core.permission_resolver import claim_pending_invite
+        invited_user = (await db.execute(
+            select(User).where(User.id == user_id).limit(1)
+        )).scalars().first()
+        if invited_user is not None:
+            claimed = await claim_pending_invite(
+                db, invited_user, organization_id, directory_provider="oidc"
+            )
+            if claimed is not None:
+                # Regaining a membership restores a login closed by
+                # app/core/user_lifecycle when the user's last one was removed.
+                from app.core.user_lifecycle import reactivate_user_for_membership
+                await reactivate_user_for_membership(db, str(user_id))
+                logger.info(
+                    "OIDC group sync: claimed open invite as org membership for "
+                    "user %s in org %s", user_id, organization_id
+                )
+                return
+
         # Enforce the license seat cap: a full org can't gain new members via OIDC
         # group sync. Existing members hit the branch above and are unaffected — only
         # a brand-new membership beyond the cap is refused (skipped + logged).
@@ -282,11 +308,26 @@ async def _ensure_org_membership(
                 "skipping new membership for user %s", organization_id, user_id
             )
             return
-        db.add(Membership(
+        new_membership = Membership(
             user_id=user_id,
             organization_id=organization_id,
             role="member",
-        ))
+        )
+        db.add(new_membership)
+        # SAVEPOINT so a concurrent insert of the same (user, org) — now barred by
+        # the partial unique index — loses the race without poisoning the session
+        # (otherwise the login that triggered this sync would 500).
+        from sqlalchemy.exc import IntegrityError
+        try:
+            async with db.begin_nested():
+                await db.flush([new_membership])
+        except IntegrityError:
+            db.expunge(new_membership)
+            logger.info(
+                "OIDC group sync: membership already exists (race) for user %s in org %s",
+                user_id, organization_id,
+            )
+            return
         # Regaining a membership restores a login closed by
         # app/core/user_lifecycle when the user's last one was removed.
         from app.core.user_lifecycle import reactivate_user_for_membership

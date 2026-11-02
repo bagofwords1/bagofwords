@@ -294,37 +294,74 @@ class LDAPGroupSyncService:
         )
         existing_ids = set((await db.execute(stmt)).scalars().all())
 
-        # New members to create (users in LDAP groups but not yet in the org).
-        # Enforce the license seat cap: fill up to the remaining seats and skip the
-        # rest (sorted for a deterministic selection), logging the overflow — never
-        # abort the whole sync. Existing members are untouched (already excluded).
-        to_create = sorted(user_ids - existing_ids)
-        if to_create:
-            from app.core.seats import seats_remaining
-            remaining = await seats_remaining(db, organization_id)
-            if remaining is not None and len(to_create) > remaining:
-                logger.warning(
-                    "LDAP sync: %d new users would exceed the license seat cap for "
-                    "org %s; adding %d, skipping %d (raise seats to add the rest)",
-                    len(to_create), organization_id, remaining, len(to_create) - remaining,
-                )
-                to_create = to_create[:remaining]
+        # Candidates: users in LDAP groups but not yet bound to the org.
+        candidates = sorted(user_ids - existing_ids)
 
-        from app.core.permission_resolver import ensure_system_role_assignment
+        from app.core.seats import seats_remaining
+        from app.core.permission_resolver import ensure_system_role_assignment, claim_pending_invite
         from app.core.user_lifecycle import reactivate_user_for_membership
-        for user_id in to_create:
-            db.add(Membership(
+        from app.models.user import User
+        from sqlalchemy.exc import IntegrityError
+
+        # Seat cap applies only to genuinely NEW memberships. Claiming an open
+        # invite is seat-neutral (the invite already counts in count_org_memberships),
+        # so claims must never be refused by the cap — otherwise an invited LDAP
+        # user in a full org would be dropped (inconsistent with OIDC/SCIM).
+        remaining = await seats_remaining(db, organization_id)
+        created = 0
+        skipped = 0
+        for user_id in candidates:
+            invited_user = (await db.execute(
+                select(User).where(User.id == user_id).limit(1)
+            )).scalars().first()
+            # Claim an open email invite rather than creating a second row that
+            # invite acceptance would later duplicate (the invite + SSO duplicate).
+            claimed = None
+            if invited_user is not None:
+                claimed = await claim_pending_invite(
+                    db, invited_user, organization_id,
+                    directory_provider=self.connection.provider_id,
+                )
+            if claimed is not None:
+                await reactivate_user_for_membership(db, str(user_id))
+                logger.info(f"LDAP sync: claimed open invite as org membership for user {user_id} in org {organization_id}")
+                continue
+
+            # Genuinely new member — enforce the seat cap here only.
+            if remaining is not None and created >= remaining:
+                skipped += 1
+                continue
+
+            new_membership = Membership(
                 user_id=user_id,
                 organization_id=organization_id,
                 role="member",
                 directory_provider=self.connection.provider_id,
-            ))
+            )
+            db.add(new_membership)
+            # SAVEPOINT so a concurrent insert of the same (user, org) — now barred
+            # by the partial unique index — loses the race without poisoning the
+            # whole batch transaction (which commits once for the entire sync).
+            try:
+                async with db.begin_nested():
+                    await db.flush([new_membership])
+            except IntegrityError:
+                db.expunge(new_membership)
+                logger.info(f"LDAP sync: membership already exists (race) for user {user_id} in org {organization_id}")
+                continue
+            created += 1
             # Regaining a membership restores a login closed by
             # app/core/user_lifecycle when the user's last one was removed.
             await reactivate_user_for_membership(db, str(user_id))
             # Give the user a real RBAC assignment (not just the legacy string).
             await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
+
+        if skipped:
+            logger.warning(
+                "LDAP sync: %d new user(s) exceeded the license seat cap for org %s "
+                "and were skipped (raise seats to add the rest)", skipped, organization_id,
+            )
 
     async def _cleanup_org_memberships(
         self,

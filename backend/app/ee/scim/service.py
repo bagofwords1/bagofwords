@@ -264,13 +264,30 @@ class ScimUserService:
         if existing_user:
             # Check if already a member of this org
             membership_result = await db.execute(
-                select(Membership)
+                select(Membership.id)
                 .where(Membership.user_id == existing_user.id)
                 .where(Membership.organization_id == organization_id)
                 .where(Membership.deleted_at.is_(None))
+                .limit(1)
             )
-            if membership_result.scalar_one_or_none():
+            if membership_result.first():
                 raise HTTPException(status_code=409, detail="User already exists in this organization")
+
+            # Claim an open email invite rather than creating a SECOND membership
+            # that would collide with the user's later invite acceptance (the
+            # invite + SSO duplicate). A pending invite already counts toward the
+            # seat cap, so claiming reuses its seat and runs before enforcement.
+            from app.core.permission_resolver import claim_pending_invite
+            claimed = await claim_pending_invite(
+                db, existing_user, organization_id, directory_provider="scim"
+            )
+            if claimed is not None:
+                existing_user.is_active = data.active
+                if data.externalId:
+                    existing_user.scim_external_id = data.externalId
+                await db.commit()
+                await db.refresh(claimed)
+                return _user_to_scim(existing_user, claimed, base_url)
 
             # Enforce the license seat cap before adding a new member. Checked after
             # the duplicate guard so re-provisioning an existing member still 409s
@@ -305,12 +322,6 @@ class ScimUserService:
             await db.refresh(membership)
             return _user_to_scim(existing_user, membership, base_url)
 
-        # Enforce the license seat cap before creating a brand-new user + membership,
-        # so a full org can't be grown via SCIM provisioning (and we don't leave an
-        # orphan User with no membership).
-        from app.core.seats import enforce_seat_limit
-        await enforce_seat_limit(db, organization_id)
-
         # Create new user
         display_name = data.displayName
         if not display_name and data.name:
@@ -332,6 +343,26 @@ class ScimUserService:
         )
         db.add(user)
         await db.flush()  # Get user.id before creating membership
+
+        # The admin may have invited this address before SCIM provisioned it.
+        # Claim that open invite (reusing its seat) instead of creating a second
+        # membership that the user's later sign-in would duplicate.
+        from app.core.permission_resolver import claim_pending_invite
+        claimed = await claim_pending_invite(
+            db, user, organization_id, directory_provider="scim"
+        )
+        if claimed is not None:
+            await db.commit()
+            await db.refresh(user)
+            await db.refresh(claimed)
+            return _user_to_scim(user, claimed, base_url)
+
+        # No invite to reuse: enforce the license seat cap before adding a
+        # brand-new membership, so a full org can't be grown via SCIM
+        # provisioning. Nothing is committed until the end, so a 402 here leaves
+        # no orphan User behind.
+        from app.core.seats import enforce_seat_limit
+        await enforce_seat_limit(db, organization_id)
 
         membership = Membership(
             user_id=user.id,

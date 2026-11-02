@@ -202,6 +202,11 @@ class OrganizationService:
             select(Membership)
             .options(selectinload(Membership.user))
             .where(Membership.organization_id == organization.id)
+            # Exclude soft-deleted rows: the dedup migration and the invite-accept
+            # path retire duplicate memberships by setting deleted_at, and those
+            # must not reappear in the member list (which is how the duplicate
+            # showed up as the user listed twice).
+            .where(Membership.deleted_at.is_(None))
         )
         memberships = result.scalars().all()
 

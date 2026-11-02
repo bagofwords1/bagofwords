@@ -224,6 +224,36 @@ class UserManager(BaseUserManager[User, str]):
         from app.models.role_assignment import RoleAssignment
 
         for membership in open_memberships:
+            # Don't turn this invite into a SECOND live row. If the user already
+            # has a membership in this org (e.g. one provisioned via SCIM/OIDC
+            # before the invite was accepted), move the invite's pending RBAC
+            # onto the user and retire the invite instead of claiming it. Two
+            # live rows for the same (user, org) break principal_belongs_to_org
+            # — the duplicate that presented to the customer as "no models".
+            existing_membership = (await session.execute(
+                select(Membership.id).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == membership.organization_id,
+                    Membership.deleted_at.is_(None),
+                ).limit(1)
+            )).first()
+            if existing_membership is not None:
+                await self._materialize_pending_rbac(session, membership, user.id)
+                # Preserve the invite's base role too (mirrors the claim branch
+                # below): the pre-existing membership may hold a lower role than
+                # the invite granted, and ensure_system_role_assignment is a no-op
+                # when the user already has it.
+                if membership.role:
+                    from app.core.permission_resolver import ensure_system_role_assignment
+                    await ensure_system_role_assignment(
+                        session, membership.organization_id, str(user.id), membership.role
+                    )
+                membership.deleted_at = datetime.utcnow()
+                membership.email = None
+                membership.invite_token = None
+                await session.flush()
+                continue
+
             membership.user_id = user.id
             membership_role = membership.role
             membership.email = None  # Clear the email since we now have a user
@@ -284,94 +314,12 @@ class UserManager(BaseUserManager[User, str]):
     async def _materialize_pending_rbac(session: AsyncSession, membership: Membership, user_id: str) -> None:
         """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
 
-        An org admin can pre-assign roles and groups to an invite before the
-        user registers. Those are stored as ``RoleAssignment`` rows with
-        ``principal_type='membership'`` and ``GroupMembership`` rows with
-        ``membership_id`` set. When the invitee registers we convert them to
-        the user-keyed equivalents, de-duplicating against anything the user
-        may already have, so the resolver (which only knows 'user'/'group')
-        sees the intended permissions immediately.
+        Thin wrapper over ``permission_resolver.materialize_pending_rbac`` so the
+        invite-acceptance path and the provisioning paths (SCIM/OIDC via
+        ``claim_pending_invite``) share one implementation.
         """
-        from app.models.role_assignment import RoleAssignment
-        from app.models.group_membership import GroupMembership
-        from app.models.usage_policy import UsagePolicyAssignment
-
-        org_id = membership.organization_id
-        try:
-            # Role assignments: membership principal → user principal
-            ra_result = await session.execute(
-                select(RoleAssignment).where(
-                    RoleAssignment.organization_id == org_id,
-                    RoleAssignment.principal_type == "membership",
-                    RoleAssignment.principal_id == membership.id,
-                    RoleAssignment.deleted_at.is_(None),
-                )
-            )
-            for assignment in ra_result.scalars().all():
-                existing = await session.execute(
-                    select(RoleAssignment).where(
-                        RoleAssignment.organization_id == org_id,
-                        RoleAssignment.role_id == assignment.role_id,
-                        RoleAssignment.principal_type == "user",
-                        RoleAssignment.principal_id == user_id,
-                        RoleAssignment.deleted_at.is_(None),
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(assignment)
-                else:
-                    assignment.principal_type = "user"
-                    assignment.principal_id = user_id
-
-            # Group memberships: membership-keyed → user-keyed
-            gm_result = await session.execute(
-                select(GroupMembership).where(
-                    GroupMembership.membership_id == membership.id,
-                    GroupMembership.deleted_at.is_(None),
-                )
-            )
-            for gm in gm_result.scalars().all():
-                existing = await session.execute(
-                    select(GroupMembership).where(
-                        GroupMembership.group_id == gm.group_id,
-                        GroupMembership.user_id == user_id,
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(gm)
-                else:
-                    gm.user_id = user_id
-                    gm.membership_id = None
-
-            # Usage-policy (quota) assignments: membership principal → user principal
-            upa_result = await session.execute(
-                select(UsagePolicyAssignment).where(
-                    UsagePolicyAssignment.organization_id == org_id,
-                    UsagePolicyAssignment.principal_type == "membership",
-                    UsagePolicyAssignment.principal_id == membership.id,
-                    UsagePolicyAssignment.deleted_at.is_(None),
-                )
-            )
-            for upa in upa_result.scalars().all():
-                existing = await session.execute(
-                    select(UsagePolicyAssignment).where(
-                        UsagePolicyAssignment.organization_id == org_id,
-                        UsagePolicyAssignment.policy_id == upa.policy_id,
-                        UsagePolicyAssignment.principal_type == "user",
-                        UsagePolicyAssignment.principal_id == user_id,
-                        UsagePolicyAssignment.deleted_at.is_(None),
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(upa)
-                else:
-                    upa.principal_type = "user"
-                    upa.principal_id = user_id
-            await session.flush()
-        except Exception:
-            # Never block registration if pending-RBAC tables aren't present
-            # (pre-migration) or a conversion hits a transient conflict.
-            pass
+        from app.core.permission_resolver import materialize_pending_rbac
+        await materialize_pending_rbac(session, membership, user_id)
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
