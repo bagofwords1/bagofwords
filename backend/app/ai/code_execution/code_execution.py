@@ -197,6 +197,14 @@ def _redact_quoted_cells(message: str) -> str:
     return redacted
 
 
+def _cut_before_value(text: str) -> str:
+    """``text`` up to its first quote or ": ", where a parsing error's value starts."""
+    starts = [m.start() for m in (re.search(r"['\"]", text), re.search(r": ", text)) if m]
+    if not starts:
+        return text
+    return text[:min(starts)].rstrip(" :") + ": <value hidden>"
+
+
 def _cut_at_first_quote(message: str) -> str:
     match = re.search(r"['\"]", message)
     return message if match is None else message[:match.start()].rstrip() + " <value hidden>"
@@ -214,9 +222,14 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     text: a missing column or a SQL error names structure, which a fix needs."""
     if not allow_llm_see_data:
         if isinstance(exc, ValueError):
-            # Conversion errors quote the cell, which may hold anything
-            # (quotes, line breaks, a repr cut short): drop from the first quote.
-            return _cut_at_first_quote(message)
+            # Conversion and parsing errors put the cell after a quote or a
+            # ": " ("unable to parse: <cell>"), and the cell may hold anything
+            # (quotes, line breaks, a repr cut short): the error's own text
+            # stops there.
+            raw = str(exc)
+            if raw and raw in message:
+                return message.replace(raw, _cut_before_value(raw))
+            return _cut_before_value(message)
         if isinstance(exc, TypeError):
             return _redact_quoted_cells(message)
         return message
