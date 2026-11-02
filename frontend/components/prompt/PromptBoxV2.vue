@@ -44,7 +44,7 @@
                 data-testid="queued-prompt-chip"
             >
                 <Icon name="heroicons-queue-list" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-                <span class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
+                <span v-text-dir class="truncate flex-1" :title="qp.prompt?.content">{{ qp.prompt?.content }}</span>
                 <!-- Native title tooltips here: UTooltip's popper can overlap and
                      intercept clicks on these small targets. -->
                 <button

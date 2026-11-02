@@ -24,12 +24,13 @@
 
               <div v-else class="mention-container">
                 <!-- Highlight backdrop -->
-                <div ref="backdropRef" class="mention-backdrop" aria-hidden="true" v-html="highlightedText" />
+                <div ref="backdropRef" class="mention-backdrop" aria-hidden="true" :dir="instructionDir" v-html="highlightedText" />
 
                 <!-- Textarea -->
                 <textarea
                   ref="textareaRef"
                   v-model="instructionText"
+                  :dir="instructionDir"
                   placeholder="Describe business rules, metric definitions, or query guidelines…"
                   class="mention-textarea"
                   @input="handleTextareaInput"
@@ -111,6 +112,7 @@
 </template>
 
 <script setup lang="ts">
+import { dominantTextDir } from '~/utils/textDirection'
 definePageMeta({ auth: true })
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
@@ -161,6 +163,9 @@ async function loadDraftInstruction() {
 
 // ── Instruction text ──────────────────────────────────────────────────────────
 const instructionText = ref('')
+// The highlight backdrop mirrors the textarea glyph for glyph, so both take the
+// same direction — the text's (word majority), or the UI's while empty.
+const instructionDir = computed(() => dominantTextDir(instructionText.value) || undefined)
 
 // ── @ Mention ─────────────────────────────────────────────────────────────────
 interface MentionItem {

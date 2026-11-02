@@ -570,7 +570,7 @@
 															>
 																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
+																<span v-text-dir class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
 																<span class="text-chat-3 text-ink-muted flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-chat-3 px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always'
@@ -895,7 +895,7 @@
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
-					<span class="truncate">{{ panelData.title || $t('tools.widgetPreview.dataTab') }}</span>
+					<span v-text-dir class="truncate">{{ panelData.title || $t('tools.widgetPreview.dataTab') }}</span>
 					<Icon
 						name="heroicons:x-mark"
 						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"

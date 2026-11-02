@@ -45,8 +45,10 @@ import { countDirWords, decideDir, resolveDirTree, type DirCounts, type DirNode,
 
 const BLOCK_SELECTOR = 'ol, ul, li, p, h1, h2, h3, h4, h5, h6, blockquote, table, tr, th, td'
 // `.markstream-vue` is the renderer's own root class, so every MarkdownRender
-// (note cards, modals) is covered, not only the chat containers.
-const SCOPE_SELECTOR = '.markdown-wrapper, .markdown-content, .markstream-vue'
+// (note cards, modals) is covered, not only the chat containers. `<MDC>`
+// renders carry `.markdown-content`; `.chat-md` is the shared-dashboard chat
+// and `.rendered-html` the dashboard text widget.
+const SCOPE_SELECTOR = '.markdown-wrapper, .markdown-content, .markstream-vue, .chat-md, .rendered-html'
 
 function isDir(v: string | null | undefined): v is TextDir {
   return v === 'rtl' || v === 'ltr'

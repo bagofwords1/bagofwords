@@ -20,7 +20,7 @@
             class="flex items-center gap-1"
             @submit.prevent="saveRename"
           >
-            <UInput
+            <UInput v-text-dir
               ref="renameInputRef"
               v-model="renameDraft"
               size="xs"
@@ -72,7 +72,7 @@
             <template #label>
               <span class="flex items-center gap-1.5 min-w-0 text-xs">
                 <Icon :name="modeIcon(selectedArtifactItem?.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                <span class="truncate">{{ selectedDashboardTitle }}</span>
+                <span v-text-dir class="truncate">{{ selectedDashboardTitle }}</span>
                 <span class="text-ink-muted shrink-0">·</span>
                 <Icon v-if="viewing" name="heroicons:eye" class="w-3.5 h-3.5 shrink-0 text-blue-500" />
                 <span class="font-medium tabular-nums shrink-0">v{{ viewing ? viewing.version : selectedArtifactItem?.version }}</span>
@@ -83,7 +83,7 @@
               <div v-if="option.header" class="w-full min-w-0 pt-1" data-testid="frame-dashboard-heading">
                 <div class="flex items-center gap-1.5 text-xs font-medium text-gray-900 dark:text-white min-w-0">
                   <Icon :name="modeIcon(option.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                  <span class="truncate">{{ option.title }}</span>
+                  <span v-text-dir class="truncate">{{ option.title }}</span>
                 </div>
                 <div class="text-2xs text-ink-muted ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
               </div>
@@ -94,7 +94,7 @@
                 :data-testid="option.elsewhere ? 'frame-version-elsewhere' : 'frame-version-row'">
                 <span class="flex items-center gap-1.5 text-xs min-w-0">
                   <span class="font-medium tabular-nums">v{{ option.version }}</span>
-                  <span v-if="option.name" class="truncate text-gray-700 dark:text-gray-300">“{{ option.name }}”</span>
+                  <span v-text-dir v-if="option.name" class="truncate text-gray-700 dark:text-gray-300">“{{ option.name }}”</span>
                   <span v-if="option.live" class="px-1.5 rounded bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 text-2xs font-medium">{{ $t('dashboardCollab.versions.live') }}</span>
                 </span>
                 <span class="text-2xs text-ink-muted">
@@ -603,7 +603,7 @@
           <!-- Modal Header -->
           <div class="p-3 flex justify-between items-center border-b bg-white dark:bg-gray-900">
             <div class="flex items-center gap-3">
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ selectedArtifact?.title || reportData?.title || 'Artifact' }}</span>
+              <span v-text-dir class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ selectedArtifact?.title || reportData?.title || 'Artifact' }}</span>
               <span v-if="selectedArtifact" class="text-xs text-ink-muted">v{{ selectedArtifact.version }}</span>
             </div>
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="closeFullscreen" />

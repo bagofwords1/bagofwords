@@ -11,9 +11,9 @@
                             <UIcon name="i-heroicons-folder" class="w-5 h-5" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
                         </div>
                         <div class="min-w-0">
-                            <h1 class="text-lg font-semibold text-gray-900 dark:text-white truncate">{{ project.name }}</h1>
+                            <h1 v-text-dir class="text-lg font-semibold text-gray-900 dark:text-white truncate">{{ project.name }}</h1>
                             <p class="text-sm text-gray-500 dark:text-gray-400 truncate">
-                                <template v-if="project.description">{{ project.description }}</template>
+                                <span v-if="project.description" v-text-dir>{{ project.description }}</span>
                                 <template v-else>{{ $t('projects.reportCount', { count: project.report_count }, project.report_count) }}</template>
                                 <span v-if="isShared" class="inline-flex items-center gap-1 ms-2 text-ink-muted">
                                     <UIcon name="i-heroicons-user-group" class="w-3.5 h-3.5" />{{ $t('projects.sharedBadge') }}
@@ -321,7 +321,7 @@
                                 <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
                             </div>
                             <template v-if="project.can_manage">
-                                <textarea
+                                <textarea v-text-dir
                                     v-model="instructionsDraft"
                                     rows="5"
                                     :placeholder="$t('projects.settings.instructionsPlaceholder')"
@@ -336,7 +336,7 @@
                                 </div>
                                 <p v-else class="mt-1 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
                             </template>
-                            <p v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
+                            <p v-text-dir v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>
                     </aside>
                 </div>
@@ -346,12 +346,12 @@
                     <div class="space-y-4">
                         <div>
                             <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.name') }}</label>
-                            <input v-model="editName" type="text" :disabled="!project.can_manage"
+                            <input v-text-dir v-model="editName" type="text" :disabled="!project.can_manage"
                                 class="w-full h-9 px-3 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60" />
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.description') }}</label>
-                            <textarea v-model="editDescription" rows="2" :disabled="!project.can_manage"
+                            <textarea v-text-dir v-model="editDescription" rows="2" :disabled="!project.can_manage"
                                 class="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
                         </div>
                         <div>

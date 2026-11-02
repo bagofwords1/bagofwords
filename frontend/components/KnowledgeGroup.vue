@@ -87,7 +87,7 @@
                 >
                   {{ ch.type === 'create' ? 'new' : 'edit' }}
                 </span>
-                <span class="text-xs text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">
+                <span v-text-dir class="text-xs text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">
                   {{ ch.title }}
                 </span>
                 <span v-if="ch.added > 0" class="text-2xs font-mono text-green-600 shrink-0">+{{ ch.added }}</span>
@@ -99,7 +99,7 @@
                   <Icon name="heroicons:x-circle" class="w-3 h-3" />Rejected
                 </span>
               </div>
-              <div v-if="!expandedChangeIds.has(ch.id)" class="text-2xs text-ink-muted line-clamp-1 mt-0.5">
+              <div v-text-dir v-if="!expandedChangeIds.has(ch.id)" class="text-2xs text-ink-muted line-clamp-1 mt-0.5">
                 {{ ch.preview }}
               </div>
             </div>

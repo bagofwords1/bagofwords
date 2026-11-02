@@ -66,7 +66,7 @@
             class="shrink-0 text-2xs px-1.5 py-0.5 rounded border"
             :class="e.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400' : 'text-blue-700 border-blue-200 bg-blue-50 dark:bg-blue-500/10 dark:border-blue-500/30 dark:text-blue-400'"
           >{{ (e.type || 'model').toUpperCase() }}</span>
-          <span class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">{{ e.title || e.slug }}</span>
+          <span v-text-dir class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">{{ e.title || e.slug }}</span>
           <span
             v-if="badgeOf(e)"
             class="shrink-0 inline-flex items-center px-1.5 h-5 rounded text-2xs font-medium"

@@ -43,7 +43,7 @@
 
             <!-- Name in place -->
             <form v-if="naming === v.id" class="mt-2 flex items-center gap-2" data-testid="history-version-name-form" @submit.prevent="saveName(v)">
-                <UInput v-model="nameDraft" size="sm" class="flex-1" :maxlength="120" autofocus
+                <UInput v-text-dir v-model="nameDraft" size="sm" class="flex-1" :maxlength="120" autofocus
                     :placeholder="$t('dashboardCollab.versions.namePlaceholder')" @keydown.escape.prevent="naming = null" />
                 <UButton size="xs" color="gray" variant="ghost" :disabled="busy === v.id" @click="naming = null">{{ $t('common.cancel') }}</UButton>
                 <UButton size="xs" type="submit" :loading="busy === v.id" data-testid="history-version-name-save">{{ $t('common.save') }}</UButton>

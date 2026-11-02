@@ -56,7 +56,7 @@
             </div>
 
             <!-- Description -->
-            <div
+            <div v-text-dir
               v-if="agentDetails?.description"
               class="mt-2 text-xs text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-4"
             >

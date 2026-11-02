@@ -312,7 +312,9 @@ const docDir = computed(() => detectDocDir(props.markdown))
 
 .bow-doc-md :deep(blockquote) {
   margin: 1.25rem 0;
-  padding: 0.25rem 0 0.25rem 1rem;
+  /* Logical padding to match the logical border: an RTL quote keeps its gap. */
+  padding-block: 0.25rem;
+  padding-inline: 1rem 0;
   border-inline-start: 3px solid rgb(229 231 235);
   color: rgb(107 114 128);
   font-style: italic;

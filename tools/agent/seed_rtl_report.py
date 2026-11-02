@@ -17,6 +17,7 @@ Creates (as admin@example.com, through the API + the app's own models):
   - turn 2: a Hebrew question that opens with an English term
   - turn 3: an English question with an English answer (no regressions)
   - a page artifact (dashboard) written in Hebrew with no `dir` of its own
+  - a global Hebrew instruction (markdown) for the instruction view and editor
 
 Prints JSON {report_id, artifact_id}.
 """
@@ -214,15 +215,50 @@ async def seed_turns(report_id):
         await db.commit()
 
 
+# A Hebrew instruction (markdown) exercising the instruction view and editor:
+# an English heading, a sentence opening with an English term, a list of
+# amounts, an English sentence bullet, a nested list and a signed-number table.
+INSTRUCTION_TITLE = "כללי דיווח הכנסות"
+INSTRUCTION_TEXT = """## Summary
+
+**Revenue** מחושב תמיד לפני מע״מ ולאחר החזרות, לפי תאריך החשבונית.
+
+- **North**: 1.2M USD
+- **South**: 0.9M USD
+- אזור המרכז: 0.7M USD
+- Always use the fiscal calendar from the finance team
+  - Sub point: SQL query must filter `status = 'closed'`
+  - תת-נקודה: לא לכלול הזמנות בוטלו
+
+1. **MRR** מחושב בסוף כל חודש
+2. **Churn** נמדד ברמת לקוח, לא ברמת מנוי
+
+| Region | Owner | Change |
+|---|---|---|
+| צפון | דנה כהן | +14% |
+| דרום | יוסי לוי | -2% |
+
+> הערה: במקרה של ספק, יש להתייעץ עם צוות הכספים."""
+
+
+def seed_instruction(client, headers):
+    r = client.post("/api/instructions/global", headers=headers, json={
+        "title": INSTRUCTION_TITLE, "text": INSTRUCTION_TEXT, "category": "general",
+        "status": "published", "load_mode": "always", "data_source_ids": []})
+    r.raise_for_status()
+    return r.json()["id"]
+
+
 def main():
     client, headers, report = base.api_setup()
+    instruction_id = seed_instruction(client, headers)
     client.put(f"/api/reports/{report['id']}", headers=headers, json={"title": "הכנסות רבעוניות לפי אזור"})
     r = client.post("/api/artifacts", headers=headers, json={
         "report_id": report["id"], "title": "הכנסות לפי אזור", "mode": "page",
         "content": {"code": ARTIFACT_CODE, "visualization_ids": []}})
     r.raise_for_status()
     asyncio.run(seed_turns(report["id"]))
-    print(json.dumps({"report_id": report["id"], "artifact_id": r.json()["id"]}))
+    print(json.dumps({"report_id": report["id"], "artifact_id": r.json()["id"], "instruction_id": instruction_id}))
 
 
 if __name__ == "__main__":

@@ -43,7 +43,7 @@
               />
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
-                  <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
+                  <span v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
                   <span v-if="group.latest.version" class="text-2xs font-medium text-ink-muted flex-shrink-0">v{{ group.latest.version }}</span>
                   <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-2xs font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
                 </div>
@@ -130,7 +130,7 @@
             @click="emit('scrollToMessage', sr.message_id)"
           >
             <Icon :name="subAgentIcon(sr)" class="w-3.5 h-3.5 flex-shrink-0" :class="subAgentIconClass(sr)" />
-            <span class="truncate flex-1 text-gray-700 dark:text-gray-200" :title="sr.summary || sr.title">{{ sr.title }}</span>
+            <span v-text-dir class="truncate flex-1 text-gray-700 dark:text-gray-200" :title="sr.summary || sr.title">{{ sr.title }}</span>
             <span v-if="sr.outcome" class="px-1.5 py-0.5 rounded text-2xs font-medium flex-shrink-0" :class="subAgentOutcomeClass(sr.outcome)">
               {{ $t(`tools.delegate.outcomes.${sr.outcome}`, sr.outcome) }}<template v-if="typeof sr.confidence === 'number'"> · {{ Math.round(sr.confidence * 100) }}%</template>
             </span>
@@ -154,7 +154,7 @@
           >
             <Icon name="heroicons:pencil-square" class="w-4 h-4 flex-shrink-0 text-amber-500 mt-0.5" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ note.title || $t('tools.createNote.untitled') }}</div>
+              <div v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ note.title || $t('tools.createNote.untitled') }}</div>
               <div dir="auto" class="text-2xs text-ink-muted mt-0.5 line-clamp-2 whitespace-pre-line">{{ notePreview(note.content) }}</div>
             </div>
           </li>
@@ -195,7 +195,7 @@
               class="w-4 h-4 flex-shrink-0 text-blue-400"
             />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || $t('chatSummary.untitledInstruction') }}</div>
+              <div v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ inst.title || $t('chatSummary.untitledInstruction') }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span v-if="inst.category" class="text-2xs text-ink-muted">{{ inst.category }}</span>
                 <span
@@ -237,7 +237,7 @@
           >
             <Icon :name="webhookIcon(w.source)" class="w-4 h-4 flex-shrink-0 text-ink-muted" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ w.name }}</div>
+              <div v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ w.name }}</div>
               <div class="flex items-center gap-2 mt-0.5">
                 <span class="text-2xs text-ink-muted">{{ w.source }} · {{ w.auth_mode }}</span>
                 <span v-if="w.classify_enabled" class="inline-flex items-center gap-1 text-2xs text-blue-500">

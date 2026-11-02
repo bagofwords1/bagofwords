@@ -89,7 +89,7 @@
 
 					<div v-if="form.classify_enabled">
 						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('reportWebhooks.guidance') }}</label>
-						<textarea v-model="form.classifier_prompt" rows="2" :placeholder="$t('reportWebhooks.guidancePlaceholder')"
+						<textarea v-text-dir v-model="form.classifier_prompt" rows="2" :placeholder="$t('reportWebhooks.guidancePlaceholder')"
 							class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
 					</div>
 

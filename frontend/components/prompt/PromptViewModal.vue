@@ -13,7 +13,7 @@
                 {{ scopeLabel }}
               </span>
             </div>
-            <h3 class="mt-1.5 text-sm font-semibold text-gray-900 dark:text-white">
+            <h3 v-text-dir class="mt-1.5 text-sm font-semibold text-gray-900 dark:text-white">
               {{ prompt?.title || $t('prompts.untitled') }}
             </h3>
           </div>
@@ -25,7 +25,7 @@
         <!-- Full text -->
         <div>
           <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">{{ $t('prompts.viewText') }}</div>
-          <div class="text-sm leading-relaxed text-gray-700 dark:text-gray-200 whitespace-pre-wrap rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-3">
+          <div v-text-dir class="text-sm leading-relaxed text-gray-700 dark:text-gray-200 whitespace-pre-wrap rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/40 p-3">
             <template v-for="(seg, i) in textSegments" :key="i">
               <span
                 v-if="seg.param"

@@ -39,7 +39,7 @@
         Help us improve by letting us know what went wrong with this response.
       </p>
 
-      <UTextarea
+      <UTextarea v-text-dir
         v-model="feedbackMessage"
         placeholder="Type more details here..."
         :rows="4"

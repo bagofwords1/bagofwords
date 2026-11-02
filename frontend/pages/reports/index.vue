@@ -274,7 +274,7 @@
                         <!-- Title block -->
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <NuxtLink
+                                <NuxtLink v-text-dir
                                     v-if="reportLink(report)"
                                     :to="reportLink(report)"
                                     @click.stop
@@ -282,7 +282,7 @@
                                 >
                                     {{ report.title }}
                                 </NuxtLink>
-                                <span
+                                <span v-text-dir
                                     v-else
                                     @click.stop
                                     class="text-sm font-medium text-gray-900 dark:text-white truncate"
@@ -359,7 +359,7 @@
                                             class="h-3.5 w-3.5 shrink-0"
                                             :style="report.project.color ? { color: report.project.color } : undefined"
                                         />
-                                        <span class="truncate">{{ report.project.name }}</span>
+                                        <span v-text-dir class="truncate">{{ report.project.name }}</span>
                                     </NuxtLink>
                                 </template>
                                 <template v-if="report.data_sources.length">

@@ -143,7 +143,7 @@
               <button v-if="canUpdateDataSource" @click="openEditStarters" class="text-2xs text-blue-600 hover:underline">{{ $t('dataSource.edit') }}</button>
             </div>
             <div v-if="starterPrompts.length" class="space-y-1.5">
-              <button
+              <button v-text-dir
                 v-for="(p, idx) in starterPrompts"
                 :key="p.id || idx"
                 @click="$emit('starter-click', p.text)"
@@ -339,7 +339,7 @@
                   <div class="flex-1 min-w-0">
                     <!-- Title or text preview -->
                     <div class="flex items-center gap-1.5">
-                      <span class="truncate text-gray-800 dark:text-gray-200 font-medium text-xs">{{ inst.title || (inst.preview ?? inst.text)?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
+                      <span v-text-dir class="truncate text-gray-800 dark:text-gray-200 font-medium text-xs">{{ inst.title || (inst.preview ?? inst.text)?.slice(0, 60) || $t('reportAgent.untitled') }}</span>
                     </div>
                     <!-- Body preview under the title. Rows come from the light
                          list, which carries `preview` rather than the full text. -->
@@ -445,9 +445,9 @@
                     class="px-1 py-0.5 text-2xs rounded border flex-shrink-0"
                     :class="entity.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
                   >{{ (entity.type || 'entity').toUpperCase() }}</span>
-                  <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ entity.title || entity.slug }}</span>
+                  <span v-text-dir class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ entity.title || entity.slug }}</span>
                 </div>
-                <div v-if="entity.description" class="text-2xs text-ink-muted truncate mt-0.5">
+                <div v-text-dir v-if="entity.description" class="text-2xs text-ink-muted truncate mt-0.5">
                   {{ entity.description }}
                 </div>
               </div>
@@ -476,7 +476,7 @@
                   <span class="px-1 py-0.5 text-2xs rounded border flex-shrink-0 text-amber-700 border-amber-200 bg-amber-50">
                     {{ tc.suite_name || $t('reportAgent.evalBadge') }}
                   </span>
-                  <span class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>
+                  <span v-text-dir class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>
                 </div>
                 <div v-if="tc.expectations_json?.length" class="text-2xs text-ink-muted truncate mt-0.5">
                   {{ tc.expectations_json.length === 1 ? $t('reportAgent.expectationOne', { n: 1 }) : $t('reportAgent.expectationMany', { n: tc.expectations_json.length }) }}
@@ -502,11 +502,11 @@
             <div class="space-y-1">
               <div>
                 <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
-                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
+                <input v-text-dir v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
               </div>
               <div>
                 <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
-                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
+                <textarea v-text-dir v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
               </div>
             </div>
           </div>

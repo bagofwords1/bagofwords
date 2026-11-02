@@ -34,7 +34,7 @@
     <Transition name="slide">
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 dark:border-gray-700 rounded-md p-3 transition-colors">
-          <div v-if="newText" dir="auto" class="prompt-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
+          <div v-if="newText" class="prompt-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
             <MDC :value="newText" class="markdown-content" />
           </div>
           <div class="flex flex-wrap items-center gap-2 text-2xs mb-1">

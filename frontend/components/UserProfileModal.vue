@@ -257,7 +257,7 @@
             </div>
             <template v-else>
               <!-- User-authored custom instructions (membership note) -->
-              <UTextarea
+              <UTextarea v-text-dir
                 v-model="noteInput"
                 :rows="6"
                 :maxlength="500"

@@ -49,8 +49,8 @@
                 class="text-2xs px-1.5 py-0.5 rounded border text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15"
               >{{ $t('queries.suggestedBadge') }}</span>
             </div>
-            <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
-            <div class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
+            <h1 v-text-dir class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
+            <div v-text-dir class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
             <!-- Data source icons under description -->
             <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
               <img

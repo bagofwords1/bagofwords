@@ -82,7 +82,7 @@
           />
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span class="text-sm text-gray-800 dark:text-gray-200">{{ row.title }}</span>
+              <span v-text-dir class="text-sm text-gray-800 dark:text-gray-200">{{ row.title }}</span>
               <!-- Explains why a fresh organization already has this one on. -->
               <span
                 v-if="row.default_enabled"
@@ -103,7 +103,7 @@
                 class="text-2xs text-ink-muted"
               >{{ $t('skillCatalog.custom') }}</span>
             </div>
-            <p class="mt-0.5 text-2xs text-ink-muted">{{ row.description }}</p>
+            <p v-text-dir class="mt-0.5 text-2xs text-ink-muted">{{ row.description }}</p>
             <div v-if="expanded === row.uid" class="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span v-if="row.version" class="text-2xs text-ink-muted">v{{ row.version }}</span>
               <span v-for="tag in (row.tags || [])" :key="tag" :class="chip">{{ tag }}</span>

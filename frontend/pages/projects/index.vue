@@ -173,7 +173,7 @@
                         <!-- Title block -->
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <NuxtLink
+                                <NuxtLink v-text-dir
                                     :to="`/projects/${project.id}`"
                                     @click.stop
                                     class="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 truncate"
@@ -207,7 +207,7 @@
                                 </template>
                                 <template v-if="project.description">
                                     <span class="text-gray-300 dark:text-gray-600">·</span>
-                                    <span class="truncate max-w-[240px]">{{ project.description }}</span>
+                                    <span v-text-dir class="truncate max-w-[240px]">{{ project.description }}</span>
                                 </template>
                             </div>
                         </div>
@@ -294,7 +294,7 @@
                 <div class="p-5">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">{{ $t('projects.createTitle') }}</h3>
                     <p class="text-xs text-ink-muted mb-3">{{ $t('projects.createHint') }}</p>
-                    <input
+                    <input v-text-dir
                         v-model="createName"
                         type="text"
                         :placeholder="$t('projects.namePlaceholder')"

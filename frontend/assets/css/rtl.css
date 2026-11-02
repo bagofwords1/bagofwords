@@ -29,13 +29,15 @@
 }
 
 /* 2. Force LTR for code-shaped surfaces. Artifacts / editors output English
- *    code whose visual ordering must not flip. */
+ *    code whose visual ordering must not flip. A <pre>/<code> that carries
+ *    its own `dir` holds prose (a trace message, an email body, an
+ *    instruction diff rendered in a pre) and keeps that direction. */
 [dir="rtl"] .monaco-editor,
 [dir="rtl"] .monaco-editor *,
 [dir="rtl"] .ag-root,
 [dir="rtl"] .ag-root *,
-[dir="rtl"] pre,
-[dir="rtl"] code,
+[dir="rtl"] pre:not([dir]),
+[dir="rtl"] code:not([dir]),
 [dir="rtl"] kbd,
 [dir="rtl"] samp,
 [dir="rtl"] .force-ltr,
@@ -308,4 +310,6 @@
 /* A signed number ("+12%") in an RTL table is laid out LTR so its sign stays
  * in front (useMarkdownAutoDir marks it); keep it on the table's right edge. */
 .markstream-vue :is(th, td).text-left[data-bidi-num] { text-align: right; }
-[dir="rtl"] .markstream-vue .text-right { text-align: end; }
+/* Markdown's right-aligned column (`---:`) means the column's end edge, so it
+ * follows the cell's own direction, not the UI's. */
+.markstream-vue :is(th, td).text-right { text-align: end; }

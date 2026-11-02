@@ -36,7 +36,7 @@
                                                 <img v-if="platformOf(item)!.img" :src="platformOf(item)!.img!" class="h-3.5 w-3.5 inline flex-shrink-0" :alt="platformOf(item)!.label" />
                                                 <UIcon v-else :name="platformOf(item)!.icon!" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
                                             </UTooltip>
-                                            <span class="truncate" :title="item.prompt">{{ item.prompt || '—' }}</span>
+                                            <span v-text-dir class="truncate" :title="item.prompt">{{ item.prompt || '—' }}</span>
                                         </div>
                                         <div class="flex items-center gap-1.5 mt-0.5 text-2xs text-ink-muted truncate">
                                             <button v-if="item.report.id" type="button" class="text-gray-500 hover:text-blue-600 hover:underline truncate" :title="$t('monitoring.diagnosis.pivotReport')" @click.stop="$emit('pivot', `report_id:${item.report.id}`)">{{ item.report.title || item.report.id }}</button>

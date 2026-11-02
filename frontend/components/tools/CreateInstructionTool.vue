@@ -55,7 +55,6 @@
           <!-- Instruction text - click to edit -->
           <div
             v-if="instructionText"
-            dir="auto"
             class="instruction-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
             :class="readonly ? '' : 'cursor-pointer'"
             @click="!readonly && currentGlobalStatus !== 'approved' ? handleEdit() : null"
@@ -592,7 +591,6 @@ function handleInstructionSaved(data: any) {
 .instruction-content :deep(.markdown-content ul),
 .instruction-content :deep(.markdown-content ol) {
   margin: 0.5em 0;
-  padding-left: 1.5em;
 }
 
 .instruction-content :deep(.markdown-content li) {

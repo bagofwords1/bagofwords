@@ -132,6 +132,16 @@ const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr:
   assert.equal(cellHe.dir, 'rtl')
 }
 {
+  // An English bullet with a Hebrew sub-list: the item votes on its own text.
+  const sub = node('list', '', [node('item', 'תת-נקודה: לא לכלול הזמנות שבוטלו בחודש האחרון'), node('item', 'נקודה נוספת בעברית לגבי הדיווח')])
+  const item = node('item', 'Always use the fiscal calendar from the finance team', [sub])
+  const list = node('list', '', [item, node('item', 'נקודה ראשונה בעברית על הכנסות')])
+  const roots = [node('block', 'הכנסות מחושבות תמיד לפני מע״מ ולאחר החזרות'), list]
+  resolveDirTree(roots, sum(roots))
+  assert.equal(item.dir, 'ltr', 'English item stays LTR despite its Hebrew sub-list')
+  assert.equal(sub.dir, 'rtl', 'the Hebrew sub-list keeps its own direction')
+}
+{
   // An English document is untouched: Hebrew word in a sentence, short Hebrew item.
   const p = node('block', 'The orders table includes the column סטטוס for each order')
   const he = node('item', 'בחר משתמשים')

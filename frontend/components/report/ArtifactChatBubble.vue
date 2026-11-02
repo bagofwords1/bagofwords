@@ -51,7 +51,7 @@
                     <template v-for="msg in messages" :key="msg.id">
                         <!-- User message -->
                         <div v-if="msg.role === 'user'" class="flex justify-end">
-                            <div class="bg-blue-600 text-white text-xs rounded-2xl rounded-br-md px-3 py-2 max-w-[85%] whitespace-pre-wrap break-words">
+                            <div v-text-dir class="bg-blue-600 text-white text-xs rounded-2xl rounded-br-md px-3 py-2 max-w-[85%] whitespace-pre-wrap break-words">
                                 {{ msg.prompt?.content }}
                             </div>
                         </div>
@@ -103,7 +103,7 @@
                 <!-- Composer -->
                 <div class="border-t border-gray-100 dark:border-gray-800 p-2 flex-shrink-0">
                     <div class="flex items-end gap-1.5">
-                        <textarea ref="inputEl" v-model="draft" rows="1"
+                        <textarea ref="inputEl" v-model="draft" v-text-dir rows="1"
                             class="flex-1 resize-none text-xs border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-2 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 max-h-24"
                             :placeholder="isStreaming ? 'Answering...' : 'Ask a question...'"
                             :disabled="isStreaming"
@@ -348,7 +348,10 @@ function handleEvent(evt: any, assistantMsg: any) {
 <style scoped>
 .chat-md :deep(p) { margin: 0 0 0.4rem 0; }
 .chat-md :deep(p:last-child) { margin-bottom: 0; }
-.chat-md :deep(ul), .chat-md :deep(ol) { margin: 0.2rem 0 0.4rem 1rem; list-style: disc; }
+/* Marker gutter on each item's own start edge, so RTL answers (direction
+   stamped by useMarkdownAutoDir) keep their markers. */
+.chat-md :deep(ul), .chat-md :deep(ol) { margin: 0.2rem 0 0.4rem 0; padding: 0; list-style: disc; }
+.chat-md :deep(li) { margin-inline-start: 1rem; }
 .chat-md :deep(ol) { list-style: decimal; }
 .chat-md :deep(table) { font-size: 11px; border-collapse: collapse; margin: 0.3rem 0; }
 .chat-md :deep(th), .chat-md :deep(td) { border: 1px solid rgb(209 213 219 / 0.6); padding: 2px 6px; }

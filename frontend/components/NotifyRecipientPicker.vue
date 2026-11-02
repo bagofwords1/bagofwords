@@ -35,7 +35,7 @@
         </div>
 
         <!-- Optional message -->
-        <input v-model="message" type="text" placeholder="Add a note (optional)"
+        <input v-text-dir v-model="message" type="text" placeholder="Add a note (optional)"
             class="mt-2 w-full border border-gray-200 dark:border-gray-700 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" />
 
         <!-- Send button -->

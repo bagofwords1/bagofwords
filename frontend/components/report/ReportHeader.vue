@@ -20,13 +20,13 @@
                          text (an input's own caret sits wherever the cursor is,
                          and focusing it would fight the user). Identical
                          typography, so there is no reflow on the swap. -->
-                    <span
+                    <span v-text-dir
                         v-if="report && isTypingTitle"
                         class="report-title-typing inline-block p-1 pt-1 text-start w-full text-gray-900 dark:text-gray-100 truncate cursor-text"
                         aria-live="polite"
                         @click="onTitleFocus"
                     >{{ localTitle }}<span class="report-title-caret" aria-hidden="true"></span></span>
-                    <input
+                    <input v-text-dir
                         type="text"
                         class="inline bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 focus:bg-gray-100 dark:focus:bg-gray-800 p-1 pt-1 rounded outline-none active:bg-gray-100 dark:active:bg-gray-800 hover:cursor-pointer text-start w-full text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500 transition-colors duration-150"
                         v-else-if="report"

@@ -16,7 +16,7 @@
         </button>
       </div>
 
-      <div dir="auto" class="note-markdown text-sm text-gray-700 dark:text-gray-300 max-h-[60vh] overflow-y-auto">
+      <div class="note-markdown text-sm text-gray-700 dark:text-gray-300 max-h-[60vh] overflow-y-auto">
         <MarkdownRender v-if="note?.content" :content="note.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" />
       </div>
 

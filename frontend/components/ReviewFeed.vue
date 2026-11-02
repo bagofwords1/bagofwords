@@ -77,12 +77,12 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 min-w-0">
                 <span v-if="!row.read && row.status !== 'resolved'" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
-                <span class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ row.title }}</span>
+                <span v-text-dir class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ row.title }}</span>
                 <span v-if="row.count > 1" class="text-2xs font-semibold px-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 shrink-0 tabular-nums">{{ row.count }} changes</span>
                 <span v-if="row.status === 'in_progress'" class="inline-flex items-center gap-1 text-2xs text-blue-600 dark:text-blue-400 shrink-0"><UIcon name="i-heroicons-arrow-path" class="w-3 h-3 animate-spin" />Running</span>
                 <span v-else-if="row.status === 'resolved'" class="inline-flex items-center gap-0.5 text-2xs text-green-600 dark:text-green-400 shrink-0"><UIcon name="i-heroicons-check" class="w-3 h-3" />Resolved</span>
               </div>
-              <p v-if="row.why" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{{ row.why }}</p>
+              <p v-text-dir v-if="row.why" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{{ row.why }}</p>
               <div class="mt-1.5 flex items-center gap-2 text-2xs text-ink-muted">
                 <span class="inline-flex items-center gap-1">
                   <DataSourceIcon v-if="row.singleAgentId" :icon-token="agentIconTokenOf(row.singleAgentId)" class="w-3 h-3" />

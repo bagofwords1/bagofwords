@@ -250,7 +250,7 @@
             ]">
               <!-- Drop cue: the folder opens while a report hovers this row. -->
               <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
-              <span class="flex-1 truncate">{{ project.name }}</span>
+              <span v-text-dir class="flex-1 truncate">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
             <button
@@ -332,7 +332,7 @@
                 <span class="inline-flex items-center shrink-0">
                   <ReportStatusDot :report-id="report.id" show-idle />
                 </span>
-                <span
+                <span v-text-dir
                   class="flex-1 truncate"
                   :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
@@ -611,7 +611,7 @@
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">
         {{ projectDialogMode === 'create' ? $t('projects.createTitle') : $t('projects.renameTitle') }}
       </h3>
-      <input
+      <input v-text-dir
         v-model="projectDialogName"
         type="text"
         :placeholder="$t('projects.namePlaceholder')"
@@ -663,7 +663,7 @@
           @click="doMoveReport(project.id)"
         >
           <UIcon name="i-heroicons-folder" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
-          <span class="flex-1 truncate text-start">{{ project.name }}</span>
+          <span v-text-dir class="flex-1 truncate text-start">{{ project.name }}</span>
           <span v-if="isProjectShared(project)" class="text-2xs text-ink-muted">{{ $t('projects.sharedBadge') }}</span>
           <UIcon v-if="moveTargetReport?.project_id === project.id" name="i-heroicons-check" class="w-4 h-4 text-blue-500 shrink-0" />
         </button>
@@ -698,7 +698,7 @@
   <UModal v-model="renameOpen">
     <div class="p-4">
       <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reports.renameTitle') }}</h3>
-      <input
+      <input v-text-dir
         v-model="renameTitle"
         type="text"
         :placeholder="$t('reports.renamePlaceholder')"

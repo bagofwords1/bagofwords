@@ -6,7 +6,7 @@
           <DataSourceIcon :type="agent?.type || connections[0]?.type" :icon="agent?.icon" class="mt-0.5 h-6 w-6 shrink-0" />
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <h2 class="text-base font-semibold leading-6 text-gray-900 dark:text-white break-words">{{ agent?.name }}</h2>
+              <h2 v-text-dir class="text-base font-semibold leading-6 text-gray-900 dark:text-white break-words">{{ agent?.name }}</h2>
               <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-2xs font-medium" :class="stageStyle.badge">
                 <span class="h-1.5 w-1.5 rounded-full" :class="stageStyle.dot" />
                 {{ $t(`agentsPage.stage.${stage}`) }}
@@ -15,7 +15,7 @@
           </div>
           <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
         </div>
-        <p v-if="agent?.description" class="mt-4 mb-1 text-sm leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
+        <p v-text-dir v-if="agent?.description" class="mt-4 mb-1 text-sm leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
       </header>
 
       <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">

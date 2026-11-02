@@ -162,9 +162,18 @@ export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opt
     let dir: TextDir | null
     node.signedNumber = false
     switch (node.kind) {
-      case 'item':
-        dir = decideDir(node.counts, { context, container: true, minWords: SHORT_BLOCK_WORDS })
+      case 'item': {
+        // An item votes on its own text, not its nested lists' ("Always use
+        // the fiscal calendar" above a Hebrew sub-list is still English).
+        const own = { ...node.counts }
+        for (const child of node.children) {
+          if (child.kind !== 'list') continue
+          own.rtl -= child.counts.rtl
+          own.ltr -= child.counts.ltr
+        }
+        dir = decideDir(own, { context, container: true, minWords: SHORT_BLOCK_WORDS })
         break
+      }
       case 'row':
         dir = tableDir ?? context
         break

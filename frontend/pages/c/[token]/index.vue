@@ -44,7 +44,7 @@
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
                 <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
-                        <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
+                        <h1 v-text-dir class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
                         <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->

@@ -103,7 +103,7 @@
                 </span>
               </div>
               <div class="flex items-center gap-2">
-                <span
+                <span v-text-dir
                   :class="[
                     'text-sm truncate',
                     !n.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'

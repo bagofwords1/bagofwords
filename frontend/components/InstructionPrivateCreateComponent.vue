@@ -191,6 +191,7 @@
                     <!-- Normal textarea -->
                     <textarea
                         v-if="!codeView"
+                        v-text-dir
                         :value="sharedForm.text"
                         @input="updateForm({ text: ($event.target as HTMLTextAreaElement).value })"
                         placeholder="Describe the instruction for the AI agent...
@@ -1033,7 +1034,7 @@ watch(() => props.selectedDataSources, () => {
     }
 
     blockquote {
-        @apply border-l-4 border-gray-200 pl-4 italic my-3 text-gray-600;
+        @apply border-s-4 border-gray-200 ps-4 italic my-3 text-gray-600;
     }
 
     table { @apply w-full border-collapse mb-3; }
