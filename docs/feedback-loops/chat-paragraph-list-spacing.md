@@ -58,3 +58,24 @@ font and line height stayed 15px / 24px. The fixture uses synthetic data only.
 No backend changes or backend test runs. Safari/Firefox and streaming animation
 were not exercised; this is a static spacing change. This verification does
 not claim the rest of PR #1557 is fully verified.
+
+## Marker contrast follow-up
+
+Live bullets were `rgb(203, 213, 225)` against `rgb(17, 24, 39)` text.
+Markstream's scoped marker rules default to `#cbd5e1` for bullets and `#64748b`
+for counters. The report now sets both renderer marker variables to
+`currentColor`, so ordered/unordered markers follow the list text's theme color.
+
+The fixture now restores the list component's scope attribute omitted by SSR;
+without it, the earlier spacing screenshots did not reproduce marker color.
+This correction does not affect the recorded spacing measurements. The check
+also asserts marker/text color equality. Before: false; after: all 14 fixture
+items (7 per language) and all 21 live-report items matched `rgb(17, 24, 39)`.
+Use baseline `cb3007fe1` to reproduce the marker failure. Evidence:
+`chat-spacing/markers-before-en-he.jpg` and `markers-after-en-he.jpg` in the same
+PR media directory. Dark mode follows currentColor by construction but was not
+separately exercised in the browser.
+
+Open WebUI's current app.css uses prose typography, and its Tailwind config
+retains the typography plugin's muted markers; black bullets here are an
+intentional readability choice, not a claim of exact Open WebUI parity.

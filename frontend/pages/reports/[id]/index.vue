@@ -6396,6 +6396,9 @@ onMounted(async () => {
 	@apply leading-relaxed;
 	font-size: 13px;
 	--typewriter-fade-duration: 180ms;
+	/* Markstream otherwise paints bullets pale gray and counters slate. */
+	--list-item-marker: currentColor;
+	--list-item-counter-marker: currentColor;
 	--stream-update-fade-duration: 180ms;
 	--typewriter-fade-ease: ease-out;
 	--stream-update-fade-ease: ease-out;
