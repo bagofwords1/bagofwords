@@ -16,9 +16,11 @@ export type TextDir = 'rtl' | 'ltr'
 const RTL_CHAR = /[֐-ࣿיִ-﷿ﹰ-ﻼ]/
 const LTR_CHAR = /[A-Za-zÀ-ɏ]/
 // A word that opens with a digit, sign or currency symbol is a quantity
-// ("1.2M", "$118", "-5%", "2024"), not prose. Its unit letters must not vote,
-// or a Hebrew list of amounts reads as English.
-const QUANTITY_START = /^[\p{N}\p{Sc}+\-−±~≈<>(]/u
+// ("1.2M", "$118", "-5%", "2024", "(5%)"), not prose. Its unit letters must
+// not vote, or a Hebrew list of amounts reads as English. Opening brackets and
+// quotes are skipped first: "(אלטרנטיבי)" is a Hebrew word, "(5%)" a quantity.
+const QUANTITY_START = /^[\p{N}\p{Sc}+\-−±~≈<>]/u
+const LEADING_OPENERS = /^[(\[{"'«“„‘‚]+/u
 
 // RTL wins below 50%: RTL prose embeds far more Latin identifiers, acronyms
 // and URLs than the reverse, so mostly-Latin text with a stray RTL word stays
@@ -48,8 +50,9 @@ export function firstStrongDir(text: string): TextDir | null {
 }
 
 export function wordDir(word: string): TextDir | null {
-  if (!word || QUANTITY_START.test(word)) return null
-  return firstStrongDir(word)
+  const core = (word || '').replace(LEADING_OPENERS, '')
+  if (!core || QUANTITY_START.test(core)) return null
+  return firstStrongDir(core)
 }
 
 export interface DirCounts { rtl: number; ltr: number }

@@ -25,6 +25,12 @@ assert.equal(wordDir('$118'), null)
 assert.equal(wordDir('-5%'), null)
 assert.equal(wordDir('2024'), null)
 assert.equal(wordDir('—'), null)
+// Brackets and quotes are skipped: a parenthesised Hebrew word votes RTL, a
+// parenthesised amount stays neutral.
+assert.equal(wordDir('(אלטרנטיבי)'), 'rtl')
+assert.equal(wordDir('“Genre'), 'ltr')
+assert.equal(wordDir('(5%)'), null)
+assert.equal(wordDir('($1.2M)'), null)
 
 // --- plain strings (user prompts) -------------------------------------------
 
