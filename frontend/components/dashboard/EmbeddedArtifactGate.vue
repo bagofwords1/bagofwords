@@ -264,7 +264,16 @@ function b64url(bytes: ArrayBuffer | Uint8Array) {
     return btoa(String.fromCharCode(...arr)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// The listener of the SSO attempt in progress: a new attempt, a sign-out or
+// an unmount removes it, so abandoned popups leave nothing behind.
+let ssoCleanup: (() => void) | null = null;
+function endSsoAttempt() {
+    ssoCleanup?.();
+    ssoCleanup = null;
+}
+
 async function signInWithPopup() {
+    endSsoAttempt();
     const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     const state = crypto.randomUUID();
@@ -282,14 +291,14 @@ async function signInWithPopup() {
         if (data?.type === 'bow:sso-error') {
             // BOW refused the sign-in (a disabled app, for one): the popup shows
             // why, and the frame stops waiting.
-            window.removeEventListener('message', onMessage);
+            endSsoAttempt();
             if (gen !== generation) return;
             retryable.value = !PERMANENT_ERROR_CODES.includes(String(data.error_code));
             fail('failed', typeof data.message === 'string' && data.message ? data.message : t('embed.gate.failed'));
             return;
         }
         if (data?.type !== 'bow:sso-code') return;
-        window.removeEventListener('message', onMessage);
+        endSsoAttempt();
         try { popup.close(); } catch { /* already closed */ }
         await track((async () => {
             try {
@@ -305,6 +314,7 @@ async function signInWithPopup() {
         })());
     };
     window.addEventListener('message', onMessage);
+    ssoCleanup = () => window.removeEventListener('message', onMessage);
 }
 
 // The host hears signed_out only once this frame has done its part: the
@@ -312,6 +322,7 @@ async function signInWithPopup() {
 // one returns late is revoked where it lands), including an earlier
 // sign-out's. At most 5 s, so a stuck request cannot hold the host.
 function signOut(): Promise<void> {
+    endSsoAttempt();
     const gen = ++generation;
     const epoch = signInEpoch;
     inflight = null;  // a sign-in from before is dropped; the next one starts afresh
@@ -361,6 +372,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+    endSsoAttempt();
     generation++;
     host.stop();
     if (renewTimer) clearTimeout(renewTimer);

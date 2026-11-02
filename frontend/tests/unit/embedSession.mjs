@@ -223,14 +223,14 @@ console.log('PASS: a renewal or sign-in against a disabled application fails at 
 // The real useArtifactRuntime, a frame bound by BOW_RUNTIME_READY, and a
 // stubbed fetch: an app call refused with 401 or embed.session_invalid calls
 // onSessionEnded with the authorization it sent; other refusals do not.
-async function brokerCall(response, { stream = false, authorizationAfter } = {}) {
+async function brokerCall(response, { stream = false, authorizationAfter, context } = {}) {
   const embed = ref(alice), appToken = ref('')
   const listeners = {}
   const ended = []
   const frameWindow = { postMessage: (_m, _o, ports) => { frameWindow.port = ports?.[0] } }
   const frame = { contentWindow: frameWindow, srcdoc: 'window.__BOW_RUNTIME_NONCE__="ab12-cd34"' }
   const fetchStub = async (url) => {
-    if (String(url).endsWith('/context')) return new Response('{}', { status: 200 })
+    if (String(url).endsWith('/context')) return context ? context() : new Response('{}', { status: 200 })
     if (authorizationAfter) embed.value = authorizationAfter  // renewed while the call was in flight
     return response()
   }
@@ -268,6 +268,8 @@ const json = (status, body) => () => new Response(JSON.stringify(body), { status
   assert.deepEqual(r.ended, [], 'nor a server error')
   r = await brokerCall(() => new Response(JSON.stringify({ type: 'error', code: 'embed.session_invalid', message: 'x' }) + '\n', { status: 200 }), { stream: true })
   assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'a stream error event with the session code ends it')
+  r = await brokerCall(json(200, { items: [] }), { context: json(403, { error_code: 'embed.session_invalid' }) })
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'the runtime context refused with the session code ends it too')
   r = await brokerCall(json(401, { error_code: 'embed.session_invalid' }), { authorizationAfter: renewed })
   assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'it reports the authorization the request sent, not the renewed one')
 }

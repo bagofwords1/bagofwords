@@ -900,6 +900,7 @@ const accessError = ref<'login' | 'denied' | null>(null);
 // Fetch report info
 async function loadReport() {
     try {
+        const sent = apiAuthorization.value;
         const { data, error: fetchError } = await useMyFetch(api.meta);
         if (fetchError.value || !data.value) {
             if (embedded) {
@@ -912,7 +913,9 @@ async function loadReport() {
             // Inside a host application: no draft, no sign-in page, no
             // /not_found -- each would leave the host's frame. The gate says why.
             if (inHostApplication.value && props.source === 'dashboard') {
-                emit('unavailable', embedLoadFailure(status, (fetchError.value as any)?.data?.error_code));
+                const failure = embedLoadFailure(status, (fetchError.value as any)?.data?.error_code);
+                // A refusal of a token renewed since says nothing about the current one.
+                if (failure !== 'session_invalid' || sent === apiAuthorization.value) emit('unavailable', failure);
                 return;
             }
             // Not published yet: its editors see the draft instead -- unless
@@ -1011,7 +1014,7 @@ const dashboardMeta = ref<any>(null);
 // Inside a host application, a later request of the view (content, queries)
 // refused for a dead embed session: the session ended, not the load -- the
 // gate ends it as an expired one (the host is asked to sign the user in).
-function embedSessionEndedOn(error: any, sent: string = apiAuthorization.value): boolean {
+function embedSessionEndedOn(error: any, sent: string): boolean {
     if (!inHostApplication.value || props.source !== 'dashboard' || !error) return false;
     if (!embedSessionEnded(error?.statusCode || error?.status, error?.data?.error_code)) return false;
     if (sent === apiAuthorization.value) emit('unavailable', 'session_invalid');
@@ -1029,8 +1032,9 @@ function embedSessionEndedFor(sent: string) {
 // content the page renders as it renders a conversation's newest.
 async function loadDashboardContent() {
     try {
+        const sent = apiAuthorization.value;
         const { data, error } = await useMyFetch(api.content!);
-        if (embedSessionEndedOn(error.value)) return;
+        if (embedSessionEndedOn(error.value, sent)) return;
         if (error.value || !data.value) throw error.value || new Error('Missing dashboard content');
         const body = data.value as any;
         const meta = dashboardMeta.value || {};
@@ -1093,8 +1097,9 @@ async function loadArtifact() {
 // back to the list + per-query step endpoints.
 async function fetchQueriesWithSteps(artifactId?: string): Promise<any[] | null> {
     try {
+        const sent = apiAuthorization.value;
         const { data, error } = await useMyFetch(api.queriesWithSteps(artifactId));
-        if (embedSessionEndedOn(error.value)) return [];
+        if (embedSessionEndedOn(error.value, sent)) return [];
         if (error.value || !Array.isArray(data.value)) return null;
         return data.value as any[];
     } catch {
@@ -1134,6 +1139,7 @@ async function loadVisualizationData(artifactId?: string) {
             stepResults = await Promise.all(
                 queries.map((query) => useMyFetch(api.step((query as any).id)))
             ) as any;
+            if ((stepResults as any[]).some((r: any) => embedSessionEndedOn(r?.error?.value, sent))) return;
         }
 
         const vizData = [];
@@ -1410,6 +1416,7 @@ async function resolveParamOptions(
                     const missing = all.filter(q => !rowsByQueryId.has(String(q.id)));
                     const steps = await Promise.all(
                         missing.map(q => useMyFetch(api.step(q.id))));
+                    if (steps.some((r: any) => embedSessionEndedOn(r?.error?.value, sent))) return out;
                     missing.forEach((q, i) => {
                         rowsByQueryId.set(String(q.id), (steps[i].data.value as any)?.data?.rows || []);
                         if (q.title) titleToId.set(String(q.title).toLowerCase(), String(q.id));

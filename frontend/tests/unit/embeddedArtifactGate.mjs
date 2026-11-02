@@ -40,13 +40,14 @@ function mountGate({ credentials, sessions, boot, deletes = [], setLocale = asyn
   const log = []
   let hostHandlers = null
   let mounted = null
+  let unmount = null
   // As useEmbedHost: init is heard only after start(), and nothing reaches the
   // host before that init bound it (a post before is dropped).
   let started = false
   let bound = false
   // SSO: the popup window.open returns, and the frame's message listener.
   const popup = { close() {} }
-  const sso = { url: null, onMessage: null }
+  const sso = { url: null, onMessage: null, listeners: 0 }
   const stubs = {
     require: (id) => {
       if (id === 'vue') return { defineComponent: (options) => options }
@@ -91,11 +92,11 @@ function mountGate({ credentials, sessions, boot, deletes = [], setLocale = asyn
     onMounted: (fn) => { mounted = fn },
     window: {
       open: (url) => { sso.url = url; return popup },
-      addEventListener: (type, fn) => { if (type === 'message') sso.onMessage = fn },
-      removeEventListener: () => {},
+      addEventListener: (type, fn) => { if (type === 'message') { sso.onMessage = fn; sso.listeners++ } },
+      removeEventListener: (type, fn) => { if (type === 'message' && fn === sso.onMessage) sso.listeners-- },
       location: { origin: 'https://bow.test' },
     },
-    onBeforeUnmount: () => {},
+    onBeforeUnmount: (fn) => { unmount = fn },
   }
   const exports = {}
   new Function('exports', ...Object.keys(stubs), compiled)(exports, ...Object.values(stubs))
@@ -104,6 +105,8 @@ function mountGate({ credentials, sessions, boot, deletes = [], setLocale = asyn
   return { bindings, credential, requested, posted, deleted, log, exposed: () => exposed || {}, mounted: () => mounted(),
     init: (extra = {}) => { if (!started) return; bound = true; return hostHandlers.onInit({ context: null, ...extra }) },
     logout: () => hostHandlers.onLogout(),
+    unmount: () => unmount(),
+    ssoListeners: () => sso.listeners,
     // SSO: the popup posts its one-time code back (bound to the state in its URL).
     ssoCode: (code) => sso.onMessage({ origin: 'https://bow.test', source: popup,
       data: { type: 'bow:sso-code', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), code } }),
@@ -604,3 +607,25 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: a session BOW refused ends once, drops a renewal in flight, and an SSO refusal stops the wait')
+
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // Abandoned SSO popups leave no listeners: a new attempt, a sign-out and
+  // an unmount each remove the previous one.
+  const gate = mountGate({ credentials: [], sessions: [], boot: { identity_mode: 'sso' } })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  await gate.bindings.signInWithPopup()
+  await gate.bindings.signInWithPopup()
+  assert.equal(gate.ssoListeners(), 1, 'a new attempt replaces the abandoned one')
+  gate.logout()
+  await settle()
+  assert.equal(gate.ssoListeners(), 0, 'a sign-out removes it')
+  await gate.bindings.signInWithPopup()
+  gate.unmount()
+  assert.equal(gate.ssoListeners(), 0, 'an unmount removes it')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: abandoned SSO attempts leave no message listeners behind')

@@ -125,6 +125,12 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
   const sessionEnded = (status: number | undefined, code: string | undefined, sent: string) => {
     if (status === 401 || code === 'embed.session_invalid') getContext().onSessionEnded?.(sent)
   }
+  // The same for a refused response the broker reads itself (context, views).
+  const responseEnded = async (response: Response, sent: string) => {
+    if (response.ok) return
+    const body = await response.clone().json().catch(() => ({}))
+    sessionEnded(response.status, body?.error_code, sent)
+  }
   const activity = activityLog(getContext, headers)
   const listener = (event: MessageEvent) => {
     const context = getContext()
@@ -251,7 +257,7 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
       finally { active.delete(message.id);controllers.delete(controller) }
     }
     const contextAuthorization = token.value || ''
-    if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>{if(!r.ok)sessionEnded(r.status,undefined,contextAuthorization);return r.ok?r.json():null}).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
+    if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(async r=>{await responseEnded(r,contextAuthorization);return r.ok?r.json():null}).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
     channel.port1.start();source.postMessage({type:'BOW_RUNTIME_PORT',nonce:match[1]},'*',[channel.port2])
     if (!context.readOnly && context.recordViews !== false) {
       let initialized = false
@@ -264,9 +270,10 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
           const surface = /^\/(r|d)\//.test(window.location.pathname) ? 'standalone' : 'embedded'
           const viewAuthorization = token.value || ''
           const response = await fetch(base + '/view-token?surface=' + surface, {headers:headers(),credentials:'omit'})
-          if (!response.ok) { sessionEnded(response.status, undefined, viewAuthorization); return }
+          if (!response.ok) { await responseEnded(response, viewAuthorization); return }
           const view = await response.json()
-          await fetch(base + '/views', {method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(view),credentials:'omit'})
+          const recorded = await fetch(base + '/views', {method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(view),credentials:'omit'})
+          await responseEnded(recorded, viewAuthorization)
         } catch { /* Analytics never blocks the artifact. */ }
       })
       const rendered = (e:MessageEvent) => {
