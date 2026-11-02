@@ -8,6 +8,7 @@ parameters, date ranges, safe aggregates) stays.
 """
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
 from pathlib import Path
@@ -24,8 +25,7 @@ from app.ai.context.hidden_data import hide_data_for_replay
 from app.ai.context.parts import Outcome
 from app.ai.persisted_summary import TOOL_CONTEXT_KIND_FIELD, TOOL_CONTEXT_OBSERVATION_KIND
 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
-from app.ai.code_execution import code_execution
-from app.ai.tools.implementations import write_csv
+from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.tools.implementations.write_csv import _model_data_fields
 from app.schemas.ai.planner import PlannerInput
 
@@ -163,13 +163,13 @@ def test_a_code_retry_sees_no_printed_data_and_no_quoted_cell():
     assert format_execution_failure(missing, "Execution error: 'revenue'", False) == "Execution error: 'revenue'"
 
 
-class _Settings:
-    def __init__(self, allowed):
-        self.allowed = allowed
+def _Settings(allowed):
+    """Real organization settings with "Allow LLM to see data" on or off and
+    every other setting at its default."""
+    from app.models.organization_settings import OrganizationSettings
 
-    def get_config(self, key):
-        assert key == "allow_llm_see_data"
-        return SimpleNamespace(value=self.allowed)
+    return OrganizationSettings(config={"allow_llm_see_data": {
+        "name": "Allow LLM to see data", "description": "", "value": allowed}})
 
 
 def test_write_csv_observation_hides_the_file_head_and_raw_stats():
@@ -198,25 +198,39 @@ def test_a_long_quoted_cell_is_hidden_too():
     assert "Brien" not in format_execution_failure(quoted, f"Execution error: {quoted}", False)
 
 
+def _retry_text(settings):
+    """The error text the coder's second attempt receives, through the
+    executor's public stream, for code that prints a cell and then fails
+    converting it."""
+    failing = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    import pandas as pd\n"
+        f"    df = pd.DataFrame({{'ssn': ['{SSN}']}})\n"
+        "    print(df)\n"
+        "    float(df['ssn'][0])\n"
+    )
+    clean = "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'a': [1]})\n"
+    calls = []
+
+    async def _gen(**kwargs):
+        calls.append(kwargs)
+        return failing if len(calls) == 1 else clean
+
+    async def go():
+        async for _ in StreamingCodeExecutor(organization_settings=settings).generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=2),
+            ds_clients={}, excel_files=[], code_generator_fn=_gen,
+        ):
+            pass
+
+    asyncio.run(go())
+    return calls[1]["code_and_error_messages"][-1][1]
+
+
 def test_the_executor_retry_follows_the_organization_setting():
-    exc = ValueError(f"could not convert string to float: '{SSN}'")
-    exc.captured_stdout = SSN
-    executor = StreamingCodeExecutor.__new__(StreamingCodeExecutor)
-    executor.organization_settings = _Settings(False)
-    assert SSN not in executor._retry_feedback(exc, f"Execution error: {exc}")
-    executor.organization_settings = _Settings(True)
-    assert SSN in executor._retry_feedback(exc, f"Execution error: {exc}")
-    # Both retry sites use it (no call bypasses the setting).
-    source = Path(code_execution.__file__).read_text()
-    assert source.count("self._retry_feedback(e, msg)") == 2
-    assert source.count("format_execution_failure(") == 2  # the definition and _retry_feedback
-
-
-def test_write_csv_emits_the_model_fields_in_its_observation():
-    source = Path(write_csv.__file__).read_text()
-    observation = source[source.index("        observation = {"):source.index("        if current_step_id:")]
-    assert '"data_preview": model_preview' in observation and '"stats": model_stats' in observation
-    assert "data_preview\": data_preview" not in observation
+    assert SSN in _retry_text(_Settings(True))
+    hidden = _retry_text(_Settings(False))
+    assert SSN not in hidden and "could not convert string to float" in hidden
 
 
 @pytest.mark.parametrize("cell", [SSN + '"', "O'Brien " + SSN, "a\\b " + SSN, 'both \' and " ' + SSN])
@@ -261,3 +275,81 @@ def test_a_value_error_keeps_its_kind_of_problem():
     exc = ValueError(f"could not convert string to float: '{SSN}'")
     text = format_execution_failure(exc, f"Execution error: {exc}", False)
     assert text == "Execution error: could not convert string to float: <value hidden>"
+
+
+def test_list_receipts_keep_their_ids_and_lose_their_keys():
+    body = {"summary": "Saved 2 rows", "list_name": "Leads", "inserted": 1, "updated": 1,
+            "rows": [{"row_id": "r1", "key": SSN, "action": "inserted"}, {"row_id": "r2", "key": None, "action": "updated"}]}
+    hidden = hide_data_for_replay(body, "submit_list")
+    assert hidden["rows"] == [{"row_id": "r1", "action": "inserted"}, {"row_id": "r2", "action": "updated"}]
+    assert SSN not in json.dumps(hidden)
+
+
+@pytest.mark.parametrize("type_name,message", [
+    ("ValueError", f"could not convert string to float: '{SSN}'"),
+    ("ParserError", f"Unknown string format: {SSN} present at position 0"),
+    ("ConversionException", f"Conversion Error: Could not convert string '{SSN}' to INT32"),
+    ("OutOfBoundsDatetime", f"Out of bounds nanosecond timestamp: {SSN}"),
+])
+def test_a_sandbox_error_is_judged_by_its_original_type(type_name, message):
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    exc = SandboxExecutionError(type_name, message)
+    hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
+    assert SSN not in hidden and hidden.startswith(f"Execution error: {type_name}: ")
+
+
+def test_a_structural_sandbox_error_keeps_its_text():
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    exc = SandboxExecutionError("KeyError", "'revenue'")
+    assert format_execution_failure(exc, f"Execution error: {exc}", False) == "Execution error: KeyError: 'revenue'"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("allowed", [True, False], ids=["visible", "hidden"])
+async def test_write_csv_run_shows_the_model_cells_only_when_allowed(tmp_path, monkeypatch, allowed):
+    """Through the tool's public stream (fake coder and DB, as in
+    test_write_csv_output.py): the observation follows the setting; the
+    output the UI renders keeps the rows either way."""
+    import os
+
+    from app.ai.tools.implementations import write_csv as write_csv_module
+
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        f"    return pd.DataFrame({{'name': ['Jane', 'Joe'], 'ssn': ['{SSN}', '219-09-9999']}})\n"
+    )
+
+    class _Coder:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def generate_transform_code(self, **_kwargs):
+            return code
+
+    class _Db:
+        def add(self, obj):
+            obj.id = obj.id or "file-1"
+
+        async def flush(self):
+            pass
+
+        async def execute(self, *_args, **_kwargs):
+            pass
+
+    async def _no_audit(*_args, **_kwargs):
+        pass
+
+    monkeypatch.chdir(tmp_path)
+    os.makedirs(os.path.join("uploads", "files"))
+    monkeypatch.setattr("app.ai.agents.coder.coder.Coder", _Coder)
+    monkeypatch.setattr(write_csv_module, "log_tool_audit", _no_audit)
+    runtime_ctx = {"settings": _Settings(allowed), "db": _Db(), "ds_clients": {}, "excel_files": []}
+    events = [e async for e in write_csv_module.WriteCsvTool().run_stream(
+        {"user_prompt": "People", "title": "People"}, runtime_ctx)]
+    end = events[-1].payload
+    assert end["output"]["success"], end["output"].get("error_message")
+    assert SSN in json.dumps(end["output"], default=str)
+    assert (SSN in json.dumps(end["observation"], default=str)) is allowed
+    assert end["observation"]["row_count"] == 2

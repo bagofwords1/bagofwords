@@ -67,6 +67,12 @@ def _column(col: Any) -> Any:
     return _scrub(col)
 
 
+def _list_receipts(rows: Any) -> list | None:
+    if not isinstance(rows, list):
+        return None
+    return [{k: v for k, v in row.items() if k != "key"} if isinstance(row, dict) else row for row in rows]
+
+
 def hide_data_for_replay(body: Any, tool_name: Any = None) -> Any:
     """A copy of ``body`` (a stored tool summary, or the observation envelope
     inside one) without raw cell values. Non-dicts are returned as they are."""
@@ -74,6 +80,13 @@ def hide_data_for_replay(body: Any, tool_name: Any = None) -> Any:
         return body
     hidden = _scrub(body)
     name = str(tool_name or "")
+    if name == "submit_list":
+        # Its "rows" are receipts ({row_id, key, action}), which the agent
+        # needs to update or delete those rows later; only the key can be a
+        # value.
+        receipts = _list_receipts(body.get("rows"))
+        if receipts is not None:
+            hidden["rows"] = receipts
     if name in _FILE_TOOLS:
         removed = [hidden.pop(field) for field in ("text", "csv") if isinstance(hidden.get(field), str)]
         if removed:

@@ -181,6 +181,18 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
+# Error types whose message names the offending value (a cell): Python's own,
+# and pandas/numpy/DuckDB parsing and conversion errors, matched by name since
+# the sandbox passes only the name along.
+_VALUE_ERROR_NAMES = ("ValueError", "TypeError")
+_VALUE_ERROR_PARTS = ("Parse", "Parser", "Conversion", "Convert", "Cast", "OutOfBounds", "InvalidInput")
+
+
+def _names_a_value(type_name: str) -> bool:
+    name = str(type_name or "").rsplit(".", 1)[-1]
+    return name in _VALUE_ERROR_NAMES or any(part in name for part in _VALUE_ERROR_PARTS)
+
+
 def _cut_before_value(text: str) -> str:
     """``text`` up to where an error names a value: its first quote, ": " or
     " (" ("could not convert string to float: <cell>", "new category (<cell>)").
@@ -203,10 +215,13 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     stops where it names a value. Other errors keep their text: a missing
     column or a SQL error names structure, which a fix needs."""
     if not allow_llm_see_data:
-        if isinstance(exc, (ValueError, TypeError)):
+        # Generated code runs in the sandbox, which re-raises its error as a
+        # SandboxExecutionError carrying the original type name and message.
+        type_name = getattr(exc, "exc_type", None) or type(exc).__name__
+        if isinstance(exc, (ValueError, TypeError)) or _names_a_value(type_name):
             # Conversion, parsing and categorical errors name the cell: the
             # error's own text stops where it starts.
-            raw = str(exc)
+            raw = getattr(exc, "message", None) if getattr(exc, "exc_type", None) else str(exc)
             if raw and raw in message:
                 return message.replace(raw, _cut_before_value(raw))
             return _cut_before_value(message)
