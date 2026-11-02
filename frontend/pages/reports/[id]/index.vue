@@ -6401,13 +6401,17 @@ onMounted(async () => {
 	--stream-update-fade-ease: ease-out;
 	contain: content;
 
-	/* Paragraph spacing to match streaming text appearance */
+	/* Markstream wraps every paragraph in its own node-content, so each
+	   paragraph is a last child. Space sibling blocks at the slot level. */
 	p {
-		margin-bottom: 1em;
+		margin-bottom: 0.6667em;
 		unicode-bidi: plaintext;
 	}
 	p:last-child {
 		margin-bottom: 0;
+	}
+	.node-slot[data-node-type="paragraph"]:not(:last-child) {
+		margin-block-end: 0.6667em;
 	}
 
 	:where(h1, h2, h3, h4, h5, h6) {
@@ -6424,7 +6428,10 @@ onMounted(async () => {
 	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
 	ul { @apply list-disc; }
 	ol { @apply list-decimal; }
-	li { @apply mb-1.5; unicode-bidi: plaintext; }
+	/* Override both margins from the renderer's my-2. Keep compact rows,
+	   including nested lists, without adding space around the whole list. */
+	li { margin-block: 0; unicode-bidi: plaintext; }
+	li + li { margin-block-start: 0.2667em; }
 	li > p:only-child,
 	li > p:last-child { margin-bottom: 0; }
 
