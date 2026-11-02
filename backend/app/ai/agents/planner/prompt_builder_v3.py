@@ -1163,6 +1163,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append(f"  {time_block}")
         if runtime_block:
             parts.append(f"  {runtime_block}")
+        # A sub-agent's step budget, as the transcript path's turn head carries
+        # it: the system prompt tells it to finish before the budget runs out.
+        if getattr(planner_input, "sub_agent_budget", None):
+            parts.append(f"  <sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
         parts.append("  <error_guidance>")
         parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
         parts.append("    Inspect 'Field errors' and validation failures closely.")
