@@ -99,7 +99,7 @@ deployment; avoid external fonts, CDNs, or scripts for an air-gapped installatio
 An exported static page cannot provide live chat without the BOW backend and an
 available model provider.
 
-For ERP/ServiceNow embedding, use Settings → Integrations → Connected applications
+For ERP/ServiceNow embedding, use Settings → Channels → Connected applications
 and the artifact's generated embed snippet. An administrator registers one application,
 selects its allowed agents in General & access, and configures its Embedding capability
 (origins and identity). New applications start with no allowed agents. API & MCP
