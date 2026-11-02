@@ -107,23 +107,10 @@ function App() { return <p title="&quot;x&quot;">{label}</p>; }
 ]
 
 
-def _globals_babel_patches() -> str:
-    """The preset patches artifact-globals.js applies to Babel in the iframe
-    (classic JSX runtime, env keeping ES modules), taken from the file itself
-    so the reference compiles exactly as the iframe does."""
-    import re
-
-    source = (LIBS / "artifact-globals.js").read_text(encoding="utf-8")
-    blocks = re.findall(r"    if \(window\.Babel && window\.Babel\.availablePresets && window\.Babel\.availablePresets\.(?:react|env)\) \{\n.*?\n    \}",
-                        source, re.S)
-    assert len(blocks) == 2, "artifact-globals patches the react and env presets"
-    return "\n".join(blocks)
-
-
 async def _browser_babel_output(src: str) -> str:
     """The code babel-standalone's transformScriptTags appends for an inline
-    text/babel script — captured the way the iframe would run it, with
-    artifact-globals' preset patches applied."""
+    text/babel script — captured the way the iframe would run it, with the
+    real artifact-globals runtime loaded (its preset patches included)."""
     from playwright.async_api import async_playwright
 
     babel = (LIBS / "babel-standalone.min.js").read_text(encoding="utf-8")
@@ -133,7 +120,11 @@ async def _browser_babel_output(src: str) -> str:
             page = await browser.new_page()
             await page.set_content("<html><head></head><body></body></html>")
             await page.add_script_tag(content=babel)
-            await page.add_script_tag(content=_globals_babel_patches())
+            # The iframe's own runtime, loaded as the iframe loads it: its Babel
+            # preset patches apply themselves (React first, as artifact-globals
+            # expects it).
+            for lib in ("react-18.production.min.js", "react-dom-18.production.min.js", "artifact-globals.js"):
+                await page.add_script_tag(content=(LIBS / lib).read_text(encoding="utf-8"))
             # Capture (without executing) the script Babel appends.
             await page.evaluate("""() => {
               window.__captured = [];
