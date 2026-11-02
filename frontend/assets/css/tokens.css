@@ -112,15 +112,17 @@
    * The conversation measure, in multiples of the chat font so it scales with
    * the reader's text size, and proportional to the screen between a floor
    * and a cap so it grows smoothly instead of in breakpoint jumps:
-   * 48em … 62vw … 60em — at 15px, 720px on laptops, ~890px at 1440, capped
-   * at 900px (longer lines stop being comfortable to read).
+   * 51.2em … 45vw … 57em — at 15px, 768px on laptops and up to ~1700px
+   * windows (about 90 characters a line, the usual chat column), growing
+   * only on large monitors to a cap of ~855px (longer lines stop being
+   * comfortable to read). The "wide" display option lifts the cap.
    *
    * Everything in the transcript — text, tables, tool cards, data previews —
    * stays inside this one column: nothing breaks out wider than the chat.
    * It is a maximum: the transcript is `w-full`, so a narrow pane (the split
    * view, mobile) still fits.
    */
-  --bow-measure-chat: clamp(calc(48 * var(--bow-chat-font-size)), 62vw, calc(60 * var(--bow-chat-font-size)));
+  --bow-measure-chat: clamp(calc(51.2 * var(--bow-chat-font-size)), 45vw, calc(57 * var(--bow-chat-font-size)));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against

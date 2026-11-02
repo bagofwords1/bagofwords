@@ -97,9 +97,9 @@ take `max-w-chat` (`--bow-measure-chat`). One token, because the box you
 type into must be the same width as the text you read back — they had
 drifted to 672px and ~53vw, so the composer resized the moment you pressed
 enter. The measure is a multiple of the chat font, clamped to the screen
-(`48em … 62vw … 60em`), so it scales with the reader's text size and grows
-smoothly with the screen: 720px on laptops, ~890px at 1440, capped at
-900px at the 15px default. Everything in the transcript — text, tables,
+(`51.2em … 45vw … 57em`), so it scales with the reader's text size: at the
+15px default it is 768px (about 90 characters a line) up to ~1700px windows,
+and grows only on large monitors to a cap of ~855px. Everything in the transcript — text, tables,
 tool cards, data previews — stays inside that column; nothing is wider than
 the chat. It is a maximum, so a narrow pane still fits.
 
