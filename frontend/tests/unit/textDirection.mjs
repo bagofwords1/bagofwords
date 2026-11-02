@@ -128,8 +128,8 @@ const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr:
   assert.equal(list.dir, 'rtl')
   assert.equal(itemShort.dir, 'rtl', 'short Latin item stays with its list')
   assert.equal(itemHe.dir, 'rtl')
-  assert.equal(itemEn.dir, 'ltr', 'English sentence bullet gets its own direction')
-  assert.equal(para.dir, 'ltr', "an item's paragraph follows the item")
+  assert.equal(itemEn.dir, 'rtl', 'all markers stay on the list edge, including English items')
+  assert.equal(para.dir, 'rtl', "an item's paragraph follows the list")
   assert.equal(table.dir, 'rtl')
   assert.equal(row.dir, 'rtl')
   assert.equal(cellEn.dir, 'rtl', 'cells follow their table')
@@ -144,7 +144,7 @@ const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr:
   const list = node('list', '', [item, node('item', 'נקודה ראשונה בעברית על הכנסות')])
   const roots = [node('block', 'הכנסות מחושבות תמיד לפני מע״מ ולאחר החזרות'), list]
   resolveDirTree(roots, sum(roots))
-  assert.equal(item.dir, 'ltr', 'English item stays LTR despite its Hebrew sub-list')
+  assert.equal(item.dir, list.dir, 'an English item keeps its parent list marker edge')
   assert.equal(sub.dir, 'rtl', 'the Hebrew sub-list keeps its own direction')
 }
 {

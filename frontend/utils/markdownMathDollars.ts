@@ -1,20 +1,6 @@
-// Keep currency like "$2,329" out of KaTeX.
-//
-// markstream-vue's math rule treats any `$…$` pair as inline math, so a reply
-// such as "revenue of $2,329 across 412 invoices, avg $5.65" rendered the span
-// between the two amounts as italic math. We escape every single `$` that is
-// not clearly math before the inline parser sees it; markdown-it then renders
-// `\$` as a plain `$`.
-//
-// A single `$…$` pair counts as math only when (Pandoc's rule):
-//   - the opening `$` is followed by a non-space character,
-//   - the closing `$` is preceded by a non-space character,
-//   - the closing `$` is not followed by a digit.
-// `$$…$$`, `\(…\)` and `\[…\]` are left alone, as are code spans, autolinks
-// and inline HTML tags.
-
-const isSpace = (ch: string | undefined) => ch === undefined || /\s/.test(ch)
-const isDigit = (ch: string | undefined) => ch !== undefined && ch >= '0' && ch <= '9'
+// Single dollar signs are currency/plain text, never inline math delimiters.
+// Keep $$ display math, explicit TeX delimiters, code spans and HTML intact.
+// Apply after block parsing so fenced code is never rewritten.
 
 function isEscaped(src: string, index: number): boolean {
   let backslashes = 0
@@ -73,29 +59,10 @@ function singleDollars(src: string): number[] {
   return out
 }
 
-/**
- * Backslash-escape every `$` in an inline markdown string that would not open
- * or close inline math under the rule above. Idempotent.
- */
+/** Escape every standalone dollar outside code/HTML. Idempotent. */
 export function escapeNonMathDollars(src: string): string {
   if (!src || !src.includes('$')) return src
-  const dollars = singleDollars(src)
-  if (!dollars.length) return src
-
-  const toEscape: number[] = []
-  let k = 0
-  while (k < dollars.length) {
-    const open = dollars[k]
-    const next = dollars[k + 1]
-    const canOpen = !isSpace(src[open + 1])
-    const canClose = next !== undefined && !isSpace(src[next - 1]) && !isDigit(src[next + 1])
-    if (canOpen && canClose) {
-      k += 2 // a math pair — keep both
-      continue
-    }
-    toEscape.push(open)
-    k += 1 // the next `$` may still open its own pair
-  }
+  const toEscape = singleDollars(src)
   if (!toEscape.length) return src
 
   let out = ''

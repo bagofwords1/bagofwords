@@ -8,23 +8,23 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-ink-muted" />
-          <span>{{ $t('tools.editPrompt.updating') }}</span>
+          <span>{{ t('tools.editPrompt.updating') }}</span>
         </span>
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-green-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.editPrompt.updatedPrefix', { title: promptTitle }) }}</span>
+          <span dir="auto" class="truncate max-w-[300px]">{{ t('tools.editPrompt.updatedPrefix', { title: promptTitle }) }}</span>
           <span v-if="changedFields.length" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">· {{ changedFields.join(', ') }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ $t('tools.editPrompt.notUpdated') }}</span>
+          <span>{{ t('tools.editPrompt.notUpdated') }}</span>
           <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ $t('tools.editPrompt.failed') }}</span>
+          <span>{{ t('tools.editPrompt.failed') }}</span>
           <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
         </span>
       </div>
@@ -38,16 +38,16 @@
             <MDC :value="newText" class="markdown-content" />
           </div>
           <div class="flex flex-wrap items-center gap-2 text-chat-3 mb-1">
-            <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.editPrompt.changed') }}</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('tools.editPrompt.changed') }}</span>
             <span v-for="f in changedFields" :key="f" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ f }}</span>
-            <span v-if="!changedFields.length" class="text-ink-muted">{{ $t('tools.editPrompt.noFields') }}</span>
+            <span v-if="!changedFields.length" class="text-ink-muted">{{ t('tools.editPrompt.noFields') }}</span>
           </div>
           <div v-if="isSuccess" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-            <span class="text-chat-3 font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.editPrompt.live') }}</span>
+            <span class="text-chat-3 font-medium text-gray-600 dark:text-gray-400">{{ t('tools.editPrompt.live') }}</span>
             <button class="ms-auto text-chat-2 text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click.stop="openPrompts">
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-              <span>{{ $t('tools.editPrompt.openInPrompts') }}</span>
+              <span>{{ t('tools.editPrompt.openInPrompts') }}</span>
             </button>
           </div>
           <div v-if="errorMessage" class="text-chat-2 text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
@@ -61,8 +61,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { useResponseI18n } from '~/composables/useResponseI18n'
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

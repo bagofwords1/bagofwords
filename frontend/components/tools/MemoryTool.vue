@@ -33,7 +33,7 @@ interface Props {
   readonly?: boolean
 }
 const props = defineProps<Props>()
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const status = computed(() => props.toolExecution.status)
 const isSearch = computed(() => props.toolExecution.tool_name === 'search_memory')

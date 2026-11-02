@@ -72,6 +72,7 @@ class PlannerDecision(BaseModel):
 
 
 class PlannerInput(BaseModel):
+    response_locale: Optional[str] = None
     external_platform: Optional[str] = None
     mode: Optional[str] = "chat" # "chat" | "training" | "knowledge"
     user_message: str

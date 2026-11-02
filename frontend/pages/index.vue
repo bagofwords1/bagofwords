@@ -170,6 +170,7 @@
 </template>
 
 <script setup lang="ts">
+import { useModelLabels } from '~/composables/useModelLabels'
 import { useRouter } from 'vue-router';
 import { useExcel } from '~/composables/useExcel';
 import { onMounted, nextTick } from 'vue';
@@ -222,6 +223,8 @@ const onInstructionStarter = (starter: string) => {
   showInstructionsModal.value = false
 }
 
+const { rememberModels } = useModelLabels()
+
 const getModels = async () => {
   try {
     const response = await useMyFetch('/llm/models', {
@@ -234,6 +237,7 @@ const getModels = async () => {
 
     const modelsData = (response.data.value as any[]) || [];
     models.value = modelsData;
+    rememberModels(modelsData);
     return modelsData;
   } catch (error) {
     console.error('Failed to fetch models:', error);

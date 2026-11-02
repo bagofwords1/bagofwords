@@ -16,12 +16,12 @@
       </span>
       <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-        <span class="align-middle">{{ $t('tools.writeOfficeJs.ran') }}</span>
+        <span class="align-middle">{{ t('tools.writeOfficeJs.ran') }}</span>
         <span v-if="description" class="ms-1.5 text-chat-2 text-ink-muted truncate max-w-[320px]">· {{ description }}</span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
-        <span class="align-middle">{{ $t('tools.writeOfficeJs.failed') }}</span>
+        <span class="align-middle">{{ t('tools.writeOfficeJs.failed') }}</span>
         <span v-if="isSyntaxError" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span>
         <span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
       </span>
@@ -44,6 +44,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref, watch } from 'vue'
 
 interface ToolExecution {

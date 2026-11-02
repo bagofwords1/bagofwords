@@ -37,7 +37,7 @@
           >
             <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-table-cells" class="w-3 h-3 me-1" />
-            <span>{{ $t('tools.describeEntity.dataProfile') }}</span>
+            <span>{{ t('tools.describeEntity.dataProfile') }}</span>
             <span class="ms-2 text-ink-muted">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
           </div>
           <Transition name="fade">
@@ -81,7 +81,7 @@
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
-            <span>{{ $t('tools.common.code') }}</span>
+            <span>{{ t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
@@ -119,6 +119,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 

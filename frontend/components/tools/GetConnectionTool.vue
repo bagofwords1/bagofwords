@@ -5,14 +5,14 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass-circle" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.getConnection.inspecting') }}</span>
+          <span>{{ t('tools.getConnection.inspecting') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center flex-wrap">
           <Icon name="heroicons-magnifying-glass-circle" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ $t('tools.getConnection.inspected', { name: connName }) }}</span>
+          <span class="align-middle">{{ t('tools.getConnection.inspected', { name: connName }) }}</span>
           <span v-if="args.pattern" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono flex-shrink-0">{{ args.pattern }}</span>
-          <span class="ms-1.5 text-chat-3 text-ink-muted">· {{ $t('tools.getConnection.matchCount', { count: total }) }}</span>
-          <span v-if="hasMore || page > 1" class="ms-1 text-chat-3 text-ink-muted">· {{ $t('tools.getConnection.page', { page }) }}</span>
+          <span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.matchCount', { count: total }) }}</span>
+          <span v-if="hasMore || page > 1" class="ms-1 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.page', { page }) }}</span>
         </span>
       </div>
     </Transition>
@@ -21,11 +21,11 @@
       <div v-if="status !== 'running'" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1">
         <!-- File scope (file-shaped connections) — always visible, it's tiny. -->
         <div v-if="fileScope" class="mb-1.5 rounded border border-gray-100 dark:border-gray-800 px-2 py-1 text-chat-3 space-y-0.5">
-          <div v-if="fileScope.token_scoped" class="text-gray-500">{{ $t('tools.getConnection.tokenScoped') }}</div>
+          <div v-if="fileScope.token_scoped" class="text-gray-500">{{ t('tools.getConnection.tokenScoped') }}</div>
           <template v-else>
-            <div v-if="fileScope.base"><span class="text-ink-muted">{{ $t('tools.getConnection.scopeBase') }}:</span> <span class="font-mono">{{ fileScope.base }}</span></div>
-            <div><span class="text-ink-muted">{{ $t('tools.getConnection.scopeGlobs') }}:</span> <span class="font-mono">{{ (fileScope.include_globs && fileScope.include_globs.length) ? fileScope.include_globs.join(', ') : '*' }}</span></div>
-            <div v-if="fileScope.index_mode"><span class="text-ink-muted">{{ $t('tools.getConnection.indexMode') }}:</span> {{ fileScope.index_mode }}</div>
+            <div v-if="fileScope.base"><span class="text-ink-muted">{{ t('tools.getConnection.scopeBase') }}:</span> <span class="font-mono">{{ fileScope.base }}</span></div>
+            <div><span class="text-ink-muted">{{ t('tools.getConnection.scopeGlobs') }}:</span> <span class="font-mono">{{ (fileScope.include_globs && fileScope.include_globs.length) ? fileScope.include_globs.join(', ') : '*' }}</span></div>
+            <div v-if="fileScope.index_mode"><span class="text-ink-muted">{{ t('tools.getConnection.indexMode') }}:</span> {{ fileScope.index_mode }}</div>
           </template>
         </div>
 
@@ -36,7 +36,7 @@
           @click="expanded = !expanded"
         >
           <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
-          {{ expanded ? $t('tools.getConnection.hideResults') : $t('tools.getConnection.showResults', { count: shownCount }) }}
+          {{ expanded ? t('tools.getConnection.hideResults') : t('tools.getConnection.showResults', { count: shownCount }) }}
         </button>
 
         <div v-if="expanded" class="max-h-64 overflow-y-auto mt-1">
@@ -48,7 +48,7 @@
               <li v-for="tbl in group.tables" :key="tbl.name" class="flex items-center py-0.5">
                 <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-blue-400 flex-shrink-0" />
                 <span class="text-gray-700 dark:text-gray-300 truncate">{{ tbl.name }}</span>
-                <span class="ms-1.5 text-chat-3 text-ink-muted flex-shrink-0">{{ $t('tools.getConnection.columns', { count: tbl.column_count }) }}</span>
+                <span class="ms-1.5 text-chat-3 text-ink-muted flex-shrink-0">{{ t('tools.getConnection.columns', { count: tbl.column_count }) }}</span>
               </li>
             </ul>
           </div>
@@ -75,7 +75,7 @@
 
         <!-- Empty -->
         <div v-if="!tables.length && !toolItems.length && !files.length" class="text-ink-muted">
-          {{ $t('tools.getConnection.empty') }}
+          {{ t('tools.getConnection.empty') }}
         </div>
       </div>
     </Transition>
@@ -83,6 +83,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 
 interface ToolExecution {

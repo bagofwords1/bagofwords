@@ -28,8 +28,7 @@
  *    words or fewer ("Summary", "Key Drivers") follow the surrounding
  *    direction.
  *  - A list or table decides once; its `<th>` / `<td>` take that direction
- *    and its `<li>` do too unless an item is more than three words and almost
- *    entirely the other script. A list item's own paragraph follows the item, so text and
+ *    and every `<li>` takes that same direction. A list item's own paragraph follows the item, so text and
  *    marker stay together. A list or table keeps the answer's direction
  *    unless it is almost entirely the other script.
  *
@@ -138,7 +137,11 @@ export function stampRoot(root: Element) {
   // A reply carries the question's direction as a hint and may still be
   // streaming; anything else (notes, eval/trace markdown, MDC) is settled.
   const hint = replyHintOf(root)
-  resolveDirTree(tree, countElementWords(root), { hint, fallback: uiDir(), settled: !hint })
+  const savedDirection = root.closest('[data-response-dir]')?.getAttribute('data-response-dir')
+  resolveDirTree(tree, countElementWords(root), {
+    hint, direction: isDir(savedDirection) ? savedDirection : null,
+    fallback: uiDir(), settled: !hint,
+  })
   const apply = (node: DirNode<Element>) => {
     stamp(node.ref, node.dir ?? null)
     // "+12%" in an RTL table is laid out LTR; rtl.css keeps it right-aligned.
@@ -170,7 +173,7 @@ export function useMarkdownAutoDir() {
     for (const m of mutations) {
       if (m.type === 'attributes') {
         const el = m.target as Element
-        if (m.attributeName === 'data-dir-hint') {
+        if (m.attributeName === 'data-dir-hint' || m.attributeName === 'data-response-dir') {
           el.querySelectorAll(SCOPE_SELECTOR).forEach((s) => add(s))
           continue
         }
@@ -196,7 +199,7 @@ export function useMarkdownAutoDir() {
     subtree: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ['dir', 'data-dir-hint'],
+    attributeFilter: ['dir', 'data-dir-hint', 'data-response-dir'],
   })
 
   const initial = new Set<Element>()

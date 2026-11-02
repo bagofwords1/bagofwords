@@ -32,7 +32,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import { dominantTextDir } from '~/utils/textDirection'
 
 const props = defineProps<{
@@ -44,7 +44,7 @@ const emit = defineEmits<{
   select: [question: string]
 }>()
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 // Suggestions are generated in the language of the user's last message,
 // which can differ from the UI's. The whole section (heading, rows, arrows)

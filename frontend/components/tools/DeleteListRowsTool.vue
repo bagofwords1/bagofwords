@@ -14,27 +14,27 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'finding'" class="tool-shimmer flex items-center min-w-0">
           <Icon name="heroicons-trash" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
-          <span class="truncate" dir="auto">{{ $t('tools.deleteListRows.finding', { name: listName }) }}</span>
+          <span class="truncate" dir="auto">{{ t('tools.deleteListRows.finding', { name: listName }) }}</span>
         </span>
         <span v-else-if="phase === 'confirm'" class="flex items-center text-gray-700 dark:text-gray-300">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.deleteListRows.waiting') : $t('tools.deleteListRows.confirm') }}</span>
+          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.deleteListRows.waiting') : t('tools.deleteListRows.confirm') }}</span>
         </span>
         <span v-else-if="phase === 'deleting'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ $t('tools.deleteListRows.deleting') }}</span>
+          <span class="tool-shimmer">{{ t('tools.deleteListRows.deleting') }}</span>
         </span>
         <span v-else-if="phase === 'done'" class="text-gray-700 dark:text-gray-300 flex items-center" data-testid="delete-list-rows-done">
           <Icon name="heroicons-trash" class="w-3 h-3 me-1 text-emerald-500" />
-          <span dir="auto">{{ $t('tools.deleteListRows.deleted', { n: output.deleted, name: listName }, Number(output.deleted || 0)) }}</span>
+          <span dir="auto">{{ t('tools.deleteListRows.deleted', { n: output.deleted, name: listName }, Number(output.deleted || 0)) }}</span>
         </span>
         <span v-else-if="phase === 'cancelled'" class="text-gray-700 dark:text-gray-300 flex items-center" data-testid="delete-list-rows-cancelled">
           <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? $t('tools.deleteListRows.timedOut') : $t('tools.deleteListRows.cancelled') }}</span>
+          <span>{{ outputStatus === 'timed_out' ? t('tools.deleteListRows.timedOut') : t('tools.deleteListRows.cancelled') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ outputStatus === 'no_match' ? $t('tools.deleteListRows.noMatch') : $t('tools.deleteListRows.failed') }}</span>
+          <span>{{ outputStatus === 'no_match' ? t('tools.deleteListRows.noMatch') : t('tools.deleteListRows.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -54,14 +54,14 @@
             <Icon name="heroicons-table-cells" class="w-4 h-4 text-red-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ listName }}</span>
             <span class="text-chat-3 px-1.5 py-0.5 rounded-full flex-shrink-0 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-400" data-testid="delete-list-rows-count">
-              {{ clearAll ? $t('tools.deleteListRows.badgeClear') : $t('tools.deleteListRows.badgeCount', { n: count, total }, count) }}
+              {{ clearAll ? t('tools.deleteListRows.badgeClear') : t('tools.deleteListRows.badgeCount', { n: count, total }, count) }}
             </span>
             <span class="flex-1"></span>
             <span v-if="agentName" class="hidden sm:inline text-chat-3 text-ink-muted truncate" dir="auto">{{ agentName }}</span>
           </div>
           <div v-if="phase === 'confirm'" class="mt-1.5 text-chat-2 text-red-700 dark:text-red-400 flex items-start gap-1">
             <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 flex-shrink-0" />
-            <span>{{ $t('tools.deleteListRows.permanent') }}</span>
+            <span>{{ t('tools.deleteListRows.permanent') }}</span>
           </div>
         </div>
 
@@ -87,10 +87,10 @@
             </tbody>
           </table>
           <div v-if="count > previewRows.length" class="mt-1 text-chat-3 text-ink-muted">
-            {{ $t('tools.deleteListRows.andMore', { n: count - previewRows.length }, count - previewRows.length) }}
+            {{ t('tools.deleteListRows.andMore', { n: count - previewRows.length }, count - previewRows.length) }}
           </div>
           <div v-if="notFound.length" class="mt-1 text-chat-2 text-ink-muted" dir="auto">
-            {{ $t('tools.deleteListRows.notFound', { list: notFound.join(', ') }) }}
+            {{ t('tools.deleteListRows.notFound', { list: notFound.join(', ') }) }}
           </div>
         </div>
 
@@ -106,7 +106,7 @@
               @click="respond(false)"
             >
               <Spinner v-if="responding && pendingChoice === false" class="w-3 h-3" />
-              {{ $t('tools.deleteListRows.cancel') }}
+              {{ t('tools.deleteListRows.cancel') }}
             </button>
             <button
               class="px-2.5 py-1 text-chat-2 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 inline-flex items-center gap-1"
@@ -115,7 +115,7 @@
               @click="respond(true)"
             >
               <Spinner v-if="responding && pendingChoice === true" class="w-3 h-3" />
-              {{ $t('tools.deleteListRows.approve', { n: count }, count) }}
+              {{ t('tools.deleteListRows.approve', { n: count }, count) }}
             </button>
           </div>
           <div v-if="respondError" class="mt-1 text-chat-2 text-red-500">{{ respondError }}</div>
@@ -123,7 +123,7 @@
 
         <!-- Result footer -->
         <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-3 text-chat-2 text-ink-muted" data-testid="delete-list-rows-result">
-          <span>{{ $t('tools.deleteListRows.remaining', { n: output.remaining ?? 0 }, Number(output.remaining ?? 0)) }}</span>
+          <span>{{ t('tools.deleteListRows.remaining', { n: output.remaining ?? 0 }, Number(output.remaining ?? 0)) }}</span>
           <span class="flex-1"></span>
           <NuxtLink
             v-if="!readonly && output.agent_id && output.list_id"
@@ -131,7 +131,7 @@
             class="text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
           >
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-            {{ $t('tools.listSchema.open') }}
+            {{ t('tools.listSchema.open') }}
           </NuxtLink>
         </div>
       </div>
@@ -143,7 +143,7 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: {

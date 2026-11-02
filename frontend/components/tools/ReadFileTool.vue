@@ -4,7 +4,7 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : $t('tools.readFile.reading', { name: fileLabel }) }}</span>
+          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : t('tools.readFile.reading', { name: fileLabel }) }}</span>
         </span>
         <span
           v-else
@@ -16,14 +16,14 @@
           <Icon v-if="expandable" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ modelTitle || $t('tools.readFile.read', { name: fileLabel }) }}</span>
+          <span>{{ modelTitle || t('tools.readFile.read', { name: fileLabel }) }}</span>
           <span v-if="contentType" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
-          <span v-if="rowCount != null" class="ms-2 text-ink-muted">{{ $t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span>
-          <span v-if="truncated" class="ms-2 text-chat-3 text-yellow-600">{{ $t('tools.readFile.truncated') }}</span>
+          <span v-if="rowCount != null" class="ms-2 text-ink-muted">{{ t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span>
+          <span v-if="truncated" class="ms-2 text-chat-3 text-yellow-600">{{ t('tools.readFile.truncated') }}</span>
           <span v-if="windowed" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
           <span v-if="pagesShown" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ pagesTotal
-            ? $t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
-            : $t('tools.readFile.pages', { shown: pagesShown }) }}</span>
+            ? t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
+            : t('tools.readFile.pages', { shown: pagesShown }) }}</span>
         </span>
       </div>
     </Transition>
@@ -41,7 +41,7 @@
       @click="galleryOpen = true"
     >
       <Icon name="heroicons-photo" class="w-3 h-3 inline align-text-bottom me-1" />
-      {{ $t('tools.readFile.showPagePreviews', { n: (preview.image_file_ids || []).length }) }}
+      {{ t('tools.readFile.showPagePreviews', { n: (preview.image_file_ids || []).length }) }}
     </button>
     <Transition name="fade" appear>
       <div v-if="showVisualPreview && expanded" class="mb-2">
@@ -73,14 +73,14 @@
     <Transition name="fade" appear>
       <div v-if="expanded && expandable" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <div v-if="filePath" class="mb-1 text-chat-3 text-gray-500 dark:text-gray-400">
-          <span class="text-ink-muted">{{ $t('tools.readFile.pathLabel') }}</span>
+          <span class="text-ink-muted">{{ t('tools.readFile.pathLabel') }}</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
         </div>
         <!-- The document/picture IS the content — don't repeat it as a text dump. -->
         <pre v-if="hasContent && !showVisualPreview" class="text-chat-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
         <div v-if="sessionFileId" class="mt-2 text-chat-2 text-gray-500 dark:text-gray-400">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
-          {{ $t('tools.readFile.attachedAsSessionFile') }}
+          {{ t('tools.readFile.attachedAsSessionFile') }}
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
         </div>
         <ToolCallParams :params="toolExecution?.arguments_json" />
@@ -92,6 +92,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'

@@ -20,9 +20,9 @@
 
 <script setup lang="ts">
 import { computed, inject } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any; error_message?: string; result_summary?: string } }>()
 const subAgents = inject<any>('subAgents', null)
 const result = computed(() => props.toolExecution.result_json || {})

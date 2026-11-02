@@ -16,27 +16,27 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'proposing'" class="tool-shimmer flex items-center min-w-0">
           <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
-          <span class="truncate" dir="auto">{{ isEdit ? $t('tools.listSchema.proposingEdit', { name: listName }) : $t('tools.listSchema.proposing', { name: listName }) }}</span>
+          <span class="truncate" dir="auto">{{ isEdit ? t('tools.listSchema.proposingEdit', { name: listName }) : t('tools.listSchema.proposing', { name: listName }) }}</span>
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
           <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.listSchema.waitingReview') : (isEdit ? $t('tools.listSchema.reviewEdit') : $t('tools.listSchema.review')) }}</span>
+          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.listSchema.waitingReview') : (isEdit ? t('tools.listSchema.reviewEdit') : t('tools.listSchema.review')) }}</span>
         </span>
         <span v-else-if="phase === 'saving'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ $t('tools.listSchema.saving') }}</span>
+          <span class="tool-shimmer">{{ t('tools.listSchema.saving') }}</span>
         </span>
         <span v-else-if="phase === 'done'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ isEdit ? $t('tools.listSchema.updated') : $t('tools.listSchema.created') }}</span>
+          <span>{{ isEdit ? t('tools.listSchema.updated') : t('tools.listSchema.created') }}</span>
         </span>
         <span v-else-if="phase === 'declined'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? $t('tools.listSchema.timedOut') : $t('tools.listSchema.declined') }}</span>
+          <span>{{ outputStatus === 'timed_out' ? t('tools.listSchema.timedOut') : t('tools.listSchema.declined') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ outputStatus === 'no_change' ? $t('tools.listSchema.noChange') : $t('tools.listSchema.failed') }}</span>
+          <span>{{ outputStatus === 'no_change' ? t('tools.listSchema.noChange') : t('tools.listSchema.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -70,14 +70,14 @@
           <div v-if="description" class="mt-1 text-chat-2 text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ description }}</div>
           <div v-if="isEdit && change === 'breaking' && phase !== 'done'" class="mt-1.5 text-chat-2 text-amber-700 dark:text-amber-400 flex items-start gap-1" data-testid="list-schema-breaking">
             <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 flex-shrink-0" />
-            <span>{{ $t('tools.listSchema.breakingHint', { n: rowCount, v: (version || 1) + 1 }, rowCount) }}</span>
+            <span>{{ t('tools.listSchema.breakingHint', { n: rowCount, v: (version || 1) + 1 }, rowCount) }}</span>
           </div>
         </div>
 
         <!-- Fields -->
         <div class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
           <div class="flex items-center text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
-            <span>{{ $t('tools.listSchema.fields', { count: visibleFields.length }) }}</span>
+            <span>{{ t('tools.listSchema.fields', { count: visibleFields.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="keyField" class="normal-case tracking-normal inline-flex items-center gap-1" data-testid="list-schema-key">
               <Icon name="heroicons-key" class="w-2.5 h-2.5 text-amber-500" />
@@ -93,19 +93,19 @@
             >
               <span class="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0 mt-px">
                 <Icon v-if="f.key" name="heroicons-key" class="w-3 h-3 text-amber-500" />
-                <span v-else class="w-1 h-1 rounded-full" :class="f.required ? 'bg-gray-500 dark:bg-gray-400' : 'bg-gray-200 dark:bg-gray-700'" :title="f.required ? $t('tools.listSchema.required') : ''"></span>
+                <span v-else class="w-1 h-1 rounded-full" :class="f.required ? 'bg-gray-500 dark:bg-gray-400' : 'bg-gray-200 dark:bg-gray-700'" :title="f.required ? t('tools.listSchema.required') : ''"></span>
               </span>
               <span class="font-mono text-gray-700 dark:text-gray-300 truncate flex-shrink-0 max-w-[40%]" :class="f.status === 'removed' ? 'line-through text-ink-muted' : ''">{{ f.name }}</span>
               <span class="text-ink-muted flex-shrink-0">{{ typeLabel(f.type) }}<template v-if="f.unit"> · {{ f.unit }}</template></span>
               <span v-if="f.enum && f.enum.length" class="text-ink-muted truncate hidden sm:inline" :title="f.enum.join(', ')">{{ f.enum.join(' / ') }}</span>
               <span v-else-if="f.description" class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ f.description }}</span>
               <span class="flex-1"></span>
-              <span v-if="f.status && f.status !== 'unchanged'" class="text-chat-3 px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ $t('tools.listSchema.status.' + f.status) }}</span>
+              <span v-if="f.status && f.status !== 'unchanged'" class="text-chat-3 px-1 py-0.5 rounded flex-shrink-0" :class="statusClass(f.status)">{{ t('tools.listSchema.status.' + f.status) }}</span>
             </li>
           </ul>
           <div v-if="requireEvidence || keepHumanEdits" class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-chat-3 text-ink-muted">
-            <span v-if="requireEvidence" class="inline-flex items-center gap-1"><Icon name="heroicons-document-magnifying-glass" class="w-3 h-3" />{{ $t('tools.listSchema.requireEvidence') }}</span>
-            <span v-if="keepHumanEdits" class="inline-flex items-center gap-1"><Icon name="heroicons-lock-closed" class="w-3 h-3" />{{ $t('tools.listSchema.keepHumanEdits') }}</span>
+            <span v-if="requireEvidence" class="inline-flex items-center gap-1"><Icon name="heroicons-document-magnifying-glass" class="w-3 h-3" />{{ t('tools.listSchema.requireEvidence') }}</span>
+            <span v-if="keepHumanEdits" class="inline-flex items-center gap-1"><Icon name="heroicons-lock-closed" class="w-3 h-3" />{{ t('tools.listSchema.keepHumanEdits') }}</span>
           </div>
         </div>
 
@@ -116,7 +116,7 @@
             <textarea
               v-model="feedbackDraft"
               rows="2"
-              :placeholder="$t('tools.listSchema.feedbackPlaceholder')"
+              :placeholder="t('tools.listSchema.feedbackPlaceholder')"
               class="w-full text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               data-testid="list-schema-feedback"
             ></textarea>
@@ -129,7 +129,7 @@
                 :disabled="responding"
                 data-testid="list-schema-request-changes"
                 @click="showFeedback = true"
-              >{{ $t('tools.listSchema.requestChanges') }}</button>
+              >{{ t('tools.listSchema.requestChanges') }}</button>
               <button
                 class="px-2.5 py-1 text-chat-2 font-medium rounded-md text-white disabled:opacity-50 inline-flex items-center gap-1"
                 :class="change === 'breaking' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-blue-600 hover:bg-blue-700'"
@@ -138,7 +138,7 @@
                 @click="respond(true)"
               >
                 <Spinner v-if="responding && pendingChoice === true" class="w-3 h-3" />
-                {{ isEdit ? $t('tools.listSchema.approveEdit') : $t('tools.listSchema.approveCreate') }}
+                {{ isEdit ? t('tools.listSchema.approveEdit') : t('tools.listSchema.approveCreate') }}
               </button>
             </template>
             <template v-else>
@@ -146,7 +146,7 @@
                 class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
-              >{{ $t('tools.listSchema.cancel') }}</button>
+              >{{ t('tools.listSchema.cancel') }}</button>
               <button
                 class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
@@ -154,7 +154,7 @@
                 @click="respond(false)"
               >
                 <Spinner v-if="responding && pendingChoice === false" class="w-3 h-3" />
-                {{ $t('tools.listSchema.sendFeedback') }}
+                {{ t('tools.listSchema.sendFeedback') }}
               </button>
             </template>
           </div>
@@ -163,9 +163,9 @@
 
         <!-- Result footer -->
         <div v-if="phase === 'done'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-chat-2 text-ink-muted" data-testid="list-schema-result">
-          <span v-if="output.tool_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.toolHint') }} <bdi class="font-mono">{{ output.tool_name }}</bdi></span></span>
-          <span v-if="output.table_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-circle-stack" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ $t('tools.listSchema.queryHint') }} <bdi class="font-mono">{{ output.table_name }}</bdi></span></span>
-          <span v-if="isEdit && output.change === 'breaking'" class="text-amber-600 dark:text-amber-400">{{ $t('tools.listSchema.versionBumped', { v: output.version }) }}</span>
+          <span v-if="output.tool_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-wrench-screwdriver" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ t('tools.listSchema.toolHint') }} <bdi class="font-mono">{{ output.tool_name }}</bdi></span></span>
+          <span v-if="output.table_name" class="inline-flex items-center gap-1 min-w-0"><Icon name="heroicons-circle-stack" class="w-3 h-3 flex-shrink-0" /><span class="truncate">{{ t('tools.listSchema.queryHint') }} <bdi class="font-mono">{{ output.table_name }}</bdi></span></span>
+          <span v-if="isEdit && output.change === 'breaking'" class="text-amber-600 dark:text-amber-400">{{ t('tools.listSchema.versionBumped', { v: output.version }) }}</span>
           <span class="flex-1"></span>
           <NuxtLink
             v-if="!readonly && output.agent_id && output.list_id"
@@ -174,7 +174,7 @@
             data-testid="list-schema-open"
           >
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-            {{ $t('tools.listSchema.open') }}
+            {{ t('tools.listSchema.open') }}
           </NuxtLink>
         </div>
       </div>
@@ -186,7 +186,7 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: {

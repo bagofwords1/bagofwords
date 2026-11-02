@@ -20,27 +20,18 @@ export type ChatWidth = 'standard' | 'wide'
  * text on a half-pixel and makes every line box in the transcript reflow
  * differently. As fractions of the 16px root these are 14 / 15 / 16 / 18 / 20px.
  *
- * The default is the second step, 15px — see the note in
- * assets/css/tokens.css. 14px (the old default) stays as the first step,
- * "Small", for readers who prefer the denser transcript. A 14px saved by the
- * old menu was its "Default" and moves to the new default (see SCALE_KEY).
+ * The default is 14px; larger steps remain personal reader choices.
  */
 export const CHAT_TEXT_SCALES = [0.875, 0.9375, 1, 1.125, 1.25] as const
 export type ChatTextScale = (typeof CHAT_TEXT_SCALES)[number]
 
 export const DEFAULT_CHAT_WIDTH: ChatWidth = 'standard'
-export const DEFAULT_CHAT_TEXT_SCALE: ChatTextScale = 0.9375
+export const DEFAULT_CHAT_TEXT_SCALE: ChatTextScale = 0.875
 
 const WIDTH_KEY = 'bow.chat.width'
-/*
- * v2 since the default moved from 14px to 15px. In the old menu 14px *was*
- * the step labelled "Default" and nothing was smaller, so a stored 14px only
- * ever meant "the default" — read through literally it would pin everyone
- * who ever clicked "Default" to what is now "Small". The legacy key is read
- * once: its larger steps carry over as real choices, 14px falls back to the
- * new default, and it is removed either way.
- */
-const SCALE_KEY = 'bow.chat.textScale.v2'
+/* v3 resets the previous 15px default while retaining larger reader choices. */
+const SCALE_KEY = 'bow.chat.textScale.v3'
+const PREVIOUS_SCALE_KEY = 'bow.chat.textScale.v2'
 const LEGACY_SCALE_KEY = 'bow.chat.textScale'
 const LEGACY_DEFAULT_SCALE = 0.875
 
@@ -85,6 +76,15 @@ function readTextScale(): ChatTextScale | null {
   if (current !== null) return current
   if (typeof localStorage === 'undefined') return null
   try {
+    const previous = localStorage.getItem(PREVIOUS_SCALE_KEY)
+    if (previous !== null) {
+      const value = Number(previous)
+      const migrated = value === 0.9375 ? DEFAULT_CHAT_TEXT_SCALE
+        : isChatTextScale(value) ? value : DEFAULT_CHAT_TEXT_SCALE
+      localStorage.setItem(SCALE_KEY, String(migrated))
+      localStorage.removeItem(PREVIOUS_SCALE_KEY)
+      return migrated
+    }
     const legacy = localStorage.getItem(LEGACY_SCALE_KEY)
     if (legacy === null) return null
     localStorage.removeItem(LEGACY_SCALE_KEY)

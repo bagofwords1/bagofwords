@@ -11,20 +11,20 @@
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
           <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-chat-3 text-ink-muted inline-flex items-center gap-1">
             <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
-            {{ $t('tools.createData.bowSource') }}
+            {{ t('tools.createData.bowSource') }}
           </span>
           <button
             v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-ink-muted rounded transition-colors flex items-center"
-            :title="$t('tools.widgetPreview.editQueryCode')"
+            :title="t('tools.widgetPreview.editQueryCode')"
           >
             <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 me-1" />
-            {{ $t('tools.widgetPreview.edit') }}
+            {{ t('tools.widgetPreview.edit') }}
           </button>
         </div>
         <div class="flex items-center gap-3">
-          <UTooltip v-if="queryId" :text="$t('tools.widgetPreview.copyIdTooltip')">
+          <UTooltip v-if="queryId" :text="t('tools.widgetPreview.copyIdTooltip')">
             <button
               @click.stop="copyQueryId"
               class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
@@ -34,8 +34,8 @@
             </button>
           </UTooltip>
           <div v-if="rowCount" class="text-chat-3 text-ink-muted leading-none flex items-center gap-1 whitespace-nowrap" data-testid="widget-row-count">
-            <Spinner v-if="isHydratingStep" class="w-3 h-3 text-ink-muted" :title="$t('tools.widgetPreview.loadingRows')" />
-            {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
+            <Spinner v-if="isHydratingStep" class="w-3 h-3 text-ink-muted" :title="t('tools.widgetPreview.loadingRows')" />
+            {{ activeFilterCount > 0 ? t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
           <UTooltip v-if="cardParamSpecs.length" text="Parameterized query">
             <div class="text-chat-3 text-ink-muted leading-none flex items-center gap-0.5" data-testid="card-param-chip">
@@ -43,18 +43,18 @@
             </div>
           </UTooltip>
 
-          <UTooltip v-if="canExpand && !expanded" :text="$t('tools.widgetPreview.openInPanel')">
+          <UTooltip v-if="canExpand && !expanded" :text="t('tools.widgetPreview.openInPanel')">
             <button
               type="button"
               @click.stop="openInPanel"
               class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
-              :aria-label="$t('tools.widgetPreview.openInPanel')"
+              :aria-label="t('tools.widgetPreview.openInPanel')"
               data-testid="widget-open-panel"
             >
               <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="hasChartForDownload" :text="$t('tools.widgetPreview.downloadPng')">
+          <UTooltip v-if="hasChartForDownload" :text="t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
               class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
@@ -69,7 +69,7 @@
             :ui="{ width: 'w-48', item: { padding: 'px-2.5 py-1.5' } }"
             @click.stop
           >
-            <UTooltip :text="$t('tools.widgetPreview.download')">
+            <UTooltip :text="t('tools.widgetPreview.download')">
               <button
                 type="button"
                 class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
@@ -97,7 +97,7 @@
         <!-- Error / empty state when step has an error -->
         <template v-if="hasStepError">
           <div class="min-h-[80px] flex items-center text-xs text-ink-muted">
-            {{ $t('tools.widgetPreview.noData') }}
+            {{ t('tools.widgetPreview.noData') }}
           </div>
         </template>
         <template v-else>
@@ -144,7 +144,7 @@
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
-              {{ $t('tools.widgetPreview.tabChart') }}
+              {{ t('tools.widgetPreview.tabChart') }}
             </button>
             <button
               v-if="hasData"
@@ -156,7 +156,7 @@
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
-              {{ $t('tools.widgetPreview.tabData') }}
+              {{ t('tools.widgetPreview.tabData') }}
             </button>
             <button
               v-if="hasCode"
@@ -168,7 +168,7 @@
                   : 'border-transparent text-ink-muted hover:text-gray-600 dark:hover:text-gray-300'
               ]"
             >
-              {{ $t('tools.widgetPreview.tabCode') }}
+              {{ t('tools.widgetPreview.tabCode') }}
             </button>
           </div>
 
@@ -256,7 +256,7 @@
                           !showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
-                        {{ $t('tools.widgetPreview.toggleQueries') }}
+                        {{ t('tools.widgetPreview.toggleQueries') }}
                       </button>
                       <button
                         @click="showFullCode = true"
@@ -265,7 +265,7 @@
                           showFullCode ? 'bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                         ]"
                       >
-                        {{ $t('tools.widgetPreview.toggleFullCode') }}
+                        {{ t('tools.widgetPreview.toggleFullCode') }}
                       </button>
                     </div>
                     <div v-else></div>
@@ -275,10 +275,10 @@
                       v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
                       @click="onEditClick"
                       class="text-xs px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
-                      :title="$t('tools.widgetPreview.editCode')"
+                      :title="t('tools.widgetPreview.editCode')"
                     >
                       <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1" />
-                      {{ $t('tools.widgetPreview.edit') }}
+                      {{ t('tools.widgetPreview.edit') }}
                     </button>
                   </div>
 
@@ -335,7 +335,7 @@
                   </span>
                   <span v-if="rowCount">
                     <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block me-1" />
-                    {{ $t('tools.widgetPreview.rows', { count: rowCount }) }}
+                    {{ t('tools.widgetPreview.rows', { count: rowCount }) }}
                   </span>
                 </div>
 
@@ -346,7 +346,7 @@
                     @click="attemptsExpanded = !attemptsExpanded"
                   >
                     <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1.5 rtl-flip" />
-                    <span>{{ $t('tools.widgetPreview.attempts', { count: attempts.length }) }}</span>
+                    <span>{{ t('tools.widgetPreview.attempts', { count: attempts.length }) }}</span>
                   </div>
                   <Transition name="fade">
                     <div v-if="attemptsExpanded" class="mt-2 ms-4">
@@ -371,17 +371,17 @@
               v-if="isExcel && hasDataForDownload"
               class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50 dark:hover:bg-gray-800 text-green-600 hover:text-green-700"
               @click.stop="addToSpreadsheet"
-              :title="$t('tools.widgetPreview.addToSpreadsheetTitle')"
+              :title="t('tools.widgetPreview.addToSpreadsheetTitle')"
             >
               <Icon name="heroicons-table-cells" class="w-3.5 h-3.5 me-1" />
-              {{ $t('tools.widgetPreview.addToSpreadsheet') }}
+              {{ t('tools.widgetPreview.addToSpreadsheet') }}
             </button>
             <span
               v-else-if="canAddToDashboard && isAlreadyInDashboard"
               class="text-xs px-2 py-0.5 rounded flex items-center text-green-600"
             >
               <Icon name="heroicons:check-circle-solid" class="w-3.5 h-3.5 me-1" />
-              {{ $t('tools.widgetPreview.addedToDashboard') }}
+              {{ t('tools.widgetPreview.addedToDashboard') }}
             </span>
             <button
               v-else-if="canAddToDashboard"
@@ -391,7 +391,7 @@
             >
               <Icon v-if="!isAddingToDashboard" name="heroicons:squares-plus" class="w-3.5 h-3.5 me-1" />
               <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 me-1 animate-spin" />
-              {{ $t('tools.widgetPreview.addToDashboard') }}
+              {{ t('tools.widgetPreview.addToDashboard') }}
             </button>
           </div>
           <div class="flex items-center space-x-2">
@@ -401,11 +401,11 @@
               @click.stop="openEntityModal = true"
             >
               <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 me-1" />
-              {{ $t('tools.widgetPreview.saveQuery') }}
+              {{ t('tools.widgetPreview.saveQuery') }}
             </button>
             <span v-else class="text-xs flex items-center">
               <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 me-1 text-green-500" />
-              {{ $t('tools.widgetPreview.savedQuery') }}
+              {{ t('tools.widgetPreview.savedQuery') }}
             </span>
           </div>
         </div>
@@ -479,7 +479,7 @@ const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 const canRunCustomCode = useCanRunCustomCode()
 const canViewCode = useCanViewCode()
 const { isExcel } = useExcel()
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const toast = useToast()
 
 // Reactive state for collapsible behavior

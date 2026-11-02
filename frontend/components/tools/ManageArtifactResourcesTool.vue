@@ -20,7 +20,7 @@
 </template>
 <script setup lang="ts">
 const props = defineProps<{toolExecution: any}>()
-const {t} = useI18n()
+const {t} = useResponseI18n()
 const expanded = ref(false), inspect = ref(false)
 const result = computed(()=>({...props.toolExecution.result_json, ...props.toolExecution.result_json?.observation}))
 const args = computed(()=>props.toolExecution.arguments_json || {})

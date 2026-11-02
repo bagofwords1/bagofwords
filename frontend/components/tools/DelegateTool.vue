@@ -108,10 +108,10 @@
 
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

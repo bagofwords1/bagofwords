@@ -6,15 +6,15 @@
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''">{{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
+            <span :key="queryLabel || ''">{{ t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
           </Transition>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''" class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
+            <span :key="queryLabel || ''" class="align-middle">{{ t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
           </Transition>
-          <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? t('tools.searchInstructions.matchSingular', { count: total }) : t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -53,7 +53,7 @@
                   @click="emit('openInstruction', item.id)"
                 >
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                  <span>{{ $t('tools.searchInstructions.open') }}</span>
+                  <span>{{ t('tools.searchInstructions.open') }}</span>
                 </button>
               </div>
             </Transition>
@@ -64,19 +64,19 @@
 
     <!-- Empty state (after search completes with no results) -->
     <div v-if="status !== 'running' && !instructions.length" class="text-chat-2 text-ink-muted ms-1">
-      {{ $t('tools.searchInstructions.empty') }}
+      {{ t('tools.searchInstructions.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

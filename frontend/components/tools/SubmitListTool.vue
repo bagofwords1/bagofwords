@@ -16,22 +16,22 @@
     <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" data-testid="submit-list-header" @click="isExpanded = !isExpanded">
       <span v-if="running" class="tool-shimmer flex items-center min-w-0">
         <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-ink-muted shrink-0" />
-        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2' : ''" data-testid="submit-list-name" @click="onNameClick">{{ listName ? $t('tools.submitList.savingTo', { name: listName }) : $t('tools.submitList.saving') }}</span>
-        <span v-if="progress" class="ms-1.5 shrink-0 text-ink-muted" data-testid="submit-list-progress">· {{ $t('tools.submitList.writing', { n: progress }, progress) }}</span>
+        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2' : ''" data-testid="submit-list-name" @click="onNameClick">{{ listName ? t('tools.submitList.savingTo', { name: listName }) : t('tools.submitList.saving') }}</span>
+        <span v-if="progress" class="ms-1.5 shrink-0 text-ink-muted" data-testid="submit-list-progress">· {{ t('tools.submitList.writing', { n: progress }, progress) }}</span>
       </span>
       <span v-else-if="ok" class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
         <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1.5 text-emerald-500 shrink-0" />
-        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-white' : ''" data-testid="submit-list-name" @click="onNameClick">{{ $t('tools.submitList.saved', { name: listName }) }}</span>
+        <span dir="auto" class="truncate" :class="canOpenPane ? 'hover:underline decoration-dotted underline-offset-2 hover:text-gray-900 dark:hover:text-white' : ''" data-testid="submit-list-name" @click="onNameClick">{{ t('tools.submitList.saved', { name: listName }) }}</span>
         <span v-for="c in counts" :key="c" class="ms-1.5 shrink-0 text-ink-muted">· {{ c }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
-        <button v-if="canOpenPane" type="button" class="ms-2 shrink-0 inline-flex items-center gap-0.5 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200" :title="$t('tools.submitList.openInPane')" data-testid="submit-list-open-pane" @click.stop="openPane">
+        <button v-if="canOpenPane" type="button" class="ms-2 shrink-0 inline-flex items-center gap-0.5 text-ink-muted hover:text-gray-700 dark:hover:text-gray-200" :title="t('tools.submitList.openInPane')" data-testid="submit-list-open-pane" @click.stop="openPane">
           <Icon name="heroicons-arrows-pointing-out" class="w-3 h-3" />
         </button>
       </span>
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center min-w-0">
         <Icon name="heroicons-arrow-path" class="w-3 h-3 me-1.5 text-amber-500 shrink-0" />
-        <span dir="auto" class="truncate">{{ $t('tools.submitList.failed', { name: listName }) }}</span>
-        <span class="ms-1.5 shrink-0 text-ink-muted">· {{ $t('tools.submitList.errorsCount', { n: errors.length }, errors.length) }} · {{ $t('tools.submitList.retry') }}</span>
+        <span dir="auto" class="truncate">{{ t('tools.submitList.failed', { name: listName }) }}</span>
+        <span class="ms-1.5 shrink-0 text-ink-muted">· {{ t('tools.submitList.errorsCount', { n: errors.length }, errors.length) }} · {{ t('tools.submitList.retry') }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
       </span>
     </div>
@@ -55,16 +55,16 @@
                   @click="openIdx = openIdx === r.index ? null : r.index"
                 >
                   <td v-if="ok" class="px-2 py-1 whitespace-nowrap" data-testid="submit-list-action">
-                    <span class="px-1.5 rounded text-chat-3" :class="actionCls(r.action)">{{ $t('tools.submitList.action.' + (r.action || 'inserted')) }}</span>
+                    <span class="px-1.5 rounded text-chat-3" :class="actionCls(r.action)">{{ t('tools.submitList.action.' + (r.action || 'inserted')) }}</span>
                   </td>
                   <td v-for="c in columns" :key="c" class="px-2 py-1 whitespace-nowrap max-w-[220px]" :class="cellError(r, c) ? 'ring-1 ring-inset ring-red-300 dark:ring-red-800' : ''" :title="cellError(r, c) || undefined">
                     <span class="inline-flex items-center gap-1 max-w-full">
                       <span v-if="isEmpty(r.fields[c])" class="text-gray-300 dark:text-gray-600">—</span>
                       <bdi v-else class="truncate text-gray-700 dark:text-gray-300">{{ fmt(r.fields[c]?.value) }}</bdi>
                       <span v-if="chip(r.fields[c]?.status)" class="shrink-0 px-1 rounded text-chat-3" :class="chipCls(r.fields[c]?.status)">{{ chip(r.fields[c]?.status) }}</span>
-                      <Icon v-if="r.fields[c]?.quote && typeof r.fields[c]?.verified === 'boolean'" :name="r.fields[c]?.verified ? 'heroicons-check-circle' : 'heroicons-question-mark-circle'" class="w-3 h-3 shrink-0" :class="r.fields[c]?.verified ? 'text-emerald-500' : 'text-amber-500'" :title="r.fields[c]?.verified ? $t('lists.row.verified') : $t('lists.row.unverified')" />
+                      <Icon v-if="r.fields[c]?.quote && typeof r.fields[c]?.verified === 'boolean'" :name="r.fields[c]?.verified ? 'heroicons-check-circle' : 'heroicons-question-mark-circle'" class="w-3 h-3 shrink-0" :class="r.fields[c]?.verified ? 'text-emerald-500' : 'text-amber-500'" :title="r.fields[c]?.verified ? t('lists.row.verified') : t('lists.row.unverified')" />
                       <Icon v-else-if="r.fields[c]?.quote" name="heroicons-chat-bubble-bottom-center-text" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600" />
-                      <Icon v-if="r.fields[c]?.locked" name="heroicons-lock-closed" class="w-3 h-3 shrink-0 text-ink-muted" :title="$t('tools.submitList.keptEdit')" />
+                      <Icon v-if="r.fields[c]?.locked" name="heroicons-lock-closed" class="w-3 h-3 shrink-0 text-ink-muted" :title="t('tools.submitList.keptEdit')" />
                     </span>
                   </td>
                 </tr>
@@ -75,12 +75,12 @@
                         <span class="shrink-0 font-mono text-gray-500 dark:text-gray-400">{{ c }}</span>
                         <span v-if="cellError(r, c)" class="text-red-600 dark:text-red-400">{{ cellError(r, c) }}</span>
                         <bdi v-if="r.fields[c]?.quote" class="italic text-gray-700 dark:text-gray-300">“{{ r.fields[c]?.quote }}”</bdi>
-                        <span v-if="r.fields[c]?.quote && (r.fields[c]?.ref || r.fields[c]?.page)" class="text-ink-muted">({{ [r.fields[c]?.ref, r.fields[c]?.page ? $t('lists.row.page', { n: r.fields[c]?.page }) : ''].filter(Boolean).join(' · ') }})</span>
+                        <span v-if="r.fields[c]?.quote && (r.fields[c]?.ref || r.fields[c]?.page)" class="text-ink-muted">({{ [r.fields[c]?.ref, r.fields[c]?.page ? t('lists.row.page', { n: r.fields[c]?.page }) : ''].filter(Boolean).join(' · ') }})</span>
                         <bdi v-if="r.fields[c]?.note" class="text-gray-500 dark:text-gray-400">— {{ r.fields[c]?.note }}</bdi>
                       </div>
                       <div v-if="r.rowError" class="text-chat-2 text-red-600 dark:text-red-400">{{ r.rowError }}</div>
                       <a v-if="ok && r.rowId && dsId" :href="`/agents/${dsId}/lists/${listId}/${r.rowId}`" class="inline-flex items-center gap-1 text-chat-2 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white" data-testid="submit-list-open-row" @click.stop>
-                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />{{ $t('tools.submitList.openRow') }}
+                        <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />{{ t('tools.submitList.openRow') }}
                       </a>
                     </div>
                   </td>
@@ -96,10 +96,10 @@
 
         <div v-if="ok && dsId" class="flex items-center gap-3 text-chat-2">
           <a :href="`/agents/${dsId}/lists/${listId}`" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white inline-flex items-center gap-1" data-testid="submit-list-open">
-            <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />{{ $t('tools.submitList.open') }}
+            <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />{{ t('tools.submitList.open') }}
           </a>
           <button v-if="reportId" type="button" class="text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white inline-flex items-center gap-1" data-testid="submit-list-csv" @click.stop="downloadCsv">
-            <Icon name="heroicons-arrow-down-tray" class="w-3 h-3" />{{ $t('tools.submitList.downloadCsv') }}
+            <Icon name="heroicons-arrow-down-tray" class="w-3 h-3" />{{ t('tools.submitList.downloadCsv') }}
           </button>
         </div>
       </div>
@@ -131,7 +131,7 @@ interface Props {
 }
 const props = defineProps<Props>()
 const emit = defineEmits<{ (e: 'openListPanel', p: { listId: string; dsId: string; name: string }): void }>()
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const route = useRoute()
 
 const isExpanded = ref(false)

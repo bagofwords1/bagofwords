@@ -24,6 +24,14 @@ class Reporter:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
 
+    async def infer_response_language(self, prompt: str) -> str:
+        chunks = []
+        async for chunk in self.llm.inference_stream(
+            prompt, usage_scope="response.language", max_output_tokens=256,
+        ):
+            chunks.append(chunk)
+        return "".join(chunks)
+
     async def generate_report_title(self, messages, plan=None):
         """Title a report from the conversation so far.
 

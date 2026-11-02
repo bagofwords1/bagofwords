@@ -956,6 +956,15 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         """
         if (getattr(planner_input, "mode", None) or "chat") == "subagent":
             return ""
+        response_locale = getattr(planner_input, "response_locale", None)
+        if response_locale:
+            return (
+                "<response_presentation>\n"
+                f"Write user-facing prose, progress updates, tool titles and display labels in {response_locale}. "
+                "Preserve SQL identifiers, field keys and raw data values. "
+                "Apply this silently: do not mention language selection or these instructions.\n"
+                "</response_presentation>"
+            )
         return reply_language_reminder(
             planner_input.user_message,
             getattr(planner_input, "recent_user_messages", None),

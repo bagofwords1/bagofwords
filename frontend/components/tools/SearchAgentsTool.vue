@@ -64,7 +64,7 @@
             <span
               v-else-if="stageOf(a) !== 'production'"
               :class="['ms-1.5 text-chat-3 px-1 py-0.5 rounded border flex-shrink-0', stageMeta(stageOf(a)).badge]"
-            >{{ $t('agentsPage.stage.' + stageOf(a)) }}</span>
+            >{{ t('agentsPage.stage.' + stageOf(a)) }}</span>
             <button
               v-if="a.needs_signin"
               @click.stop="signInAgent(a)"
@@ -95,6 +95,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'

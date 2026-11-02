@@ -30,17 +30,17 @@
 
           <!-- Run status below code -->
           <div class="mt-2 text-chat-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
-            <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.generic.running') }}</span>
+            <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.generic.running') }}</span>
             <span v-else-if="status === 'success'" class="flex items-center">
               <span class="text-green-500 flex items-center">
                 <Icon name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-                {{ $t('tools.common.success') }}</span>
+                {{ t('tools.common.success') }}</span>
               <span class="ms-2" v-if="successDetails"> • {{ successDetails }}</span>
             </span>
             <span v-else-if="status === 'error'" class="flex items-center">
               <span class="text-red-500 flex items-center">
                 <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-                {{ $t('tools.common.failed') }}</span>
+                {{ t('tools.common.failed') }}</span>
               <span class="ms-2" v-if="statusReason"> • {{ statusReason }}</span>
             </span>
             <span v-else>Preparing...</span>
@@ -66,6 +66,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref, watch } from 'vue'
 
 interface Props {

@@ -9,15 +9,17 @@
       <!-- Action label with shimmer effect for running status -->
       <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
         <Spinner class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ $t('tools.createDashboard.creating') }}
+        {{ t('tools.createDashboard.creating') }}
       </span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDashboard.created') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDashboard.create') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDashboard.created') }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createDashboard.create') }}</span>
   </div>
 </div>
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { ref, computed } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 interface ToolExecution { status: string }

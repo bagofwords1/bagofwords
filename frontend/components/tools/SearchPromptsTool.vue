@@ -5,12 +5,12 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.searchPrompts.searching', { query: queryLabel }) }}</span>
+          <span>{{ t('tools.searchPrompts.searching', { query: queryLabel }) }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ $t('tools.searchPrompts.searched', { query: queryLabel }) }}</span>
-          <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? $t('tools.searchPrompts.matchSingular', { count: total }) : $t('tools.searchPrompts.matchPlural', { count: total }) }}</span>
+          <span class="align-middle">{{ t('tools.searchPrompts.searched', { query: queryLabel }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? t('tools.searchPrompts.matchSingular', { count: total }) : t('tools.searchPrompts.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -29,7 +29,7 @@
               <Icon name="heroicons-bookmark-square" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ displayTitle(item) }}</div>
               <span v-if="item.scope" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.scope }}</span>
-              <span v-if="item.is_starter" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">{{ $t('tools.searchPrompts.starter') }}</span>
+              <span v-if="item.is_starter" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 flex-shrink-0">{{ t('tools.searchPrompts.starter') }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
@@ -38,7 +38,7 @@
                 </div>
                 <button class="text-chat-2 text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5" @click="openPrompts">
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                  <span>{{ $t('tools.searchPrompts.open') }}</span>
+                  <span>{{ t('tools.searchPrompts.open') }}</span>
                 </button>
               </div>
             </Transition>
@@ -49,15 +49,15 @@
 
     <!-- Empty state -->
     <div v-if="status !== 'running' && !prompts.length" class="text-chat-2 text-ink-muted ms-1">
-      {{ $t('tools.searchPrompts.empty') }}
+      {{ t('tools.searchPrompts.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { useResponseI18n } from '~/composables/useResponseI18n'
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

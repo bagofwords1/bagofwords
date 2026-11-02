@@ -53,9 +53,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: { status: string; result_json?: any; arguments_json?: any }

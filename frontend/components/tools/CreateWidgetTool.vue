@@ -27,8 +27,8 @@
           <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDm">
             <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createWidget.creatingDataModel') }}</span>
+            <span v-if="!dmDone" class="tool-shimmer">{{ t('tools.createWidget.creatingDataModel') }}</span>
+            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createWidget.creatingDataModel') }}</span>
             <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
@@ -62,9 +62,9 @@
             <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingCode') }}</span>
-            <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.generatingCode') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createWidget.generatingCode') }}</span>
+            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ t('tools.createWidget.validatingCode') }}</span>
+            <span v-else-if="isCodeRunning" class="tool-shimmer">{{ t('tools.createWidget.generatingCode') }}</span>
+            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createWidget.generatingCode') }}</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
@@ -74,8 +74,8 @@
 
 
                 <div class="mb-2 text-chat-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
-                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingAttempt', { n: currentAttempt }) }}</span>
-                  <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.runningAttempt', { n: currentAttempt }) }}</span>
+                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ t('tools.createWidget.validatingAttempt', { n: currentAttempt }) }}</span>
+                  <span v-else-if="isCodeRunning" class="tool-shimmer">{{ t('tools.createWidget.runningAttempt', { n: currentAttempt }) }}</span>
                   <span v-else-if="status === 'success'" class="flex items-center">
                     <span class="text-green-500 flex items-center">
                       <Icon name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -155,6 +155,8 @@
   </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref, watch } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'

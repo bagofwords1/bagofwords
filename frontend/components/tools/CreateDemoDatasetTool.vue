@@ -5,11 +5,11 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'designing'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
+          <span>{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
           <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.createDemoDataset.waitingReview') : $t('tools.createDemoDataset.review') }}</span>
+          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</span>
         </span>
         <span v-else-if="phase === 'working'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
@@ -17,15 +17,15 @@
         </span>
         <span v-else-if="phase === 'created'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ $t('tools.createDemoDataset.created') }}</span>
+          <span>{{ t('tools.createDemoDataset.created') }}</span>
         </span>
         <span v-else-if="phase === 'rejected'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? $t('tools.createDemoDataset.timedOut') : $t('tools.createDemoDataset.rejected') }}</span>
+          <span>{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ $t('tools.createDemoDataset.failed') }}</span>
+          <span>{{ t('tools.createDemoDataset.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -54,7 +54,7 @@
             <Icon v-else name="heroicons-circle-stack" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ connectionName || args.name }}</span>
             <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
-              {{ $t('tools.createDemoDataset.badge') }}
+              {{ t('tools.createDemoDataset.badge') }}
             </span>
             <span class="flex-1"></span>
             <span v-if="dateRange" class="hidden sm:inline text-chat-3 text-ink-muted flex-shrink-0">{{ dateRange }}</span>
@@ -67,12 +67,12 @@
         <!-- Tables -->
         <div v-if="expanded" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
           <div class="flex items-center text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
-            <span>{{ $t('tools.createDemoDataset.tables', { count: tables.length }) }}</span>
+            <span>{{ t('tools.createDemoDataset.tables', { count: tables.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="phase === 'working' && progressTotal" class="normal-case tracking-normal">
-              {{ $t('tools.createDemoDataset.progress', { done: progressDone, total: progressTotal }) }}
+              {{ t('tools.createDemoDataset.progress', { done: progressDone, total: progressTotal }) }}
             </span>
-            <span v-else class="normal-case tracking-normal">{{ formatRows(rowsTotal) }} {{ $t('tools.createDemoDataset.rows') }}</span>
+            <span v-else class="normal-case tracking-normal">{{ formatRows(rowsTotal) }} {{ t('tools.createDemoDataset.rows') }}</span>
           </div>
           <div v-if="phase === 'working' && progressTotal" class="h-0.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden mb-1.5">
             <div class="h-full bg-blue-500 transition-all duration-500" :style="{ width: `${Math.round(100 * progressDone / progressTotal)}%` }"></div>
@@ -92,7 +92,7 @@
                 <span class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ t.description }}</span>
                 <span class="flex-1"></span>
                 <span v-if="tableState(t.name).state === 'retrying'" class="text-chat-3 text-amber-600 dark:text-amber-400 flex-shrink-0">
-                  {{ $t('tools.createDemoDataset.retry', { n: tableState(t.name).attempt }) }}
+                  {{ t('tools.createDemoDataset.retry', { n: tableState(t.name).attempt }) }}
                 </span>
                 <span
                   v-if="['writing_code', 'running'].includes(tableState(t.name).state)"
@@ -122,7 +122,7 @@
         <!-- Agents -->
         <div v-if="expanded && agents.length" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
           <div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
-            {{ phase === 'created' ? $t('tools.createDemoDataset.agentsCreated') : $t('tools.createDemoDataset.agents') }}
+            {{ phase === 'created' ? t('tools.createDemoDataset.agentsCreated') : t('tools.createDemoDataset.agents') }}
           </div>
           <ul class="space-y-1">
             <li
@@ -149,7 +149,7 @@
                 <span class="flex items-center gap-1.5">
                   <span class="font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ a.name }}</span>
                   <span v-if="a.skipped" class="text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
-                    {{ $t('tools.createDemoDataset.skipped') }}
+                    {{ t('tools.createDemoDataset.skipped') }}
                   </span>
                 </span>
                 <span v-if="a.description" class="block text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ a.description }}</span>
@@ -167,12 +167,12 @@
                 @click.stop
               >
                 <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                {{ $t('tools.createDemoDataset.open') }}
+                {{ t('tools.createDemoDataset.open') }}
               </NuxtLink>
             </li>
           </ul>
           <div v-if="interactive && !canCreateAgents" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400">
-            {{ $t('tools.createDemoDataset.noAgentPermission') }}
+            {{ t('tools.createDemoDataset.noAgentPermission') }}
           </div>
         </div>
 
@@ -182,14 +182,14 @@
             <textarea
               v-model="feedbackDraft"
               rows="2"
-              :placeholder="$t('tools.createDemoDataset.feedbackPlaceholder')"
+              :placeholder="t('tools.createDemoDataset.feedbackPlaceholder')"
               class="w-full text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               data-testid="demo-dataset-feedback"
             ></textarea>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-chat-3 text-ink-muted truncate">
-              {{ $t('tools.createDemoDataset.generatedBy', { model: confirmation?.model || '' }) }}
+              {{ t('tools.createDemoDataset.generatedBy', { model: confirmation?.model || '' }) }}
             </span>
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
@@ -198,7 +198,7 @@
                 :disabled="responding"
                 data-testid="demo-dataset-request-changes"
                 @click="showFeedback = true"
-              >{{ $t('tools.createDemoDataset.requestChanges') }}</button>
+              >{{ t('tools.createDemoDataset.requestChanges') }}</button>
               <button
                 class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
@@ -214,7 +214,7 @@
                 class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
-              >{{ $t('tools.createDemoDataset.cancel') }}</button>
+              >{{ t('tools.createDemoDataset.cancel') }}</button>
               <button
                 class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
@@ -222,7 +222,7 @@
                 @click="respond(false)"
               >
                 <Spinner v-if="responding && pendingChoice === false" class="w-3 h-3" />
-                {{ $t('tools.createDemoDataset.sendFeedback') }}
+                {{ t('tools.createDemoDataset.sendFeedback') }}
               </button>
             </template>
           </div>
@@ -232,7 +232,7 @@
         <!-- Result footer -->
         <div v-if="phase === 'created'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-2 text-chat-3 text-ink-muted">
           <Icon name="heroicons-circle-stack" class="w-3 h-3" />
-          <span>{{ formatRows(output.total_rows) }} {{ $t('tools.createDemoDataset.rows') }}</span>
+          <span>{{ formatRows(output.total_rows) }} {{ t('tools.createDemoDataset.rows') }}</span>
           <span>·</span>
           <bdi>{{ formatBytes(output.file_size_bytes) }}</bdi>
           <span v-if="output.seconds">·</span>
@@ -248,7 +248,7 @@
 import { computed, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const { t, locale } = useI18n()
+const { t, locale } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: {

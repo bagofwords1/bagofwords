@@ -34,7 +34,7 @@
                         role="radio"
                         :aria-checked="textScale === scale"
                         :data-testid="`chat-text-scale-${scale}`"
-                        :title="t(`reportView.display.scales.${SCALE_LABELS[i]}`)"
+                        :title="i === 0 ? t('reportView.display.scales.default') : t('reportView.display.pixels', { n: Math.round(16 * scale) })"
                         class="flex-1 rounded border py-1.5 transition-colors"
                         :class="textScale === scale
                             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300'
@@ -89,7 +89,4 @@ const { width, textScale, textSizePx, scales, setWidth, setTextScale } = useChat
 
 const WIDTH_OPTIONS: ChatWidth[] = ['standard', 'wide']
 
-/* Parallel to CHAT_TEXT_SCALES — the scales are numbers, the catalog needs
-   stable key names, and `scales.0.875` is not a usable i18n path. */
-const SCALE_LABELS = ['small', 'default', 'large', 'larger', 'largest'] as const
 </script>

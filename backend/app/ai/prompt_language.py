@@ -77,7 +77,9 @@ def language_directive_body(locale: Optional[str] = None) -> str:
         f"switch with them. When the user's message is too short or ambiguous to "
         f"determine a language (for example a bare number or a URL), default to "
         f"{fallback}. Always keep code, SQL, column names, identifiers, and JSON "
-        f"field names in English."
+        f"field names in English. For equations use explicit TeX delimiters "
+        r"\( ... \) inline or \[ ... \] for display math. "
+        "Single dollar signs are reserved for currency; never wrap equations in $...$."
     )
 
 

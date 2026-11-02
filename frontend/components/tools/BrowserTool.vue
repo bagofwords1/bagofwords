@@ -13,7 +13,7 @@
         <span v-else class="flex items-center min-w-0" :class="isError ? 'text-gray-600 dark:text-gray-400' : 'text-gray-600 dark:text-gray-400'">
           <Icon :name="headerIcon" class="w-3 h-3 me-1.5 shrink-0" :class="iconColor" />
           <span class="truncate">{{ doneLabel }}</span>
-          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ $t('tools.browser.updateStates.pending') }}</span>
+          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ t('tools.browser.updateStates.pending') }}</span>
           <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-ink-muted">{{ displayUrl }}</span>
           <span v-if="blockedReason" class="ms-1.5 text-chat-3 text-amber-500 shrink-0">{{ blockedReason }}</span>
           <Icon
@@ -32,14 +32,14 @@
         </div>
 
         <div v-if="rj.artifact" class="space-y-1 text-chat-2 text-gray-500 dark:text-gray-400">
-          <div>{{ $t('tools.browser.checkedVersion', { version: rj.artifact.version }) }}</div>
-          <div v-if="rj.evidence?.update_status">{{ $t('tools.browser.updateState') }}: {{ $t('tools.browser.updateStates.' + rj.evidence.update_status) }}</div>
+          <div>{{ t('tools.browser.checkedVersion', { version: rj.artifact.version }) }}</div>
+          <div v-if="rj.evidence?.update_status">{{ t('tools.browser.updateState') }}: {{ t('tools.browser.updateStates.' + rj.evidence.update_status) }}</div>
           <div v-for="q in rj.evidence?.queries || []" :key="q.request_id" class="rounded border border-gray-100 dark:border-gray-800 p-2">
-            <div>{{ $t('tools.browser.queryEvidence', { count: q.returned_rows, duration: q.duration_ms }) }}</div>
-            <div v-if="q.result_truncated" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.partialRows', { returned: q.returned_rows, total: q.total_rows }) }}</div>
+            <div>{{ t('tools.browser.queryEvidence', { count: q.returned_rows, duration: q.duration_ms }) }}</div>
+            <div v-if="q.result_truncated" class="text-amber-600 dark:text-amber-400">{{ t('tools.browser.partialRows', { returned: q.returned_rows, total: q.total_rows }) }}</div>
             <pre class="whitespace-pre-wrap break-all mt-1">{{ JSON.stringify(q.applied_params) }}</pre>
           </div>
-          <div v-if="rj.evidence?.result_checks?.some((c: any) => c.code === 'empty_date_result')" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.emptyDateUnverified') }}</div>
+          <div v-if="rj.evidence?.result_checks?.some((c: any) => c.code === 'empty_date_result')" class="text-amber-600 dark:text-amber-400">{{ t('tools.browser.emptyDateUnverified') }}</div>
           <div v-for="(e, i) in rj.evidence?.errors || []" :key="i" class="text-amber-600 dark:text-amber-400">{{ e.message || e.error }}</div>
         </div>
 
@@ -63,7 +63,7 @@
             @click.stop="showSnapshot = !showSnapshot"
           >
             <Icon :name="showSnapshot ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip" />
-            <span>{{ $t('tools.browser.snapshot') }}</span>
+            <span>{{ t('tools.browser.snapshot') }}</span>
           </div>
           <div v-if="showSnapshot" class="max-h-48 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
             <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ snapshot }}</pre>
@@ -76,10 +76,10 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

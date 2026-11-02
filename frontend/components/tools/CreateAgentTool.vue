@@ -5,19 +5,19 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.createAgent.creating', { name: args.name || '' }) }}</span>
+          <span>{{ t('tools.createAgent.creating', { name: args.name || '' }) }}</span>
         </span>
         <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span class="align-middle">{{ $t('tools.createAgent.created') }}</span>
+          <span class="align-middle">{{ t('tools.createAgent.created') }}</span>
         </span>
         <span v-else-if="needsSelection" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-chat-bubble-left-right" class="w-3 h-3 me-1 text-blue-400" />
-          <span class="align-middle">{{ $t('tools.createAgent.needsSelection') }}</span>
+          <span class="align-middle">{{ t('tools.createAgent.needsSelection') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span class="align-middle">{{ $t('tools.createAgent.failed') }}</span>
+          <span class="align-middle">{{ t('tools.createAgent.failed') }}</span>
         </span>
       </div>
     </Transition>
@@ -49,10 +49,10 @@
             <span class="inline-flex items-center gap-1 text-chat-3 px-1.5 py-0.5 rounded-full flex-shrink-0"
               :class="agentActive ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'">
               <span class="w-1.5 h-1.5 rounded-full" :class="agentActive ? 'bg-emerald-500' : 'bg-gray-400'"></span>
-              {{ agentActive ? $t('tools.createAgent.statusActive') : $t('tools.createAgent.statusInactive') }}
+              {{ agentActive ? t('tools.createAgent.statusActive') : t('tools.createAgent.statusInactive') }}
             </span>
             <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
-              {{ isPublic ? $t('tools.createAgent.public') : $t('tools.createAgent.private') }}
+              {{ isPublic ? t('tools.createAgent.public') : t('tools.createAgent.private') }}
             </span>
             <span class="flex-1"></span>
             <NuxtLink
@@ -60,19 +60,19 @@
               class="text-chat-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
             >
               <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-              {{ $t('tools.createAgent.open') }}
+              {{ t('tools.createAgent.open') }}
             </NuxtLink>
           </div>
           <div v-if="description" class="mt-1 text-chat-2 text-gray-500 dark:text-gray-400 leading-snug">{{ description }}</div>
           <div v-if="connections.length" class="mt-1 text-chat-2 text-ink-muted">
-            {{ $t('tools.createAgent.on') }} {{ connections.join(', ') }}
+            {{ t('tools.createAgent.on') }} {{ connections.join(', ') }}
           </div>
           <div v-if="requiresConnect" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400 flex items-center gap-1">
             <Icon name="heroicons-key" class="w-3 h-3" />
-            {{ $t('tools.createAgent.requiresConnect') }}
+            {{ t('tools.createAgent.requiresConnect') }}
           </div>
           <div v-if="unresolved.length" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400">
-            {{ $t('tools.createAgent.unresolved', { items: unresolved.join(', ') }) }}
+            {{ t('tools.createAgent.unresolved', { items: unresolved.join(', ') }) }}
           </div>
         </div>
 
@@ -87,7 +87,7 @@
             @click="toggleSection(section)"
           >
             <Icon :name="sectionIcon(section)" class="w-3 h-3" />
-            {{ $t(`tools.createAgent.tab.${section}`) }}
+            {{ t(`tools.createAgent.tab.${section}`) }}
             <span class="text-chat-3 opacity-70">{{ sectionCount(section) }}</span>
             <Icon :name="openSection === section ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-2.5 h-2.5 opacity-60" />
           </button>
@@ -121,7 +121,7 @@
               :can-update="true"
               :show-header="false"
             />
-            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Files -->
@@ -132,7 +132,7 @@
                 <span class="text-gray-700 dark:text-gray-300 font-mono truncate">{{ f }}</span>
               </li>
             </ul>
-            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Instructions — compact agent-scoped list. -->
@@ -151,7 +151,7 @@
                 </span>
               </li>
             </ul>
-            <div v-else class="text-chat-2 text-ink-muted py-1">{{ $t('tools.createAgent.emptyTab') }}</div>
+            <div v-else class="text-chat-2 text-ink-muted py-1">{{ t('tools.createAgent.emptyTab') }}</div>
           </div>
 
           <!-- Evals — the real per-agent evals panel. -->
@@ -165,6 +165,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, onMounted, ref, watch } from 'vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'

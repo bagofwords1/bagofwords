@@ -86,33 +86,29 @@
    * browser in `localStorage['bow.chat.textScale']` and applied to <html>
    * by `plugins/chat-display.client.ts`, the same way the locale is.
    *
-   * 15px with a 1.6 line height. 14px (the previous default, still the
-   * first reader step) measured dense next to comparable chat products, which
-   * sit at 15-16px; at 14px the transcript read small on large screens,
-   * especially for Hebrew, whose letters look smaller than Latin at the same
-   * pixel size. Data stays dense separately: tables, code and tool cards use
-   * the smaller -2 step below.
+   * 14px with a 23px line height at the default reader size. Larger
+   * reader steps scale proportionally; the column keeps its existing width.
    */
-  --bow-chat-text-scale: 0.9375;
+  --bow-chat-text-scale: 0.875;
   --bow-chat-font-size: calc(1rem * var(--bow-chat-text-scale));
-  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 1.6);
+  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 23 / 14);
 
   /*
    * Two derived steps, so a message is one ramp instead of three systems.
-   * The ratios are 13/14 and 11/14 (about 14px and 12px at the 15px
+   * The ratios are 13/14 and 12/14 (13px and 12px at the 14px
    * default) and keep their relationship at every reader step, which a
    * pinned `13px` could not do — it stayed put while body copy grew.
    *   -2  code, collapsed reasoning, tool-card labels
    *   -3  badges, ids, durations — true metadata only
    */
   --bow-chat-font-size-2: calc(var(--bow-chat-font-size) * 0.9286);
-  --bow-chat-font-size-3: calc(var(--bow-chat-font-size) * 0.7857);
+  --bow-chat-font-size-3: calc(var(--bow-chat-font-size) * 0.857143);
 
   /*
    * The conversation measure, in multiples of the chat font so it scales with
    * the reader's text size, and proportional to the screen between a floor
    * and a cap so it grows smoothly instead of in breakpoint jumps:
-   * 51.2em … 45vw … 57em — at 15px, 768px on laptops and up to ~1700px
+   * 51.2 … 45vw … 57 times the measure font (at least 15px): 768px on laptops and up to ~1700px
    * windows (about 90 characters a line, the usual chat column), growing
    * only on large monitors to a cap of ~855px (longer lines stop being
    * comfortable to read). The "wide" display option lifts the cap.
@@ -122,7 +118,8 @@
    * It is a maximum: the transcript is `w-full`, so a narrow pane (the split
    * view, mobile) still fits.
    */
-  --bow-measure-chat: clamp(calc(51.2 * var(--bow-chat-font-size)), 45vw, calc(57 * var(--bow-chat-font-size)));
+  --bow-chat-measure-font-size: max(0.9375rem, var(--bow-chat-font-size));
+  --bow-measure-chat: clamp(calc(51.2 * var(--bow-chat-measure-font-size)), 45vw, calc(57 * var(--bow-chat-measure-font-size)));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against

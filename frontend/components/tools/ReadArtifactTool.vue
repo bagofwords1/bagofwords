@@ -8,11 +8,11 @@
       <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
 
-      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.readArtifact.reading') }}</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.readArtifact.reading') }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ $t('tools.readArtifact.readingPast') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.readArtifact.failed') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.readArtifact.read') }}</span>
+      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ t('tools.readArtifact.readingPast') }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.readArtifact.failed') }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.readArtifact.read') }}</span>
 
       <!-- Mode Badge -->
       <span
@@ -99,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-const { t } = useI18n()
+const { t } = useResponseI18n()
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 

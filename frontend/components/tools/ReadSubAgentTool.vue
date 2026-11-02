@@ -21,10 +21,10 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()
 const status = computed(() => props.toolExecution?.status || '')
 const rj = computed<any>(() => props.toolExecution?.result_json || {})

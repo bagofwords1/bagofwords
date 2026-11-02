@@ -7,16 +7,16 @@
     >
       <span v-if="status === 'running'" class="tool-shimmer flex items-center">
         <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ $t('tools.createNote.writing') }}
+        {{ t('tools.createNote.writing') }}
       </span>
       <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-amber-500" />
-        <span dir="auto" class="truncate max-w-[300px]">{{ $t('tools.createNote.wrotePrefix', { text: title || $t('tools.createNote.untitled') }) }}</span>
+        <span dir="auto" class="truncate max-w-[300px]">{{ t('tools.createNote.wrotePrefix', { text: title || t('tools.createNote.untitled') }) }}</span>
         <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
       </span>
       <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-        <span>{{ $t('tools.createNote.failed') }}</span>
+        <span>{{ t('tools.createNote.failed') }}</span>
       </span>
     </div>
 
@@ -35,6 +35,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import { MarkdownRender } from 'markstream-vue'
 

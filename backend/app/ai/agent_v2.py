@@ -2601,6 +2601,7 @@ class AgentV2:
                         "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
+                        "response_locale": getattr(self, "response_locale", None),
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
@@ -3247,6 +3248,36 @@ class AgentV2:
         prompt = getattr(self.head_completion, "prompt", None)
         content = prompt.get("content") if isinstance(prompt, dict) else None
         return content if isinstance(content, str) else ""
+
+    async def _resolve_response_language(self):
+        from app.ai.response_language import resolve_response_locale
+        from sqlalchemy import select
+        # Persist in the existing encrypted prompt metadata: no global UI change
+        # and no schema migration. Replays reuse the original response language.
+        saved = (self.system_completion.prompt or {}).get("response_locale")
+        if saved:
+            self.response_locale = saved
+            return
+        prior = (await self.db.execute(
+            select(Completion).where(
+                Completion.report_id == self.report_id,
+                Completion.role == "system",
+                Completion.turn_index < self.system_completion.turn_index,
+            ).order_by(Completion.turn_index.desc()).limit(1)
+        )).scalars().first()
+        previous = (prior.prompt or {}).get("response_locale") if prior else None
+        self.response_locale = await resolve_response_locale(
+            self.reporter.infer_response_language,
+            self._follow_ups_user_message(), previous, self.org_locale or "en",
+        )
+        self.system_completion.prompt = {
+            **(self.system_completion.prompt or {}), "response_locale": self.response_locale,
+        }
+        await self.db.commit()
+        await self._emit_sse_event(SSEEvent(
+            event="completion.language", completion_id=str(self.system_completion_id),
+            data={"locale": self.response_locale},
+        ))
 
     async def _generate_and_emit_follow_ups(self):
         """Generate follow-up questions on the small model, persist them on the
@@ -4972,6 +5003,7 @@ class AgentV2:
             # _start_title_generation so it lands before any tool derives a
             # child context (for_source copies `loop` at derivation time).
             self._bind_usage_context_loop()
+            await self._resolve_response_language()
             # Load the usage quota while the context is built, not at the
             # first model call (its own session, so it runs alongside).
             _ulc = getattr(self, "usage_limit_context", None)
@@ -5009,6 +5041,17 @@ class AgentV2:
             )
             _model_id = getattr(self.model, "model_id", None) if self.model else None
             self._thinking_config = _effort_to_thinking_config(self._reasoning_effort, _model_id)
+            # Snapshot the resolved setting on this answer, independent of later
+            # composer/report changes, and expose it during the live run.
+            self.system_completion.prompt = {
+                **(self.system_completion.prompt or {}),
+                "reasoning_effort": self._reasoning_effort,
+            }
+            await self.db.commit()
+            await self._emit_sse_event(SSEEvent(
+                event="completion.effort", completion_id=str(self.system_completion_id),
+                data={"reasoning_effort": self._reasoning_effort},
+            ))
             logger.info(
                 "[agent] reasoning_effort resolved=%s thinking=%s model=%s "
                 "(per_completion=%s trigger=%s model_default=%s)",
@@ -5522,6 +5565,7 @@ class AgentV2:
                             week_start=self.org_week_start,
                             instructions=instructions,
                             user_message=self._effective_user_message(),
+                            response_locale=getattr(self, "response_locale", None),
                             steering_context=self._render_steering_context(),
                             schemas_excerpt=None,
                             schemas_combined=schemas_excerpt,
@@ -6876,6 +6920,7 @@ class AgentV2:
                                         "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
+                                        "response_locale": getattr(self, "response_locale", None),
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
                                         "memory_injected_ids": getattr(self, "_memory_injected_ids", []),

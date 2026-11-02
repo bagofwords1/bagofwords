@@ -4,8 +4,8 @@
     <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 mb-3">
       <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.clarify.clarifying') }}</span>
-      <span v-else class="text-gray-500 dark:text-gray-400">{{ $t('tools.clarify.clarifying') }}</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.clarify.clarifying') }}</span>
+      <span v-else class="text-gray-500 dark:text-gray-400">{{ t('tools.clarify.clarifying') }}</span>
     </div>
 
     <!-- Questions form (only when tool has finished and questions exist) -->
@@ -13,7 +13,7 @@
 
       <div v-for="(q, i) in questions" :key="i" class="space-y-1.5">
         <p class="text-sm font-medium text-gray-900 dark:text-white" dir="auto">{{ q.text }}</p>
-        <p v-if="isMulti(q)" class="text-chat-2 text-ink-muted" dir="auto">{{ $t('tools.clarify.multiHint') }}</p>
+        <p v-if="isMulti(q)" class="text-chat-2 text-ink-muted" dir="auto">{{ t('tools.clarify.multiHint') }}</p>
 
         <!-- Lettered options -->
         <div v-if="q.options?.length" class="space-y-1" :role="isMulti(q) ? 'group' : 'radiogroup'" :aria-label="q.text">
@@ -65,7 +65,7 @@
                 v-model="otherTexts[i]"
                 type="text"
                 dir="auto"
-                :placeholder="$t('tools.clarify.otherPlaceholder')"
+                :placeholder="t('tools.clarify.otherPlaceholder')"
                 class="w-full text-sm bg-transparent outline-none placeholder-sky-300 text-sky-700 dark:text-sky-300"
                 @keydown.enter.prevent="allAnswered && submit()"
               />
@@ -83,7 +83,7 @@
             v-model="freeTexts[i]"
             type="text"
             dir="auto"
-            :placeholder="$t('tools.clarify.placeholder')"
+            :placeholder="t('tools.clarify.placeholder')"
             class="w-full text-sm bg-transparent outline-none placeholder-gray-400 text-gray-900 dark:text-white"
             @keydown.enter.prevent="allAnswered && submit()"
           />
@@ -104,7 +104,7 @@
               : 'bg-gray-100 dark:bg-gray-800 text-ink-muted cursor-not-allowed',
           ]"
         >
-          {{ $t('tools.clarify.submit') }}
+          {{ t('tools.clarify.submit') }}
         </button>
         <button
           type="button"
@@ -112,9 +112,9 @@
           class="text-chat-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
           @click="skip"
         >
-          {{ $t('tools.clarify.skip') }}
+          {{ t('tools.clarify.skip') }}
         </button>
-        <span v-if="saveError" class="text-chat-2 text-red-500" role="alert">{{ $t('tools.clarify.saveFailed') }}</span>
+        <span v-if="saveError" class="text-chat-2 text-red-500" role="alert">{{ t('tools.clarify.saveFailed') }}</span>
       </div>
     </div>
   </div>
@@ -122,7 +122,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 
 interface ClarifyQuestion {
@@ -172,7 +172,7 @@ const props = withDefaults(
   { alreadyAnswered: false, systemCompletionId: null, readonly: false }
 )
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 // The "Other" choice the UI adds itself when a question sets allow_other.
 // Stored under this sentinel so it can never collide with a real option.

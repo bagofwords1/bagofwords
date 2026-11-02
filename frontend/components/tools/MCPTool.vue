@@ -47,20 +47,20 @@
         <button
           class="px-2 py-0.5 rounded font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(true, false)"
-        >{{ $t('tools.mcp.allowOnce') }}</button>
+        >{{ t('tools.mcp.allowOnce') }}</button>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
-          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(true, true)"
-        >{{ $t('tools.mcp.alwaysAllow') }}</button>
+          :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(true, true)"
+        >{{ t('tools.mcp.alwaysAllow') }}</button>
         <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(false, false)"
-        >{{ $t('tools.mcp.denyOnce') }}</button>
+        >{{ t('tools.mcp.denyOnce') }}</button>
         <button
           class="px-2 py-0.5 rounded text-ink-muted hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
-          :disabled="responding" :title="$t('tools.mcp.approvalHint')" @click="respond(false, true)"
-        >{{ $t('tools.mcp.alwaysDeny') }}</button>
+          :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(false, true)"
+        >{{ t('tools.mcp.alwaysDeny') }}</button>
       </div>
       <div
         v-if="respondError"
@@ -105,7 +105,7 @@
       data-testid="mcp-auto-policy"
     >
       <Icon :name="autoPolicy.approved ? 'heroicons-shield-check' : 'heroicons-shield-exclamation'" class="w-3 h-3 shrink-0" />
-      <span class="truncate">{{ autoPolicy.approved ? $t('tools.mcp.autoApproved') : $t('tools.mcp.autoDenied') }}<template v-if="autoPolicy.reason"> — {{ autoPolicy.reason }}</template></span>
+      <span class="truncate">{{ autoPolicy.approved ? t('tools.mcp.autoApproved') : t('tools.mcp.autoDenied') }}<template v-if="autoPolicy.reason"> — {{ autoPolicy.reason }}</template></span>
     </div>
 
     <!-- Expandable content -->
@@ -121,7 +121,7 @@
               :name="showCommand ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
               class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip"
             />
-            <span>{{ $t('tools.common.input') }}</span>
+            <span>{{ t('tools.common.input') }}</span>
           </div>
           <div v-if="showCommand" class="max-h-28 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800">
             <pre class="text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono">{{ command }}</pre>
@@ -138,7 +138,7 @@
               :name="showPreview ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
               class="w-2.5 h-2.5 me-1 text-ink-muted rtl-flip"
             />
-            <span>{{ $t('tools.common.output') }}</span>
+            <span>{{ t('tools.common.output') }}</span>
             <span v-if="previewMeta" class="ms-1.5 text-ink-muted">{{ previewMeta }}</span>
           </div>
           <div
@@ -155,7 +155,7 @@
             type="button"
             class="mt-0.5 text-chat-2 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300"
             @click="previewFull = !previewFull"
-          >{{ previewFull ? $t('tools.common.collapse') : $t('tools.common.expand') }}</button>
+          >{{ previewFull ? t('tools.common.collapse') : t('tools.common.expand') }}</button>
         </div>
 
         <!-- Error message (amber: a failed tool call is recoverable context) -->
@@ -173,7 +173,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import Spinner from '~/components/Spinner.vue'
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

@@ -624,6 +624,7 @@
 </template>
 
 <script setup lang="ts">
+import { useModelLabels } from '~/composables/useModelLabels'
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -1153,6 +1154,7 @@ const canUseTrainingMode = computed(() => isTrainingModeEnabled.value && canMana
 
 // Model selector state - fetch from backend
 const models = ref<any[]>([])
+const { rememberModels } = useModelLabels()
 const selectedModel = ref<string>('')
 // 'auto' is a sentinel: the Auto router picks the model (send model_id=null).
 // It's truthy so canSubmit passes; payloads map it back to null (see modelIdForPayload).
@@ -1197,8 +1199,9 @@ const popperLegacy = computed(() => ({ strategy: 'absolute' as const, placement:
 async function loadModels() {
     try {
         await loadRouting()
-        const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
+        const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true } })
         if (data.value && Array.isArray(data.value)) {
+            rememberModels(data.value)
             // Exclude image-generation models (e.g. gpt-image-2.5-sunburst) — not chat models.
             models.value = (data.value as any[]).filter(m => !m?.supports_image_generation)
             // Set the default model as selected, or fall back to first enabled model

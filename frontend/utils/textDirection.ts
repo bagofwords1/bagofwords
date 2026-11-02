@@ -133,6 +133,8 @@ export interface DirNode<R = unknown> {
 export const ROOT_MIN_WORDS = 4
 
 export interface ResolveOptions {
+  /** Saved response language: authoritative for the document and containers. */
+  direction?: TextDir | null
   /** A strong prior, e.g. the direction of the question a reply answers. The
    *  document keeps it unless its text is almost entirely the other script. */
   hint?: TextDir | null
@@ -152,36 +154,28 @@ export interface ResolveOptions {
  *    three words or fewer follow the surrounding direction ("Summary");
  *  - a list or table keeps the surrounding direction unless almost entirely
  *    the other script;
- *  - an item follows its list unless it is more than three words and almost
- *    entirely the other script; an item's own paragraph follows the item;
+ *  - every item follows its list; an item's own paragraph follows the item;
  *  - rows and cells follow their table; a signed number in an RTL table is
  *    laid out LTR (flagged so the caller keeps it right-aligned).
  * Returns the document direction.
  */
 export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opts: ResolveOptions = {}): TextDir | null {
   const total = docCounts.rtl + docCounts.ltr
-  const docDir = opts.hint
+  const docDir = opts.direction ?? (opts.hint
     ? decideDir(docCounts, { context: opts.hint, container: true })
     : total < ROOT_MIN_WORDS
       ? (opts.fallback ?? decideDir(docCounts))
-      : decideDir(docCounts)
+      : decideDir(docCounts))
 
   const visit = (node: DirNode<R>, parent: DirNode<R> | null, context: TextDir | null, tableDir: TextDir | null) => {
     let dir: TextDir | null
     node.signedNumber = false
     switch (node.kind) {
-      case 'item': {
-        // An item votes on its own text, not its nested lists' ("Always use
-        // the fiscal calendar" above a Hebrew sub-list is still English).
-        const own = { ...node.counts }
-        for (const child of node.children) {
-          if (child.kind !== 'list') continue
-          own.rtl -= child.counts.rtl
-          own.ltr -= child.counts.ltr
-        }
-        dir = decideDir(own, { context, container: true, minWords: SHORT_BLOCK_WORDS })
+      case 'item':
+        // One list has one marker edge. Names or quoted English in a Hebrew
+        // item must not move just that bullet to the opposite side.
+        dir = context
         break
-      }
       case 'row':
         dir = tableDir ?? context
         break
@@ -194,12 +188,12 @@ export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opt
         break
       case 'list':
       case 'table':
-        dir = decideDir(node.counts, { context, container: true, minWords: opts.settled ? SHORT_BLOCK_WORDS : undefined })
+        dir = opts.direction ? context : decideDir(node.counts, { context, container: true, minWords: opts.settled ? SHORT_BLOCK_WORDS : undefined })
         break
       default: // block, quote
         dir = parent?.kind === 'item' && node.kind === 'block'
           ? context
-          : decideDir(node.counts, { context })
+          : decideDir(node.counts, { context, container: !!opts.direction, minWords: SHORT_BLOCK_WORDS })
     }
     node.dir = dir
     const nextTable = node.kind === 'table' ? dir : tableDir
@@ -213,3 +207,16 @@ export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opt
 // inputs, where there is no content to derive a direction from (same set as
 // PromptBoxV2's MentionInput).
 export const RTL_LOCALES = new Set(['he', 'ar', 'fa', 'ur'])
+
+/** Resolve language direction independently of available translation catalogs. */
+export function localeTextDir(locale: string): TextDir {
+  try {
+    const language = new Intl.Locale(locale) as Intl.Locale & {
+      textInfo?: { direction: string }
+      getTextInfo?: () => { direction: string }
+    }
+    const direction = language.getTextInfo?.().direction || language.textInfo?.direction
+    if (direction === 'rtl' || direction === 'ltr') return direction
+  } catch { /* Fall back for older browsers and malformed locale tags. */ }
+  return /^(he|iw|ar|fa|ur|yi|ps|sd|ug|ckb|dv|syr|nqo)(-|$)/i.test(locale) ? 'rtl' : 'ltr'
+}

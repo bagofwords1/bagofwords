@@ -5,12 +5,12 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-circle-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.listConnections.listing') }}</span>
+          <span>{{ t('tools.listConnections.listing') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-circle-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ $t('tools.listConnections.listed') }}</span>
-          <span class="ms-1.5 text-chat-3 text-ink-muted">· {{ $t('tools.listConnections.count', { count: total }) }}</span>
+          <span class="align-middle">{{ t('tools.listConnections.listed') }}</span>
+          <span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.listConnections.count', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
@@ -36,11 +36,11 @@
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2 space-y-0.5">
                 <div v-if="item.schemas && item.schemas.length" class="text-chat-2">
-                  <span class="text-ink-muted">{{ $t('tools.listConnections.schemas') }}:</span>
+                  <span class="text-ink-muted">{{ t('tools.listConnections.schemas') }}:</span>
                   {{ item.schemas.join(', ') }}
                 </div>
                 <div v-if="item.linked_agents && item.linked_agents.length" class="text-chat-2">
-                  <span class="text-ink-muted">{{ $t('tools.listConnections.agents') }}:</span>
+                  <span class="text-ink-muted">{{ t('tools.listConnections.agents') }}:</span>
                   {{ item.linked_agents.join(', ') }}
                 </div>
                 <div class="text-chat-3 text-ink-muted font-mono">{{ item.id }}</div>
@@ -53,15 +53,15 @@
 
     <!-- Empty state -->
     <div v-if="status !== 'running' && !connections.length" class="text-chat-2 text-ink-muted ms-1">
-      {{ $t('tools.listConnections.empty') }}
+      {{ t('tools.listConnections.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
-const { t } = useI18n()
+import { useResponseI18n } from '~/composables/useResponseI18n'
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string

@@ -8,13 +8,13 @@
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
       <Icon v-else name="heroicons-document-text" class="w-3 h-3 me-1.5 text-ink-muted" />
 
-      <span v-if="status === 'running'" class="tool-shimmer">{{ $t('tools.createDoc.writing') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.created') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.failed') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createDoc.label') }}</span>
+      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.createDoc.writing') }}</span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.created') }}</span>
+      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.failed') }}</span>
+      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.label') }}</span>
 
       <span v-if="vizCount > 0" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-        {{ $t('tools.createDoc.chartsCount', { n: vizCount }) }}
+        {{ t('tools.createDoc.chartsCount', { n: vizCount }) }}
       </span>
       <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
@@ -43,10 +43,10 @@
         </div>
         <div class="flex-1 min-w-0">
           <div class="text-chat-2 font-medium text-gray-700 dark:text-gray-300 truncate">
-            {{ docTitle || $t('tools.createDoc.untitled') }}
+            {{ docTitle || t('tools.createDoc.untitled') }}
           </div>
           <div class="text-chat-3 text-ink-muted">
-            {{ status === 'running' ? $t('tools.createDoc.writing') : $t('tools.createDoc.openDocument') }}
+            {{ status === 'running' ? t('tools.createDoc.writing') : t('tools.createDoc.openDocument') }}
           </div>
         </div>
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-gray-600 dark:group-hover:text-gray-400 flex-shrink-0" />
@@ -56,6 +56,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
