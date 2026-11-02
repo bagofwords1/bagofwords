@@ -186,6 +186,18 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
 _QUOTED_LITERAL = re.compile(r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"")
 
 
+def _redact_quoted_cells(message: str) -> str:
+    """Quoted literals become '<hidden>'. When a quote is left over (a repr
+    cut short, a library that quotes raw text with quotes or line breaks in
+    it), the message is cut at its first quote: losing part of an error is
+    better than showing a cell."""
+    redacted = _QUOTED_LITERAL.sub("'<hidden>'", message)
+    if re.search(r"['\"]", redacted.replace("'<hidden>'", "")):
+        cut = re.search(r"['\"]", message).start()
+        return message[:cut].rstrip() + " <value hidden>"
+    return redacted
+
+
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
     """The error text a retry sees for a failed execution: the message, then
     the tail of what the code printed before it raised (when there is any).
@@ -198,7 +210,7 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     text: a missing column or a SQL error names structure, which a fix needs."""
     if not allow_llm_see_data:
         if isinstance(exc, (ValueError, TypeError)):
-            return _QUOTED_LITERAL.sub("'<hidden>'", message)
+            return _redact_quoted_cells(message)
         return message
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:

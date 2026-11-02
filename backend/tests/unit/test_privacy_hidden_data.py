@@ -226,3 +226,28 @@ def test_a_real_conversion_error_hides_cells_with_quotes_and_escapes(cell):
     except ValueError as exc:
         hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
     assert SSN not in hidden and "<hidden>" in hidden
+
+
+def _conversion_errors():
+    import pandas as pd
+
+    yield lambda: int(SSN + "x" * 210)                 # repr cut before its closing quote
+    yield lambda: pd.to_numeric(["x\"" + SSN])         # raw quote inside the quoted cell
+    yield lambda: pd.to_numeric(["x\n" + SSN])         # raw line break inside it
+
+
+@pytest.mark.parametrize("raise_it", list(_conversion_errors()), ids=["int-truncated", "pandas-quote", "pandas-newline"])
+def test_library_conversion_errors_never_show_the_cell(raise_it):
+    try:
+        raise_it()
+    except (ValueError, TypeError) as exc:
+        hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
+    assert SSN not in hidden and "hidden" in hidden
+
+
+def test_type_names_in_a_type_error_survive_redaction():
+    try:
+        1 + "a"
+    except TypeError as exc:
+        text = format_execution_failure(exc, f"Execution error: {exc}", False)
+    assert "unsupported operand type(s)" in text
