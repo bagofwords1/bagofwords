@@ -57,11 +57,15 @@ let renewFailures = 0;
 // Bumped by a sign-out (and unmount). A sign-in still in flight from before
 // it is dropped when its answer comes: the host signed the user out meanwhile.
 let generation = 0;
+// Why the frame cannot start although the host may be told (bootstrap
+// answered, so its origins are known): said once the host's init arrives.
+let startupFailure: { reason: EmbedUnavailableReason, message: string } | null = null;
 
 const api = (path: string) => `${config.public.baseURL}/embed/${encodeURIComponent(props.hostApplication)}${path}`;
 
 const host = useEmbedHost(() => allowedOrigins, {
     onInit: (init) => {
+        if (startupFailure) { host.post('bow:unavailable', startupFailure); return; }
         emit('context', init.context);
         if (init.locale) applyLocale(init.locale);
         signIn();
@@ -93,12 +97,18 @@ async function exchange(body: Record<string, string>) {
     return payload;
 }
 
-// Revokes a session nobody will use (its sign-in was overtaken by a logout or
-// an unmount), so it does not stay valid server-side until it expires.
-function revoke(token: string | undefined) {
-    if (!token) return;
-    fetch(api('/session'), { method: 'DELETE', credentials: 'omit', headers: { Authorization: `Bearer ${token}` } })
-        .catch(() => { /* it expires server-side */ });
+// Revokes a session nobody will use (signed out, or its sign-in was overtaken
+// by a logout or an unmount), so it does not stay valid server-side until it
+// expires. keepalive: the host may remove this frame as soon as it hears
+// signed_out, and the request must outlive it. A network error or a 5xx is
+// tried once more; a 401 means the session is already gone.
+function revoke(token: string | undefined): Promise<void> {
+    if (!token) return Promise.resolve();
+    const send = () => fetch(api('/session'), {
+        method: 'DELETE', credentials: 'omit', keepalive: true, headers: { Authorization: `Bearer ${token}` },
+    }).then((res) => { if (res.status >= 500) throw new Error(`revoke ${res.status}`); });
+    return send().catch(() => new Promise<void>((resolve) => setTimeout(resolve, 1000))
+        .then(send).catch(() => { /* it expires server-side */ }));
 }
 
 function schedule(next: () => void, delay: number) {
@@ -125,7 +135,7 @@ async function accept(session: any) {
         status.value = 'signing_in';
         message.value = t('embed.gate.signingIn');
         await nextTick();
-        if (gen !== generation) { revoke(next.token); return; }
+        if (gen !== generation) { await revoke(next.token); return; }
     }
     credential.value = next;
     status.value = 'ready';
@@ -195,7 +205,7 @@ function signIn(): Promise<void> {
             const value = await host.requestCredential(kind);
             if (gen !== generation) return;
             const session = await exchange({ [kind]: value });
-            if (gen !== generation) { revoke(session?.token); return; }  // signed out meanwhile
+            if (gen !== generation) { await revoke(session?.token); return; }  // signed out meanwhile
             await accept(session);
         } catch (e: any) {
             if (gen !== generation) return;
@@ -251,14 +261,23 @@ async function signInWithPopup() {
     window.addEventListener('message', onMessage);
 }
 
+// The host hears signed_out only once this frame has done its part: the
+// session revoked, and a sign-in still in flight settled (its late session is
+// revoked in signIn). At most 5 s, so a stuck request cannot hold the host.
 async function signOut() {
-    generation++;
+    const gen = ++generation;
+    const pending = inflight;
     inflight = null;  // a sign-in from before is dropped; the next one starts afresh
     if (renewTimer) clearTimeout(renewTimer);
     const had = credential.value?.token;
     credential.value = null;
-    fail('signed_out', t('embed.gate.signedOut'));
-    revoke(had);
+    status.value = 'signed_out';
+    message.value = t('embed.gate.signedOut');
+    toldUnavailable = null;
+    const cleanup = Promise.all([revoke(had), pending?.catch(() => {})]);
+    await Promise.race([cleanup, new Promise((resolve) => setTimeout(resolve, 5000))]);
+    if (gen !== generation) return;  // signed out again meanwhile: that one tells the host
+    host.post('bow:auth', { status: 'signed_out', error: message.value });
 }
 
 onMounted(async () => {
@@ -272,7 +291,14 @@ onMounted(async () => {
         const boot = await res.json();
         allowedOrigins = boot.allowed_origins || [];
         mode.value = boot.identity_mode;
-        if (!boot.enabled) { fail('unavailable', t("errors['host_app.disabled']")); return; }
+        if (!boot.enabled) {
+            // Its origins are known: tell the host why, after its init.
+            status.value = 'unavailable';
+            message.value = t("errors['host_app.disabled']");
+            startupFailure = { reason: 'not_allowed', message: message.value };
+            host.start();
+            return;
+        }
     } catch (e: any) {
         fail('unavailable', getErrorMessage(e));
         return;
