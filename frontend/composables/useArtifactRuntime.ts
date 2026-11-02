@@ -9,6 +9,10 @@ type RuntimeContext = {
   activity?: { reportId?: string | null, version?: number | null } | null,
   /** BOW's own preview: every activity event, for the preview's evidence. */
   onActivity?: (event: ActivityEvent) => void,
+  /** BOW refused a request for a dead session (HTTP 401 or
+   *  embed.session_invalid): ``authorization`` is the one the request sent,
+   *  so a late refusal of a token renewed since can be told apart. */
+  onSessionEnded?: (authorization: string) => void,
 }
 export type ActivityPayload = { request?: any, response?: any, stream?: any[] }
 export type ActivityEvent = { kind: string, op?: string, status?: string, error_code?: string, duration_ms?: number, detail?: Record<string, any>,
@@ -116,6 +120,11 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
   const sessions = new Map<Window, { nonce: string, port: MessagePort, controllers: Set<AbortController>, cleanups: (()=>void)[] }>()
   const dispose = () => { for (const value of sessions.values()) { value.cleanups.forEach(fn=>fn()); value.port.close(); value.controllers.forEach(c => c.abort()) } sessions.clear() }
   const headers = () => ({ ...(token.value ? { Authorization: token.value } : {}) })
+  // A server response (never the app's own activity telemetry) refused this
+  // session: tell the page, with the authorization that request sent.
+  const sessionEnded = (status: number | undefined, code: string | undefined, sent: string) => {
+    if (status === 401 || code === 'embed.session_invalid') getContext().onSessionEnded?.(sent)
+  }
   const activity = activityLog(getContext, headers)
   const listener = (event: MessageEvent) => {
     const context = getContext()
@@ -154,6 +163,7 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
       if(active.size >= 12 || active.has(message.id)) { send({error:{code:'RATE_LIMITED',message:'Too many requests'}}); return }
       const controller = new AbortController(); active.set(message.id,controller); controllers.add(controller)
       const started = performance.now(), opName = operationName(message.method, message.args || {})
+      const sentAuthorization = token.value || ''
       const streaming = message.method === 'ai' || message.method === 'conversationSend'
       const opDetail = operationDetail(message.method, message.args || {})
       // For Inspect and the agent: what this call carried (private to this editor, bounded, 24 h).
@@ -218,7 +228,7 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
           if(controller.signal.aborted) {reject(new DOMException('Upload cancelled','AbortError'));return}
           xhr.send(body)
         }) : await fetch(base+path,{method:verb,headers:{...headers(),...(typeof body==='string'?{'Content-Type':'application/json'}:{})},body,signal:controller.signal,credentials:'omit'})
-        if(!response.ok) { const detail=await response.json().catch(()=>({})); payload.response = { http_status: response.status, body: detail }; throw Object.assign(new Error(getErrorMessage({data:detail})),{code:(detail.error_code || (response.status === 422 ? 'VALIDATION' : 'UNAVAILABLE')).replace('ARTIFACT_RESOURCE_','')}) }
+        if(!response.ok) { const detail=await response.json().catch(()=>({})); payload.response = { http_status: response.status, body: detail }; throw Object.assign(new Error(getErrorMessage({data:detail})),{httpStatus:response.status,code:(detail.error_code || (response.status === 422 ? 'VALIDATION' : 'UNAVAILABLE')).replace('ARTIFACT_RESOURCE_','')}) }
         if(method === 'ai' || method === 'conversationSend') {
           const reader=response.body!.getReader(), decoder=new TextDecoder();let buffer='',completed=false
           try { while(true) { const {value,done}=await reader.read(); if(done)break;buffer+=decoder.decode(value,{stream:true});if(buffer.length>1048576)throw new Error('Stream limit exceeded');let cut;
@@ -232,6 +242,7 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
       } catch(error:any) {
         const code = error.name==='AbortError'?'ABORTED':error.code || 'UNAVAILABLE'
         send({error:{code,message:error.message || 'Request failed'}})
+        sessionEnded(error.httpStatus, error.code, sentAuthorization)
         if (!payload.response) payload.response = { error: { code, message: String(error.message || '').slice(0, 300) } }
         activity.log({kind:streaming?'stream':'request',op:opName,status:code==='ABORTED'?'aborted':code==='INTERRUPTED'?'interrupted':'error',
           error_code:code,duration_ms:Math.round(performance.now()-started),detail:{...opDetail,message:String(error.message || '').slice(0,300)},
@@ -239,7 +250,8 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
       }
       finally { active.delete(message.id);controllers.delete(controller) }
     }
-    if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>r.ok?r.json():null).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
+    const contextAuthorization = token.value || ''
+    if (!context.readOnly) fetch(base+'/context',{headers:headers(),credentials:'omit'}).then(r=>{if(!r.ok)sessionEnded(r.status,undefined,contextAuthorization);return r.ok?r.json():null}).then(value=>{if(value)channel.port1.postMessage({context:value})}).catch(()=>{})
     channel.port1.start();source.postMessage({type:'BOW_RUNTIME_PORT',nonce:match[1]},'*',[channel.port2])
     if (!context.readOnly && context.recordViews !== false) {
       let initialized = false
@@ -250,8 +262,9 @@ export function useArtifactRuntime(getContext: () => RuntimeContext) {
         countedViews.add(context.artifactId!)
         try {
           const surface = /^\/(r|d)\//.test(window.location.pathname) ? 'standalone' : 'embedded'
+          const viewAuthorization = token.value || ''
           const response = await fetch(base + '/view-token?surface=' + surface, {headers:headers(),credentials:'omit'})
-          if (!response.ok) return
+          if (!response.ok) { sessionEnded(response.status, undefined, viewAuthorization); return }
           const view = await response.json()
           await fetch(base + '/views', {method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify(view),credentials:'omit'})
         } catch { /* Analytics never blocks the artifact. */ }

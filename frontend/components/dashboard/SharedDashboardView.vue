@@ -272,6 +272,9 @@ const embedCredential = useEmbedCredential();
 // Inside a host application: the host's chrome surrounds the artifact, so no
 // bars of our own; the signed-in user is the host's.
 const inHostApplication = computed(() => !!embedCredential.value);
+// The Authorization this page sends now: a refusal of an older one (a request
+// sent before a renewal) does not end the current session.
+const apiAuthorization = useApiAuthorization();
 
 // `reload`: the page (keyed) mounts this view afresh -- after a publish, a
 // roll back or a transfer changed what it shows or what the reader may do.
@@ -606,7 +609,9 @@ async function handleRun() {
     runError.value = null;
     try {
         if (!api.run) return;
+        const sent = apiAuthorization.value;
         const { data, error: fetchError } = await useMyFetch(api.run(artifact.value?.id), { method: 'POST' });
+        if (fetchError.value && embedSessionEndedOn(fetchError.value, sent)) return;
         if (fetchError.value) throw fetchError.value;
         const run = (data.value || {}) as any;
         dataSourceErrors.value = run.data_source_errors || [];
@@ -1006,11 +1011,18 @@ const dashboardMeta = ref<any>(null);
 // Inside a host application, a later request of the view (content, queries)
 // refused for a dead embed session: the session ended, not the load -- the
 // gate ends it as an expired one (the host is asked to sign the user in).
-function embedSessionEndedOn(error: any): boolean {
+function embedSessionEndedOn(error: any, sent: string = apiAuthorization.value): boolean {
     if (!inHostApplication.value || props.source !== 'dashboard' || !error) return false;
     if (!embedSessionEnded(error?.statusCode || error?.status, error?.data?.error_code)) return false;
-    emit('unavailable', 'session_invalid');
+    if (sent === apiAuthorization.value) emit('unavailable', 'session_invalid');
     return true;
+}
+
+// The app's own calls (bow.*, through the runtime broker) refused for a dead
+// session: the same end, for the authorization they sent.
+function embedSessionEndedFor(sent: string) {
+    if (!inHostApplication.value || props.source !== 'dashboard') return;
+    if (sent === apiAuthorization.value) emit('unavailable', 'session_invalid');
 }
 
 // A dashboard's published version (or its draft): one artifact, whose
@@ -1112,7 +1124,9 @@ async function loadVisualizationData(artifactId?: string) {
             queries = bundled;
             stepResults = bundled.map((q) => ({ data: { value: q.default_step ?? null } }));
         } else {
-            const { data: queriesRes } = await useMyFetch(api.queries(artifactId));
+            const sent = apiAuthorization.value;
+            const { data: queriesRes, error: queriesError } = await useMyFetch(api.queries(artifactId));
+            if (embedSessionEndedOn(queriesError.value, sent)) return;
             queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
             // Fetch all steps in parallel — awaiting each one serially made the
@@ -1278,9 +1292,11 @@ function schedulePendingPoll() {
 async function pollPending() {
     pendingTimer = null;
     if (unmounted) return;
+    const sent = apiAuthorization.value;
     const results = await Promise.all(pendingQueries.value.map((q) =>
         useMyFetch(api.step(q.id)).catch(() => null)));
     if (unmounted) return;
+    if (results.some((r: any) => embedSessionEndedOn(r?.error?.value, sent))) return;
     const landed = results.some((r: any) => !r || r.error?.value || !(r.data?.value as any)?.pending);
     if (!landed) { schedulePendingPoll(); return; }
     await loadVisualizationData(artifact.value?.id);
@@ -1299,7 +1315,7 @@ const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
 // The draft page is an editor at work: what happens in the app is logged for
 // their agent (never on published pages or inside host applications).
 useArtifactRuntime(() => ({frames: [artifactIframeRef.value], artifactId: artifact.value?.artifact_id,
-    recordViews: props.source !== 'draft',
+    recordViews: props.source !== 'draft', onSessionEnded: embedSessionEndedFor,
     activity: props.source === 'draft' && !props.hostContext ? { version: artifact.value?.version ?? null } : null}));
 // The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
 // later data change has to be posted into it. A message posted before the
@@ -1387,7 +1403,9 @@ async function resolveParamOptions(
             if (!rows && !fetchedAll) {
                 fetchedAll = true;
                 try {
-                    const { data } = await useMyFetch(api.queries());
+                    const sent = apiAuthorization.value;
+                    const { data, error: allError } = await useMyFetch(api.queries());
+                    if (embedSessionEndedOn(allError.value, sent)) return out;
                     const all = Array.isArray(data.value) ? (data.value as any[]) : [];
                     const missing = all.filter(q => !rowsByQueryId.has(String(q.id)));
                     const steps = await Promise.all(
@@ -1573,7 +1591,9 @@ async function runParamQueries(
                     body.params[spec.name] = paramValues.value[spec.name];
                 }
             }
+            const sent = apiAuthorization.value;
             const { data: runRes, error } = await useMyFetch(api.paramRun(qid), { method: 'POST', body });
+            if (embedSessionEndedOn(error.value, sent)) return;
             const res: any = runRes.value;
             if (error.value || !res || res.status !== 'success') {
                 const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
@@ -1772,7 +1792,9 @@ async function loadArtifactFiles() {
     if (!Array.isArray(files) || files.length === 0) { filesData.value = []; return; }
     filesData.value = await Promise.all(files.map(async (f: any) => {
         try {
-            const { data } = await useMyFetch(api.embedToken(f.id));
+            const sent = apiAuthorization.value;
+            const { data, error } = await useMyFetch(api.embedToken(f.id));
+            embedSessionEndedOn(error.value, sent);
             return { id: f.id, content_type: f.content_type, filename: f.filename, url: (data.value as any)?.url || '' };
         } catch (e) {
             return { id: f.id, content_type: f.content_type, filename: f.filename, url: '' };

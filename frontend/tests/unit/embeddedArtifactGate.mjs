@@ -106,7 +106,9 @@ function mountGate({ credentials, sessions, boot, deletes = [], setLocale = asyn
     logout: () => hostHandlers.onLogout(),
     // SSO: the popup posts its one-time code back (bound to the state in its URL).
     ssoCode: (code) => sso.onMessage({ origin: 'https://bow.test', source: popup,
-      data: { type: 'bow:sso-code', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), code } }) }
+      data: { type: 'bow:sso-code', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), code } }),
+    ssoError: (error_code, message) => sso.onMessage({ origin: 'https://bow.test', source: popup,
+      data: { type: 'bow:sso-error', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), error_code, message } }) }
 }
 
 // Let the gate's awaits (credential, exchange, json) run between timer ticks.
@@ -545,3 +547,60 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: the gate applies the host language before it signs in, so the artifact frame is built in it')
+
+// ── BOW ended the session (e.g. the app was disabled) ─────────────────────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // Several requests report it at once: the host hears it once, and the
+  // renewal scheduled for later never runs.
+  const gate = await readyGate()
+  const before = gate.posted.length
+  gate.exposed().artifactUnavailable('session_invalid')
+  gate.exposed().artifactUnavailable('session_invalid')
+  await settle()
+  assert.deepEqual(gate.posted.slice(before).map((p) => [p.type, p.status]), [['bow:auth', 'failed']])
+  assert.equal(gate.credential.value, null)
+  mock.timers.tick(60 * MINUTE)
+  await settle()
+  assert.equal(gate.requested.length, 1, 'no renewal after the session ended')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A renewal in flight when BOW refuses the session cannot bring it back.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [{ body: SESSION }, pending.promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  mock.timers.tick(55 * MINUTE)  // the renewal starts
+  await settle()
+  gate.exposed().artifactUnavailable('session_invalid')
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_late' } })
+  await settle()
+  assert.equal(gate.bindings.status.value, 'failed')
+  assert.equal(gate.credential.value, null, 'the late renewal did not restore the session')
+  assert.ok(gate.deleted.includes('Bearer bow_embed_late'), 'its session is revoked')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // SSO: the popup's own refusal (a disabled app) reaches the frame, which
+  // stops waiting and offers no retry.
+  const gate = mountGate({ credentials: [], sessions: [], boot: { identity_mode: 'sso' } })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  await gate.bindings.signInWithPopup()
+  assert.equal(gate.bindings.status.value, 'signing_in')
+  gate.ssoError('host_app.disabled', "This application's access to BOW is turned off.")
+  await settle()
+  assert.equal(gate.bindings.status.value, 'failed')
+  assert.equal(gate.bindings.retryable.value, false)
+  assert.equal(gate.bindings.message.value, "This application's access to BOW is turned off.")
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a session BOW refused ends once, drops a renewal in flight, and an SSO refusal stops the wait')

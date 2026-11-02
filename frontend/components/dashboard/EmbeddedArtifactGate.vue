@@ -26,7 +26,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue';
-import { runtimeIdentity, embedUnavailableMessage, renewalDelayMs, renewalFailure, sessionLifetimeMs, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
+import { runtimeIdentity, embedUnavailableMessage, renewalDelayMs, renewalFailure, sessionLifetimeMs, PERMANENT_ERROR_CODES, type EmbedLoadFailure, type EmbedUnavailableReason } from '~/utils/embedSession';
 
 const props = defineProps<{ hostApplication: string }>();
 const emit = defineEmits<{ (e: 'context', value: Record<string, any> | null): void }>();
@@ -186,13 +186,25 @@ function expire() {
 // the host (bow:unavailable, the SDK's `unavailable` event); the session stays,
 // so its renewal shows the artifact once it can be opened.
 function artifactUnavailable(failure: EmbedLoadFailure) {
-    if (failure === 'session_invalid') { expire(); return; }
+    if (failure === 'session_invalid') { sessionEndedByServer(); return; }
     status.value = 'unavailable';
     unavailableReason.value = failure;
     message.value = embedUnavailableMessage(failure, t);
     if (toldUnavailable === failure) return;  // the host already knows (a renewal's re-check)
     toldUnavailable = failure;
     host.post('bow:unavailable', { reason: failure, message: message.value });
+}
+
+// BOW refused the session the page is using (the app was disabled, everyone was
+// signed out, it expired): it ends once, however many requests report it. A
+// renewal scheduled or in flight is dropped, so it cannot bring it back; the
+// host is asked to sign the user in again.
+function sessionEndedByServer() {
+    if (!credential.value) return;  // already ended
+    generation++;
+    inflight = null;
+    if (renewTimer) { clearTimeout(renewTimer); renewTimer = null; }
+    expire();
 }
 
 // The view opened the artifact. A host told it was unavailable hears it is shown now.
@@ -266,7 +278,17 @@ async function signInWithPopup() {
     const onMessage = async (event: MessageEvent) => {
         if (event.origin !== window.location.origin || event.source !== popup) return;
         const data = event.data;
-        if (data?.type !== 'bow:sso-code' || data.state !== state) return;
+        if (data?.state !== state) return;
+        if (data?.type === 'bow:sso-error') {
+            // BOW refused the sign-in (a disabled app, for one): the popup shows
+            // why, and the frame stops waiting.
+            window.removeEventListener('message', onMessage);
+            if (gen !== generation) return;
+            retryable.value = !PERMANENT_ERROR_CODES.includes(String(data.error_code));
+            fail('failed', typeof data.message === 'string' && data.message ? data.message : t('embed.gate.failed'));
+            return;
+        }
+        if (data?.type !== 'bow:sso-code') return;
         window.removeEventListener('message', onMessage);
         try { popup.close(); } catch { /* already closed */ }
         await track((async () => {
@@ -276,6 +298,8 @@ async function signInWithPopup() {
                 await accept(session);
             } catch (e: any) {
                 if (gen !== generation) return;
+                // A disabled app or an unknown person: no retry offered.
+                retryable.value = !PERMANENT_ERROR_CODES.includes(String(e?.data?.error_code));
                 fail('failed', getErrorMessage(e));
             }
         })());
