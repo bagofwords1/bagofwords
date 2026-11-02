@@ -91,5 +91,5 @@ const WIDTH_OPTIONS: ChatWidth[] = ['standard', 'wide']
 
 /* Parallel to CHAT_TEXT_SCALES — the scales are numbers, the catalog needs
    stable key names, and `scales.0.875` is not a usable i18n path. */
-const SCALE_LABELS = ['default', 'large', 'larger', 'largest'] as const
+const SCALE_LABELS = ['small', 'default', 'large', 'larger', 'largest'] as const
 </script>

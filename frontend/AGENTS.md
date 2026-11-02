@@ -96,18 +96,23 @@ composer, the shared-link view and the tool cards inside a transcript all
 take `max-w-chat` (`--bow-measure-chat`). One token, because the box you
 type into must be the same width as the text you read back — they had
 drifted to 672px and ~53vw, so the composer resized the moment you pressed
-enter. The measure is `48 x` the chat font rather than a fixed width, so
-line length stays ~96 characters at every reader step; at the default it
-computes to 672px.
+enter. The measure is a multiple of the chat font, clamped to the screen
+(`48em … 62vw … 60em`), so it scales with the reader's text size and grows
+smoothly with the screen: 720px on laptops, ~890px at 1440, capped at
+900px at the 15px default. Data blocks (tables, chart/grid widget previews,
+code) break out of it to `--bow-measure-data` (`48em … 78vw … 80em`, capped
+at 1200px), centred on the prose column — see the report page's breakout
+rules. Both are maximums, so a narrow pane still fits.
 
 Chat copy uses a three-step ramp, all derived from one variable so that a
 single message stops mixing unrelated systems: `text-chat` for body
-(the `sm` step, 14px, times the reader's preference), `text-chat-2` for
-code, collapsed reasoning and tool-card labels (13px), `text-chat-3` for
-badges, ids and durations (11px). 14px is measured against comparable
-agent interfaces, which sit at 13-14px — general chat products run higher
-but are the wrong comparison for a transcript carrying tables and query
-results. Never pin a px font size inside a conversation: a pinned 13px
+(15px by default with a 1.6 line height, times the reader's preference;
+steps 14/15/16/18/20px), `text-chat-2` for code, collapsed reasoning and
+tool-card labels (~14px), `text-chat-3` for badges, ids and durations
+(~12px). 15px sits with comparable chat products (15-16px); 14px stays as
+the first reader step for anyone who prefers the denser transcript. Data
+stays dense on its own scale (table cells are `text-xs`). Never pin a px
+font size inside a conversation: a pinned 13px
 stays put while body copy scales, which is the defect the ramp exists to
 prevent. Outside a conversation the fixed steps still apply.
 

@@ -6589,7 +6589,8 @@ onMounted(async () => {
  * Chat reading size.
  *
  * One size at every viewport, scaled by the reader's own preference
- * (`--bow-chat-font-size`, default 16px/24px — see assets/css/tokens.css).
+ * (`--bow-chat-font-size`, default 15px with a 1.6 line height — see
+ * assets/css/tokens.css).
  * What this replaces was a `max-width: 767px` block that raised the
  * transcript to 15px on phones only, leaving the desktop transcript on the
  * 14px it inherited from the row's `text-sm` — so the product read *smaller*
@@ -6598,7 +6599,7 @@ onMounted(async () => {
  *
  * The secondary tiers use --bow-chat-font-size-2 rather than a pinned px
  * value, so a reader who scales up gets larger code and reasoning text too.
- * At the default it is 13px, which is what they were pinned to.
+ * At the 15px default it is about 14px.
  */
 .chat-messages:not(.compact-messages) .block-content,
 .chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content),
@@ -6623,6 +6624,44 @@ onMounted(async () => {
 .chat-messages:not(.compact-messages) .thinking-content :deep(.markdown-content),
 .chat-messages:not(.compact-messages) .thinking-content :deep(p) {
 	font-size: var(--bow-chat-font-size-2) !important;
+}
+
+/*
+ * Data blocks break out of the prose column.
+ *
+ * Prose is capped at --bow-measure-chat (long lines stop being readable);
+ * tables, charts/data grids (the tool card's widget preview) and code only
+ * get better with room, so they widen to --bow-measure-data, centred on the
+ * prose column. Both measures grow with the screen (assets/css/tokens.css).
+ *
+ * The breakout is bounded by the scroll pane (`100cqi`, the pane is the
+ * size container), so in the split view or on a phone it never overflows:
+ * when the pane is narrow the breakout width falls back to the column's
+ * own width and the negative margins go to zero. Excel's compact transcript
+ * keeps its fixed layout.
+ */
+.chat-messages:not(.compact-messages) {
+	container-type: inline-size;
+}
+.chat-messages:not(.compact-messages) :deep(.widget-container:not(.widget-container--expanded)),
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node-wrapper),
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.markdown-content pre) {
+	--bow-breakout: min(var(--bow-measure-data), calc(100cqi - 4rem));
+	width: max(100%, var(--bow-breakout));
+	max-width: none;
+	margin-inline: min(0px, calc((100% - var(--bow-breakout)) / 2));
+}
+/* A table keeps its natural width (at least the prose column's, so a small
+   table lines up with the text) and is centred in the breakout; `safe`
+   keeps a table wider than the pane scrollable from its first column. */
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node-wrapper) {
+	display: flex;
+	justify-content: safe center;
+}
+.chat-messages:not(.compact-messages) .markdown-wrapper :deep(.table-node) {
+	width: auto;
+	min-width: min(100%, var(--bow-measure-chat));
+	table-layout: auto;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
