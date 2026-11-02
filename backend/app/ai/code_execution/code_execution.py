@@ -183,7 +183,7 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
 
 # A quoted literal in an error message: conversion errors quote the cell
 # ("could not convert string to float: 'Jane Doe'").
-_QUOTED_LITERAL = re.compile(r"'[^'\n]*'|\"[^\"\n]*\"")
+_QUOTED_LITERAL = re.compile(r"'(?:\\.|[^'\\\n])*'|\"(?:\\.|[^\"\\\n])*\"")
 
 
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:

@@ -217,3 +217,12 @@ def test_write_csv_emits_the_model_fields_in_its_observation():
     observation = source[source.index("        observation = {"):source.index("        if current_step_id:")]
     assert '"data_preview": model_preview' in observation and '"stats": model_stats' in observation
     assert "data_preview\": data_preview" not in observation
+
+
+@pytest.mark.parametrize("cell", [SSN + '"', "O'Brien " + SSN, "a\\b " + SSN, 'both \' and " ' + SSN])
+def test_a_real_conversion_error_hides_cells_with_quotes_and_escapes(cell):
+    try:
+        float(cell)
+    except ValueError as exc:
+        hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
+    assert SSN not in hidden and "<hidden>" in hidden
