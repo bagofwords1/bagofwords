@@ -13,7 +13,7 @@ Creates (as admin@example.com, through the API + the app's own models):
     open with English metrics, a nested list and a quote
   - a create_data tool card whose rows are Hebrew (grid cell alignment)
   - a create_note tool card with a Hebrew note (markdown outside the chat
-    containers)
+    containers), and a create_instruction card holding the Hebrew instruction
   - turn 2: a Hebrew question that opens with an English term
   - turn 3: an English question with an English answer (no regressions)
   - a page artifact (dashboard) written in Hebrew with no `dir` of its own
@@ -140,7 +140,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>"""
 
 
-async def seed_turns(report_id):
+async def seed_turns(report_id, instruction_id=None):
     import main  # noqa: F401
     from app.dependencies import async_session_maker
     from app.models.agent_execution import AgentExecution
@@ -209,6 +209,8 @@ async def seed_turns(report_id):
              {"title": "הכנסות לפי אזור", "data": GRID, "view": {"type": "table"}}),
             ("create_note", {"title": "סיכום פגישת מכירות", "content": NOTE},
              {"title": "סיכום פגישת מכירות"}),
+            ("create_instruction", {"text": INSTRUCTION_TEXT, "category": "general", "load_mode": "always"},
+             {"success": True, "instruction_id": instruction_id, "text": INSTRUCTION_TEXT}),
         ])
         await turn(1, Q2, A2)
         await turn(2, Q3, A3)
@@ -257,7 +259,7 @@ def main():
         "report_id": report["id"], "title": "הכנסות לפי אזור", "mode": "page",
         "content": {"code": ARTIFACT_CODE, "visualization_ids": []}})
     r.raise_for_status()
-    asyncio.run(seed_turns(report["id"]))
+    asyncio.run(seed_turns(report["id"], instruction_id))
     print(json.dumps({"report_id": report["id"], "artifact_id": r.json()["id"], "instruction_id": instruction_id}))
 
 

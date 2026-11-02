@@ -70,6 +70,15 @@
   direction: inherit;
 }
 
+/* 2b. Labels (titles, names, one-line rows) whose text runs in its own
+ *     direction (`dir`) but must stay aligned with the surrounding UI: a
+ *     Hebrew instruction title in an English tree row sits next to its icon,
+ *     not at the far edge. Set by `v-text-dir` (plugins/text-dir.ts) and by
+ *     render functions. Physical sides on purpose — `text-align: match-parent`
+ *     would say this, but Chromium aligns by the element's own direction. */
+html .bidi-label { text-align: left; }
+html[dir="rtl"] .bidi-label { text-align: right; }
+
 /* 3. Flip chevrons / arrows that belong to directional affordances. Apply by
  *    adding `rtl-flip` to the icon element. Keyed on the element's own
  *    direction, not <html dir> — see rule 6 for why. */

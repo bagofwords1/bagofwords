@@ -28,7 +28,7 @@
                             <div class="flex-1">
                                 <!-- Collapsed view with highlighted snippet -->
                                 <div v-if="expandedInstructionId !== inst.id">
-                                    <p v-text-dir class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
+                                    <p v-text-dir.align class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
                                     <div class="mt-1 flex items-center gap-2">
                                         <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
                                               :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">

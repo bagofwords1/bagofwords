@@ -53,7 +53,7 @@
     </div>
 
     <!-- Text preview with {{param}} highlighted -->
-    <div v-text-dir class="text-xs leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-4 flex-1">
+    <div v-text-dir.align class="text-xs leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-4 flex-1">
       <template v-for="(seg, i) in previewSegments" :key="i">
         <span
           v-if="seg.param"

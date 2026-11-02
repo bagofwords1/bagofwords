@@ -138,7 +138,7 @@
                       <!-- Judge prompt textarea -->
                       <div class="space-y-1">
                         <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Prompt</div>
-                        <textarea v-text-dir
+                        <textarea v-text-dir.align
                           v-model="(getJudgeRule(cat, 'prompt').matcher as any).value"
                           rows="4"
                           class="border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-xs w-full"

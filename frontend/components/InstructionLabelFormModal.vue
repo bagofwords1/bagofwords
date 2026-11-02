@@ -35,7 +35,7 @@
 
                     <div class="flex flex-col">
                         <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Description</label>
-                        <textarea v-text-dir
+                        <textarea v-text-dir.align
                             v-model="form.description"
                             rows="3"
                             class="w-full text-sm p-2 border border-gray-200 dark:border-gray-700 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"

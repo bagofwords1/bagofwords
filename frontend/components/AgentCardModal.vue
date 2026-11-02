@@ -15,7 +15,7 @@
           </div>
           <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
         </div>
-        <p v-text-dir v-if="agent?.description" class="mt-4 mb-1 text-sm leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
+        <p v-text-dir.align v-if="agent?.description" class="mt-4 mb-1 text-sm leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
       </header>
 
       <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">

@@ -418,10 +418,10 @@
                                             </div>
                                         </template>
                                         <template v-else-if="item.change_type === 'added'">
-                                            <pre v-text-dir class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans" style="unicode-bidi: plaintext; text-align: start;">{{ item.text }}</pre>
+                                            <pre v-text-dir.align class="whitespace-pre-wrap break-words bg-green-50/40 border-s-2 border-s-green-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans" style="unicode-bidi: plaintext; text-align: start;">{{ item.text }}</pre>
                                         </template>
                                         <template v-else>
-                                            <pre v-text-dir class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans" style="unicode-bidi: plaintext; text-align: start;">{{ item.previous_text || item.text }}</pre>
+                                            <pre v-text-dir.align class="whitespace-pre-wrap break-words bg-red-50/40 border-s-2 border-s-red-300 ps-2 py-1 text-gray-700 dark:text-gray-300 font-sans" style="unicode-bidi: plaintext; text-align: start;">{{ item.previous_text || item.text }}</pre>
                                         </template>
                                     </div>
                                 </div>

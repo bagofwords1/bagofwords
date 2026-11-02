@@ -257,7 +257,7 @@
             </div>
             <template v-else>
               <!-- User-authored custom instructions (membership note) -->
-              <UTextarea v-text-dir
+              <UTextarea v-text-dir.align
                 v-model="noteInput"
                 :rows="6"
                 :maxlength="500"

@@ -1,6 +1,6 @@
 <template>
   <form class="space-y-2" data-testid="memory-form" @submit.prevent="emit('save', local)">
-    <UTextarea v-text-dir
+    <UTextarea v-text-dir.align
       v-model="local.text"
       :rows="2"
       :maxlength="MAX"

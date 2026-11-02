@@ -345,7 +345,7 @@
           </label>
           <div v-if="form.classify_enabled" class="mt-2">
             <label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('triggers.classifierGuidance') }}</label>
-            <textarea v-text-dir v-model="form.classifier_prompt" rows="2" :placeholder="$t('triggers.classifierPlaceholder')"
+            <textarea v-text-dir.align v-model="form.classifier_prompt" rows="2" :placeholder="$t('triggers.classifierPlaceholder')"
               class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
           </div>
         </section>

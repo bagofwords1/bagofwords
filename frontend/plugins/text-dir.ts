@@ -12,12 +12,21 @@
  * component whose root wraps one (UInput, UTextarea): the inner field gets the
  * attribute and is re-evaluated on every keystroke and on v-model updates.
  * Don't combine it with a static `dir` attribute on the same element.
+ *
+ * Two modes:
+ *  - `v-text-dir` — a LABEL (title, name, single-line row or field): the text
+ *    reads in its own direction, but stays aligned with the surrounding UI
+ *    (`.bidi-label` in assets/css/rtl.css), so a Hebrew instruction title in an English
+ *    tree row sits next to its icon instead of jumping to the far edge.
+ *  - `v-text-dir.align` — CONTENT (descriptions, previews, multi-line text,
+ *    textareas): alignment follows the text too, so a Hebrew paragraph
+ *    right-aligns.
  */
 import type { Directive } from 'vue'
 import { dominantTextDir } from '~/utils/textDirection'
 
 type FieldEl = HTMLInputElement | HTMLTextAreaElement
-type DirEl = HTMLElement & { __textDirField?: FieldEl | null; __textDirOnInput?: () => void }
+type DirEl = HTMLElement & { __textDirField?: FieldEl | null; __textDirOnInput?: () => void; __textDirAlign?: boolean }
 
 function fieldOf(el: HTMLElement): FieldEl | null {
   if (el.matches?.('input, textarea')) return el as FieldEl
@@ -33,10 +42,15 @@ function apply(el: DirEl) {
   } else if (target.hasAttribute('dir')) {
     target.removeAttribute('dir')
   }
+  // Labels keep the UI's alignment: only the reading order follows the text.
+  // (A class, not `text-align: match-parent` — Chromium ignores that and
+  // aligns by the element's own direction.) Content mode adds nothing.
+  if (!el.__textDirAlign) target.classList.toggle('bidi-label', !!dir)
 }
 
 export const vTextDir: Directive<DirEl> = {
-  mounted(el) {
+  mounted(el, binding) {
+    el.__textDirAlign = !!binding.modifiers.align
     el.__textDirField = fieldOf(el)
     if (el.__textDirField) {
       el.__textDirOnInput = () => apply(el)

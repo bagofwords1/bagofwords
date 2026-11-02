@@ -55,7 +55,7 @@
                             Current
                         </span>
                     </div>
-                    <div v-text-dir class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                    <div v-text-dir.align class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
                         {{ inst.preview ?? inst.text }}
                     </div>
                 </button>

@@ -118,7 +118,7 @@
                                         <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ chatBlockTitle(block) }}</span>
                                         <span v-if="chatBlockDurationMs(block) != null" class="ms-auto text-2xs text-ink-muted font-mono flex-shrink-0">{{ formatDuration(chatBlockDurationMs(block) || 0) }}</span>
                                     </div>
-                                    <div v-if="block.reasoning" v-text-dir class="text-2xs text-ink-muted mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
+                                    <div v-if="block.reasoning" v-text-dir.align class="text-2xs text-ink-muted mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
                                     <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 dark:text-gray-300 markdown-wrapper">
                                         <MarkdownRender :content="block.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                     </div>
@@ -298,7 +298,7 @@
                                 <template v-if="selectedItem.id === 'overview'">
                                     <!-- User prompt -->
                                     <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.userPrompt') }}</div>
-                                    <pre v-text-dir class="text-xs text-gray-900 dark:text-gray-100 font-sans whitespace-pre-wrap break-words" style="unicode-bidi: plaintext; text-align: start;">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    <pre v-text-dir.align class="text-xs text-gray-900 dark:text-gray-100 font-sans whitespace-pre-wrap break-words" style="unicode-bidi: plaintext; text-align: start;">{{ traceData?.head_prompt_snippet || '—' }}</pre>
 
                                     <!-- Assessment (judge) -->
                                     <div v-if="isJudgeEnabled && assessmentRows.length" class="mt-4">
@@ -312,7 +312,7 @@
                                                     </div>
                                                     <span class="font-semibold w-7 text-end" :class="row.text">{{ row.score }}/5</span>
                                                 </div>
-                                                <div v-if="row.reasoning" v-text-dir class="text-2xs text-gray-500 dark:text-gray-400 mt-1 ps-[6.5rem] md:ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
+                                                <div v-if="row.reasoning" v-text-dir.align class="text-2xs text-gray-500 dark:text-gray-400 mt-1 ps-[6.5rem] md:ps-[7.5rem] leading-snug">{{ row.reasoning }}</div>
                                             </div>
                                         </div>
                                     </div>
@@ -400,18 +400,18 @@
                                         </div>
                                         <div v-if="selectedItem.message">
                                             <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.message') }}</div>
-                                            <pre v-text-dir class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.message }}</pre>
+                                            <pre v-text-dir.align class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
                                             <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.reasoning') }}</div>
-                                            <pre v-text-dir class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                            <pre v-text-dir.align class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
                                             <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
-                                            <pre v-text-dir class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                            <pre v-text-dir.align class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]" style="unicode-bidi: plaintext; text-align: start;">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Step timing: planner LLM + tool -->
@@ -617,7 +617,7 @@
                                 <div v-if="selectedItem.message">
                                     <label class="block text-xs font-medium text-gray-700 mb-2">Message</label>
                                     <div class="p-3 bg-gray-50 rounded-lg border">
-                                        <p v-text-dir class="text-xs text-gray-900">{{ selectedItem.message }}</p>
+                                        <p v-text-dir.align class="text-xs text-gray-900">{{ selectedItem.message }}</p>
                                     </div>
                                 </div>
                             </div>

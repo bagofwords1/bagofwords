@@ -321,7 +321,7 @@
                                 <span class="text-2xs font-semibold text-ink-muted uppercase tracking-wider">{{ $t('projects.overview.instructions') }}</span>
                             </div>
                             <template v-if="project.can_manage">
-                                <textarea v-text-dir
+                                <textarea v-text-dir.align
                                     v-model="instructionsDraft"
                                     rows="5"
                                     :placeholder="$t('projects.settings.instructionsPlaceholder')"
@@ -336,7 +336,7 @@
                                 </div>
                                 <p v-else class="mt-1 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
                             </template>
-                            <p v-text-dir v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
+                            <p v-text-dir.align v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>
                     </aside>
                 </div>
@@ -351,7 +351,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">{{ $t('projects.settings.description') }}</label>
-                            <textarea v-text-dir v-model="editDescription" rows="2" :disabled="!project.can_manage"
+                            <textarea v-text-dir.align v-model="editDescription" rows="2" :disabled="!project.can_manage"
                                 class="w-full px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 disabled:opacity-60"></textarea>
                         </div>
                         <div>

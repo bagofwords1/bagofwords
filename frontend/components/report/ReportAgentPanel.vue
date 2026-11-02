@@ -506,7 +506,7 @@
               </div>
               <div>
                 <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
-                <textarea v-text-dir v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
+                <textarea v-text-dir.align v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
               </div>
             </div>
           </div>

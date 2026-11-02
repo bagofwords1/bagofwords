@@ -103,7 +103,7 @@
                 class="text-2xs text-ink-muted"
               >{{ $t('skillCatalog.custom') }}</span>
             </div>
-            <p v-text-dir class="mt-0.5 text-2xs text-ink-muted">{{ row.description }}</p>
+            <p v-text-dir.align class="mt-0.5 text-2xs text-ink-muted">{{ row.description }}</p>
             <div v-if="expanded === row.uid" class="flex items-center gap-1.5 mt-1.5 flex-wrap">
               <span v-if="row.version" class="text-2xs text-ink-muted">v{{ row.version }}</span>
               <span v-for="tag in (row.tags || [])" :key="tag" :class="chip">{{ tag }}</span>

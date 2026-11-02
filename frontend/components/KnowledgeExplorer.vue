@@ -1147,7 +1147,7 @@
             </div>
             <div class="space-y-1">
               <input v-text-dir v-model="item.title" type="text" :placeholder="$t('agentsPage.starterTitlePlaceholder')" class="w-full h-8 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-              <textarea v-text-dir v-model="item.prompt" rows="2" :placeholder="$t('agentsPage.starterPromptPlaceholder')" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
+              <textarea v-text-dir.align v-model="item.prompt" rows="2" :placeholder="$t('agentsPage.starterPromptPlaceholder')" class="w-full text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200"></textarea>
             </div>
           </div>
           <button class="text-xs border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-lg px-2 py-1 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="addStarter">{{ $t('agentsPage.addStarter') }}</button>
@@ -4205,7 +4205,7 @@ const TreeGroup = defineComponent({
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: t('agentsPage.tipStatus') }) : null,
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-ink-muted shrink-0' }) : null),
-        createElement('span', { class: ['flex-1 text-start truncate', props.mono ? 'font-mono text-xs' : ''], dir: props.mono ? undefined : 'auto', onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
+        createElement('span', { class: ['flex-1 text-start truncate', props.mono ? 'font-mono text-xs' : 'bidi-label'], dir: props.mono ? undefined : 'auto', onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
         props.lock ? createElement(resolveComponent('UIcon'), { name: 'i-heroicons-lock-closed', class: 'w-3 h-3 text-ink-muted shrink-0', title: t('agentsPage.tipPrivate') }) : null,
         // Interactive badge (e.g. "Sign In") is a clickable key-button that
         // triggers connect. A non-interactive badge (e.g. "Connector") is a
@@ -4277,10 +4277,10 @@ const InstrLeaf = defineComponent({
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
         snippetText
           ? createElement('span', { class: 'flex-1 min-w-0 flex flex-col text-start' }, [
-              createElement('span', { class: ['truncate', inactive ? 'text-ink-muted' : (pending ? 'text-amber-700 dark:text-amber-300' : '')], dir: 'auto' }, displayTitle(ins)),
-              createElement('span', { class: 'truncate text-2xs leading-4 text-ink-muted', dir: 'auto' }, snippetText),
+              createElement('span', { class: ['truncate', inactive ? 'text-ink-muted' : (pending ? 'text-amber-700 dark:text-amber-300' : ''), 'bidi-label'], dir: 'auto' }, displayTitle(ins)),
+              createElement('span', { class: 'truncate text-2xs leading-4 text-ink-muted bidi-label', dir: 'auto' }, snippetText),
             ])
-          : createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-ink-muted' : (pending ? 'text-amber-700 dark:text-amber-300' : '')], dir: 'auto' }, displayTitle(ins)),
+          : createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-ink-muted' : (pending ? 'text-amber-700 dark:text-amber-300' : ''), 'bidi-label'], dir: 'auto' }, displayTitle(ins)),
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-2xs font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
@@ -4343,7 +4343,7 @@ const DirNode = defineComponent({
       }, [
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180'] }),
         createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-ink-muted shrink-0' }),
-        createElement('span', { class: 'flex-1 text-start truncate', dir: 'auto' }, dir.name),
+        createElement('span', { class: 'flex-1 text-start truncate bidi-label', dir: 'auto' }, dir.name),
         (props.canManage && dir.parent_id) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-ink-muted opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.moveToTopLevel'), onClick: (e: Event) => { e.stopPropagation(); moveDirectory(scope, dir, null) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,
         props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-ink-muted opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipNewSubfolder'), onClick: (e: Event) => { e.stopPropagation(); newDirectory(scope, dir.id) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-folder-plus', class: 'w-3 h-3' })]) : null,
         props.canManage ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-ink-muted opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipRename'), onClick: (e: Event) => { e.stopPropagation(); renameDirectory(scope, dir) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-pencil', class: 'w-3 h-3' })]) : null,
@@ -4455,7 +4455,7 @@ const CaseLeaf = defineComponent({
       }, [
         createElement('span', { class: 'w-3 shrink-0' }),
         createElement(resolveComponent('UIcon'), { name: 'i-heroicons-beaker', class: 'w-4 h-4 text-ink-muted shrink-0' }),
-        createElement('span', { class: 'flex-1 text-start truncate', title: evalCasePromptOf(c), dir: 'auto' }, evalCasePromptOf(c)),
+        createElement('span', { class: 'flex-1 text-start truncate bidi-label', title: evalCasePromptOf(c), dir: 'auto' }, evalCasePromptOf(c)),
         c.status === 'draft'
           ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400 text-2xs font-medium' }, 'Draft')
           : null,

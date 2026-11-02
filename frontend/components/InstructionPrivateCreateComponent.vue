@@ -191,7 +191,7 @@
                     <!-- Normal textarea -->
                     <textarea
                         v-if="!codeView"
-                        v-text-dir
+                        v-text-dir.align
                         :value="sharedForm.text"
                         @input="updateForm({ text: ($event.target as HTMLTextAreaElement).value })"
                         placeholder="Describe the instruction for the AI agent...

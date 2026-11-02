@@ -50,7 +50,7 @@
               >{{ $t('queries.suggestedBadge') }}</span>
             </div>
             <h1 v-text-dir class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
-            <div v-text-dir class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
+            <div v-text-dir.align class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
             <!-- Data source icons under description -->
             <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
               <img

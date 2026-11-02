@@ -19,7 +19,7 @@
     <!-- Description -->
     <div>
       <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.description') }}</label>
-      <textarea v-text-dir
+      <textarea v-text-dir.align
         v-model="localForm.description"
         :rows="compact ? 1 : 4"
         placeholder="Description"

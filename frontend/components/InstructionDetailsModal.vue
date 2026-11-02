@@ -13,7 +13,7 @@
             <div v-if="instruction" class="space-y-4">
                 <!-- Instruction Text -->
                 <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border">
-                    <p v-text-dir class="text-gray-900 dark:text-white leading-relaxed whitespace-pre-wrap">{{ instruction.text }}</p>
+                    <p v-text-dir.align class="text-gray-900 dark:text-white leading-relaxed whitespace-pre-wrap">{{ instruction.text }}</p>
                 </div>
 
                 <!-- Data Source Access -->

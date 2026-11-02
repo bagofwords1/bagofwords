@@ -95,7 +95,7 @@
                   <!-- Error -->
                   <div v-else-if="entry.kind === 'error'" class="flex items-start gap-1.5 text-2xs text-red-500">
                     <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 mt-0.5 shrink-0" />
-                    <span v-text-dir class="min-w-0 whitespace-pre-wrap break-words">{{ entry.text }}</span>
+                    <span v-text-dir.align class="min-w-0 whitespace-pre-wrap break-words">{{ entry.text }}</span>
                   </div>
                   <!-- Assistant message -->
                   <div v-else class="eval-md text-xs text-gray-800 dark:text-gray-200">
@@ -103,7 +103,7 @@
                   </div>
                 </template>
                 <div v-if="timelineFor(row).length === 0" class="text-xs text-ink-muted">—</div>
-                <div v-if="(row.result as any).failure_reason" v-text-dir class="text-2xs text-red-500">{{ (row.result as any).failure_reason }}</div>
+                <div v-if="(row.result as any).failure_reason" v-text-dir.align class="text-2xs text-red-500">{{ (row.result as any).failure_reason }}</div>
               </div>
 
               <!-- Checks -->
@@ -120,7 +120,7 @@
                       <div class="text-gray-800 dark:text-gray-200">
                         <span class="text-ink-muted">{{ categoryName(ruleCategoryKey(it.rule)) }} · </span>{{ ruleSummaryText(it.rule) }}
                       </div>
-                      <div v-if="ruleSecondaryText(row, it)" v-text-dir class="mt-0.5 text-2xs text-ink-muted leading-relaxed">{{ ruleSecondaryText(row, it) }}</div>
+                      <div v-if="ruleSecondaryText(row, it)" v-text-dir.align class="mt-0.5 text-2xs text-ink-muted leading-relaxed">{{ ruleSecondaryText(row, it) }}</div>
                     </div>
                   </div>
                 </div>
