@@ -1,5 +1,5 @@
 <template>
-  <div v-if="items.length > 0" class="mt-4 max-w-chat">
+  <div v-if="items.length > 0" class="mt-4 max-w-chat" :dir="sectionDir">
     <!-- Header -->
     <div class="px-1 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
       {{ t('reportView.followUp') }}
@@ -46,16 +46,20 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-// The heading follows the UI locale like the rest of the chat chrome.
-// Suggestions are generated in the language of the user's last message, so
-// each row takes its own direction from its text: a Hebrew suggestion in an
-// English UI sits on the right with its arrow on the left.
+// Suggestions are generated in the language of the user's last message,
+// which can differ from the UI's. The whole section (heading, rows, arrows)
+// takes the suggestions' direction so it reads as one block: Hebrew
+// suggestions under an English UI sit on the right with the heading above
+// them. A row in the other script keeps its own direction.
 const items = computed(() =>
   (props.suggestions || []).map((s) => String(s ?? '').trim()).filter(Boolean)
 )
 
+const sectionDir = computed(() => dominantTextDir(items.value.join(' ')) ?? undefined)
+
 function rowDir(q: string) {
-  return dominantTextDir(q) ?? undefined
+  const dir = dominantTextDir(q)
+  return dir && dir !== sectionDir.value ? dir : undefined
 }
 
 function select(q: string) {
