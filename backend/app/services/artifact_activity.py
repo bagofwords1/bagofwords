@@ -41,6 +41,9 @@ MAX_TEXT = 300
 CONTEXT_LINES = 10
 STEPS_BEFORE = 3
 PAYLOAD_RETENTION_HOURS = 24
+# shown_in_completion_id of events a restricted automatic check withheld from
+# the agent (never a completion id: those are UUIDs).
+WITHHELD = "withheld"
 MAX_PAYLOAD_CHARS = 32_000   # request, response and stream, each, serialized
 MAX_STREAM_EVENTS = 200
 MAX_STREAM_TEXT = 500
@@ -326,6 +329,16 @@ async def mark_shown(db, *, session_id: str, completion_id: str, seqs: Optional[
 
 # ── reading ────────────────────────────────────────────────────────────────
 
+async def withhold(db, *, session_id: str) -> None:
+    """Hide one preview session's events from the agent for good: a restricted
+    automatic check withholds its evidence. Every event of the session, shown
+    before or not; no completion is needed. The editor's activity log still
+    lists them. Raises on failure (the caller logs it)."""
+    await db.execute(update(ArtifactActivityEvent).where(ArtifactActivityEvent.session_id == str(session_id))
+                     .values(shown_in_completion_id=WITHHELD))
+    await db.commit()
+
+
 def line(e: ArtifactActivityEvent) -> str:
     """One compact, readable line for the agent: when, who, which version, what."""
     when = e.created_at.strftime("%H:%M:%S") if e.created_at else ""
@@ -376,9 +389,13 @@ def is_failure(e: ArtifactActivityEvent) -> bool:
 
 async def recent(db, *, report_id: str, artifact_id: Optional[str] = None, since: Optional[datetime] = None,
                  kinds: Optional[list[str]] = None, only_errors: bool = False, source: Optional[str] = None,
-                 limit: int = 60) -> list[ArtifactActivityEvent]:
-    """Events for a report (or one of its artifacts), oldest first."""
+                 limit: int = 60, agent: bool = False) -> list[ArtifactActivityEvent]:
+    """Events for a report (or one of its artifacts), oldest first. ``agent``:
+    for the agent, which never sees events a restricted check withheld."""
     q = select(ArtifactActivityEvent).where(ArtifactActivityEvent.report_id == str(report_id))
+    if agent:
+        q = q.where(or_(ArtifactActivityEvent.shown_in_completion_id.is_(None),
+                        ArtifactActivityEvent.shown_in_completion_id != WITHHELD))
     if artifact_id:
         q = q.where(ArtifactActivityEvent.artifact_id == str(artifact_id))
     if since:
@@ -405,7 +422,7 @@ async def read(db, *, report_id: str, artifact_id: Optional[str] = None, since_m
     "the model may see data" switch: off, a payload comes back as its shape."""
     if event_id:
         e = await db.get(ArtifactActivityEvent, str(event_id))
-        if e is None or str(e.report_id) != str(report_id):
+        if e is None or str(e.report_id) != str(report_id) or e.shown_in_completion_id == WITHHELD:
             return {"events": [], "error": "Event not found in this report"}
         event = {"id": e.id, "line": line(e), "kind": e.kind, "op": e.op, "status": e.status,
                  "error_code": e.error_code, "duration_ms": e.duration_ms, "source": e.source,
@@ -418,7 +435,7 @@ async def read(db, *, report_id: str, artifact_id: Optional[str] = None, since_m
         return {"event": event}
     since = datetime.utcnow() - timedelta(minutes=since_minutes) if since_minutes else None
     rows = await recent(db, report_id=report_id, artifact_id=artifact_id, since=since, kinds=kinds,
-                        only_errors=only_errors, source=source, limit=max(1, min(limit, 100)))
+                        only_errors=only_errors, source=source, limit=max(1, min(limit, 100)), agent=True)
     with_payload = await payload_event_ids(db, [e.id for e in rows])
     return {
         # artifact_version is the version number (v1, v2...), as in each line;
@@ -445,7 +462,7 @@ async def context_section(db, *, report_id: str, completion_id: Optional[str] = 
     """The automatic per-turn section: failures the agent has not seen yet,
     each with the few steps before it. None when there are none.
     With ``mark``, stamps them (and their steps) with ``completion_id``."""
-    rows = await recent(db, report_id=report_id, limit=200)
+    rows = await recent(db, report_id=report_id, limit=200, agent=True)
     unseen = [i for i, e in enumerate(rows) if e.shown_in_completion_id is None and is_failure(e)]
     if not unseen:
         return None
