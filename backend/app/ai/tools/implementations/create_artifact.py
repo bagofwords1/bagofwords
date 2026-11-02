@@ -838,7 +838,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
-        # Enrich columns with dtype/unique_count/min/max from column_info (always — not sensitive)
+        # Enrich columns with dtype/unique_count from column_info. min/max are
+        # verbatim cells: only when the model may see data, or for a date
+        # column (a time range), as create_data's profile does.
         column_info = viz.get("column_info") or {}
         raw_columns = viz.get("columns", [])
         enriched_columns = []
@@ -849,10 +851,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 meta = column_info[field]
                 col["dtype"] = meta.get("dtype")
                 col["unique_count"] = meta.get("unique_count")
-                if meta.get("min") is not None:
-                    col["min"] = meta["min"]
-                if meta.get("max") is not None:
-                    col["max"] = meta["max"]
+                dtype = str(meta.get("dtype") or "").lower()
+                if allow_llm_see_data or "date" in dtype or "time" in dtype:
+                    if meta.get("min") is not None:
+                        col["min"] = meta["min"]
+                    if meta.get("max") is not None:
+                        col["max"] = meta["max"]
             enriched_columns.append(col)
 
         profile: Dict[str, Any] = {

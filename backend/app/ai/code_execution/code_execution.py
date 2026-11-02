@@ -181,15 +181,40 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
-def format_execution_failure(exc: BaseException, message: str) -> str:
+# A quoted literal in an error message: conversion errors quote the cell
+# ("could not convert string to float: 'Jane Doe'").
+_QUOTED_LITERAL = re.compile(r"'[^'\n]{1,200}'|\"[^\"\n]{1,200}\"")
+
+
+def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
     """The error text a retry sees for a failed execution: the message, then
     the tail of what the code printed before it raised (when there is any).
     Kept separate from the UI-facing message so the chat shows the error and
-    the codegen prompt gets the evidence."""
+    the codegen prompt gets the evidence.
+
+    When the organization hides data from the model, what the code printed
+    is left out (it is usually data), and a ValueError/TypeError's quoted
+    literals become '<hidden>' (they are cell values). Other errors keep their
+    text: a missing column or a SQL error names structure, which a fix needs."""
+    if not allow_llm_see_data:
+        if isinstance(exc, (ValueError, TypeError)):
+            return _QUOTED_LITERAL.sub("'<hidden>'", message)
+        return message
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:
         return message
     return f"{message}\n<stdout_before_failure>\n{partial.rstrip()}\n</stdout_before_failure>"
+
+
+def _settings_allow_data(organization_settings) -> bool:
+    """The org's "Allow LLM to see data" switch (on without settings; off
+    when the settings cannot be read)."""
+    if organization_settings is None:
+        return True
+    try:
+        return bool(organization_settings.get_config("allow_llm_see_data").value)
+    except Exception:
+        return False
 
 
 def _stdout_router() -> _ThreadLocalStdoutRouter:
@@ -1945,7 +1970,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg, _settings_allow_data(self.organization_settings))))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -2210,7 +2235,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg, _settings_allow_data(self.organization_settings))))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
