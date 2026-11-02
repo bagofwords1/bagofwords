@@ -185,7 +185,7 @@ md.core.ruler.push('block_dir', (state) => {
     }
   }
   const uiDir = typeof document !== 'undefined' && document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : null
-  resolveDirTree(roots, docCounts, { fallback: uiDir })
+  resolveDirTree(roots, docCounts, { fallback: uiDir, settled: true })
   const apply = (node: DirNode<any>) => {
     if (node.dir) node.ref.attrSet('dir', node.dir)
     if (node.signedNumber) node.ref.attrSet('data-bidi-num', '')

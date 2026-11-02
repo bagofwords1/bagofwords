@@ -605,7 +605,7 @@ const AutoDir = Extension.create({
           decorations(state) {
             const { roots, docCounts } = editorDirTree(state.doc)
             const uiDir = document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : null
-            resolveDirTree(roots, docCounts, { fallback: uiDir })
+            resolveDirTree(roots, docCounts, { fallback: uiDir, settled: true })
             const decos: Decoration[] = []
             const add = (n: DirNode<PosRef>) => {
               if (n.dir) {

@@ -135,7 +135,10 @@ function blockTree(root: Element): DirNode<Element>[] {
 
 export function stampRoot(root: Element) {
   const tree = blockTree(root)
-  resolveDirTree(tree, countElementWords(root), { hint: replyHintOf(root), fallback: uiDir() })
+  // A reply carries the question's direction as a hint and may still be
+  // streaming; anything else (notes, eval/trace markdown, MDC) is settled.
+  const hint = replyHintOf(root)
+  resolveDirTree(tree, countElementWords(root), { hint, fallback: uiDir(), settled: !hint })
   const apply = (node: DirNode<Element>) => {
     stamp(node.ref, node.dir ?? null)
     // "+12%" in an RTL table is laid out LTR; rtl.css keeps it right-aligned.

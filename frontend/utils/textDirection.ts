@@ -135,6 +135,11 @@ export interface ResolveOptions {
   hint?: TextDir | null
   /** A weak prior (the UI direction), used only while the text is too short. */
   fallback?: TextDir | null
+  /** The content is complete (an instruction, a note, a finished render), not
+   *  a reply still streaming in. Lists and tables then decide from 4 words
+   *  instead of 8: the higher bar only exists so a table's header row, which
+   *  arrives before its rows, doesn't flip the table mid-stream. */
+  settled?: boolean
 }
 
 /**
@@ -186,7 +191,7 @@ export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opt
         break
       case 'list':
       case 'table':
-        dir = decideDir(node.counts, { context, container: true })
+        dir = decideDir(node.counts, { context, container: true, minWords: opts.settled ? SHORT_BLOCK_WORDS : undefined })
         break
       default: // block, quote
         dir = parent?.kind === 'item' && node.kind === 'block'

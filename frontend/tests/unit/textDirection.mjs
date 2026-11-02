@@ -163,4 +163,22 @@ const sum = (nodes) => nodes.reduce((a, n) => ({ rtl: a.rtl + n.counts.rtl, ltr:
   assert.equal(resolveDirTree(en, sum(en), { hint: 'rtl' }), 'ltr')
 }
 
+{
+  // Settled content (an instruction): a short all-Hebrew table in an English
+  // document is RTL — the 8-word streaming guard applies to live replies only.
+  const cells = ['מדד', 'טבלה', 'נסיעות', 'חיובים'].map((t) => node('cell', t))
+  const rows = [node('row', '', cells.slice(0, 2)), node('row', '', cells.slice(2))]
+  const heTable = node('table', '', rows)
+  const enTable = node('table', '', [node('row', '', [node('cell', 'Table'), node('cell', 'one row per trip')])])
+  const intro = node('block', 'Filter the trips table on the void flag before you aggregate anything')
+  const roots = [intro, enTable, heTable]
+  resolveDirTree(roots, sum(roots), { settled: true })
+  assert.equal(enTable.dir, 'ltr')
+  assert.equal(heTable.dir, 'rtl', 'short all-Hebrew table in a settled English doc is RTL')
+  assert.equal(cells[0].dir, 'rtl')
+  // A live reply (not settled) keeps the guard: a short table follows the answer.
+  resolveDirTree(roots, sum(roots))
+  assert.equal(heTable.dir, 'ltr')
+}
+
 console.log('textDirection: ok')
