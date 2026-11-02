@@ -30,7 +30,7 @@ curl -sL "https://unpkg.com/react-dom@18/umd/react-dom.development.js" \
   -o "$LIBS_DIR/react-dom-18.development.js"
 
 # Babel Standalone (JSX transpilation in browser)
-curl -sL "https://unpkg.com/@babel/standalone/babel.min.js" \
+curl -sL "https://unpkg.com/@babel/standalone@7.29.9/babel.min.js" \
   -o "$LIBS_DIR/babel-standalone.min.js"
 
 # ECharts 5 (charting library)

@@ -97,7 +97,8 @@ function* pairs(r) { for (let i = 1; i < r.length; i++) yield [r[i - 1], r[i]]; 
 async function f() { for await (const x of (async function* () { yield 1; })()) console.log(x?.y); }
 const { a = 1, ...rest } = window.ARTIFACT_DATA ?? {};
 """,
-    # import lines (artifact-globals strips them after compilation) and unicode
+    # import lines (kept by the compile, then bound or stripped by
+    # artifact-globals' appendChild hook) and unicode
     """
 import React, { useState as useLocal } from 'react';
 const label = "ünïcødé — 😀";
@@ -106,9 +107,23 @@ function App() { return <p title="&quot;x&quot;">{label}</p>; }
 ]
 
 
+def _globals_babel_patches() -> str:
+    """The preset patches artifact-globals.js applies to Babel in the iframe
+    (classic JSX runtime, env keeping ES modules), taken from the file itself
+    so the reference compiles exactly as the iframe does."""
+    import re
+
+    source = (LIBS / "artifact-globals.js").read_text(encoding="utf-8")
+    blocks = re.findall(r"    if \(window\.Babel && window\.Babel\.availablePresets && window\.Babel\.availablePresets\.(?:react|env)\) \{\n.*?\n    \}",
+                        source, re.S)
+    assert len(blocks) == 2, "artifact-globals patches the react and env presets"
+    return "\n".join(blocks)
+
+
 async def _browser_babel_output(src: str) -> str:
     """The code babel-standalone's transformScriptTags appends for an inline
-    text/babel script — captured the way the iframe would run it."""
+    text/babel script — captured the way the iframe would run it, with
+    artifact-globals' preset patches applied."""
     from playwright.async_api import async_playwright
 
     babel = (LIBS / "babel-standalone.min.js").read_text(encoding="utf-8")
@@ -118,6 +133,7 @@ async def _browser_babel_output(src: str) -> str:
             page = await browser.new_page()
             await page.set_content("<html><head></head><body></body></html>")
             await page.add_script_tag(content=babel)
+            await page.add_script_tag(content=_globals_babel_patches())
             # Capture (without executing) the script Babel appends.
             await page.evaluate("""() => {
               window.__captured = [];
@@ -221,3 +237,14 @@ async def test_a_rejected_source_is_not_recompiled_on_every_view(tmp_path, monke
         assert await ap.compile_code(code) is None
     # Three browser launches would take seconds; a remembered rejection is instant.
     assert _time.monotonic() - started < 0.5
+
+
+@requires_browser_babel
+@pytest.mark.asyncio
+async def test_imports_compile_to_import_statements_not_require(tmp_path, monkeypatch):
+    """The sandbox has no require(): an import must stay an import statement
+    for artifact-globals to bind or strip it."""
+    monkeypatch.setenv("BOW_ARTIFACT_JS_CACHE_DIR", str(tmp_path))
+    compiled = await ap.compile_code(wrap("import React, { useState as useLocal } from 'react';\nconst x = useLocal(1);"))
+    assert compiled and "require(" not in compiled
+    assert "import React" in compiled

@@ -10,8 +10,9 @@ the iframe can skip Babel entirely.
 babel-standalone's transformScriptTags generates for the same inline script:
 
   * same compiler: the vendored babel-standalone.min.js the iframe loads
-  * same options: transformScriptTags' defaults for a classic inline script —
-    presets [["react", {runtime: "classic"}], "env"], no plugins,
+  * same options: transformScriptTags' defaults for a classic inline script,
+    as artifact-globals patches them — presets [["react", {runtime:
+    "classic"}], ["env", {modules: false}]], no plugins,
     filename/sourceFileName "Inline Babel script", inline source map,
     targets {browsers: undefined}
   * same input: the script element's text exactly as the HTML parser sees it
@@ -43,7 +44,9 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Bump when the compile options below change, so stale disk entries are ignored.
-_OPTIONS_VERSION = "1"
+# 2: env keeps ES modules (modules: false), as the iframe's patched preset does;
+#    with "1" an `import` compiled to `require(...)`, which the sandbox lacks.
+_OPTIONS_VERSION = "2"
 
 # The whole artifact code must be ONE classic text/babel inline script and
 # nothing else. Anything more (extra scripts, markup, a type="module" script)
@@ -73,7 +76,7 @@ _COMPILE_SCRIPT = """
     var filename = 'Inline Babel script';
     var out = Babel.transform(source, {
       filename: filename,
-      presets: [['react', { runtime: 'classic' }], 'env'],
+      presets: [['react', { runtime: 'classic' }], ['env', { modules: false }]],
       plugins: undefined,
       sourceMaps: 'inline',
       sourceFileName: filename,
