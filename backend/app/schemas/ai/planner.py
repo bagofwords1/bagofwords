@@ -92,6 +92,10 @@ class PlannerInput(BaseModel):
     history_summary: Optional[str] = None
     # Detailed conversation messages context for better planning
     messages_context: Optional[str] = None
+    # The user's earlier messages in this conversation, newest first. Only
+    # used to pick the reply language when the current message is too short
+    # to show one ("ok", "2024"); see prompt_language.reply_language_reminder.
+    recent_user_messages: Optional[List[str]] = None
     # Resources context from metadata resources (git repos, documentation, etc.)
     resources_context: Optional[str] = None
     # Combined resources context (per data source: sample Top-K + names index)

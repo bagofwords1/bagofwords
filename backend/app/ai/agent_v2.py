@@ -5412,6 +5412,12 @@ class AgentV2:
                         if messages_section is None:
                             messages_section = await self.context_hub.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
                         messages_context = messages_section.render() if messages_section else ""
+                        # Earlier user messages, newest first: the reply-language
+                        # fallback when this turn's ask is too short to show one.
+                        recent_user_messages = [
+                            item.text for item in reversed(getattr(messages_section, "items", None) or [])
+                            if getattr(item, "role", None) == "user" and item.text
+                        ][:5]
                         # Use cached resources from prime_static() - static, no need to rebuild
                         resources_section = view.static.resources
                         resources_context = resources_section.render() if resources_section else ""
@@ -5529,6 +5535,7 @@ class AgentV2:
                             app_activity_context=app_activity_context or None,
                             history_summary=history_summary,
                             messages_context=messages_context,
+                            recent_user_messages=recent_user_messages or None,
                             resources_context=resources_context,
                             resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                             last_observation=observation,

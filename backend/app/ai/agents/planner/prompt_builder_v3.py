@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from app.ai.llm.types import Message, ToolSpec
 from app.ai.context.parts import TextPart as _TextPart
-from app.ai.prompt_language import language_directive_body
+from app.ai.prompt_language import language_directive_body, reply_language_reminder
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
 from . import transcript_bridge
@@ -948,6 +948,21 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return parts
 
     @staticmethod
+    def _reply_language_block(planner_input: PlannerInput) -> str:
+        """Per-step reminder of the language to answer in (see prompt_language).
+
+        Sub-agents are skipped: their goal is written by the parent agent, not
+        the user, and their text goes back to the parent, not to the user.
+        """
+        if (getattr(planner_input, "mode", None) or "chat") == "subagent":
+            return ""
+        return reply_language_reminder(
+            planner_input.user_message,
+            getattr(planner_input, "recent_user_messages", None),
+            getattr(planner_input, "locale", None),
+        )
+
+    @staticmethod
     def _build_turn_head(planner_input: PlannerInput) -> str:
         """The volatile per-turn head: clock, routing state, current artifact,
         conversation history, steering.
@@ -1004,6 +1019,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             )
         if getattr(planner_input, "sub_agent_budget", None):
             parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
+        # Last on purpose: this head rides with the newest tool results, which
+        # are usually English. Ending on the reply language keeps the user's
+        # language next to the point where the model writes its answer.
+        reply_language = PromptBuilderV3._reply_language_block(planner_input)
+        if reply_language:
+            parts.append(reply_language)
         return "\n".join(parts)
 
     @staticmethod
@@ -1171,6 +1192,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append("    Never repeat the same failing call.")
         parts.append("  </error_guidance>")
         parts.append("</context>")
+        reply_language = PromptBuilderV3._reply_language_block(planner_input)
+        if reply_language:
+            parts.append(reply_language)
         return "\n".join(parts)
 
     # ------------------------------------------------------------------
