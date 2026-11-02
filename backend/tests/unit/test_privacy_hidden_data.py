@@ -157,7 +157,7 @@ def test_a_code_retry_sees_no_printed_data_and_no_quoted_cell():
     shown = format_execution_failure(exc, message)
     assert SSN in shown and "<stdout_before_failure>" in shown
     hidden = format_execution_failure(exc, message, allow_llm_see_data=False)
-    assert SSN not in hidden and "<hidden>" in hidden
+    assert SSN not in hidden and "hidden>" in hidden
     missing = KeyError("revenue")
     missing.captured_stdout = SSN
     assert format_execution_failure(missing, "Execution error: 'revenue'", False) == "Execution error: 'revenue'"
@@ -225,7 +225,7 @@ def test_a_real_conversion_error_hides_cells_with_quotes_and_escapes(cell):
         float(cell)
     except ValueError as exc:
         hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
-    assert SSN not in hidden and "<hidden>" in hidden
+    assert SSN not in hidden and "hidden>" in hidden
 
 
 def _conversion_errors():
@@ -234,9 +234,10 @@ def _conversion_errors():
     yield lambda: int(SSN + "x" * 210)                 # repr cut before its closing quote
     yield lambda: pd.to_numeric(["x\"" + SSN])         # raw quote inside the quoted cell
     yield lambda: pd.to_numeric(["x\n" + SSN])         # raw line break inside it
+    yield lambda: pd.to_numeric(['x"' + SSN + '"y'])  # balanced quotes inside it
 
 
-@pytest.mark.parametrize("raise_it", list(_conversion_errors()), ids=["int-truncated", "pandas-quote", "pandas-newline"])
+@pytest.mark.parametrize("raise_it", list(_conversion_errors()), ids=["int-truncated", "pandas-quote", "pandas-newline", "pandas-balanced"])
 def test_library_conversion_errors_never_show_the_cell(raise_it):
     try:
         raise_it()

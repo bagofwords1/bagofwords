@@ -192,10 +192,14 @@ def _redact_quoted_cells(message: str) -> str:
     it), the message is cut at its first quote: losing part of an error is
     better than showing a cell."""
     redacted = _QUOTED_LITERAL.sub("'<hidden>'", message)
-    if re.search(r"['\"]", redacted.replace("'<hidden>'", "")):
-        cut = re.search(r"['\"]", message).start()
-        return message[:cut].rstrip() + " <value hidden>"
+    if re.search(r"['\"]", redacted.replace("'<hidden>'", "")) or re.search(r"'<hidden>'[^\s,.;:)\]]", redacted):
+        return _cut_at_first_quote(message)
     return redacted
+
+
+def _cut_at_first_quote(message: str) -> str:
+    match = re.search(r"['\"]", message)
+    return message if match is None else message[:match.start()].rstrip() + " <value hidden>"
 
 
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
@@ -209,7 +213,11 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     literals become '<hidden>' (they are cell values). Other errors keep their
     text: a missing column or a SQL error names structure, which a fix needs."""
     if not allow_llm_see_data:
-        if isinstance(exc, (ValueError, TypeError)):
+        if isinstance(exc, ValueError):
+            # Conversion errors quote the cell, which may hold anything
+            # (quotes, line breaks, a repr cut short): drop from the first quote.
+            return _cut_at_first_quote(message)
+        if isinstance(exc, TypeError):
             return _redact_quoted_cells(message)
         return message
     partial = getattr(exc, "captured_stdout", "") or ""
