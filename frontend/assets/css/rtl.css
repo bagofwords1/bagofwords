@@ -45,6 +45,29 @@
   text-align: left;
 }
 
+/* 2a. Grid cell VALUES are data, not code. Column order stays LTR (it is
+ *     the query's column order), but a Hebrew name or status must read and
+ *     align right-to-left — in an English UI too, where nothing forces LTR
+ *     but the cell still inherits it. `plaintext` resolves each cell's text
+ *     from its own first strong character and `start` aligns it by that
+ *     result; numbers have no strong character and keep the grid's left
+ *     alignment. Right-aligned (numeric) columns keep their alignment. */
+.ag-root .ag-cell:not(.ag-right-aligned-cell) .ag-cell-value {
+  /* A shrink-wrapped flex item inside .ag-cell-wrapper: it has to span the
+   * cell for `text-align` to have room to move the text. */
+  flex: 1 1 auto;
+  min-width: 0;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+/* The renderer's inner spans must stay plain inline: an isolated (rule 2) or
+ * plaintext inline hides its letters from the paragraph, which then sees no
+ * strong character and falls back to LTR. */
+.ag-root .ag-cell:not(.ag-right-aligned-cell) .ag-cell-value * {
+  unicode-bidi: normal;
+  direction: inherit;
+}
+
 /* 3. Flip chevrons / arrows that belong to directional affordances. Apply by
  *    adding `rtl-flip` to the icon element. Keyed on the element's own
  *    direction, not <html dir> — see rule 6 for why. */
@@ -65,7 +88,7 @@
  *    padding globally — and caused a phantom 2rem start gutter on every
  *    non-list `<ul>` under RTL (notably the chat message list). The three
  *    contexts where we actually re-enable list markers (.prose, .markstream-vue,
- *    .markdown-wrapper) are handled by rules 5, 7, and 7b below. */
+ *    .markdown-wrapper) are handled by rules 5 and 7 below. */
 
 /* 5. ProseMirror / markdown-rendered content: lists inside our prose
  *    blocks already carry `list-inside` or custom padding. Keep their
@@ -244,52 +267,45 @@
 }
 
 /* 7. markstream-vue (the chat-message markdown renderer) ships its OWN CSS
- *    with physical `padding-left` on list elements and `text-left/right`
- *    utility classes. Under RTL those don't flip, so list markers render
- *    on the left (wrong edge) and text is force-aligned LTR. Override by
- *    swapping physical → logical on the library's scope.
- *    This is why a previous "fix the markdown CSS" pass didn't help: the
- *    offending rules don't live in our codebase at all. */
-[dir="rtl"] .markstream-vue ol,
-[dir="rtl"] .markstream-vue ul,
-[dir="rtl"] .markstream-vue .list-decimal,
-[dir="rtl"] .markstream-vue .list-disc {
+ *    with physical sides: `padding-left` on lists, `pl-1.5` on items,
+ *    `border-left` + `padding-left` on quotes, `text-left` on table cells.
+ *    None of that flips, and the offending rules don't live in our codebase.
+ *
+ *    Lists: the marker gutter moves from the <ul>/<ol> onto each <li>, as a
+ *    logical margin. A list marker sits on its ITEM's start side, so keying
+ *    the gutter on the list (or on an `[dir="rtl"]` ancestor, as this rule
+ *    used to) clipped the marker whenever the two disagreed — an English list
+ *    inside a Hebrew answer, a Hebrew list in an English UI, a nested list.
+ *    useMarkdownAutoDir gives every item its list's direction; this rule
+ *    only has to follow the item. `!important` beats the library's
+ *    `.markstream-vue .list-disc` / `.list-node[data-v]` padding. */
+.markstream-vue :is(ol, ul) {
   padding-left: 0 !important;
-  padding-right: 1.625em !important;
-}
-[dir="rtl"] .markstream-vue .text-left { text-align: start; }
-[dir="rtl"] .markstream-vue .text-right { text-align: end; }
-
-/* 7a. markstream-vue tags every table cell with no explicit column alignment
- *     as `.text-left`. The rule above only fires when the whole UI is RTL, so
- *     a Hebrew/Arabic answer in an English UI got right-to-left cells pinned
- *     to the left edge. `start` follows each cell's direction, which
- *     useMarkdownAutoDir stamps (code-only cells take their table's
- *     direction). `:is(th, td)` beats the library's
- *     `.markstream-vue .text-left`, which loads after this sheet. */
-.markstream-vue :is(th, td).text-left { text-align: start; }
-
-/* 7b. Mixed-locale markdown: UI locale is LTR but the assistant answered
- *     in Hebrew/Arabic (or vice-versa). The <li>/<ol> can't see through
- *     nested `dir="auto"` descendants per the HTML spec's auto-directionality
- *     algorithm — so markers stay on the LTR edge. There is no pure-CSS fix
- *     (`:dir()` follows the same spec rule). The `useMarkdownAutoDir`
- *     composable estimates each block's dominant direction from its text and
- *     sets an explicit `dir="rtl"` / `dir="ltr"` on markdown block elements
- *     inside `.markdown-wrapper` / `.markdown-content` (the latter covers
- *     thinking/reasoning boxes); these rules swap list padding to the correct
- *     edge based on that attribute regardless of the document direction. */
-.markdown-wrapper ol[dir="rtl"],
-.markdown-wrapper ul[dir="rtl"],
-.markdown-content ol[dir="rtl"],
-.markdown-content ul[dir="rtl"] {
-  padding-left: 0 !important;
-  padding-right: 1.625em !important;
-}
-.markdown-wrapper ol[dir="ltr"],
-.markdown-wrapper ul[dir="ltr"],
-.markdown-content ol[dir="ltr"],
-.markdown-content ul[dir="ltr"] {
-  padding-left: 1.625em !important;
   padding-right: 0 !important;
 }
+.markstream-vue li {
+  margin-inline-start: 1.625em;
+}
+.markstream-vue li.list-item {
+  padding-left: 0;
+  padding-right: 0;
+  padding-inline-start: 0.375em;
+}
+.markstream-vue blockquote.blockquote {
+  border-left: 0;
+  border-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-inline-start: 0.25rem solid var(--blockquote-border-color, #e2e8f0);
+  padding-inline-start: 1em;
+}
+
+/* 7a. Table cells: markstream tags every cell with no explicit column
+ *     alignment as `.text-left`. `start` follows the cell's direction, which
+ *     useMarkdownAutoDir sets to its table's. `:is(th, td)` beats the
+ *     library's `.markstream-vue .text-left`, which loads after this sheet. */
+.markstream-vue :is(th, td).text-left { text-align: start; }
+/* A signed number ("+12%") in an RTL table is laid out LTR so its sign stays
+ * in front (useMarkdownAutoDir marks it); keep it on the table's right edge. */
+.markstream-vue :is(th, td).text-left[data-bidi-num] { text-align: right; }
+[dir="rtl"] .markstream-vue .text-right { text-align: end; }

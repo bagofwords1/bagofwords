@@ -119,12 +119,6 @@ export interface ArtifactIframeOptions {
    */
   colorMode?: 'light' | 'dark';
   /**
-   * The viewer's BOW language (e.g. 'he'), set as the iframe's <html lang>
-   * only (never dir: an artifact lays itself out). The sandbox globals read it
-   * for their own words, such as the table's "Search..." and "1–10 of 24".
-   */
-  locale?: string | null;
-  /**
    * The artifact code precompiled by the backend exactly as babel-standalone
    * would compile it here (ArtifactSchema.compiled_js / compiled_js_key).
    * Used only when `key` matches precompiledKey(code) for the code being
@@ -152,12 +146,6 @@ const LIB_HASHES: Record<string, string> =
   typeof __BOW_LIB_HASHES__ !== 'undefined' && __BOW_LIB_HASHES__ ? __BOW_LIB_HASHES__ : {};
 
 /** URL for a vendored lib, carrying its content hash when known. */
-/** The viewer's BOW language, as the i18n plugin set it on this page's <html
- * lang>. Read once per frame build, so a language switch does not reload it. */
-export function viewerLang(): string | null {
-  return typeof document !== 'undefined' ? document.documentElement.getAttribute('lang') : null;
-}
-
 export function libUrl(file: string, query = ''): string {
   const hash = LIB_HASHES[file];
   const parts = [query, hash ? `h=${hash}` : ''].filter(Boolean);
@@ -297,7 +285,7 @@ export function isHtmlSlidesCode(code: string): boolean {
 
 function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
   return `<!DOCTYPE html>
-<html>
+<html${hostDocAttrs()}>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="form-action 'none'">
@@ -313,8 +301,97 @@ function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
   <script>window.ARTIFACT_DATA = ${JSON.stringify(data).replace(/</g, '\\u003c')};${SC}
 
   ${code}
+  <script>${directionScript()}${SC}
 </body>
 </html>`;
+}
+
+/**
+ * `dir` / `lang` for the artifact document. The iframe is a separate document:
+ * it inherits nothing from the host, so without these a Hebrew dashboard laid
+ * out LTR and the sandbox components that "follow RTL" (Table, Drawer, Tabs)
+ * never saw RTL. Starts from the host UI's direction; directionScript() then
+ * corrects it from the rendered text.
+ */
+function hostDocAttrs(): string {
+  if (typeof document === 'undefined') return '';
+  const root = document.documentElement;
+  const dir = root.getAttribute('dir') === 'rtl' ? 'rtl' : 'ltr';
+  const lang = (root.getAttribute('lang') || '').replace(/[^A-Za-z0-9-]/g, '');
+  return ` dir="${dir}"${lang ? ` lang="${lang}"` : ''}`;
+}
+
+/**
+ * Sets the artifact's direction from its visible text — the dashboard's
+ * language follows its content (the planner writes in the user's language,
+ * rows come from the data), which may differ from the UI locale. Word vote,
+ * quantities neutral, RTL at >= 40% (same rule as utils/textDirection.ts).
+ * Respects a direction the artifact sets itself on <body> or its root
+ * element, and settles after the first few seconds so later filtering never
+ * flips the layout under the reader.
+ */
+function directionScript(): string {
+  return `
+    (function () {
+      var RTL = /[\\u0590-\\u08FF\\uFB1D-\\uFDFF\\uFE70-\\uFEFC]/, LTR = /[A-Za-z\\u00C0-\\u024F]/, QTY = /^[0-9$\\u20AC\\u00A3\\u20AA%+\\-(]/;
+      function authored() {
+        if (document.body && document.body.hasAttribute('dir')) return true;
+        var root = document.getElementById('root');
+        var first = root && root.firstElementChild;
+        return !!(first && first.hasAttribute && first.hasAttribute('dir'));
+      }
+      function vote() {
+        var rtl = 0, ltr = 0, words = (document.body.innerText || '').split(/\\s+/);
+        for (var i = 0; i < words.length; i++) {
+          var w = words[i];
+          if (!w || QTY.test(w)) continue;
+          for (var j = 0; j < w.length; j++) {
+            if (RTL.test(w[j])) { rtl++; break; }
+            if (LTR.test(w[j])) { ltr++; break; }
+          }
+        }
+        var total = rtl + ltr;
+        if (total < 8) return null;
+        return rtl / total >= 0.4 ? 'rtl' : 'ltr';
+      }
+      function apply() {
+        if (authored()) return;
+        var d = vote();
+        if (d && document.documentElement.getAttribute('dir') !== d) {
+          document.documentElement.setAttribute('dir', d);
+          markNumbers(target);
+          try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+        }
+      }
+      // A signed number ("+12%", "-2%") in RTL text is drawn with its sign
+      // after the digits ("12%+"). Mark leaf elements holding only such a
+      // value so the stylesheet below lays them out LTR. Keeps running: data
+      // refreshes re-render these values.
+      var SIGNED = /^[+\\-\\u2212\\u00B1]\\s?[$\\u20AC\\u00A3\\u20AA]?\\d[\\d.,]*\\s?[%\\u2030A-Za-z]{0,3}$/;
+      var style = document.createElement('style');
+      style.textContent = '[dir="rtl"] [data-bow-num]{direction:ltr;unicode-bidi:isolate}' +
+        ':where([dir="rtl"] [data-bow-num]){text-align:right}';
+      document.head.appendChild(style);
+      function markNumbers(root) {
+        if (document.documentElement.getAttribute('dir') !== 'rtl' || !root || !root.querySelectorAll) return;
+        var els = root.querySelectorAll('*');
+        for (var i = 0; i < els.length; i++) {
+          var el = els[i];
+          if (el.childElementCount) continue;
+          var signed = SIGNED.test((el.textContent || '').trim());
+          if (signed !== el.hasAttribute('data-bow-num')) el.toggleAttribute('data-bow-num', signed);
+        }
+      }
+      var timer = null, settled = false;
+      var target = document.getElementById('root') || document.body;
+      var obs = new MutationObserver(function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () { if (!settled) apply(); markNumbers(target); }, 120);
+      });
+      obs.observe(target, { childList: true, subtree: true, characterData: true });
+      setTimeout(function () { settled = true; apply(); markNumbers(target); }, 6000);
+    })();
+  `;
 }
 
 function polishScript(): string {
@@ -546,10 +623,9 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   const isolationPolicy = `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' ${assetOrigin}/libs/; style-src 'unsafe-inline' ${assetOrigin}/libs/; img-src data: blob: ${assetOrigin}${opts.resourceApp ? '' : ' https:'}; font-src data: ${assetOrigin}; connect-src 'none'; worker-src blob:; frame-src blob: data:; form-action 'none'; base-uri 'none';`;
   const polish = opts.polishMode ? polishScript() : '';
   const isDark = opts.colorMode === 'dark';
-  const lang = typeof opts.locale === 'string' && /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(opts.locale) ? opts.locale : '';
 
   return `<!DOCTYPE html>
-<html${lang ? ` lang="${lang}"` : ''}${isDark ? ' class="dark"' : ''}>
+<html${hostDocAttrs()}${isDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${isolationPolicy}">
@@ -597,7 +673,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
 
   ${plan.precompiledJs ? '' : opts.code}
 
-  <script>${readySignalScript()}${SC}
+  <script>${directionScript()}${readySignalScript()}${SC}
 </body>
 </html>`;
 }

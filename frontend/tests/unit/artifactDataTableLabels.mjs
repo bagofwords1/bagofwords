@@ -1,7 +1,7 @@
 // Real Chromium: DataTable's own words (search, CSV, "1–10 of 24", the empty
 // text) follow the app's language. `labels` wins; otherwise Hebrew or English
 // from a ChatResult hint (Hebrew chat labels), the frame's <html lang> (the
-// viewer's BOW language, set by buildArtifactIframeHtml's `locale`), and only
+// viewer's BOW language, which buildArtifactIframeHtml copies from the page), and only
 // without either, the table's own text. searchPlaceholder/emptyText still win.
 //
 //   cd frontend && PW_CHROMIUM_PATH=/path/to/chrome node tests/unit/artifactDataTableLabels.mjs
@@ -49,7 +49,9 @@ async function mount(body, locale) {
     window.__msgs = [];
     const f = document.createElement('iframe');
     f.name = name; f.sandbox = 'allow-scripts'; f.style.width = '1000px'; f.style.height = '900px';
-    f.srcdoc = exports.buildArtifactIframeHtml({data: {visualizations: [], runtime: {version: 11}}, code, reactBuild: 'development', locale});
+    // The frame takes the page's language (hostDocAttrs reads <html lang>).
+    if (locale) document.documentElement.setAttribute('lang', locale); else document.documentElement.removeAttribute('lang');
+    f.srcdoc = exports.buildArtifactIframeHtml({data: {visualizations: [], runtime: {version: 11}}, code, reactBuild: 'development'});
     document.body.appendChild(f);
   }, {code, name, locale});
   await page.waitForFunction(() => window.__msgs.length > 0, null, {timeout: 20000});
