@@ -9,9 +9,10 @@
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
       <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.createData.creating') }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.created') }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ t('tools.createData.creating') }}</span>
+      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ t('tools.createData.creating') }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
+      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
       <Transition name="fade-in" appear>
         <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
@@ -40,8 +41,8 @@
     </div>
 
     <!-- Stopped/Error message below header -->
-    <div v-if="status === 'stopped'" class="mt-1 ms-4 text-chat-2 text-ink-muted italic">{{ t('tools.common.generationStopped') }}</div>
-    <div v-else-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
+
+    <div v-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ lastErrorMessage }}
     </div>
 
@@ -78,7 +79,7 @@
           <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
             <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-            <Icon v-else-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-ink-muted" />
+            <Icon v-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
             <span v-if="isCodeGenerating && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.generatingCode') }}</span>

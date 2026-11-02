@@ -131,7 +131,7 @@
 					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
-					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
+					<ResponseLanguageScope :locale="m.prompt?.response_locale" :fallback-dir="replyDirHints.get(String(m.id))" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': m.id === pinnedId }">
 						<!-- Legacy compaction marker rows: hidden (the divider is
 						     state-derived from the watermark, rendered below) -->
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
@@ -296,7 +296,7 @@
 
 									</div>
 									<!-- Hover-reveal: copy + timestamp -->
-									<div class="absolute top-full end-0 flex items-center gap-2 pt-1 opacity-0 group-hover/usermsg:opacity-100 group-focus-within/usermsg:opacity-100 transition-opacity duration-150">
+									<div class="mt-1 flex items-center gap-2 opacity-0 group-hover/usermsg:opacity-100 group-focus-within/usermsg:opacity-100 transition-opacity duration-150">
 										<UTooltip :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
@@ -314,7 +314,7 @@
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
                                 <div class="flex w-full min-w-0 items-start gap-3" :dir="responseDir">
-                                    <div class="w-7 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
+                                    <div v-if="!isMobile" class="w-7 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
                                         <img :src="assistantLogoUrl" alt="" class="h-7 w-7 rounded object-contain" @error="assistantLogoFailed = true" />
                                     </div>
                                     <div class="assistant-content min-w-0 flex-1 text-start">
@@ -392,9 +392,6 @@
 																class="markdown-content"
 															/>
 														</template>
-														<template v-else-if="reasoningBlock.status === 'stopped'">
-															<div class="text-ink-muted italic">{{ responseT('reportView.generationStoppedBefore') }}</div>
-														</template>
 													</div>
 												</Transition>
 											</div>
@@ -404,7 +401,7 @@
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
-											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped')" class="thinking-box">
+											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning)" class="thinking-box">
 												<button type="button" class="thinking-header" :aria-expanded="!isReasoningCollapsed(block.id)" @click="toggleReasoning(block.id)">
 													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
@@ -428,9 +425,6 @@
 																:render-code-blocks-as-pre="true"
 																class="markdown-content"
 															/>
-														</template>
-														<template v-else-if="block.status === 'stopped'">
-															<div class="text-ink-muted italic">{{ responseT('reportView.generationStoppedBefore') }}</div>
 														</template>
 													</div>
 												</Transition>
@@ -553,7 +547,7 @@
                                     </div>
 
 									<!-- Show status messages for stopped/error completions -->
-									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success' && !hasClarifyBlock(m)">
+									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
 										<div class="flex items-center gap-1">
 											<UTooltip v-if="responseText(m)" :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'top' }">
 												<UButton
@@ -644,9 +638,9 @@
 											@select="handleFollowUpClick"
 										/>
 									</RevealTransition>
-									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
-										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
-										Generation stopped
+									<div v-if="m.status === 'stopped'" class="flex items-center gap-1 text-chat-3 text-ink-muted mt-2">
+										<Icon name="heroicons-stop-circle" class="w-4 h-4 shrink-0" />
+										{{ responseT('reportView.generationStopped') }}
 									</div>
 									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2">
 										{{ getMessageError(m) || 'An error occurred' }}
@@ -1764,12 +1758,8 @@ let transcriptResizeObserver: ResizeObserver | null = null
 // reader's own wheel/touch, the jump pill or the next send end the hold.
 const PIN_TOP_GAP_PX = 48
 const PIN_SCROLL_MS = 380
-// Leave the view alone when the sent prompt is visible with at least this
-// share of the view free below it for the answer to start in.
-const PIN_MIN_ROOM_RATIO = 0.35
 let pinScrolled = false
-// Where the held turn sits in the view: PIN_TOP_GAP_PX once scrolled to the
-// top, or wherever it already was when there was room and nothing moved.
+// Where the held turn sits, allowing room for the preceding footer.
 let pinOffsetPx = PIN_TOP_GAP_PX
 // Extra floor below the held position. The view grows when the composer's
 // "Working" row goes away at the end of a run; without slack that clamps the
@@ -3043,10 +3033,6 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
-function hasClarifyBlock(m: ChatMessage): boolean {
-	return (m.completion_blocks || []).some(b => b.tool_execution?.tool_name === 'clarify')
-}
-
 function getToolComponent(toolName: string) {
 	// Native per-list tools (submit_<list>) stream under their own name
 	// before the gateway rewrite to submit_list.
@@ -3579,8 +3565,7 @@ function animateScrollTo(container: HTMLElement, target: number) {
 }
 
 // The user just sent `messageId`. Its answer streams in below it without the
-// view chasing the bottom. If the prompt is already on screen with room under
-// it, nothing moves; otherwise the view eases the prompt up near the top.
+// view chasing the bottom. Every submission moves the prompt near the top.
 function pinTurnToTop(messageId: string) {
   pinnedId.value = messageId
   pinScrolled = false
@@ -3601,16 +3586,6 @@ function pinTurnToTop(messageId: string) {
     }
     const footerTop = footer ? offsetInContainer(footer, container) : null
     const topGap = footerTop === null ? PIN_TOP_GAP_PX : Math.max(PIN_TOP_GAP_PX, top - footerTop + 12)
-    const viewTop = container.scrollTop
-    const roomBelow = viewTop + container.clientHeight - (top + el.offsetHeight)
-    if (top >= viewTop && (footerTop === null || footerTop >= viewTop + 12) && roomBelow >= container.clientHeight * PIN_MIN_ROOM_RATIO) {
-      // Room to answer in place: don't scroll, but keep the turn where it is.
-      pinOffsetPx = top - viewTop
-      pinScrolled = true
-      updatePinSpacer()
-      startPinWatch()
-      return
-    }
     pinOffsetPx = topGap
     pinScrolled = true
     updatePinSpacer()
@@ -6322,6 +6297,10 @@ onMounted(async () => {
 /* One spacing rule for both directions; hidden event rows add no gaps. */
 .transcript-message:has(> *) ~ .transcript-message:has(> *) {
   margin-block-start: 2rem;
+}
+/* The user metadata row already adds separation above the answer. */
+.transcript-message[data-message-role="user"] + .transcript-message[data-message-role="system"] {
+  margin-block-start: 1rem;
 }
 
 .overflow-y-auto {

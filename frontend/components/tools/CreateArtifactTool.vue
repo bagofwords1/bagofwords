@@ -10,11 +10,12 @@
 
       <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
       <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ runningLabel }}</span>
+      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ runningLabel }}</span>
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ errorLabel }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createArtifact.create') }}</span>
 
       <!-- Mode Badge -->
+      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
       <Transition name="fade-in" appear>
         <span
           v-if="artifactMode"
@@ -59,8 +60,8 @@
       </div>
 
       <!-- Stopped/Error message -->
-      <div v-if="status === 'stopped'" class="mt-1 ms-[18px] text-chat-2 text-ink-muted italic">{{ t('tools.createArtifact.generationStopped') }}</div>
-      <div v-else-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-chat-2 text-gray-500 dark:text-gray-400">
+
+      <div v-if="status === 'error' && errorMessage" class="mt-1 ms-[18px] text-chat-2 text-gray-500 dark:text-gray-400">
         {{ errorMessage }}
       </div>
 
