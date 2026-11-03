@@ -17,11 +17,11 @@ assert.equal(
 assert.equal(escapeNonMathDollars('between $5-$10'), 'between \\$5-\\$10')
 // Space after the opener or before the closer: not math.
 assert.equal(escapeNonMathDollars('a $ b $ c'), 'a \\$ b \\$ c')
-// Genuine inline math is left alone.
-assert.equal(escapeNonMathDollars('where $x^2 + y^2 = r^2$ holds'), 'where $x^2 + y^2 = r^2$ holds')
-assert.equal(escapeNonMathDollars('$a$ and $b$'), '$a$ and $b$')
-// Currency before a formula: the amount is escaped, the formula is kept.
-assert.equal(escapeNonMathDollars('costs $5 so $x=5$'), 'costs \\$5 so $x=5$')
+// Single-dollar math syntax is now literal text.
+assert.equal(escapeNonMathDollars('where $x^2 + y^2 = r^2$ holds'), 'where \\$x^2 + y^2 = r^2\\$ holds')
+assert.equal(escapeNonMathDollars('$a$ and $b$'), '\\$a\\$ and \\$b\\$')
+// Currency and single-dollar formula notation both stay literal.
+assert.equal(escapeNonMathDollars('costs $5 so $x=5$'), 'costs \\$5 so \\$x=5\\$')
 // Display math, \( \) and already-escaped dollars are untouched.
 assert.equal(escapeNonMathDollars('$$E = mc^2$$'), '$$E = mc^2$$')
 assert.equal(escapeNonMathDollars('\\(a+b\\) costs \\$3'), '\\(a+b\\) costs \\$3')
@@ -62,7 +62,7 @@ assert.ok(!types('Revenue was $2,329 and $5.65 per invoice.').includes('math_inl
 assert.equal(text('Revenue was $2,329 and $5.65 per invoice.'), 'Revenue was $2,329 and $5.65 per invoice.')
 
 // A genuine formula next to currency still renders as math.
-const mixed = 'At $5.65 each, revenue is $R = p \\cdot q$ for the period.'
+const mixed = 'At $5.65 each, revenue is \\(R = p \\cdot q\\) for the period.'
 const mathNodes = flat(nodesOf(mixed)).filter((n) => n.type === 'math_inline')
 assert.equal(mathNodes.length, 1)
 assert.equal(mathNodes[0].content, 'R = p \\cdot q')
@@ -77,3 +77,8 @@ assert.ok(fenced && fenced.code.includes('echo $A and $B'))
 assert.ok(!types('| a | b |\n|---|---|\n| $1,200 | $3.40 |').includes('math_inline'))
 
 console.log('currency dollars render as text; real inline math still renders')
+
+// Suffix currency in RTL prose must preserve names, spaces and amounts.
+const rtlReply = 'המובילים: Helena Holý עם 49.62$, Richard Cunningham עם 47.62$, Luis Rojas עם 46.62$.'
+assert.ok(!types(rtlReply).includes('math_inline'))
+assert.equal(text(rtlReply), rtlReply)

@@ -112,6 +112,11 @@
                                 <UCheckbox v-model="selectedProvider.credentials.verify_ssl" />
                                 <label class="text-sm text-gray-700 dark:text-gray-300">Verify SSL</label>
                             </div>
+                            <div class="flex items-center gap-2 mt-3">
+                                <UCheckbox v-model="selectedProvider.credentials.use_responses_api" />
+                                <label class="text-sm text-gray-700 dark:text-gray-300">Use Responses API</label>
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('settings.llms.responsesApiCustomHint') }}</p>
                         </div>
                         <!-- Vertex: existing provider edit -->
                         <template v-if="selectedProvider?.provider_type === 'vertex' || selectedProvider?.type === 'vertex'">
@@ -550,6 +555,13 @@
                             <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
                                 <UCheckbox v-model="providerForm.credentials.verify_ssl" />
                                 <label class="text-sm text-gray-700 dark:text-gray-300">Verify SSL</label>
+                            </div>
+                            <div v-if="providerForm.provider_type === 'custom'" class="mt-3">
+                                <div class="flex items-center gap-2">
+                                    <UCheckbox v-model="providerForm.credentials.use_responses_api" />
+                                    <label class="text-sm text-gray-700 dark:text-gray-300">Use Responses API</label>
+                                </div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('settings.llms.responsesApiCustomHint') }}</p>
                             </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                                 <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">
@@ -1502,8 +1514,8 @@ watch(selectedProvider, (newValue) => {
         if ((newValue.provider_type === 'openai' || newValue.type === 'openai' || newValue.provider_type === 'azure' || newValue.type === 'azure')) {
             (newValue.credentials as any).enable_web_search = !!(newValue as any)?.additional_config?.enable_web_search;
         }
-        // Hydrate the Azure Responses-API opt-in from additional_config
-        if ((newValue.provider_type === 'azure' || newValue.type === 'azure')) {
+        // Hydrate the Azure / Custom Responses-API opt-in from additional_config
+        if ((newValue.provider_type === 'azure' || newValue.type === 'azure' || newValue.provider_type === 'custom' || newValue.type === 'custom')) {
             (newValue.credentials as any).use_responses_api = !!(newValue as any)?.additional_config?.use_responses_api;
         }
         // Ensure base_url and verify_ssl fields exist for Custom so users can view/update them

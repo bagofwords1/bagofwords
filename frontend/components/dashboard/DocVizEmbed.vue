@@ -9,14 +9,14 @@
       <span class="text-xs text-ink-muted">
         {{ !viz ? $t('docViewer.vizUnavailable') : $t('docViewer.vizRenderFailed') }}
       </span>
-      <span v-if="viz?.title" class="text-2xs text-gray-300 dark:text-gray-600">{{ viz.title }}</span>
+      <span v-text-dir v-if="viz?.title" class="text-2xs text-gray-300 dark:text-gray-600">{{ viz.title }}</span>
     </div>
 
     <template v-else>
       <div
         class="rounded-lg border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden"
       >
-        <div v-if="viz.title" class="px-4 pt-3 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+        <div v-text-dir v-if="viz.title" class="px-4 pt-3 pb-1 text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ viz.title }}
         </div>
         <!-- Chart types -->

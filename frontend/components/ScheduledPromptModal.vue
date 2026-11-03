@@ -96,7 +96,7 @@
             <!-- Title -->
             <div class="mb-3">
                 <div class="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('scheduledPrompt.titleLabel') }}</div>
-                <input
+                <input v-text-dir
                     v-model="taskTitle"
                     type="text"
                     maxlength="120"

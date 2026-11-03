@@ -16,22 +16,24 @@
 export type ChatWidth = 'standard' | 'wide'
 
 /*
- * Four steps, not a free slider: a slider invites 1.07x, which lands chat
+ * Five steps, not a free slider: a slider invites 1.07x, which lands chat
  * text on a half-pixel and makes every line box in the transcript reflow
- * differently. As fractions of the 16px root these are 14 / 16 / 18 / 20px.
+ * differently. As fractions of the 16px root these are 14 / 15 / 16 / 18 / 20px.
  *
- * The default is the first step, 14px, which is where the comparable agent
- * interfaces sit — see the note in assets/css/tokens.css. The steps above
- * it are the escape hatch, not the intent.
+ * The default is 14px; larger steps remain personal reader choices.
  */
-export const CHAT_TEXT_SCALES = [0.875, 1, 1.125, 1.25] as const
+export const CHAT_TEXT_SCALES = [0.875, 0.9375, 1, 1.125, 1.25] as const
 export type ChatTextScale = (typeof CHAT_TEXT_SCALES)[number]
 
 export const DEFAULT_CHAT_WIDTH: ChatWidth = 'standard'
 export const DEFAULT_CHAT_TEXT_SCALE: ChatTextScale = 0.875
 
 const WIDTH_KEY = 'bow.chat.width'
-const SCALE_KEY = 'bow.chat.textScale'
+/* v3 resets the previous 15px default while retaining larger reader choices. */
+const SCALE_KEY = 'bow.chat.textScale.v3'
+const PREVIOUS_SCALE_KEY = 'bow.chat.textScale.v2'
+const LEGACY_SCALE_KEY = 'bow.chat.textScale'
+const LEGACY_DEFAULT_SCALE = 0.875
 
 function isChatWidth(value: unknown): value is ChatWidth {
   return value === 'standard' || value === 'wide'
@@ -54,6 +56,41 @@ function readStored<T>(key: string, guard: (v: unknown) => v is T): T | null {
     if (raw === null) return null
     const parsed: unknown = key === SCALE_KEY ? Number(raw) : raw
     return guard(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/* What a legacy (v1) stored scale means today: a larger step is a choice the
+   reader made and carries over; the old default (14px) or anything unknown
+   means "no choice", so the current default applies. */
+export function migrateLegacyTextScale(raw: string | null): ChatTextScale | null {
+  if (raw === null) return null
+  const value = Number(raw)
+  if (value === LEGACY_DEFAULT_SCALE) return null
+  return isChatTextScale(value) ? value : null
+}
+
+function readTextScale(): ChatTextScale | null {
+  const current = readStored(SCALE_KEY, isChatTextScale)
+  if (current !== null) return current
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const previous = localStorage.getItem(PREVIOUS_SCALE_KEY)
+    if (previous !== null) {
+      const value = Number(previous)
+      const migrated = value === 0.9375 ? DEFAULT_CHAT_TEXT_SCALE
+        : isChatTextScale(value) ? value : DEFAULT_CHAT_TEXT_SCALE
+      localStorage.setItem(SCALE_KEY, String(migrated))
+      localStorage.removeItem(PREVIOUS_SCALE_KEY)
+      return migrated
+    }
+    const legacy = localStorage.getItem(LEGACY_SCALE_KEY)
+    if (legacy === null) return null
+    localStorage.removeItem(LEGACY_SCALE_KEY)
+    const migrated = migrateLegacyTextScale(legacy)
+    if (migrated !== null) localStorage.setItem(SCALE_KEY, String(migrated))
+    return migrated
   } catch {
     return null
   }
@@ -86,7 +123,7 @@ export function useChatDisplay() {
   /* Called once from `plugins/chat-display.client.ts`. */
   function hydrate() {
     width.value = readStored(WIDTH_KEY, isChatWidth) ?? DEFAULT_CHAT_WIDTH
-    textScale.value = readStored(SCALE_KEY, isChatTextScale) ?? DEFAULT_CHAT_TEXT_SCALE
+    textScale.value = readTextScale() ?? DEFAULT_CHAT_TEXT_SCALE
     apply()
   }
 

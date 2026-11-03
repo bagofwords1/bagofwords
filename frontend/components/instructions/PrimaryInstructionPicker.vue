@@ -48,14 +48,14 @@
                     :class="inst.id === currentInstructionId ? 'bg-blue-50/50 dark:bg-blue-950' : ''"
                 >
                     <div class="flex items-center gap-1.5">
-                        <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
+                        <span v-text-dir class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
                             {{ inst.title || 'Untitled instruction' }}
                         </span>
                         <span v-if="inst.id === currentInstructionId" class="text-2xs px-1 py-0.5 bg-blue-100 dark:bg-blue-900/50 text-blue-700 rounded shrink-0">
                             Current
                         </span>
                     </div>
-                    <div class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
+                    <div v-text-dir.align class="text-2xs text-gray-500 dark:text-gray-400 line-clamp-2 mt-0.5">
                         {{ inst.preview ?? inst.text }}
                     </div>
                 </button>

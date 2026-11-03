@@ -27,7 +27,7 @@
   font-size: 13px;
   line-height: 1.625;
   color: #111827;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, ui-sans-serif, system-ui, sans-serif;
   /* `start` resolves against each block's own dir (set per block from its first
    * strong character), so RTL blocks right-align. */
   text-align: start;
@@ -58,13 +58,17 @@
 .instruction-prose p:last-child,
 .tiptap-prose p:last-child { margin-bottom: 0; }
 
-/* ── Lists — logical padding puts markers on the start edge under RTL ───── */
+/* ── Lists — the marker gutter sits on each item's own start edge ──────────
+ * A marker is drawn on its ITEM's start side, so the gutter is a logical
+ * margin on the <li>, not padding on the list: an item whose direction
+ * differs from its list's (an English sentence bullet in a Hebrew list) still
+ * has room for its marker instead of clipping it. */
 .instruction-prose ul,
-.tiptap-prose ul { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
+.tiptap-prose ul { padding-inline-start: 0; list-style: disc; margin-bottom: 0.5em; }
 .instruction-prose ol,
-.tiptap-prose ol { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
+.tiptap-prose ol { padding-inline-start: 0; list-style: decimal; margin-bottom: 0.5em; }
 .instruction-prose li,
-.tiptap-prose li { margin-bottom: 0.2em; }
+.tiptap-prose li { margin-bottom: 0.2em; margin-inline-start: 1.25em; }
 /* Nested lists sit inside their parent item, not as a second block after it. */
 .instruction-prose li > ul, .instruction-prose li > ol,
 .tiptap-prose li > ul, .tiptap-prose li > ol { margin-top: 0.2em; margin-bottom: 0; }
@@ -159,6 +163,13 @@
   margin: 0.6em 0;
   max-width: 100%;
 }
+/* The wrapper takes its table's direction: a narrow RTL table then sits on
+ * the right edge with the RTL text around it (not stranded on the left), and
+ * a wide one scrolls from its first column. */
+.instruction-prose .md-table-wrap:has(> table[dir="rtl"]),
+.tiptap-prose .tableWrapper:has(> table[dir="rtl"]) { direction: rtl; }
+.instruction-prose .md-table-wrap:has(> table[dir="ltr"]),
+.tiptap-prose .tableWrapper:has(> table[dir="ltr"]) { direction: ltr; }
 
 .instruction-prose table,
 .tiptap-prose table {
@@ -189,6 +200,11 @@
   text-align: start;
   vertical-align: top;
 }
+
+/* A signed number ("+12%") in an RTL table is laid out LTR so its sign stays
+ * in front (see resolveDirTree); keep it on the table's right edge. */
+.instruction-prose :is(th, td)[data-bidi-num],
+.tiptap-prose :is(th, td)[data-bidi-num] { text-align: right; }
 
 /* Cell content is already block-level; drop the paragraph gap so a one-line
  * cell is one line tall. */

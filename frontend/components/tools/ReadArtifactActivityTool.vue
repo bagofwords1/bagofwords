@@ -24,7 +24,7 @@
       </template>
     </div>
 
-    <p v-if="!isRunning && errorMessage" class="ms-4 mt-0.5 text-2xs text-ink-muted">{{ errorMessage }}</p>
+    <p v-if="!isRunning && errorMessage" class="ms-4 mt-0.5 text-chat-2 text-ink-muted">{{ errorMessage }}</p>
 
     <Transition name="slide">
       <div
@@ -33,12 +33,12 @@
         dir="ltr"
       >
         <!-- One event's detail -->
-        <div v-if="single" class="p-2 space-y-1 text-2xs font-mono leading-snug">
+        <div v-if="single" class="p-2 space-y-1 text-chat-2 font-mono leading-snug">
           <div :class="isFailedEvent(single) ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'">{{ single.line }}</div>
           <pre v-if="singleDetail" class="m-0 whitespace-pre-wrap break-words text-gray-500 dark:text-gray-400">{{ singleDetail }}</pre>
         </div>
         <!-- Event list -->
-        <ul v-else class="py-1 text-2xs font-mono leading-snug">
+        <ul v-else class="py-1 text-chat-2 font-mono leading-snug">
           <li
             v-for="ev in events"
             :key="ev.id"
@@ -53,9 +53,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: { status: string; result_json?: any; arguments_json?: any }

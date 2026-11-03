@@ -6,22 +6,22 @@
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''">{{ $t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
+            <span :key="queryLabel || ''">{{ t('tools.searchInstructions.searching', { query: queryLabel }) }}</span>
           </Transition>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
           <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''" class="align-middle">{{ $t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
+            <span :key="queryLabel || ''" class="align-middle">{{ t('tools.searchInstructions.searched', { query: queryLabel }) }}</span>
           </Transition>
-          <span v-if="total > 0" class="ms-1.5 text-2xs text-ink-muted">· {{ total === 1 ? $t('tools.searchInstructions.matchSingular', { count: total }) : $t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
+          <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total === 1 ? t('tools.searchInstructions.matchSingular', { count: total }) : t('tools.searchInstructions.matchPlural', { count: total }) }}</span>
         </span>
       </div>
     </Transition>
 
     <!-- Results list -->
     <Transition name="fade" appear>
-      <div v-if="instructions.length" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="instructions.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in instructions" :key="item.id || idx">
             <!-- Header row -->
@@ -35,8 +35,8 @@
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">
                 {{ displayTitle(item) }}
               </div>
-              <span v-if="item.category" class="ms-1.5 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
-              <span v-if="item.load_mode" class="ms-1 text-2xs px-1 py-0.5 rounded flex-shrink-0"
+              <span v-if="item.category" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
+              <span v-if="item.load_mode" class="ms-1 text-chat-3 px-1 py-0.5 rounded flex-shrink-0"
                 :class="item.load_mode === 'always' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">
                 {{ getLoadModeLabel(item.load_mode) }}
               </span>
@@ -44,16 +44,16 @@
             <!-- Detail row -->
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-2">
-                <div class="instruction-content text-xs text-gray-700 dark:text-gray-300 leading-relaxed mb-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
+                <div class="instruction-content text-chat-2 text-gray-700 dark:text-gray-300 leading-relaxed mb-1 cursor-pointer hover:text-gray-900 dark:hover:text-white"
                      @click="emit('openInstruction', item.id)">
                   <InstructionText :text="item.text || ''" :markdown="true" />
                 </div>
                 <button
-                  class="text-2xs text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5"
+                  class="text-chat-2 text-blue-600 hover:text-blue-800 inline-flex items-center gap-0.5"
                   @click="emit('openInstruction', item.id)"
                 >
                   <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                  <span>{{ $t('tools.searchInstructions.open') }}</span>
+                  <span>{{ t('tools.searchInstructions.open') }}</span>
                 </button>
               </div>
             </Transition>
@@ -63,20 +63,20 @@
     </Transition>
 
     <!-- Empty state (after search completes with no results) -->
-    <div v-if="status !== 'running' && !instructions.length" class="text-xs text-ink-muted ms-1">
-      {{ $t('tools.searchInstructions.empty') }}
+    <div v-if="status !== 'running' && !instructions.length" class="text-chat-2 text-ink-muted ms-1">
+      {{ t('tools.searchInstructions.empty') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 interface ToolExecution {
   id: string
@@ -158,20 +158,14 @@ function displayTitle(item: any): string {
   transform: translateY(2px);
 }
 
-.instruction-content :deep(.markdown-content) {
-  font-size: 12px;
-  line-height: 1.5;
+/* The instruction body follows the chat text size, one step below the answer
+   (text-chat-2). instruction-prose.css styles the rest and keeps 13px for the
+   Knowledge pages and the editor, so the size is set here, for the chat. */
+.instruction-content :deep(.instruction-prose) {
+  font-size: var(--bow-chat-font-size-2);
+  line-height: 1.6;
 }
-.instruction-content :deep(.markdown-content p) {
-  margin: 0 0 0.4em 0;
-}
-.instruction-content :deep(.markdown-content p:last-child) {
-  margin-bottom: 0;
-}
-.instruction-content :deep(.markdown-content code) {
-  font-size: 10px;
-  padding: 0.1em 0.3em;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
+.instruction-content :deep(.instruction-prose pre code) {
+  font-size: 0.9em;
 }
 </style>

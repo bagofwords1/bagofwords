@@ -1140,6 +1140,7 @@
       "textSize": "גודל טקסט",
       "pixels": "{n}px",
       "scales": {
+        "small": "קטן",
         "default": "ברירת מחדל",
         "large": "גדול",
         "larger": "גדול יותר",
@@ -3475,6 +3476,7 @@
       "azureFoundryHint": "יש תמיכה גם ב-Azure OpenAI וגם ב-Azure AI Foundry. מזהה המודל הוא שם ה-deployment שלך.",
       "responsesApiHint": "שימוש ב-Responses API במקום ב-Chat Completions. נדרש לחיפוש באינטרנט, וזמין רק באזורים שתומכים ב-Responses API.",
       "responsesApiFoundryHint": "ב-Foundry זה חל על deployments של OpenAI בלבד.",
+      "responsesApiCustomHint": "שימוש ב-Responses API במקום Chat Completions. הפעילו אם השרת מחזיר קריאות לכלים ב-/v1/responses אך משמיט אותן ב-Chat Completions (למשל gpt-oss על vLLM או NVIDIA NIM).",
       "colCost": "עלות ($/מיליון)",
       "colRouting": "ניתוב",
       "autoRouter": "נתב אוטומטי",
@@ -4778,6 +4780,15 @@
       "reload": "טעינה מחדש",
       "stillRunning": "השאילתות עדיין רצות. נסו שוב בעוד רגע.",
       "stillFailing": "{failed} עדיין נכשלו בהרצה מחדש."
+    },
+    "keepFailed": {
+      "title": "חלק מהתרשימים לא התעדכנו",
+      "body": "בפרסום כל התרשימים רצים מחדש. אלה נכשלו הפעם:",
+      "bodyKeep": "אפשר לפרסם אותם עם הנתונים שהם מציגים עכשיו. כל שאר התרשימים יפורסמו עם נתונים עדכניים.",
+      "cannotKeep": "אין נתונים לשמור",
+      "publish": "פרסום עם הנתונים האחרונים שלהם",
+      "cancel": "ביטול",
+      "publishedKept": "{names} שמר על הנתונים הקודמים. | {n} תרשימים שמרו על הנתונים הקודמים: {names}"
     }
   },
   "artifactActivity": {

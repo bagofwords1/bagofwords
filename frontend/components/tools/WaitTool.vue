@@ -2,7 +2,7 @@
   <div class="mt-1 mb-2" dir="auto">
     <!-- Compact pill: clock + label + live countdown, X to cancel on the right -->
     <div
-      class="inline-flex items-center gap-2 ps-2.5 pe-1.5 py-1 rounded-full border text-xs transition-colors duration-150"
+      class="inline-flex items-center gap-2 ps-2.5 pe-1.5 py-1 rounded-full border text-chat-2 transition-colors duration-150"
       :class="cancelled
         ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-ink-muted'
         : 'border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300'"
@@ -14,24 +14,24 @@
       />
 
       <!-- Cancelled -->
-      <span v-if="cancelled" class="font-medium">{{ $t('tools.wait.cancelled') }}</span>
+      <span v-if="cancelled" class="font-medium">{{ t('tools.wait.cancelled') }}</span>
 
       <!-- Transcript: the wait is a finished fact, not a countdown -->
       <span v-else-if="readonly" class="font-medium">
-        {{ waitedMinutes ? $t('tools.wait.waitedMinutes', { count: waitedMinutes }) : $t('tools.wait.waited') }}
+        {{ waitedMinutes ? t('tools.wait.waitedMinutes', { count: waitedMinutes }) : t('tools.wait.waited') }}
       </span>
 
       <!-- Elapsed → agent is resuming -->
-      <span v-else-if="elapsed" class="font-medium tool-shimmer">{{ $t('tools.wait.resuming') }}</span>
+      <span v-else-if="elapsed" class="font-medium tool-shimmer">{{ t('tools.wait.resuming') }}</span>
 
       <!-- Counting down -->
       <template v-else>
-        <span class="font-medium">{{ $t('tools.wait.waiting') }}</span>
+        <span class="font-medium">{{ t('tools.wait.waiting') }}</span>
         <span class="tabular-nums font-semibold tracking-tight">{{ countdown }}</span>
         <button
           type="button"
-          :title="$t('tools.wait.cancel')"
-          :aria-label="$t('tools.wait.cancel')"
+          :title="t('tools.wait.cancel')"
+          :aria-label="t('tools.wait.cancel')"
           :disabled="cancelling"
           @click="cancel"
           class="ms-0.5 w-5 h-5 flex items-center justify-center rounded-full text-sky-400 hover:text-white hover:bg-sky-500 disabled:opacity-40 transition-colors duration-100"
@@ -42,13 +42,15 @@
     </div>
 
     <!-- The instruction that will run on resume (subtle, one line) -->
-    <p v-if="reason && !cancelled" class="mt-1.5 ms-1 text-2xs text-ink-muted truncate max-w-md" dir="auto">
+    <p v-if="reason && !cancelled" class="mt-1.5 ms-1 text-chat-2 text-ink-muted truncate max-w-md" dir="auto">
       {{ reason }}
     </p>
   </div>
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 interface ToolExecution {

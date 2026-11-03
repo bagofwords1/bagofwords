@@ -80,49 +80,46 @@
 
   /* --- chat measure and reading size ----------------------------------- */
   /*
-   * Chat body type: the `sm` step (14px), multiplied by the reader's own
-   * preference. Not a new size — at 1x it is exactly `text-sm` — it is that
-   * step made adjustable, because reading size is the one typographic
-   * choice the reader is better placed to make than we are. Stored per
+   * Chat body type: 1rem multiplied by the reader's own preference
+   * (`--bow-chat-text-scale`), adjustable because reading size is the one
+   * typographic choice the reader is better placed to make than we are. Stored per
    * browser in `localStorage['bow.chat.textScale']` and applied to <html>
    * by `plugins/chat-display.client.ts`, the same way the locale is.
    *
-   * 14px is measured, not chosen by taste. Two comparable agent interfaces
-   * — the kind that interleave tool activity with prose, as our transcript
-   * does — render body copy at ~14px and ~13.4px, calibrated from
-   * screenshots against a known on-screen reference. General-purpose chat
-   * products sit higher, at 15-17px, but they are the wrong comparison: a
-   * transcript here carries tables, query results and tool cards, and the
-   * density that buys is the product.
+   * 14px with a 23px line height at the default reader size. Larger
+   * reader steps scale proportionally; the column keeps its existing width.
    */
   --bow-chat-text-scale: 0.875;
   --bow-chat-font-size: calc(1rem * var(--bow-chat-text-scale));
-  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 1.5);
+  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 23 / 14);
 
   /*
    * Two derived steps, so a message is one ramp instead of three systems.
-   * The ratios are 13/14 and 11/14: they hold the old pixel values at the
-   * default scale and keep their relationship at every other step, which a
+   * The ratios are 13/14 and 12/14 (13px and 12px at the 14px
+   * default) and keep their relationship at every reader step, which a
    * pinned `13px` could not do — it stayed put while body copy grew.
    *   -2  code, collapsed reasoning, tool-card labels
    *   -3  badges, ids, durations — true metadata only
    */
   --bow-chat-font-size-2: calc(var(--bow-chat-font-size) * 0.9286);
-  --bow-chat-font-size-3: calc(var(--bow-chat-font-size) * 0.7857);
+  --bow-chat-font-size-3: calc(var(--bow-chat-font-size) * 0.857143);
 
   /*
-   * The conversation measure, expressed as a multiple of the chat font
-   * rather than a fixed width: ~48 characters-per-em works out to ~96
-   * characters per line, and it stays ~96 at every reader step. A fixed
-   * column cannot do that — at the largest step the text grows while the
-   * column does not, and the line gets cramped instead of staying legible.
+   * The conversation measure, in multiples of the chat font so it scales with
+   * the reader's text size, and proportional to the screen between a floor
+   * and a cap so it grows smoothly instead of in breakpoint jumps:
+   * 51.2 … 45vw … 57 times the measure font (at least 15px): 768px on laptops and up to ~1700px
+   * windows (about 90 characters a line, the usual chat column), growing
+   * only on large monitors to a cap of ~855px (longer lines stop being
+   * comfortable to read). The "wide" display option lifts the cap.
    *
-   * At the default this computes to 672px, which is what the transcript
-   * already used; the defect was never that number on its own, it was that
-   * the composer and the landing page each had a different one, and that
-   * nothing moved when the reader asked for larger text.
+   * Everything in the transcript — text, tables, tool cards, data previews —
+   * stays inside this one column: nothing breaks out wider than the chat.
+   * It is a maximum: the transcript is `w-full`, so a narrow pane (the split
+   * view, mobile) still fits.
    */
-  --bow-measure-chat: calc(48 * var(--bow-chat-font-size));
+  --bow-chat-measure-font-size: max(0.9375rem, var(--bow-chat-font-size));
+  --bow-measure-chat: clamp(calc(51.2 * var(--bow-chat-measure-font-size)), 45vw, calc(57 * var(--bow-chat-measure-font-size)));
 
   /* --- elevation ------------------------------------------------------- */
   /* Two-layer, low-alpha. Tailwind's defaults read grey and muddy against

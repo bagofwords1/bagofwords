@@ -20,7 +20,7 @@ const error = computed(() => rj.value.error_message || '')
 </script>
 
 <template>
-  <div class="mt-1 text-xs">
+  <div class="mt-1 text-chat-2">
     <!-- Running: spinner + shimmer -->
     <span v-if="status === 'running'" class="flex items-center text-gray-500 dark:text-gray-400">
       <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />

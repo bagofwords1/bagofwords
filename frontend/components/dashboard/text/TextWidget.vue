@@ -55,9 +55,12 @@ const contentHtml = computed(() => DOMPurify.sanitize(widget?.value?.content || 
 :deep(.rendered-html a) { color: #60a5fa; text-decoration: underline; }
 :deep(.rendered-html strong) { font-weight: 600; }
 :deep(.rendered-html em) { font-style: italic; }
-:deep(.rendered-html ul), :deep(.rendered-html ol) { margin: 0.5rem 0 0.5rem 1.5rem; padding-left: revert; }
+/* Logical sides: the marker gutter and quote bar follow each block's own
+   direction (stamped by useMarkdownAutoDir), so Hebrew text flips them. */
+:deep(.rendered-html ul), :deep(.rendered-html ol) { margin: 0.5rem 0; padding: 0; }
+:deep(.rendered-html li) { margin-inline-start: 1.5rem; }
 :deep(.rendered-html li) { margin-bottom: 0.2rem; display: list-item; }
-:deep(.rendered-html blockquote) { border-left: 3px solid rgba(148, 163, 184, 0.3); padding-left: 1rem; margin: 0.5rem 0; }
+:deep(.rendered-html blockquote) { border-inline-start: 3px solid rgba(148, 163, 184, 0.3); padding-inline-start: 1rem; margin: 0.5rem 0; }
 :deep(.rendered-html code) { background-color: rgba(148, 163, 184, 0.15); padding: 2px 4px; border-radius: 3px; font-size: 0.9em; font-family: monospace; }
 :deep(.rendered-html pre) { background-color: rgba(148, 163, 184, 0.12); padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-family: monospace; white-space: pre-wrap; }
 </style>

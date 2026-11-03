@@ -3161,6 +3161,7 @@
       "azureFoundryHint": "Både Azure OpenAI och Azure AI Foundry stöds. Modell-ID:t är namnet på din distribution.",
       "responsesApiHint": "Använd Responses-API:et i stället för Chat Completions. Krävs för webbsökning och finns bara i regioner som stöder Responses-API:et.",
       "responsesApiFoundryHint": "På Foundry gäller det bara OpenAI-distributioner.",
+      "responsesApiCustomHint": "Use the Responses API instead of Chat Completions. Turn on if your server returns tool calls on /v1/responses but drops them on Chat Completions (e.g. gpt-oss on vLLM or NVIDIA NIM).",
       "colCost": "Kostnad ($/M)",
       "colRouting": "Routning",
       "autoRouter": "Automatisk routning",

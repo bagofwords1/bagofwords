@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss'
+import defaultTheme from 'tailwindcss/defaultTheme'
 
 /*
  * The app shell's design system.
@@ -28,6 +29,16 @@ import type { Config } from 'tailwindcss'
 export default <Partial<Config>>{
   theme: {
     extend: {
+      /*
+       * The Apple system font comes first. `ui-sans-serif` names SF Pro
+       * alone, which has no Hebrew, so Chrome on macOS picked its own (larger)
+       * fallback for Hebrew; `-apple-system` is the system font family, Hebrew
+       * included — the stack comparable chat products lead with. Latin text
+       * renders the same either way; other platforms are unaffected.
+       */
+      fontFamily: {
+        sans: ['-apple-system', 'BlinkMacSystemFont', ...defaultTheme.fontFamily.sans],
+      },
       /*
        * Semantic colors, backed by the variables in tokens.css.
        *
@@ -115,8 +126,8 @@ export default <Partial<Config>>{
        * box you type into the same width as the text you read back — they
        * had drifted to 672px and ~53vw respectively, so the composer
        * visibly resized the moment a report was created. It is a multiple
-       * of the chat font (see tokens.css), so line length stays ~96
-       * characters at every reader step instead of only at the default.
+       * of the chat font clamped to the screen (see tokens.css), so it scales
+       * with the reader's text size and grows with the screen.
        */
       maxWidth: {
         chat: 'var(--bow-measure-chat)',

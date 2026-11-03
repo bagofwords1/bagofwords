@@ -22,7 +22,7 @@
           <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
           <Icon v-else name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted" />
           <span class="align-middle">{{ statusLabel }}</span>
-          <UTooltip v-if="isCached" :text="$t('tools.runQuery.cachedHint')">
+          <UTooltip v-if="isCached" :text="t('tools.runQuery.cachedHint')">
             <Icon name="heroicons-bolt" class="w-2.5 h-2.5 ms-1 text-amber-500 flex-shrink-0" />
           </UTooltip>
         </span>
@@ -46,13 +46,13 @@
     </Transition>
 
     <!-- Missing parameters: what the agent still needs from the user -->
-    <div v-if="!detailsCollapsed && missingParams.length" class="ms-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
-      {{ $t('tools.runQuery.needsValues') }}
+    <div v-if="!detailsCollapsed && missingParams.length" class="ms-4 mt-1 text-chat-2 text-gray-500 dark:text-gray-400">
+      {{ t('tools.runQuery.needsValues') }}
       <span class="font-medium">{{ missingParams.map((p: any) => p.name).join(', ') }}</span>
     </div>
 
     <!-- Error -->
-    <div v-if="!detailsCollapsed && hasError" class="ms-4 mt-1 text-xs text-red-500">
+    <div v-if="!detailsCollapsed && hasError" class="ms-4 mt-1 text-chat-2 text-red-500">
       {{ errorMessage }}
     </div>
   </div>
@@ -81,7 +81,7 @@ interface Props {
 const props = defineProps<Props>()
 defineEmits(['editQuery', 'openDataPanel'])
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 
 // Always collapsed by default — the header line carries the values, the data
 // is one click away.

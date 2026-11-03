@@ -2046,9 +2046,11 @@ class LLMService:
                     "enable_web_search": bool(credentials.get("enable_web_search")),
                 }
 
-        # Azure: opt-in to the Responses API (off → Chat Completions, works in
-        # every region). Gates web search.
-        if provider.provider_type == "azure":
+        # Azure / Custom: opt-in to the Responses API (off → Chat Completions).
+        # Azure: gates web search. Custom: for OpenAI-compatible servers whose
+        # Chat Completions path drops tool calls (e.g. gpt-oss on vLLM/NIM
+        # without a tool-call parser) but whose /v1/responses parses them.
+        if provider.provider_type in ("azure", "custom"):
             if "use_responses_api" in credentials:
                 existing_additional_config = {
                     **existing_additional_config,

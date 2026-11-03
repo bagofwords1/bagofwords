@@ -118,7 +118,7 @@ import MarkdownIt from 'markdown-it'
 import DiffMatchPatch from 'diff-match-patch'
 import { useI18n } from 'vue-i18n'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
-import { firstStrongDir, RTL_LOCALES } from '~/utils/textDirection'
+import { countDirWords, resolveDirTree, RTL_LOCALES, type DirNode, type DirNodeKind } from '~/utils/textDirection'
 import {
   buildMentionMatcher,
   replaceMentions,
@@ -550,20 +550,50 @@ function scrollDropdownItem(index: number) {
 }
 
 // ─── Auto text direction ──────────────────────────────────────────────────────
-// Per-block direction from each block's first strong character — the same
-// behavior as chat markdown (`<p dir="auto">`) and the PromptBoxV2 input, so
-// Hebrew/Arabic instructions right-align while English blocks (and code, which
-// is excluded) stay LTR. Applied as ProseMirror node decorations: the rendered
-// DOM gets a `dir` attribute but the document itself is untouched, so nothing
-// leaks into the serialized markdown.
-// Mirrors InstructionText's DIR_OPEN_TOKENS — the two lists must agree, or the
-// editor and the read-only view disagree about which way a block reads. Tables
-// matter most: with no dir of its own a table inherits the document's LTR and
-// lays an RTL table's columns out backwards.
-const AUTO_DIR_NODES = new Set([
-  'paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote',
-  'table', 'tableRow', 'tableHeader', 'tableCell',
-])
+// The same rules as the read-only view and chat markdown (resolveDirTree in
+// utils/textDirection.ts): one decision for the whole instruction by word
+// majority, lists and tables on one side with their items and cells, short
+// blocks following the text around them, code excluded. Applied as ProseMirror
+// node decorations: the rendered DOM gets a `dir` attribute but the document
+// itself is untouched, so nothing leaks into the serialized markdown.
+// Mirrors InstructionText's DIR_KIND_BY_TOKEN — the two maps must agree, or
+// the editor and the read-only view disagree about which way a block reads.
+const DIR_KIND_BY_NODE: Record<string, DirNodeKind> = {
+  paragraph: 'block', heading: 'block', blockquote: 'quote',
+  bulletList: 'list', orderedList: 'list', listItem: 'item',
+  table: 'table', tableRow: 'row', tableHeader: 'cell', tableCell: 'cell',
+}
+
+type PosRef = { from: number; to: number }
+
+// Build the block tree of a ProseMirror document for resolveDirTree.
+function editorDirTree(doc: any) {
+  const roots: DirNode<PosRef>[] = []
+  const docCounts = { rtl: 0, ltr: 0 }
+  const walk = (node: any, pos: number, parents: DirNode<PosRef>[], into: DirNode<PosRef>[]) => {
+    if (node.isText) {
+      const text = node.text || ''
+      for (const p of parents) p.text += text
+      if (node.marks.some((m: any) => m.type.name === 'code')) return // identifiers don't vote
+      countDirWords(text, docCounts)
+      for (const p of parents) countDirWords(text, p.counts)
+      return
+    }
+    if (node.type.name === 'codeBlock') return
+    const kind = DIR_KIND_BY_NODE[node.type.name]
+    let next = parents
+    let list = into
+    if (kind) {
+      const dn: DirNode<PosRef> = { kind, counts: { rtl: 0, ltr: 0 }, text: '', children: [], ref: { from: pos, to: pos + node.nodeSize } }
+      into.push(dn)
+      next = [...parents, dn]
+      list = dn.children
+    }
+    node.forEach((child: any, offset: number) => walk(child, pos + offset + 1, next, list))
+  }
+  doc.forEach((child: any, offset: number) => walk(child, offset, [], roots))
+  return { roots, docCounts }
+}
 
 const AutoDir = Extension.create({
   name: 'autoDir',
@@ -573,12 +603,19 @@ const AutoDir = Extension.create({
         key: new PluginKey('instructionAutoDir'),
         props: {
           decorations(state) {
+            const { roots, docCounts } = editorDirTree(state.doc)
+            const uiDir = document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : null
+            resolveDirTree(roots, docCounts, { fallback: uiDir, settled: true })
             const decos: Decoration[] = []
-            state.doc.descendants((node, pos) => {
-              if (!AUTO_DIR_NODES.has(node.type.name)) return
-              const dir = firstStrongDir(node.textContent)
-              if (dir) decos.push(Decoration.node(pos, pos + node.nodeSize, { dir }))
-            })
+            const add = (n: DirNode<PosRef>) => {
+              if (n.dir) {
+                const attrs: Record<string, string> = { dir: n.dir }
+                if (n.signedNumber) attrs['data-bidi-num'] = ''
+                decos.push(Decoration.node(n.ref.from, n.ref.to, attrs))
+              }
+              n.children.forEach(add)
+            }
+            roots.forEach(add)
             return DecorationSet.create(state.doc, decos)
           },
         },

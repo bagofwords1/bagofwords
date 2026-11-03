@@ -116,7 +116,8 @@ onMounted(async () => {
 .bow-paper .doc-print-page .bow-doc-md li { margin: 0 0 3pt; }
 .bow-paper .doc-print-page .bow-doc-md blockquote {
   margin: 10pt 0;
-  padding: 2pt 0 2pt 10pt;
+  padding-block: 2pt;
+  padding-inline: 10pt 0;
   border-inline-start: 2pt solid #e5e7eb;
 }
 .bow-paper .doc-print-page .bow-doc-md hr { margin: 16pt 0; }

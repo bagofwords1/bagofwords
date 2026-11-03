@@ -16,7 +16,7 @@
         </div>
 
         <template v-else-if="canEdit">
-            <UTextarea v-model="draft" :rows="8" autoresize :maxrows="16" :maxlength="MAX"
+            <UTextarea v-text-dir.align v-model="draft" :rows="8" autoresize :maxrows="16" :maxlength="MAX"
                 :placeholder="tm('dashboardCollab.history.notesPlaceholder', mode)" :disabled="saving"
                 data-testid="history-notes-input" />
             <div class="flex flex-wrap items-center justify-between gap-2">

@@ -88,7 +88,7 @@
                                             {{ instruction.title }}
                                         </p>
                                         <!-- Instruction text -->
-                                        <p
+                                        <p v-text-dir.align
                                             :class="[compact ? 'text-2xs' : 'text-xs', { 'line-clamp-2': !expandedRows.has(instruction.id) }]"
                                             class="text-gray-900 dark:text-white leading-snug"
                                             :title="instruction.text"

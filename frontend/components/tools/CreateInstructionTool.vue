@@ -8,9 +8,9 @@
       >
         <span v-if="status === 'running'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-ink-muted" />
-          <span v-if="instructionText" dir="auto" class="truncate max-w-[300px]">{{ $t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
-          <span v-else>{{ $t('tools.createInstruction.creating') }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs shrink-0">{{ category }}</span>
+          <span v-if="instructionText" dir="auto" class="truncate max-w-[300px]">{{ t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
+          <span v-else>{{ t('tools.createInstruction.creating') }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span>
           <Icon
             v-if="instructionText"
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -20,8 +20,8 @@
         <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-green-500" />
           <span dir="auto" class="truncate max-w-[300px]">{{ truncatedText }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-2xs shrink-0">{{ category }}</span>
-          <span v-if="lineCount > 0" class="ms-1.5 text-2xs text-green-600 shrink-0">+{{ lineCount }}</span>
+          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span>
+          <span v-if="lineCount > 0" class="ms-1.5 text-chat-3 text-green-600 shrink-0">+{{ lineCount }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
@@ -29,8 +29,8 @@
         </span>
         <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ $t('tools.createInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-2xs">({{ rejectedReason }})</span>
+          <span>{{ t('tools.createInstruction.rejected') }}</span>
+          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
@@ -38,7 +38,7 @@
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
           <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ $t('tools.createInstruction.failed') }}</span>
+          <span>{{ t('tools.createInstruction.failed') }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
             class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
@@ -55,8 +55,7 @@
           <!-- Instruction text - click to edit -->
           <div
             v-if="instructionText"
-            dir="auto"
-            class="instruction-content text-xs text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
+            class="instruction-content text-chat-2 text-gray-800 dark:text-gray-200 leading-relaxed mb-2"
             :class="readonly ? '' : 'cursor-pointer'"
             @click="!readonly && currentGlobalStatus !== 'approved' ? handleEdit() : null"
           >
@@ -64,10 +63,10 @@
           </div>
 
           <!-- Metadata row -->
-          <div class="flex flex-wrap items-center gap-2 text-2xs mb-2">
+          <div class="flex flex-wrap items-center gap-2 text-chat-3 mb-2">
             <!-- Confidence -->
             <div v-if="confidence" class="flex items-center gap-1">
-              <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createInstruction.confidence') }}</span>
+              <span class="text-gray-500 dark:text-gray-400">{{ t('tools.createInstruction.confidence') }}</span>
               <span
                 class="font-medium"
                 :class="confidence >= 0.9 ? 'text-green-600' : confidence >= 0.7 ? 'text-yellow-600' : 'text-red-600'"
@@ -78,8 +77,8 @@
 
             <!-- Load mode -->
             <div v-if="loadMode" class="flex items-center gap-1">
-              <span class="text-gray-500 dark:text-gray-400">{{ $t('tools.createInstruction.load') }}</span>
-              <span class="px-1.5 py-0.5 rounded text-2xs font-medium"
+              <span class="text-gray-500 dark:text-gray-400">{{ t('tools.createInstruction.load') }}</span>
+              <span class="px-1.5 py-0.5 rounded text-chat-3 font-medium"
                 :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
               >
                 {{ getLoadModeLabel(loadMode) }}
@@ -89,49 +88,49 @@
             <!-- Tables scoped -->
             <div v-if="tableCount > 0" class="flex items-center gap-1">
               <Icon name="heroicons-table-cells" class="w-3 h-3 text-ink-muted" />
-              <span class="text-gray-600 dark:text-gray-400">{{ tableCount === 1 ? $t('tools.createInstruction.tableSingular', { n: tableCount }) : $t('tools.createInstruction.tablePlural', { n: tableCount }) }}</span>
+              <span class="text-gray-600 dark:text-gray-400">{{ tableCount === 1 ? t('tools.createInstruction.tableSingular', { n: tableCount }) : t('tools.createInstruction.tablePlural', { n: tableCount }) }}</span>
             </div>
           </div>
 
           <!-- Evidence (if available) -->
-          <div v-if="evidence" dir="auto" class="text-2xs text-gray-500 dark:text-gray-400 italic mb-2">
-            <span class="font-medium">{{ $t('tools.createInstruction.evidence') }}</span> {{ evidence }}
+          <div v-if="evidence" dir="auto" class="text-chat-2 text-gray-500 dark:text-gray-400 italic mb-2">
+            <span class="font-medium">{{ t('tools.createInstruction.evidence') }}</span> {{ evidence }}
           </div>
 
           <!-- Status + Accept/Reject actions -->
           <div v-if="!readonly && isSuccess && instructionId" class="flex items-center gap-1.5 pt-2 border-t border-gray-200 dark:border-gray-700">
             <template v-if="resolution === 'accepted'">
               <Icon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
-              <span class="text-2xs font-medium text-gray-600 dark:text-gray-400">{{ $t('tools.createInstruction.accepted', 'Accepted') }}</span>
+              <span class="text-chat-3 font-medium text-gray-600 dark:text-gray-400">{{ t('tools.createInstruction.accepted', 'Accepted') }}</span>
             </template>
             <template v-else-if="resolution === 'rejected'">
               <Icon name="heroicons:x-circle" class="w-3 h-3 text-ink-muted" />
-              <span class="text-2xs text-ink-muted">{{ $t('tools.createInstruction.rejectedLabel', 'Rejected') }}</span>
+              <span class="text-chat-3 text-ink-muted">{{ t('tools.createInstruction.rejectedLabel', 'Rejected') }}</span>
             </template>
             <template v-else-if="canResolve">
               <button
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                 :disabled="isAccepting || isRejecting"
                 @click.stop="handleAccept"
               >
                 <Spinner v-if="isAccepting" class="w-2.5 h-2.5 text-green-600" />
                 <Icon v-else name="heroicons:check" class="w-2.5 h-2.5" />
-                {{ $t('tools.createInstruction.accept', 'Accept') }}
+                {{ t('tools.createInstruction.accept', 'Accept') }}
               </button>
               <button
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
                 :disabled="isAccepting || isRejecting"
                 @click.stop="handleReject"
               >
                 <Spinner v-if="isRejecting" class="w-2.5 h-2.5 text-ink-muted" />
                 <Icon v-else name="heroicons:x-mark" class="w-2.5 h-2.5" />
-                {{ $t('tools.createInstruction.reject', 'Reject') }}
+                {{ t('tools.createInstruction.reject', 'Reject') }}
               </button>
             </template>
             <template v-else>
               <Icon name="heroicons:clock" class="w-3 h-3 text-ink-muted" />
-              <span class="text-2xs font-medium text-gray-500 dark:text-gray-400">
-                {{ $t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
+              <span class="text-chat-3 font-medium text-gray-500 dark:text-gray-400">
+                {{ t('tools.createInstruction.stagedInBuild', 'Staged in draft build') }}
               </span>
             </template>
             <!-- Resolved evals for this agent, pinned to the draft build -->
@@ -139,7 +138,7 @@
           </div>
 
           <!-- Error message -->
-          <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>
@@ -159,14 +158,14 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { useResponseI18n } from '~/composables/useResponseI18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 import ResolvedEvalStrip from '~/components/instructions/ResolvedEvalStrip.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { dispatchInstructionResolved, INSTRUCTION_RESOLVED_EVENT } from '~/composables/useTrackedChanges'
 
-const { t } = useI18n()
+const { t } = useResponseI18n()
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
 const { getLoadModeLabel } = useInstructionHelpers()
 
@@ -559,43 +558,14 @@ function handleInstructionSaved(data: any) {
   max-height: 500px;
 }
 
-/* Markdown content styling for instructions */
-.instruction-content :deep(.markdown-content) {
-  font-size: 12px;
-  line-height: 1.5;
+/* The instruction body follows the chat text size, one step below the answer
+   (text-chat-2). instruction-prose.css styles the rest and keeps 13px for the
+   Knowledge pages and the editor, so the size is set here, for the chat. */
+.instruction-content :deep(.instruction-prose) {
+  font-size: var(--bow-chat-font-size-2);
+  line-height: 1.6;
 }
-
-.instruction-content :deep(.markdown-content p) {
-  margin: 0 0 0.5em 0;
-}
-
-.instruction-content :deep(.markdown-content p:last-child) {
-  margin-bottom: 0;
-}
-
-.instruction-content :deep(.markdown-content code) {
-  font-size: 10px;
-  padding: 0.1em 0.3em;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
-}
-
-.instruction-content :deep(.markdown-content pre) {
-  font-size: 10px;
-  padding: 0.5em;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: 0.5em 0;
-}
-
-.instruction-content :deep(.markdown-content ul),
-.instruction-content :deep(.markdown-content ol) {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
-}
-
-.instruction-content :deep(.markdown-content li) {
-  margin: 0.2em 0;
+.instruction-content :deep(.instruction-prose pre code) {
+  font-size: 0.9em;
 }
 </style>

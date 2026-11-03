@@ -16,7 +16,7 @@
           <div class="text-2xs font-semibold uppercase tracking-wide text-ink-muted mb-2">
             {{ $t('prompts.sectionPrompt') }}
           </div>
-          <input
+          <input v-text-dir
             v-model="form.title"
             type="text"
             :placeholder="$t('prompts.titlePlaceholder')"

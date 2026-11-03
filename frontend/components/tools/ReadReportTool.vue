@@ -13,16 +13,16 @@
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">Failed to read report</span>
       <span v-else class="text-gray-700 dark:text-gray-300">Read report</span>
 
-      <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-2xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+      <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
         {{ reportMode }}
       </span>
     </div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="!isCollapsed && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
         <!-- Meta -->
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-2xs text-gray-500 dark:text-gray-400">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-gray-500 dark:text-gray-400">
           <span v-if="reportStatus" class="px-1 py-0.5 rounded" :class="reportStatus === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">{{ reportStatus }}</span>
           <span v-if="dataSources.length">Data: {{ dataSources.join(', ') }}</span>
           <span v-if="artifacts.length">{{ artifacts.length }} artifact{{ artifacts.length === 1 ? '' : 's' }}</span>
@@ -31,22 +31,22 @@
 
         <!-- Artifacts -->
         <div v-if="artifacts.length">
-          <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Artifacts</div>
+          <div class="text-chat-3 font-medium text-gray-500 dark:text-gray-400 mb-0.5">Artifacts</div>
           <ul class="space-y-0.5">
             <li v-for="a in artifacts" :key="a.id" class="flex items-center">
               <Icon name="heroicons-chart-bar-square" class="w-3 h-3 me-1 text-ink-muted" />
               <span class="truncate text-gray-700 dark:text-gray-300">{{ a.title || 'Untitled' }}</span>
-              <span v-if="a.mode" class="ms-1 text-2xs text-ink-muted">{{ a.mode }}<template v-if="a.version"> v{{ a.version }}</template></span>
+              <span v-if="a.mode" class="ms-1 text-chat-3 text-ink-muted">{{ a.mode }}<template v-if="a.version"> v{{ a.version }}</template></span>
             </li>
           </ul>
         </div>
 
         <!-- Conversation -->
         <div v-if="conversation.length">
-          <div class="text-2xs font-medium text-gray-500 dark:text-gray-400 mb-0.5">Conversation</div>
+          <div class="text-chat-3 font-medium text-gray-500 dark:text-gray-400 mb-0.5">Conversation</div>
           <ul class="space-y-1">
             <li v-for="(m, i) in conversation" :key="i" class="leading-snug">
-              <span class="text-2xs uppercase tracking-wide me-1" :class="m.role === 'user' ? 'text-blue-500' : 'text-ink-muted'">{{ m.role }}</span>
+              <span class="text-chat-3 uppercase tracking-wide me-1" :class="m.role === 'user' ? 'text-blue-500' : 'text-ink-muted'">{{ m.role }}</span>
               <span class="text-gray-700 dark:text-gray-300">{{ truncate(m.content) }}</span>
             </li>
           </ul>
@@ -55,7 +55,7 @@
     </Transition>
 
     <!-- Error / not-found message -->
-    <div v-if="(status === 'error' || (status === 'success' && !found)) && message" class="mt-1 ms-4 text-xs text-gray-500 dark:text-gray-400">
+    <div v-if="(status === 'error' || (status === 'success' && !found)) && message" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ message }}
     </div>
   </div>

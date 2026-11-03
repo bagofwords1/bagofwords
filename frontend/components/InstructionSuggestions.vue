@@ -36,10 +36,10 @@
             class="mt-0.5"
           />
           <div class="flex-1">
-            <div v-if="d.title" class="text-2xs font-mono font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+            <div v-text-dir v-if="d.title" class="text-2xs font-mono font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
               {{ d.title }}
             </div>
-            <div
+            <div v-text-dir.align
               @click="!isBuildPublished ? handleEdit(d, i) : null"
               :class="[
                 'text-xs text-gray-800 dark:text-gray-200 leading-relaxed',

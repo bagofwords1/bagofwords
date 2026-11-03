@@ -27,14 +27,14 @@
           <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDm">
             <Spinner v-if="!dmDone" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="!dmDone" class="tool-shimmer">{{ $t('tools.createWidget.creatingDataModel') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createWidget.creatingDataModel') }}</span>
+            <span v-if="!dmDone" class="tool-shimmer">{{ t('tools.createWidget.creatingDataModel') }}</span>
+            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createWidget.creatingDataModel') }}</span>
             <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="!dmCollapsed" class="mt-1 ms-4">
-              <div v-if="dataModelColumns.length > 0" class="text-xs mt-2">
-                <table class="w-full text-xs mt-2">
+              <div v-if="dataModelColumns.length > 0" class="text-chat-2 mt-2">
+                <table class="w-full text-chat-2 mt-2">
                   <tbody>
                     <tr v-for="column in dataModelColumns" :key="column.generated_column_name" class="border-b border-gray-100 dark:border-gray-800">
                       <td class="font-mono text-gray-800 dark:text-gray-200 py-1 pe-4 align-top">
@@ -42,7 +42,7 @@
                       </td>
                       <td class="text-gray-500 dark:text-gray-400 py-1 leading-tight">
                         {{ column.description }}
-                        <span v-if="column.source" class="text-ink-muted text-xs">
+                        <span v-if="column.source" class="text-ink-muted text-chat-3">
                           <Icon name="heroicons-circle-stack" class="w-3 h-3 ms-1 text-ink-muted" />
                           {{ column.source }}
                         </span>
@@ -51,7 +51,7 @@
                   </tbody>
                 </table>
               </div>
-              <div v-else class="text-xs text-ink-muted mt-1 hidden">Preparing…</div>
+              <div v-else class="text-chat-2 text-ink-muted mt-1 hidden">Preparing…</div>
             </div>
           </Transition>
         </div>
@@ -62,20 +62,20 @@
             <Spinner v-if="isCodeRunning" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingCode') }}</span>
-            <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.generatingCode') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ $t('tools.createWidget.generatingCode') }}</span>
+            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ t('tools.createWidget.validatingCode') }}</span>
+            <span v-else-if="isCodeRunning" class="tool-shimmer">{{ t('tools.createWidget.generatingCode') }}</span>
+            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createWidget.generatingCode') }}</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <div v-if="codeContent" class="text-xs mb-2 mt-1">
+              <div v-if="codeContent" class="text-chat-2 mb-2 mt-1">
 
 
 
-                <div class="mb-2 text-xs bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
-                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ $t('tools.createWidget.validatingAttempt', { n: currentAttempt }) }}</span>
-                  <span v-else-if="isCodeRunning" class="tool-shimmer">{{ $t('tools.createWidget.runningAttempt', { n: currentAttempt }) }}</span>
+                <div class="mb-2 text-chat-2 bg-gray-50 dark:bg-gray-900 rounded-lg px-4 py-3 text-gray-500 dark:text-gray-400 flex items-center">
+                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">{{ t('tools.createWidget.validatingAttempt', { n: currentAttempt }) }}</span>
+                  <span v-else-if="isCodeRunning" class="tool-shimmer">{{ t('tools.createWidget.runningAttempt', { n: currentAttempt }) }}</span>
                   <span v-else-if="status === 'success'" class="flex items-center">
                     <span class="text-green-500 flex items-center">
                       <Icon name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
@@ -92,7 +92,7 @@
                   <!-- Right aligned attempts with hover popover listing errors -->
                   <div class="relative group">
                     <span class="text-ink-muted cursor-default">attempts: {{ currentAttempt }}</span>
-                    <div class="hidden group-hover:block absolute end-0 z-10 mt-1 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-2 text-xs text-gray-600 dark:text-gray-400">
+                    <div class="hidden group-hover:block absolute end-0 z-10 mt-1 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg p-2 text-chat-2 text-gray-600 dark:text-gray-400">
                       <div v-if="attempts && attempts.length">
                         <div class="font-medium text-gray-700 dark:text-gray-300 mb-1">Errors</div>
                         <ul class="list-disc ms-5 max-h-48 overflow-auto">
@@ -103,9 +103,9 @@
                     </div>
                   </div>
                 </div>
-                <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
+                <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-chat-2 max-h-42 overflow-y-auto relative">
                   <button
-                    class="absolute top-2 end-2 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200"
+                    class="absolute top-2 end-2 px-2 py-1 text-chat-2 rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200"
                     :disabled="!canOpenEditor"
                     v-if="canOpenEditor.value && !readonly"
                     @click.stop="openEditor"
@@ -119,13 +119,13 @@
                 </div>
 
               </div>
-              <div v-else class="text-xs text-ink-muted mt-1 hidden">Preparing…</div>
+              <div v-else class="text-chat-2 text-ink-muted mt-1 hidden">Preparing…</div>
             </div>
           </Transition>
         </div>
 
         <!-- Result summary fallback (only when no sections have content) -->
-        <div v-if="!dataModelColumns.length && !codeContent && resultSummary" class="text-xs text-gray-600 dark:text-gray-400">
+        <div v-if="!dataModelColumns.length && !codeContent && resultSummary" class="text-chat-2 text-gray-600 dark:text-gray-400">
           {{ resultSummary }}
         </div>
 
@@ -137,7 +137,7 @@
         </div>
 
         <!-- Final status summary -->
-        <div class="mt-2 text-xs" v-if="status !== 'running'">
+        <div class="mt-2 text-chat-2" v-if="status !== 'running'">
         </div>
       </div>
     </Transition>
@@ -155,6 +155,8 @@
   </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref, watch } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'

@@ -22,7 +22,7 @@
     </Transition>
 
     <Transition name="fade" appear>
-      <div v-if="expanded && status !== 'running'" class="text-xs text-gray-600 dark:text-gray-400">
+      <div v-if="expanded && status !== 'running'" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul v-if="files.length" class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
@@ -33,27 +33,27 @@
               <Icon :name="isExpanded(idx) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-ink-muted me-1 rtl-flip" />
               <Icon name="heroicons-document" class="w-3 h-3 me-1 text-ink-muted" />
               <div class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ f.name || noun.one }}</div>
-              <span v-if="f.path && f.path !== f.name" class="ms-2 text-2xs text-ink-muted truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
-              <span v-if="f.size" class="ms-2 text-2xs text-ink-muted shrink-0">{{ formatBytes(f.size) }}</span>
+              <span v-if="f.path && f.path !== f.name" class="ms-2 text-chat-3 text-ink-muted truncate max-w-[16rem]" :title="f.path" dir="ltr">{{ f.path }}</span>
+              <span v-if="f.size" class="ms-2 text-chat-3 text-ink-muted shrink-0">{{ formatBytes(f.size) }}</span>
             </div>
             <Transition name="fade">
               <div v-if="isExpanded(idx)" class="ps-6 pe-1 pb-1 text-gray-500 dark:text-gray-400 space-y-0.5">
-                <div v-if="f.path" class="text-2xs"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
-                <div v-if="f.mime_type" class="text-2xs"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
-                <div v-if="f.modified_at" class="text-2xs"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
-                <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-2xs text-blue-600 hover:underline inline-flex items-center gap-1">
+                <div v-if="f.path" class="text-chat-3"><span class="text-ink-muted">Path:</span> {{ f.path }}</div>
+                <div v-if="f.mime_type" class="text-chat-3"><span class="text-ink-muted">Type:</span> {{ f.mime_type }}</div>
+                <div v-if="f.modified_at" class="text-chat-3"><span class="text-ink-muted">Modified:</span> {{ f.modified_at }}</div>
+                <a v-if="f.web_url" :href="f.web_url" target="_blank" rel="noopener" class="text-chat-2 text-blue-600 hover:underline inline-flex items-center gap-1">
                   Open <Icon name="heroicons-arrow-top-right-on-square" class="w-3 h-3" />
                 </a>
               </div>
             </Transition>
           </li>
-          <li v-if="files.length > 10" class="ps-1 text-2xs text-ink-muted">+{{ files.length - 10 }} more</li>
+          <li v-if="files.length > 10" class="ps-1 text-chat-3 text-ink-muted">+{{ files.length - 10 }} more</li>
         </ul>
         <ToolCallParams :params="toolExecution?.arguments_json" />
       </div>
     </Transition>
 
-    <div v-if="status !== 'running' && !files.length && errorMessage" class="text-xs text-amber-600 mt-1">{{ errorMessage }}</div>
+    <div v-if="status !== 'running' && !files.length && errorMessage" class="text-chat-2 text-amber-600 mt-1">{{ errorMessage }}</div>
   </div>
 </template>
 

@@ -11,6 +11,9 @@ Every other call (titles, judges, suggestions) returns instantly.
 Env:
   STUB_PORT        default 9099
   STUB_DURATION_S  target planner stream duration (default 60)
+  STUB_TEXT_FILE   optional file whose text is streamed as the answer instead
+                   of the built-in progress markers (e.g. a Hebrew markdown
+                   answer for RTL streaming checks)
 """
 import json
 import os
@@ -30,6 +33,9 @@ WORDS = (
     + " ".join(f"Progress marker {i:03d} — the agent is still working and streaming tokens." for i in range(1, 201))
     + " All done: the full answer streamed to the end."
 ).split(" ")
+if os.environ.get("STUB_TEXT_FILE"):
+    with open(os.environ["STUB_TEXT_FILE"], encoding="utf-8") as f:
+        WORDS = f.read().split(" ")
 
 
 def _chunk(delta: dict, finish=None):

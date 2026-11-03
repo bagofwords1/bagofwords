@@ -3161,6 +3161,7 @@
       "azureFoundryHint": "كلٌّ من Azure OpenAI وAzure AI Foundry مدعوم. معرّف النموذج هو اسم النشر الخاص بك.",
       "responsesApiHint": "استخدام واجهة Responses بدلاً من Chat Completions. مطلوبة للبحث على الويب، ومتاحة فقط في المناطق التي تدعم واجهة Responses.",
       "responsesApiFoundryHint": "في Foundry ينطبق ذلك على عمليات نشر OpenAI فقط.",
+      "responsesApiCustomHint": "Use the Responses API instead of Chat Completions. Turn on if your server returns tool calls on /v1/responses but drops them on Chat Completions (e.g. gpt-oss on vLLM or NVIDIA NIM).",
       "colCost": "التكلفة ($/M)",
       "colRouting": "التوجيه",
       "autoRouter": "الموجّه التلقائي",

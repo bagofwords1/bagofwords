@@ -96,18 +96,21 @@ composer, the shared-link view and the tool cards inside a transcript all
 take `max-w-chat` (`--bow-measure-chat`). One token, because the box you
 type into must be the same width as the text you read back — they had
 drifted to 672px and ~53vw, so the composer resized the moment you pressed
-enter. The measure is `48 x` the chat font rather than a fixed width, so
-line length stays ~96 characters at every reader step; at the default it
-computes to 672px.
+enter. The measure is a multiple of the chat font, clamped to the screen
+(`51.2em … 45vw … 57em`), so it scales with the reader's text size: at the
+14px default it remains 768px (about 90 characters a line) up to ~1700px windows,
+and grows only on large monitors to a cap of ~855px. Everything in the transcript — text, tables,
+tool cards, data previews — stays inside that column; nothing is wider than
+the chat. It is a maximum, so a narrow pane still fits.
 
 Chat copy uses a three-step ramp, all derived from one variable so that a
 single message stops mixing unrelated systems: `text-chat` for body
-(the `sm` step, 14px, times the reader's preference), `text-chat-2` for
-code, collapsed reasoning and tool-card labels (13px), `text-chat-3` for
-badges, ids and durations (11px). 14px is measured against comparable
-agent interfaces, which sit at 13-14px — general chat products run higher
-but are the wrong comparison for a transcript carrying tables and query
-results. Never pin a px font size inside a conversation: a pinned 13px
+(14px by default with a 23px line height, scaled with the reader's preference;
+steps 14/15/16/18/20px), `text-chat-2` for code, collapsed reasoning and
+tool-card labels (~13px), `text-chat-3` for badges, ids and durations
+(~12px). The first reader step is the default; larger sizes remain available. Data
+stays dense on its own scale (table cells are `text-xs`). Never pin a px
+font size inside a conversation: a pinned 13px
 stays put while body copy scales, which is the defect the ramp exists to
 prevent. Outside a conversation the fixed steps still apply.
 

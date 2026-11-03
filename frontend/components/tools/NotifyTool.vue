@@ -32,21 +32,21 @@
       <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="border border-gray-150 dark:border-gray-800 rounded-md overflow-hidden">
           <div v-if="subject" class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 dark:border-gray-800 flex items-center gap-2">
-            <span class="text-2xs text-gray-600 dark:text-gray-400 font-medium">Subject</span>
-            <span dir="auto" class="text-2xs text-gray-800 dark:text-gray-200 truncate">{{ subject }}</span>
+            <span class="text-chat-3 text-gray-600 dark:text-gray-400 font-medium">Subject</span>
+            <span dir="auto" class="text-chat-2 text-gray-800 dark:text-gray-200 truncate">{{ subject }}</span>
           </div>
           <div v-for="r in results" :key="r.email" class="px-3 py-1 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800 flex items-center gap-2">
             <Icon :name="r.delivered && r.delivered.length ? 'heroicons-check-circle' : 'heroicons-x-circle'"
               class="w-3 h-3 shrink-0" :class="r.delivered && r.delivered.length ? 'text-green-500' : 'text-red-500'" />
-            <span dir="auto" class="text-2xs text-gray-700 dark:text-gray-300 truncate">{{ r.email }}<span v-if="r.is_self" class="text-ink-muted"> (you)</span></span>
-            <span class="text-2xs text-ink-muted ms-auto">{{ (r.delivered || []).join(', ') || 'failed' }}</span>
+            <span dir="auto" class="text-chat-2 text-gray-700 dark:text-gray-300 truncate">{{ r.email }}<span v-if="r.is_self" class="text-ink-muted"> (you)</span></span>
+            <span class="text-chat-3 text-ink-muted ms-auto">{{ (r.delivered || []).join(', ') || 'failed' }}</span>
           </div>
         </div>
 
-        <div v-if="rejected.length" class="text-2xs text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded px-2 py-1">
+        <div v-if="rejected.length" class="text-chat-2 text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded px-2 py-1">
           Skipped (not members of this org): {{ rejected.join(', ') }}
         </div>
-        <div v-if="errorMessage" class="text-2xs text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

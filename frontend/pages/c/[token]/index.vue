@@ -44,7 +44,7 @@
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
                 <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
-                        <h1 class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
+                        <h1 v-text-dir class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
                         <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->
@@ -97,7 +97,7 @@
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
                                     <div class="flex-1 flex justify-end">
-                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" dir="auto">
+                                        <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
                                                 <InstructionText
@@ -124,7 +124,7 @@
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="w-full md:ms-4 max-w-chat">
+                                <div class="flex-1 min-w-0 md:ms-4">
                                     <div>
                                         <!-- Render each completion block -->
                                         <div v-for="block in timelineBlocks(m)" :key="block.id">
@@ -138,7 +138,7 @@
                                                 />
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -172,7 +172,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper" dir="auto">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.content || block.plan_decision?.assistant || ''"
                                                     :final="true"
@@ -216,7 +216,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper" dir="auto">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
                                                     :final="true"
@@ -267,8 +267,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
+import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
@@ -350,6 +352,7 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+import { dominantTextDir, type TextDir } from '~/utils/textDirection'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -375,12 +378,15 @@ const agentIconTokens = computed<Record<string, string | null | undefined>>(() =
 // to raw diagram source while the same diagram written into an instruction
 // card — which uses InstructionText — rendered fine on this very page.
 // markstream dispatches on fence language before the render-code-blocks-as-pre
-// flag, so diagrams and math survive it. useMarkdownAutoDir (already mounted
-// below) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
+// flag, so diagrams and math survive it. useMarkdownAutoDir (started app-wide by
+// plugins/markdown-auto-dir.client.ts) and the [dir=rtl] .markstream-vue rules in assets/css/rtl.css were
 // both written against this renderer's DOM.
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
-import { useMarkdownAutoDir } from '~/composables/useMarkdownAutoDir'
+
+// Charts and grids in this conversation follow the chat text size
+// (utils/chatVizText.ts).
+provide(CHAT_VIZ_TEXT_PX, useChatDisplay().textSizePx)
 
 const route = useRoute()
 const token = route.params.token as string
@@ -412,6 +418,27 @@ const visibleCompletions = computed<any[]>(() =>
         return (m.completion_blocks?.length || 0) > 0 || m.status === 'stopped' || m.status === 'error'
     })
 )
+
+// Prompt bubbles take the direction of their own words (a nested
+// `dir="auto"` pair resolves LTR — see docs/design/i18n.md "Content
+// direction"); each reply carries its question's direction as the hint
+// useMarkdownAutoDir uses while the answer is still short.
+function promptDir(text?: string | null): TextDir | 'auto' {
+    return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
+}
+const replyDirHints = computed(() => {
+    const hints = new Map<string, TextDir>()
+    let last: TextDir | null = null
+    for (const m of visibleCompletions.value) {
+        if (m.role === 'user') {
+            const d = dominantTextDir((m.prompt?.content || '').replace(/@\S+/g, ' '))
+            if (d) last = d
+        } else if (last) {
+            hints.set(String(m.id), last)
+        }
+    }
+    return hints
+})
 
 // ---------------------------------------------------------------------------
 // The knowledge harness (the post-analysis reflection sub-loop) runs as its own
@@ -943,17 +970,12 @@ function handleScroll(event: Event) {
     }
 }
 
-// Fixes list-marker direction for RTL content (see useMarkdownAutoDir).
-const markdownAutoDir = ref<{ stop: () => void } | null>(null)
-
 onMounted(() => {
     loadConversation()
-    markdownAutoDir.value = useMarkdownAutoDir()
 })
 
 onUnmounted(() => {
     if (liveRefreshTimer) clearTimeout(liveRefreshTimer)
-    markdownAutoDir.value?.stop()
 })
 </script>
 
@@ -1051,7 +1073,9 @@ onUnmounted(() => {
     h2 { @apply text-xl; }
     h3 { @apply text-lg; }
 
-    ul, ol { @apply ps-6 mb-4; unicode-bidi: plaintext; }
+    /* Marker gutter lives on each <li> (assets/css/rtl.css rule 7), so it
+	   follows the item's own direction. */
+	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
     ul { @apply list-disc; }
     ol { @apply list-decimal; }
     li { @apply mb-1.5; unicode-bidi: plaintext; }
@@ -1095,7 +1119,7 @@ onUnmounted(() => {
     /* Physical l/pl, matching the report view verbatim. Both put a blockquote's
        rule on the left edge under RTL — one pre-existing nit, kept identical
        rather than fixed on one side only. */
-    blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
+    blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
     table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
     table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 

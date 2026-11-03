@@ -5,11 +5,11 @@
       <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="phase === 'designing'" class="tool-shimmer flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ $t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
+          <span>{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
         </span>
         <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
           <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? $t('tools.createDemoDataset.waitingReview') : $t('tools.createDemoDataset.review') }}</span>
+          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</span>
         </span>
         <span v-else-if="phase === 'working'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
@@ -17,26 +17,26 @@
         </span>
         <span v-else-if="phase === 'created'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ $t('tools.createDemoDataset.created') }}</span>
+          <span>{{ t('tools.createDemoDataset.created') }}</span>
         </span>
         <span v-else-if="phase === 'rejected'" class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? $t('tools.createDemoDataset.timedOut') : $t('tools.createDemoDataset.rejected') }}</span>
+          <span>{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</span>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
           <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ $t('tools.createDemoDataset.failed') }}</span>
+          <span>{{ t('tools.createDemoDataset.failed') }}</span>
         </span>
       </div>
     </Transition>
 
-    <div v-if="phase === 'failed' && message" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat">
+    <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat">
       {{ message }}
       <ul v-if="errors.length" class="mt-1 list-disc ms-4 space-y-0.5">
         <li v-for="e in errors" :key="e">{{ e }}</li>
       </ul>
     </div>
-    <div v-if="phase === 'rejected' && feedback" class="text-xs text-gray-500 dark:text-gray-400 ms-1 mb-2 italic">
+    <div v-if="phase === 'rejected' && feedback" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 italic">
       “{{ feedback }}”
     </div>
 
@@ -53,32 +53,32 @@
             <span v-if="datasetEmoji" class="text-base leading-none flex-shrink-0">{{ datasetEmoji }}</span>
             <Icon v-else name="heroicons-circle-stack" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ connectionName || args.name }}</span>
-            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
-              {{ $t('tools.createDemoDataset.badge') }}
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+              {{ t('tools.createDemoDataset.badge') }}
             </span>
             <span class="flex-1"></span>
-            <span v-if="dateRange" class="hidden sm:inline text-2xs text-ink-muted flex-shrink-0">{{ dateRange }}</span>
+            <span v-if="dateRange" class="hidden sm:inline text-chat-3 text-ink-muted flex-shrink-0">{{ dateRange }}</span>
           </div>
-          <div v-if="args.description || args.domain" class="mt-1 text-2xs text-gray-500 dark:text-gray-400 leading-snug" dir="auto">
+          <div v-if="args.description || args.domain" class="mt-1 text-chat-2 text-gray-500 dark:text-gray-400 leading-snug" dir="auto">
             {{ args.description || args.domain }}
           </div>
         </div>
 
         <!-- Tables -->
         <div v-if="expanded" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="flex items-center text-2xs uppercase tracking-wide text-ink-muted mb-1">
-            <span>{{ $t('tools.createDemoDataset.tables', { count: tables.length }) }}</span>
+          <div class="flex items-center text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
+            <span>{{ t('tools.createDemoDataset.tables', { count: tables.length }) }}</span>
             <span class="flex-1"></span>
             <span v-if="phase === 'working' && progressTotal" class="normal-case tracking-normal">
-              {{ $t('tools.createDemoDataset.progress', { done: progressDone, total: progressTotal }) }}
+              {{ t('tools.createDemoDataset.progress', { done: progressDone, total: progressTotal }) }}
             </span>
-            <span v-else class="normal-case tracking-normal">{{ formatRows(rowsTotal) }} {{ $t('tools.createDemoDataset.rows') }}</span>
+            <span v-else class="normal-case tracking-normal">{{ formatRows(rowsTotal) }} {{ t('tools.createDemoDataset.rows') }}</span>
           </div>
           <div v-if="phase === 'working' && progressTotal" class="h-0.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden mb-1.5">
             <div class="h-full bg-blue-500 transition-all duration-500" :style="{ width: `${Math.round(100 * progressDone / progressTotal)}%` }"></div>
           </div>
           <ul class="space-y-0.5">
-            <li v-for="t in tables" :key="t.name" class="text-2xs">
+            <li v-for="t in tables" :key="t.name" class="text-chat-2">
               <button
                 class="w-full flex items-center gap-2 py-0.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800/60 text-start"
                 @click="toggleTable(t.name)"
@@ -91,14 +91,14 @@
                 <span class="font-mono text-gray-700 dark:text-gray-300 truncate">{{ t.name }}</span>
                 <span class="text-ink-muted truncate hidden sm:inline" dir="auto">{{ t.description }}</span>
                 <span class="flex-1"></span>
-                <span v-if="tableState(t.name).state === 'retrying'" class="text-2xs text-amber-600 dark:text-amber-400 flex-shrink-0">
-                  {{ $t('tools.createDemoDataset.retry', { n: tableState(t.name).attempt }) }}
+                <span v-if="tableState(t.name).state === 'retrying'" class="text-chat-3 text-amber-600 dark:text-amber-400 flex-shrink-0">
+                  {{ t('tools.createDemoDataset.retry', { n: tableState(t.name).attempt }) }}
                 </span>
                 <span
                   v-if="['writing_code', 'running'].includes(tableState(t.name).state)"
                   class="h-2 w-12 rounded bg-gray-100 dark:bg-gray-800 animate-pulse flex-shrink-0"
                 ></span>
-                <span v-else class="text-2xs text-ink-muted tabular-nums flex-shrink-0">
+                <span v-else class="text-chat-3 text-ink-muted tabular-nums flex-shrink-0">
                   {{ formatRows(tableRows(t)) }}
                 </span>
                 <Icon :name="openTable === t.name ? 'heroicons-chevron-up' : 'heroicons-chevron-down'" class="w-2.5 h-2.5 text-gray-300 flex-shrink-0" />
@@ -106,7 +106,7 @@
               <div v-if="openTable === t.name" class="ms-5 mb-1 mt-0.5 flex flex-wrap gap-1">
                 <span
                   v-for="c in t.columns" :key="c.name"
-                  class="inline-flex items-center gap-1 text-2xs px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
+                  class="inline-flex items-center gap-1 text-chat-3 px-1.5 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
                   :title="c.description || ''"
                 >
                   <Icon v-if="c.primary_key" name="heroicons-key" class="w-2.5 h-2.5 text-amber-500" />
@@ -121,13 +121,13 @@
 
         <!-- Agents -->
         <div v-if="expanded && agents.length" class="border-t border-gray-100 dark:border-gray-800 px-3 py-2">
-          <div class="text-2xs uppercase tracking-wide text-ink-muted mb-1">
-            {{ phase === 'created' ? $t('tools.createDemoDataset.agentsCreated') : $t('tools.createDemoDataset.agents') }}
+          <div class="text-chat-3 uppercase tracking-wide text-ink-muted mb-1">
+            {{ phase === 'created' ? t('tools.createDemoDataset.agentsCreated') : t('tools.createDemoDataset.agents') }}
           </div>
           <ul class="space-y-1">
             <li
               v-for="a in agents" :key="a.name"
-              class="flex items-start gap-2 text-2xs rounded-md px-1.5 py-1 -mx-1.5"
+              class="flex items-start gap-2 text-chat-2 rounded-md px-1.5 py-1 -mx-1.5"
               :class="interactive ? 'hover:bg-gray-50 dark:hover:bg-gray-800/60 cursor-pointer' : ''"
               :data-testid="`demo-agent-${a.name}`"
               @click="interactive && toggleAgent(a.name)"
@@ -148,31 +148,31 @@
               <span class="min-w-0 flex-1" :class="!interactive || isChecked(a.name) ? '' : 'opacity-50'">
                 <span class="flex items-center gap-1.5">
                   <span class="font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ a.name }}</span>
-                  <span v-if="a.skipped" class="text-2xs px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
-                    {{ $t('tools.createDemoDataset.skipped') }}
+                  <span v-if="a.skipped" class="text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400">
+                    {{ t('tools.createDemoDataset.skipped') }}
                   </span>
                 </span>
                 <span v-if="a.description" class="block text-gray-500 dark:text-gray-400 leading-snug" dir="auto">{{ a.description }}</span>
                 <span class="mt-0.5 flex flex-wrap gap-1">
                   <span
                     v-for="tn in a.tables" :key="tn"
-                    class="text-2xs px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
+                    class="text-chat-3 px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
                   >{{ tn }}</span>
                 </span>
               </span>
               <NuxtLink
                 v-if="a.id && !readonly"
                 :to="`/agents/${a.id}`"
-                class="text-2xs text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
+                class="text-chat-2 text-blue-600 hover:text-blue-800 dark:text-blue-400 inline-flex items-center gap-1 flex-shrink-0"
                 @click.stop
               >
                 <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
-                {{ $t('tools.createDemoDataset.open') }}
+                {{ t('tools.createDemoDataset.open') }}
               </NuxtLink>
             </li>
           </ul>
-          <div v-if="interactive && !canCreateAgents" class="mt-1 text-2xs text-amber-600 dark:text-amber-400">
-            {{ $t('tools.createDemoDataset.noAgentPermission') }}
+          <div v-if="interactive && !canCreateAgents" class="mt-1 text-chat-2 text-amber-600 dark:text-amber-400">
+            {{ t('tools.createDemoDataset.noAgentPermission') }}
           </div>
         </div>
 
@@ -182,25 +182,25 @@
             <textarea
               v-model="feedbackDraft"
               rows="2"
-              :placeholder="$t('tools.createDemoDataset.feedbackPlaceholder')"
+              :placeholder="t('tools.createDemoDataset.feedbackPlaceholder')"
               class="w-full text-xs rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-400 resize-none"
               data-testid="demo-dataset-feedback"
             ></textarea>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-2xs text-ink-muted truncate">
-              {{ $t('tools.createDemoDataset.generatedBy', { model: confirmation?.model || '' }) }}
+            <span class="text-chat-3 text-ink-muted truncate">
+              {{ t('tools.createDemoDataset.generatedBy', { model: confirmation?.model || '' }) }}
             </span>
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
               <button
-                class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="responding"
                 data-testid="demo-dataset-request-changes"
                 @click="showFeedback = true"
-              >{{ $t('tools.createDemoDataset.requestChanges') }}</button>
+              >{{ t('tools.createDemoDataset.requestChanges') }}</button>
               <button
-                class="px-2.5 py-1 text-xs font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
+                class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
                 data-testid="demo-dataset-approve"
                 @click="respond(true)"
@@ -211,28 +211,28 @@
             </template>
             <template v-else>
               <button
-                class="px-2.5 py-1 text-xs rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
-              >{{ $t('tools.createDemoDataset.cancel') }}</button>
+              >{{ t('tools.createDemoDataset.cancel') }}</button>
               <button
-                class="px-2.5 py-1 text-xs font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+                class="px-2.5 py-1 text-chat-2 font-medium rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
                 :disabled="responding"
                 data-testid="demo-dataset-send-feedback"
                 @click="respond(false)"
               >
                 <Spinner v-if="responding && pendingChoice === false" class="w-3 h-3" />
-                {{ $t('tools.createDemoDataset.sendFeedback') }}
+                {{ t('tools.createDemoDataset.sendFeedback') }}
               </button>
             </template>
           </div>
-          <div v-if="respondError" class="mt-1 text-2xs text-red-500">{{ respondError }}</div>
+          <div v-if="respondError" class="mt-1 text-chat-2 text-red-500">{{ respondError }}</div>
         </div>
 
         <!-- Result footer -->
-        <div v-if="phase === 'created'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-2 text-2xs text-ink-muted">
+        <div v-if="phase === 'created'" class="border-t border-gray-100 dark:border-gray-800 px-3 py-1.5 flex items-center gap-2 text-chat-3 text-ink-muted">
           <Icon name="heroicons-circle-stack" class="w-3 h-3" />
-          <span>{{ formatRows(output.total_rows) }} {{ $t('tools.createDemoDataset.rows') }}</span>
+          <span>{{ formatRows(output.total_rows) }} {{ t('tools.createDemoDataset.rows') }}</span>
           <span>·</span>
           <bdi>{{ formatBytes(output.file_size_bytes) }}</bdi>
           <span v-if="output.seconds">·</span>
@@ -248,7 +248,7 @@
 import { computed, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const { t, locale } = useI18n()
+const { t, locale } = useResponseI18n()
 
 const props = defineProps<{
   toolExecution: {

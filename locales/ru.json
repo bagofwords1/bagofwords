@@ -3161,6 +3161,7 @@
       "azureFoundryHint": "Поддерживаются и Azure OpenAI, и Azure AI Foundry. Идентификатор модели — это имя вашего развёртывания.",
       "responsesApiHint": "Использовать Responses API вместо Chat Completions. Требуется для веб-поиска и доступен только в регионах, поддерживающих Responses API.",
       "responsesApiFoundryHint": "В Foundry это относится только к развёртываниям OpenAI.",
+      "responsesApiCustomHint": "Use the Responses API instead of Chat Completions. Turn on if your server returns tool calls on /v1/responses but drops them on Chat Completions (e.g. gpt-oss on vLLM or NVIDIA NIM).",
       "colCost": "Стоимость ($/M)",
       "colRouting": "Маршрутизация",
       "autoRouter": "Автомаршрутизатор",

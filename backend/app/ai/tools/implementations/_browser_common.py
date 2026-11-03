@@ -268,7 +268,14 @@ def get_browser_connection(runtime_ctx: Dict[str, Any]) -> Optional[Tuple[List[s
     """Return (url_patterns, allow_downloads) from the report's first browser
     connection, or None if the report has none attached."""
     report = runtime_ctx.get("report")
-    for ds in (getattr(report, "data_sources", None) or []):
+    return browser_connection_for(getattr(report, "data_sources", None))
+
+
+def browser_connection_for(data_sources) -> Optional[Tuple[List[str], bool]]:
+    """(url_patterns, allow_downloads) of the first browser connection among
+    `data_sources`, or None. Reruns pass the sources they run with (a
+    published dashboard has no report)."""
+    for ds in (data_sources or []):
         for conn in (getattr(ds, "connections", None) or []):
             if getattr(conn, "type", None) != "browser":
                 continue

@@ -23,7 +23,7 @@
 
     <!-- Entity Details Section (collapsible) -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed && entityInfo" class="ms-4 text-xs text-gray-600 dark:text-gray-400 space-y-2">
+      <div v-if="!detailsCollapsed && entityInfo" class="ms-4 text-chat-2 text-gray-600 dark:text-gray-400 space-y-2">
         <!-- Description -->
         <div v-if="entityInfo.description" class="text-gray-500 dark:text-gray-400 leading-relaxed">
           {{ entityInfo.description }}
@@ -37,13 +37,13 @@
           >
             <Icon :name="profileCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-table-cells" class="w-3 h-3 me-1" />
-            <span>{{ $t('tools.describeEntity.dataProfile') }}</span>
+            <span>{{ t('tools.describeEntity.dataProfile') }}</span>
             <span class="ms-2 text-ink-muted">{{ dataProfile.row_count?.toLocaleString() || 0 }} rows, {{ dataProfile.column_count || 0 }} columns</span>
           </div>
           <Transition name="fade">
             <div v-if="!profileCollapsed" class="mt-2 ms-4">
               <!-- Columns table -->
-              <table v-if="profileColumns.length" class="min-w-0 text-2xs">
+              <table v-if="profileColumns.length" class="min-w-0 text-chat-2">
                 <thead class="text-ink-muted">
                   <tr>
                     <th class="text-start pe-4 font-normal">Column</th>
@@ -67,7 +67,7 @@
               <!-- Sample rows -->
               <div v-if="sampleRows.length" class="mt-2">
                 <div class="text-ink-muted mb-1">Sample:</div>
-                <pre class="bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 text-2xs text-gray-600 dark:text-gray-400 overflow-x-auto max-h-24">{{ JSON.stringify(sampleRows, null, 2) }}</pre>
+                <pre class="bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 text-chat-2 text-gray-600 dark:text-gray-400 overflow-x-auto max-h-24">{{ JSON.stringify(sampleRows, null, 2) }}</pre>
               </div>
             </div>
           </Transition>
@@ -81,11 +81,11 @@
           >
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
             <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1" />
-            <span>{{ $t('tools.common.code') }}</span>
+            <span>{{ t('tools.common.code') }}</span>
           </div>
           <Transition name="fade">
             <div v-if="!codeCollapsed" class="mt-1 ms-4">
-              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-2xs text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ entityCode }}</pre>
+              <pre class="bg-gray-50 dark:bg-gray-900 rounded px-3 py-2 text-chat-2 text-gray-700 dark:text-gray-300 overflow-x-auto max-h-48 whitespace-pre-wrap">{{ entityCode }}</pre>
             </div>
           </Transition>
         </div>
@@ -119,6 +119,8 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useResponseI18n()
+
 import { computed, ref } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 

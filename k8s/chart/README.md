@@ -1,6 +1,6 @@
 # bagofwords
 
-![Version: 3.0.0](https://img.shields.io/badge/Version-3.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
+![Version: 3.1.0](https://img.shields.io/badge/Version-3.1.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
 Bag of words - a new ai data tool
 
@@ -156,7 +156,7 @@ Bag of words - a new ai data tool
 | serviceAccount.imagePullSecret | string | `""` | Name of an existing image pull secret to attach to the ServiceAccount. |
 | serviceAccount.name | string | `"bowapp"` | Name of the ServiceAccount to create and use for the app pod. |
 | startupProbe | object | `{"failureThreshold":30,"httpGet":{"path":"/health","port":3000},"initialDelaySeconds":30,"periodSeconds":10}` | Startup probe. Kubernetes will not route traffic or count the pod ready until this passes. |
-| strategy | object | `{}` | Deployment strategy. Leave empty for Kubernetes default (RollingUpdate 25/25). |
+| strategy | object | `{"type":"Recreate"}` | Deployment strategy. `Recreate` stops every old pod before the new ones start, because each new pod runs the database migrations on startup (`start.sh`) and they take exclusive table locks in one transaction: with old pods still serving, their queries deadlock the migration, and old code can break once the new schema commits. The cost is a short outage on each upgrade (pod startup plus migrations). `RollingUpdate` avoids the outage but is only safe for releases whose migrations the previous version tolerates. |
 | terminationGracePeriodSeconds | int | `30` | Seconds to wait for in-flight requests to drain on pod shutdown. |
 | tolerations | list | `[]` | Tolerations for the app pod. |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints for the app pod. |

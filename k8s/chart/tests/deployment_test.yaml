@@ -49,3 +49,27 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].resources.requests.cpu
           value: 500m
+
+  - it: stops old pods before new ones start, so migrations run without them
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: Recreate
+            rollingUpdate: null
+
+  - it: renders a rolling update when asked for one
+    set:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 1
+              maxUnavailable: 0

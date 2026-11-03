@@ -398,8 +398,15 @@ nameOverride: ""
 # -- Number of pod replicas.
 replicaCount: 1
 
-# -- Deployment strategy. Leave empty for Kubernetes default (RollingUpdate 25/25).
-strategy: {}
+# -- Deployment strategy. `Recreate` stops every old pod before the new ones
+# start, because each new pod runs the database migrations on startup
+# (`start.sh`) and they take exclusive table locks in one transaction: with old
+# pods still serving, their queries deadlock the migration, and old code can
+# break once the new schema commits. The cost is a short outage on each
+# upgrade (pod startup plus migrations). `RollingUpdate` avoids the outage but
+# is only safe for releases whose migrations the previous version tolerates.
+strategy:
+  type: Recreate
 # strategy:
 #   type: RollingUpdate
 #   rollingUpdate:

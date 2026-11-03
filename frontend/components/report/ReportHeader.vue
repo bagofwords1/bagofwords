@@ -2,46 +2,39 @@
 
     <header class="sticky top-0 bg-white dark:bg-gray-900 z-10 flex flex-col border-gray-200 dark:border-gray-700">
         <!-- Top row: back, title, share, dashboard toggle -->
-        <div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
-            <GoBackChevron />
-            <UTooltip v-if="report" :text="report.is_starred ? t('reports.tooltips.unstar') : t('reports.tooltips.star')">
-                <button @click="toggleStar" class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none">
+        <div class="flex h-10 flex-row items-center py-1 pe-2">
+            <GoBackChevron class="!flex h-8 w-8 shrink-0 items-center justify-center !p-0 leading-none" />
+            <div v-if="report" class="report-star-slot h-8 shrink-0" :class="{ 'report-star-enter': isNewReport }">
+            <UTooltip class="flex h-8 shrink-0 items-center" :text="report.is_starred ? t('reports.tooltips.unstar') : t('reports.tooltips.star')">
+                <button @click="toggleStar" class="flex h-8 w-8 items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none">
                     <UIcon
                         :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
-                        class="w-5 h-5 transition-colors"
+                        class="block w-5 h-5 transition-colors"
                         :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-ink-muted hover:text-gray-500'"
                     />
                 </button>
             </UTooltip>
-            <h1 class="text-sm md:text-start text-center w-[500px]">
-                <span class="font-semibold text-sm">
-                    <!-- While the generated title types itself in, the input is
-                         swapped for a matching span so the caret can trail the
-                         text (an input's own caret sits wherever the cursor is,
-                         and focusing it would fight the user). Identical
-                         typography, so there is no reflow on the swap. -->
-                    <span
-                        v-if="report && isTypingTitle"
-                        class="report-title-typing inline-block p-1 pt-1 text-start w-full text-gray-900 dark:text-gray-100 truncate cursor-text"
-                        aria-live="polite"
-                        @click="onTitleFocus"
-                    >{{ localTitle }}<span class="report-title-caret" aria-hidden="true"></span></span>
-                    <input
-                        type="text"
-                        class="inline bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 focus:bg-gray-100 dark:focus:bg-gray-800 p-1 pt-1 rounded outline-none active:bg-gray-100 dark:active:bg-gray-800 hover:cursor-pointer text-start w-full text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500 transition-colors duration-150"
-                        v-else-if="report"
-                        v-model="localTitle"
-                        :class="{ 'report-title-settled': justTyped }"
-                        :disabled="isSaving"
-                        @focus="onTitleFocus"
-                        @keyup.enter="saveReportTitle"
-                        @blur="saveReportTitle"
-                        ref="reportTitleInput"
-                    />
-                    <span v-else></span>
-                </span>
+            </div>
+            <h1 class="grid h-8 min-w-0 max-w-lg items-center text-start text-sm font-semibold">
+                <!-- Size the field from the complete title, including while it types in. -->
+                <span aria-hidden="true" class="invisible col-start-1 row-start-1 h-8 truncate px-1 py-0 text-sm font-semibold leading-8">{{ localTitle || t('reports.newReport') }}</span>
+                <input
+                    v-if="report"
+                    type="text"
+                    class="report-title col-start-1 row-start-1 block h-8 min-w-0 w-full cursor-pointer focus:cursor-text rounded bg-transparent px-1 py-0 text-sm font-semibold leading-8 text-ink outline-none hover:bg-surface-muted focus:bg-surface-muted placeholder:text-ink transition-colors"
+                    :dir="dominantTextDir(localTitle) || 'ltr'"
+                    :placeholder="t('reports.newReport')"
+                    :class="{ 'header-control-enter': revealTitle }"
+                    v-model="localTitle"
+                    :disabled="isSaving"
+                    @focus="onTitleFocus"
+                    @keyup.enter="saveReportTitle"
+                    @blur="saveReportTitle"
+                    ref="reportTitleInput"
+                />
+                <span v-if="!report" class="col-start-1 row-start-1 h-8 truncate px-1 text-left text-sm font-semibold leading-8 text-ink">{{ t('reports.newReport') }}</span>
             </h1>
-            <div class="ms-auto flex items-center gap-2">
+            <div v-if="report" class="header-control-enter ms-auto flex items-center gap-2">
                 <ShareModal v-if="report" :report="report" share-type="conversation" :title="$t('share.shareConversation')" />
                 <!-- Text size / width menu hidden for now; set v-if back to true to restore. -->
                 <ChatDisplayMenu v-if="false" />
@@ -82,6 +75,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { dominantTextDir } from '~/utils/textDirection'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import ShareModal from '@/components/ShareModal.vue'
 import ChatDisplayMenu from '@/components/report/ChatDisplayMenu.vue'
@@ -105,59 +99,29 @@ const mobileTabs = computed(() => [
 
 const { t } = useI18n()
 const route = useRoute()
+// Capture the creation handoff before the report consumes its prompt query.
+const isNewReport = typeof route.query.new_message === 'string' 
 const report_id = route.params.id
 const reportTitleInput = ref<HTMLInputElement | null>(null)
 const localTitle = ref('')
 const isSaving = ref(false)
 const toast = useToast()
 
-// The server generates the title from the first prompt and streams it in
-// mid-run (report.title.updated → pages/reports/[id] patches `report`), so the
-// placeholder is replaced under the user's eyes. Type it in instead of swapping
-// the text: it reads as the assistant naming the report, and it makes clear the
-// field is still editable. Plain assignment for every other case (first load, a
-// manual rename, a title that arrived before this mounted).
+// Keep the draft label until the generated title is ready. Reveal the full
+// title with opacity only, so neither its direction nor its baseline moves.
 const PLACEHOLDER_TITLES = ['', 'untitled report']
-const isTypingTitle = ref(false)
-// Brief afterglow on the real input once typing hands back, so the transition
-// from the animated span to the editable field isn't a hard cut.
-const justTyped = ref(false)
-let typeTimer: ReturnType<typeof setTimeout> | null = null
-let settleTimer: ReturnType<typeof setTimeout> | null = null
+const revealTitle = ref(false)
+let revealTimer: ReturnType<typeof setTimeout> | null = null
 
-function stopTyping(finalTitle?: string) {
-    if (typeTimer) { clearTimeout(typeTimer); typeTimer = null }
-    isTypingTitle.value = false
-    if (typeof finalTitle === 'string') localTitle.value = finalTitle
-}
-
-function prefersReducedMotion() {
-    return typeof window !== 'undefined'
-        && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+function stopTyping(title: string) {
+    localTitle.value = PLACEHOLDER_TITLES.includes(title.trim().toLowerCase()) ? '' : title
 }
 
 function typeTitle(title: string) {
-    stopTyping()
-    // Typing is motion too — CSS can't opt this one out, so honor the setting
-    // here and just show the finished title.
-    if (prefersReducedMotion()) { localTitle.value = title; return }
-    isTypingTitle.value = true
-    localTitle.value = ''
-    // ~28ms/char lands a five-word title in well under a second; the floor
-    // keeps a long title from dragging.
-    const step = Math.max(12, Math.min(28, Math.round(700 / Math.max(title.length, 1))))
-    const tick = (i: number) => {
-        localTitle.value = title.slice(0, i)
-        if (i >= title.length) {
-            stopTyping(title)
-            justTyped.value = true
-            if (settleTimer) clearTimeout(settleTimer)
-            settleTimer = setTimeout(() => { justTyped.value = false }, 900)
-            return
-        }
-        typeTimer = setTimeout(() => tick(i + 1), step)
-    }
-    tick(1)
+    stopTyping(title)
+    revealTitle.value = true
+    if (revealTimer) clearTimeout(revealTimer)
+    revealTimer = setTimeout(() => { revealTitle.value = false }, 180)
 }
 
 watch(() => props.report?.title, (newTitle, oldTitle) => {
@@ -175,17 +139,16 @@ watch(() => props.report?.title, (newTitle, oldTitle) => {
     }
 }, { immediate: true })
 
-// A click into the field mid-animation hands control back immediately.
 function onTitleFocus() {
-    if (isTypingTitle.value) stopTyping(props.report?.title || localTitle.value)
+    revealTitle.value = false
 }
 
 onBeforeUnmount(() => {
-    stopTyping()
-    if (settleTimer) clearTimeout(settleTimer)
+    if (revealTimer) clearTimeout(revealTimer)
 })
 
 async function saveReportTitle() {
+    if (!localTitle.value.trim() && PLACEHOLDER_TITLES.includes((props.report?.title || '').trim().toLowerCase())) return
     // Enter saves and then blurs, and the blur handler saves again — the two
     // fire close enough together that the second one starts before the first
     // PUT returns, so one edit meant two requests and two toasts. Drop any
@@ -291,48 +254,29 @@ async function toggleStar() {
 
 
 <style scoped>
-/* Title reveal — the generated title types itself into the header while the
-   run is still streaming. Kept deliberately quiet: a trailing caret, a short
-   fade-up per swap, and one settle glow when the editable input comes back. */
-.report-title-typing {
-    animation: report-title-rise 0.28s ease-out;
+/* Keep the title beside the header controls while shaping its content in
+   its own direction. The same input remains mounted during title generation. */
+.report-title {
+    text-align: left;
 }
-
-.report-title-caret {
-    display: inline-block;
-    width: 1.5px;
-    height: 0.95em;
-    margin-inline-start: 2px;
-    vertical-align: -0.12em;
-    background: currentColor;
-    opacity: 0.75;
-    animation: report-title-blink 0.9s steps(1, end) infinite;
+.report-star-slot {
+    inline-size: 2rem;
 }
-
-.report-title-settled {
-    animation: report-title-settle 0.9s ease-out;
+.report-star-enter {
+    animation: report-star-enter 200ms ease-out both;
 }
-
-@keyframes report-title-rise {
-    from { opacity: 0.35; transform: translateY(2px); }
-    to { opacity: 1; transform: none; }
+@keyframes report-star-enter {
+    from { inline-size: 0; opacity: 0; overflow: hidden; }
+    to { inline-size: 2rem; opacity: 1; overflow: hidden; }
 }
-
-@keyframes report-title-blink {
-    0%, 55% { opacity: 0.75; }
-    56%, 100% { opacity: 0; }
+.header-control-enter {
+    animation: header-control-enter 180ms ease-out both;
 }
-
-/* A soft wash that fades out — reads as "this was just written", without
-   moving the text the user may be about to click into. */
-@keyframes report-title-settle {
-    0% { background-color: rgba(59, 130, 246, 0.14); }
-    100% { background-color: transparent; }
+@keyframes header-control-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
-
 @media (prefers-reduced-motion: reduce) {
-    .report-title-typing,
-    .report-title-settled { animation: none; }
-    .report-title-caret { animation: none; opacity: 0; }
+    .header-control-enter, .report-star-enter { animation: none; }
 }
 </style>

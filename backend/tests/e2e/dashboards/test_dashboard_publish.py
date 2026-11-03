@@ -232,10 +232,10 @@ def test_a_publish_failed_before_its_switch_never_goes_live(corpus, corpus_rows,
     attempt = _post(test_client, corpus, aid).json()["latest"]["id"]
     switch = publishing._go_live
 
-    async def failed_first(db, release_id):
+    async def failed_first(db, release_id, **kwargs):
         corpus_rows.update("artifact_releases", release_id, updated_at=datetime(2026, 1, 1))
         assert _status(test_client, corpus, aid)["latest"]["status"] == "failed"
-        return await switch(db, release_id)
+        return await switch(db, release_id, **kwargs)
 
     monkeypatch.setattr(publishing, "_go_live", failed_first)
     _finish(spawned)
