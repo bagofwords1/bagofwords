@@ -512,3 +512,62 @@ def test_a_check_withheld_while_the_section_was_built_stays_withheld(monkeypatch
             return await artifact_activity.read(db, report_id=report_id)
 
     assert secret not in str(run(section_then_read()))
+
+
+@pytest.mark.parametrize("same_process", [True, False], ids=["same-process", "another-process"])
+def test_events_a_withheld_session_stores_later_are_withheld_too(same_process, corpus, corpus_rows, test_client):
+    """A preview whose close failed keeps logging after its check withheld it.
+    In another process (no memory of the withhold) the session's withheld
+    rows still decide."""
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+    check_session = session_of(corpus_rows, aid, secret)
+    if not same_process:
+        artifact_activity._WITHHELD_SESSIONS.clear()
+    later = f"TypeError: later-{uuid.uuid4().hex}"
+    assert test_client.post(path(aid), json=batch({"kind": "error", "status": "error", "seq": 2,
+                                                   "detail": {"message": later}}, session=check_session),
+                            headers=owner).status_code == 200
+    assert session_of(corpus_rows, aid, later) == check_session
+
+    async def agent_reads():
+        async with async_session_maker() as db:
+            listed = await artifact_activity.read(db, report_id=report_id)
+            section = await artifact_activity.context_section(db, report_id=report_id, mark=False)
+            return listed, section
+
+    listed, section = run(agent_reads())
+    assert later not in str(listed) and later not in (section or "")
+    assert any(later in e["text"] for e in test_client.get(path(aid), headers=owner).json()["events"]), \
+        "the editor's log still lists it"
+
+
+def test_a_short_event_id_never_resolves_to_a_withheld_event(corpus, corpus_rows, test_client):
+    from app.ai.tools.implementations.read_artifact_activity import ReadArtifactActivityTool
+    from app.models.report import Report
+
+    aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
+    ui = test_client.get(path(aid), headers=owner).json()["events"]
+    withheld_id = next(e["id"] for e in ui if secret in e["text"])
+    # Store visible events until one shares the withheld event's first character.
+    visible_id = None
+    for _ in range(200):
+        assert test_client.post(path(aid), json=batch({"kind": "click", "detail": {"target": "button 'Go'"}}),
+                                headers=owner).status_code == 200
+        ids = [e["id"] for e in test_client.get(path(aid), headers=owner).json()["events"]]
+        visible_id = next((i for i in ids if i != withheld_id and i[0] == withheld_id[0]), None)
+        if visible_id:
+            break
+    assert visible_id, "no visible event shares a first character with the withheld one"
+
+    async def call(**args):
+        async with async_session_maker() as db:
+            report = await db.get(Report, report_id)
+            out = None
+            async for event in ReadArtifactActivityTool().run_stream(args, {"db": db, "report": report}):
+                if event.type == "tool.end":
+                    out = event.payload["output"]
+            return out
+
+    found = run(call(event_id=withheld_id[0]))
+    assert found.get("event") and found["event"]["id"] != withheld_id and secret not in str(found)
+    assert not run(call(event_id=withheld_id[:12])).get("event"), "the withheld event itself stays unreadable"

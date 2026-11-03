@@ -509,11 +509,14 @@ async def _withhold_activity(evidence_id):
 
     if not evidence_id:
         return
-    try:
-        async with async_session_maker() as db:
-            await artifact_activity.withhold(db, session_id=activity_session_id(evidence_id))
-    except Exception:
-        logger.error("Automatic artifact check could not withhold its restricted evidence", exc_info=True)
+    for attempt in range(2):  # one retry: a transient DB error must not leave it readable
+        try:
+            async with async_session_maker() as db:
+                await artifact_activity.withhold(db, session_id=activity_session_id(evidence_id))
+            return
+        except Exception:
+            if attempt:
+                logger.error("Automatic artifact check could not withhold its restricted evidence", exc_info=True)
 
 
 async def _mark_activity_shown(runtime_ctx, evidence_id, seqs=None, messages=None):
