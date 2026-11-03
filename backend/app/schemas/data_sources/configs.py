@@ -1683,8 +1683,8 @@ class Neo4jConfig(BaseModel):
         ...,
         title="URI",
         description=(
-            "neo4j+s://xxxx.databases.neo4j.io for Aura, bolt://host:7687 for a single server, "
-            "or neo4j://host:7687 for a cluster. No username or password here."
+            "neo4j+s://xxxx.databases.neo4j.io for Aura, or bolt://host:7687. BOW connects directly to "
+            "this host (a neo4j:// URI is read as bolt://). No username or password here."
         ),
         json_schema_extra={"ui:type": "string"},
     )

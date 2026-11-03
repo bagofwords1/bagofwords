@@ -897,7 +897,8 @@ class QueryCapturingClientWrapper:
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
-            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str)
+            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
+                                 ensure_ascii=False)
         else:
             capture = query
         if isinstance(capture, dict) and (

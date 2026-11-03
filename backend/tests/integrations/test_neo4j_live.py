@@ -4,7 +4,7 @@ calendar-versioned release (what Aura runs). Needs Docker.
 Covers what the unit tests can't: real record shapes, the schema procedures,
 the server itself refusing a write in the READ session (with our Cypher guard
 switched off), the server-side transaction timeout, the row cap, and the
-routing-table check on a neo4j:// URI.
+direct connection on a neo4j:// URI.
 
 Run:
     cd backend
@@ -123,20 +123,12 @@ def test_the_row_cap_is_enforced_while_reading(server, monkeypatch):
     assert len(df) == 3 and "first 3 rows" in df.attrs["bow_notice"]
 
 
-def test_a_routing_uri_checks_every_address_in_the_routing_table(server, monkeypatch):
-    seen = []
-    import app.core.egress as egress
-
-    monkeypatch.setattr(egress, "check_host", lambda host, *a, **k: seen.append(host) or [])
-    client = _client(server, scheme="neo4j")
-    try:
-        client.test_connection()  # the advertised address may not be reachable from the host
-    finally:
-        assert seen, "the routing table's addresses were not checked"
-
-    def refuse(host, *a, **k):
-        raise egress.UnsafeURLError(f"Refusing {host}")
-
-    monkeypatch.setattr(egress, "check_host", refuse)
+def test_a_routing_uri_connects_directly_to_the_server(server):
+    """A neo4j:// URI is read as bolt://: the driver never follows a routing
+    table to hosts no egress check saw. Against a single server, the
+    advertised (container-internal) address would be unreachable from here,
+    so a working connection proves the routing table was not used."""
     res = _client(server, scheme="neo4j").test_connection()
-    assert res["success"] is False and "Refusing" in res["message"]
+    assert res["success"], res["message"]
+    df = _client(server, scheme="neo4j").execute_query("MATCH (m:Movie) RETURN count(m) AS c")
+    assert df.iloc[0]["c"] == 2  # the seeded movies

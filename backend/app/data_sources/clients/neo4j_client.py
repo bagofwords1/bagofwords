@@ -25,7 +25,6 @@ from app.data_sources.clients.cypher_guard import check_cypher
 from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 ALLOWED_SCHEMES = ("bolt", "bolt+s", "bolt+ssc", "neo4j", "neo4j+s", "neo4j+ssc")
-ROUTING_SCHEMES = ("neo4j", "neo4j+s", "neo4j+ssc")
 
 # Hard cap on the rows one query returns: the client runs in the API process,
 # so `MATCH (n) RETURN n` must not load a whole graph into memory.
@@ -57,6 +56,15 @@ def validate_uri(uri: str) -> str:
     if not parts.hostname:
         raise ValueError("The URI must include a host, e.g. neo4j+s://xxxx.databases.neo4j.io")
     return f"{parts.scheme.lower()}://{parts.netloc}"
+
+
+def direct_uri(uri: str) -> str:
+    """The URI the driver connects to: always a direct bolt connection to the
+    host the admin entered. A neo4j:// (routing) URI would make the driver
+    connect to whatever servers the server's routing table names, which no
+    egress check sees; BOW reads one database and needs no routing."""
+    scheme, rest = uri.split("://", 1)
+    return f"{scheme.replace('neo4j', 'bolt', 1)}://{rest}"
 
 
 def _type_name(property_types: Any) -> str:
@@ -122,7 +130,6 @@ class Neo4jClient(DataSourceClient):
         self.username = username
         self.password = password
         self._query_budget = DEFAULT_TIMEOUT_SECONDS
-        self._routing_checked = False
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -137,26 +144,6 @@ class Neo4jClient(DataSourceClient):
         if isinstance(seconds, (int, float)) and seconds > 0:
             self._query_budget = float(max(5.0, seconds - max(3.0, seconds * 0.1)))
 
-    def _check_routing_table(self, driver) -> None:
-        """A routing URI (neo4j://) makes the driver connect to whatever servers
-        the routing table lists. Check each of them like the URI's own host
-        before any query reaches them."""
-        if self._routing_checked or urlsplit(self.uri).scheme not in ROUTING_SCHEMES:
-            return
-        from neo4j import GraphDatabase
-
-        from app.core.egress import check_host
-
-        direct = self.uri.replace("neo4j", "bolt", 1)
-        with GraphDatabase.driver(direct, auth=self._auth(), connection_timeout=15) as probe, \
-                probe.session(database=self.database, default_access_mode="READ") as session:
-            rows = session.run("CALL dbms.routing.getRoutingTable({}, $db)", db=self.database).data()
-        for row in rows:
-            for server in row.get("servers") or []:
-                for address in server.get("addresses") or []:
-                    check_host(address.rsplit(":", 1)[0].strip("[]"), require_resolution=False)
-        self._routing_checked = True
-
     def _auth(self):
         return (self.username, self.password or "") if self.username else None
 
@@ -164,10 +151,9 @@ class Neo4jClient(DataSourceClient):
     def connect(self) -> Generator:
         from neo4j import GraphDatabase
 
-        driver = GraphDatabase.driver(self.uri, auth=self._auth(), connection_timeout=15,
+        driver = GraphDatabase.driver(direct_uri(self.uri), auth=self._auth(), connection_timeout=15,
                                       max_connection_lifetime=300)
         try:
-            self._check_routing_table(driver)
             # One session per call: sessions are not thread-safe, and the
             # executor may run several queries at once.
             with driver.session(database=self.database, default_access_mode="READ",

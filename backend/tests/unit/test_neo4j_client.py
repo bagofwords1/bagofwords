@@ -1,22 +1,27 @@
-"""Neo4j connector: read-only Cypher, plain values, the catalog, and how the
-code executor passes Cypher parameters.
+"""Neo4j connector: read-only Cypher, plain values, the catalog, how the code
+executor passes Cypher parameters, and the identity-filter check on them.
 
-The driver is replaced only at its boundary (``Neo4jClient._read``, which
-runs one read transaction). The real thing is covered by the integration
-suite against a Neo4j container (tests/integrations/ds_clients.py).
+Only the driver is replaced (``neo4j.GraphDatabase.driver``): a fake server
+that answers ``tx.run`` and records what it was sent. Everything above it
+(connect, the READ session, the transaction timeout, the row cap, the
+catalog) is the real client. The real server is covered by
+tests/integrations/test_neo4j_live.py.
 """
 from __future__ import annotations
 
-import json
+from types import SimpleNamespace
 
 import pytest
 
 from app.ai.code_execution.code_execution import QueryCapturingClientWrapper, UnsafeSQLError
+from app.ai.code_execution.query_params import verify_identity_binds_in_queries
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+from app.data_sources.clients import neo4j_client
 from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
 from app.data_sources.clients.neo4j_client import MAX_ROWS, Neo4jClient, to_plain, validate_uri
 from app.schemas.data_source_registry import catalog_nouns_for, catalog_nouns_override, data_shape_for
 from app.schemas.data_sources.configs import Neo4jConfig
+from app.schemas.param_schema import ParamSpec
 
 READS = [
     "MATCH (p:Person)-[:ACTED_IN]->(m:Movie) WHERE m.title = $t RETURN p.name AS name LIMIT 10",
@@ -24,7 +29,10 @@ READS = [
     "MATCH (n) WHERE n.name = 'CREATE (x)' RETURN count(n) // DELETE everything",
     "MATCH (n) /* SET n.x = 1 */ RETURN n.name",
     'MATCH (n) WHERE n.s = "it\\"s DELETE" RETURN n',  # escaped quote inside a string
-    "MATCH (n) RETURN n {set: 1, .name}",  # map key
+    "MATCH (n) RETURN n {set: 1, .name, d: date.truncate('month', date())}",  # map keys, an allowed function
+    "MATCH (n:L {p: $p}) RETURN n.name",
+    "// comment\r\nMATCH (n) RETURN n.name",
+    "MATCH (n) WHERE n.transactions > 1 RETURN n.name",
     "CALL db.labels() YIELD label RETURN label",
     "CALL db.schema.visualization()",
     "MATCH p = shortestPath((a:Person {name: $a})-[*..5]-(b:Person {name: $b})) RETURN length(p)",
@@ -50,12 +58,24 @@ REFUSED = [
     "STOP DATABASE neo4j",
     "TERMINATE TRANSACTIONS 'x'",
     "MATCH (n) CALL { WITH n RETURN n } IN TRANSACTIONS RETURN n",
+    "CALL { MATCH (n) RETURN n } IN CONCURRENT TRANSACTIONS RETURN n",
+    "CALL { MATCH (n) RETURN n } IN 4 CONCURRENT TRANSACTIONS RETURN n",
     "CALL apoc.load.json('http://x')",
     "CALL `apoc`.`load`.json('http://x')",
     "CALL dbms.security.listUsers()",
     "RETURN apoc.cypher.runFirstColumnSingle('MATCH (n) DETACH DELETE n', {})",
     "RETURN `apoc`.text.join(['a'], ',')",
     "RETURN genai.vector.encode('x', 'OpenAI', {})",
+    "RETURN myé.fn(1)",  # a namespace with a non-ASCII letter
+    # Neo4j ends a // comment at \r too: what follows still runs.
+    "// note\rCALL apoc.load.json('http://x')",
+    "// note\rLOAD CSV FROM 'http://x' AS r RETURN r",
+    "// note\rSHOW DATABASES",
+    "// note\rUSE system MATCH (n) RETURN n",
+    # A namespaced function in a map value is a call like any other.
+    "RETURN {k: apoc.cypher.runFirstColumnSingle('MATCH (n) RETURN n', {})}",
+    "MATCH (n) RETURN n {.name, k: genai.vector.encode('x', 'OpenAI', {})}",
+    "MATCH (n:L {p: apoc.text.join(['a'], ',')}) RETURN n",
     "MATCH (n) WHERE n.x = 'unterminated RETURN n",
     "MATCH (n) /* never closed RETURN n",
 ]
@@ -70,13 +90,6 @@ def test_read_only_cypher_passes(query):
 def test_writes_admin_and_outbound_calls_are_refused(query):
     with pytest.raises(CypherNotAllowed):
         check_cypher(query)
-
-
-def test_the_executor_guard_refuses_writes_for_neo4j_only():
-    client = Neo4jClient(uri="bolt://db.example.com:7687", username="u", password="p")
-    with pytest.raises(ReadOnlyViolation):
-        ensure_read_only(client, "MATCH (n) DETACH DELETE n")
-    ensure_read_only(client, "MATCH (n) RETURN count(n)")
 
 
 @pytest.mark.parametrize("uri", ["neo4j+s://abc.databases.neo4j.io", "bolt://db:7687", "neo4j://10.0.0.5:7687",
@@ -107,70 +120,206 @@ def test_temporal_spatial_and_graph_values_become_plain():
     assert to_plain([float("nan"), {"a": b"\x01"}]) == [None, {"a": "01"}]
 
 
-class _FakeNeo4j(Neo4jClient):
-    """The real client with its one boundary, the read transaction, replaced."""
+# ── a fake server at the driver boundary ─────────────────────────────────────
 
-    def __init__(self, answers=None):
-        super().__init__(uri="bolt://db.example.com:7687", username="u", password="p")
+class _Record:
+    def __init__(self, keys, row):
+        self._keys, self._row = keys, row
+
+    def values(self):
+        return list(self._row)
+
+    def __getitem__(self, key):
+        return self._row[self._keys.index(key)]
+
+
+class _Result:
+    def __init__(self, keys, rows):
+        self._keys, self._rows = keys, rows
+
+    def keys(self):
+        return list(self._keys)
+
+    def __iter__(self):
+        return (_Record(self._keys, r) for r in self._rows)
+
+
+class FakeNeo4j:
+    """Answers `tx.run` by the first marker found in the Cypher; records the
+    URIs, sessions, statements and transaction timeouts it was given."""
+
+    def __init__(self, answers=None, fail=None):
         self.answers = answers or {}
-        self.calls = []
+        self.fail = fail
+        self.uris, self.sessions, self.statements, self.timeouts = [], [], [], []
 
-    def _read(self, cypher, params=None, *, limit=None, timeout=None):
-        self.calls.append((cypher, params))
+    def driver(self, uri, auth=None, **kwargs):
+        self.uris.append(uri)
+        server = self
+
+        class Session:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def execute_read(self, work):
+                server.timeouts.append(getattr(work, "timeout", None))
+                return work(SimpleNamespace(run=server.run))
+
+        class Driver:
+            def session(self, **kw):
+                if server.fail:
+                    raise server.fail
+                server.sessions.append(kw)
+                return Session()
+
+            def close(self):
+                pass
+
+        return Driver()
+
+    def run(self, cypher, params=None):
+        self.statements.append((cypher, params))
         for marker, answer in self.answers.items():
             if marker in cypher:
-                return answer
-        return ["name"], [["Ada"]], False
+                if isinstance(answer, Exception):
+                    raise answer
+                return _Result(*answer)
+        return _Result(["name"], [["Ada"]])
 
 
-def test_params_bind_natively_through_the_executor_and_are_captured():
-    client = _FakeNeo4j()
-    captured: list = []
-    wrapper = QueryCapturingClientWrapper(client, captured, [], client_key="main", query_timeout_seconds=30)
+@pytest.fixture
+def server(monkeypatch):
+    def make(answers=None, fail=None):
+        fake = FakeNeo4j(answers, fail)
+        monkeypatch.setattr("neo4j.GraphDatabase.driver", fake.driver)
+        return fake
+    return make
+
+
+def _client(uri="bolt://db.example.com:7687"):
+    return Neo4jClient(uri=uri, username="reader", password="s3cret-pass")
+
+
+def test_every_query_runs_in_a_read_session(server):
+    fake = server()
+    _client().execute_query("MATCH (n) RETURN n.name AS name")
+    assert fake.sessions and all(s["default_access_mode"] == "READ" for s in fake.sessions)
+
+
+def test_a_routing_uri_connects_directly_to_the_host_the_admin_entered(server):
+    """neo4j:// would let the server's routing table steer the driver to hosts
+    no egress check saw. BOW always connects directly."""
+    fake = server()
+    _client("neo4j+s://abc.databases.neo4j.io").execute_query("MATCH (n) RETURN n.name AS name")
+    _client("neo4j://db.internal:7687").execute_query("MATCH (n) RETURN n.name AS name")
+    assert fake.uris == ["bolt+s://abc.databases.neo4j.io", "bolt://db.internal:7687"]
+
+
+def test_the_executor_guard_refuses_writes_for_neo4j():
+    with pytest.raises(ReadOnlyViolation):
+        ensure_read_only(_client(), "MATCH (n) DETACH DELETE n")
+    ensure_read_only(_client(), "MATCH (n) RETURN count(n)")
+
+
+def test_params_reach_neo4j_unrendered_through_the_executor(server):
+    fake = server()
+    wrapper = QueryCapturingClientWrapper(_client(), [], [], client_key="main", query_timeout_seconds=30)
     query = "MATCH (:Person)-[:ACTED_IN]->(m:Movie) WHERE m.title = $t RETURN m.title AS name"
     df = wrapper.execute_query(query, params={"t": "The Matrix"})
     assert list(df["name"]) == ["Ada"]
-    # Not rendered as SQL: the client got the Cypher and the params as they were.
-    assert client.calls == [(query, {"t": "The Matrix"})]
-    # Captured with the values, so the identity-bind check can see them.
-    assert json.loads(str(captured[0])) == {"query": query, "params": {"t": "The Matrix"}}
+    # Not rendered as SQL: `(:Person)` would have read as a `:Person` placeholder.
+    assert fake.statements == [(query, {"t": "The Matrix"})]
 
 
-def test_the_executor_refuses_a_write_before_it_reaches_neo4j():
-    client = _FakeNeo4j()
-    wrapper = QueryCapturingClientWrapper(client, [], [], client_key="main", query_timeout_seconds=30)
+def test_the_executor_refuses_a_write_before_it_reaches_neo4j(server):
+    fake = server()
+    wrapper = QueryCapturingClientWrapper(_client(), [], [], client_key="main", query_timeout_seconds=30)
     with pytest.raises(UnsafeSQLError):
         wrapper.execute_query("MATCH (n) DETACH DELETE n")
-    assert client.calls == []
+    assert fake.statements == []
 
 
-def test_a_capped_result_tells_the_agent():
-    client = _FakeNeo4j({"RETURN n.name": (["name"], [["a"]] * 3, True)})
-    df = client.execute_query("MATCH (n) RETURN n.name")
-    assert len(df) == 3 and f"{MAX_ROWS:,}" in df.attrs["bow_notice"]
-    assert "bow_notice" not in client.execute_query("MATCH (n) RETURN n.title").attrs
+def _identity_check(query, params, value):
+    """Run one query through the real executor and the real identity check."""
+    captured: list = []
+    wrapper = QueryCapturingClientWrapper(_client(), captured, [], client_key="main", query_timeout_seconds=30)
+    wrapper.execute_query(query, params=params)
+    spec = ParamSpec(name="owner", type="string", source="identity")
+    return verify_identity_binds_in_queries(captured, {"owner": value}, [spec])
 
 
-def test_execute_query_takes_only_cypher_and_a_params_dict():
-    client = _FakeNeo4j()
+@pytest.mark.parametrize("value", ["a@x.com", "ניר"])
+@pytest.mark.parametrize("query", [
+    "MATCH (o:Order) WHERE o.owner = $owner RETURN o.total AS t",
+    "MATCH (o:Order {owner: $owner}) RETURN o.total AS t",
+])
+def test_an_identity_value_filtering_the_query_passes_the_check(server, query, value):
+    server()
+    assert _identity_check(query, {"owner": value}, value) is None
+
+
+@pytest.mark.parametrize("query", [
+    "MATCH (o:Order) RETURN o.total AS t",  # passed but never used
+    "MATCH (o:Order) WHERE o.total > 5 RETURN $owner AS who",  # used, but not as a filter
+    "MATCH (o:Order) RETURN collect(o {k: $owner}) AS x",  # a map in a function call is not a pattern
+])
+def test_an_identity_value_that_does_not_filter_fails_the_check(server, query):
+    server()
+    assert _identity_check(query, {"owner": "a@x.com"}, "a@x.com") is not None
+
+
+def test_a_capped_result_tells_the_agent(server, monkeypatch):
+    monkeypatch.setattr(neo4j_client, "MAX_ROWS", 3)
+    server({"RETURN x": (["x"], [[i] for i in range(10)])})
+    df = _client().execute_query("UNWIND range(1, 10) AS x RETURN x")
+    assert len(df) == 3 and "first 3 rows" in df.attrs["bow_notice"]
+    assert "bow_notice" not in _client().execute_query("MATCH (n) RETURN n.name AS name").attrs
+
+
+def test_the_transaction_timeout_stays_under_the_executor_budget(server):
+    fake = server()
+    client = _client()
+    client.apply_query_timeout(60)
+    client.execute_query("MATCH (n) RETURN n.name AS name")
+    assert 5 <= fake.timeouts[-1] < 60
+
+
+def test_execute_query_takes_only_cypher_and_a_params_dict(server):
+    fake = server()
     with pytest.raises(ValueError):
-        client.execute_query("")
+        _client().execute_query("")
     with pytest.raises(ValueError):
-        client.execute_query("MATCH (n) RETURN n", params=["x"])
+        _client().execute_query("MATCH (n) RETURN n", params=["x"])
     with pytest.raises(CypherNotAllowed):
-        client.execute_query("CREATE (n)")
+        _client().execute_query("CREATE (n)")
+    assert fake.statements == []
 
 
-def test_the_catalog_lists_labels_and_relationship_types_with_their_patterns():
-    client = _FakeNeo4j({
+def _viz():
+    person = SimpleNamespace(element_id="n1", labels={"Person"})
+    movie = SimpleNamespace(element_id="n2", labels={"Movie"})
+    # Virtual relationships: their end nodes may come back without labels,
+    # matched to the returned nodes by element id.
+    def bare(n):
+        return SimpleNamespace(element_id=n.element_id, labels=set())
+    rels = [SimpleNamespace(type="ACTED_IN", start_node=bare(person), end_node=bare(movie)),
+            SimpleNamespace(type="DIRECTED", start_node=bare(person), end_node=bare(movie))]
+    return (["nodes", "relationships"], [[[person, movie], rels]])
+
+
+def test_the_catalog_lists_labels_and_relationship_types_with_their_patterns(server):
+    server({
         "nodeTypeProperties": (["nodeLabels", "propertyName", "propertyTypes"], [
             [["Person"], "name", ["String"]], [["Person"], "born", ["Long"]], [["Movie"], "title", ["String"]],
-            [["Movie"], None, None]], False),
+            [["Movie"], None, None]]),
         "relTypeProperties": (["relType", "propertyName", "propertyTypes"], [
-            [":`ACTED_IN`", "roles", ["StringArray"]], [":`DIRECTED`", None, None]], False),
+            [":`ACTED_IN`", "roles", ["StringArray"]], [":`DIRECTED`", None, None]]),
+        "visualization": _viz(),
     })
-    client._schema_patterns = lambda timeout: [(["Person"], "ACTED_IN", ["Movie"]), (["Person"], "DIRECTED", ["Movie"])]
-    tables = {t.name: t for t in client.get_schemas()}
+    tables = {t.name: t for t in _client().get_schemas()}
     assert set(tables) == {"(:Person)", "(:Movie)", "[:ACTED_IN]", "[:DIRECTED]"}
     assert {c.name: c.dtype for c in tables["(:Person)"].columns} == {"name": "string", "born": "integer"}
     assert tables["[:ACTED_IN]"].columns[0].dtype == "array"
@@ -178,49 +327,40 @@ def test_the_catalog_lists_labels_and_relationship_types_with_their_patterns():
     assert tables["[:DIRECTED]"].metadata_json["patterns"] == ["(:Person)-[:DIRECTED]->(:Movie)"]
 
 
-def test_restricted_schema_procedures_fall_back_to_samples():
+def test_restricted_schema_procedures_fall_back_to_samples(server):
     from neo4j.exceptions import ClientError
 
-    class Restricted(_FakeNeo4j):
-        def _read(self, cypher, params=None, *, limit=None, timeout=None):
-            if "db.schema." in cypher:
-                raise ClientError("procedure not allowed")
-            return super()._read(cypher, params, limit=limit, timeout=timeout)
-
-    client = Restricted({
-        "db.labels": (["label"], [["Person"]], False),
-        "db.relationshipTypes": (["relationshipType"], [["KNOWS"]], False),
-        "MATCH (n:`Person`)": (["k"], [["name"]], False),
-        "[r:`KNOWS`]": (["k"], [["since"]], False),
+    server({
+        "db.schema.": ClientError("procedure not allowed"),
+        "db.labels": (["label"], [["Person"]]),
+        "db.relationshipTypes": (["relationshipType"], [["KNOWS"]]),
+        "MATCH (n:`Person`)": (["k"], [["name"]]),
+        "[r:`KNOWS`]": (["k"], [["since"]]),
     })
-    tables = {t.name: [c.name for c in t.columns] for t in client.get_schemas()}
+    tables = {t.name: [c.name for c in t.columns] for t in _client().get_schemas()}
     assert tables == {"(:Person)": ["name"], "[:KNOWS]": ["since"]}
 
 
 def test_the_description_is_static_and_names_the_host_only():
-    client = Neo4jClient(uri="neo4j+s://abc.databases.neo4j.io", username="reader", password="s3cret")
-    text = client.description
+    text = Neo4jClient(uri="neo4j+s://abc.databases.neo4j.io", username="reader", password="s3cret").description
     assert "abc.databases.neo4j.io" in text and "s3cret" not in text and "reader" not in text
     assert "$" in text and f"{MAX_ROWS:,}" in text
 
 
-def test_a_failed_connection_test_never_shows_the_password():
-    class Failing(Neo4jClient):
-        def _read(self, *a, **k):
-            raise RuntimeError("auth failed for neo4j with password s3cret-pass")
+def test_the_connection_test_reports_the_server(server):
+    server({"dbms.components": (["name", "versions", "edition"], [["Neo4j Kernel", ["5.26.32"], "community"]])})
+    res = _client().test_connection()
+    assert res["success"] is True and "5.26.32" in res["message"]
 
-    res = Failing(uri="bolt://db:7687", username="neo4j", password="s3cret-pass").test_connection()
+
+def test_a_failed_connection_test_never_shows_the_password(server):
+    server(fail=RuntimeError("auth failed for reader with password s3cret-pass"))
+    res = _client().test_connection()
     assert res["success"] is False and "s3cret-pass" not in res["message"]
-
-
-def test_a_query_timeout_leaves_a_margin_for_the_server_to_stop_first():
-    client = Neo4jClient(uri="bolt://db:7687")
-    client.apply_query_timeout(60)
-    assert 5 <= client._query_budget < 60
 
 
 def test_registry_entry():
     assert data_shape_for("neo4j") == "objects"
     assert catalog_nouns_for("neo4j") == ("node or relationship type", "node and relationship types")
     assert catalog_nouns_override("neo4j") == ["node or relationship type", "node and relationship types"]
-    assert catalog_nouns_override("mongodb") is None  # others keep their data_shape noun
+    assert catalog_nouns_override("mongodb") is None  # no override: the UI keeps its data_shape noun
