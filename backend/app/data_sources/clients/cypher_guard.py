@@ -179,14 +179,15 @@ def check_cypher(query: str | None) -> None:
         i += 1
 
 
-# Clauses that end a WHERE: after them a value no longer filters the rows.
+# Top-level clauses. A WHERE filters the rows only right after MATCH or WITH;
+# after OPTIONAL MATCH it only decides what the optional part matches.
 _CLAUSE_WORDS = frozenset({
-    "RETURN", "WITH", "ORDER", "SKIP", "LIMIT", "UNWIND", "MATCH", "OPTIONAL", "CALL", "UNION", "YIELD",
+    "MATCH", "OPTIONAL", "WITH", "RETURN", "UNWIND", "ORDER", "SKIP", "LIMIT", "CALL", "UNION", "YIELD", "WHERE",
 })
-
-
 # Words after which "(" opens a pattern rather than a function call.
 _BEFORE_PATTERN = frozenset({"MATCH", "OPTIONAL", "WHERE", "AND", "OR", "XOR", "NOT", "EXISTS"})
+# A conjunct holding one of these can be true without the identity value.
+_WEAKENING = frozenset({"OR", "XOR", "NOT"})
 
 
 def cypher_binds(capture: str, needles: tuple[str, ...]) -> bool:
@@ -194,10 +195,14 @@ def cypher_binds(capture: str, needles: tuple[str, ...]) -> bool:
     (an identity value), for the identity-parameter check.
 
     The capture is the query text, or ``{"query", "params"}`` as JSON when it
-    ran with parameters. A value counts only where it filters: in a WHERE
-    clause or in a node / relationship property map, as ``$name`` bound to a
-    needle or as the literal itself. A value that is merely passed, or used
-    only in RETURN, does not."""
+    ran with parameters. The value counts only where it restricts the rows:
+    - in a top-level WHERE right after MATCH or WITH, inside a conjunct
+      (split on AND) with no OR / XOR / NOT, as ``$name`` bound to a needle
+      or as the literal itself;
+    - in a property map of a MATCH pattern, ``(n:Label {p: $name})``.
+    Not in RETURN / WITH projections, list or pattern comprehensions, maps
+    inside function calls, or after OPTIONAL MATCH. Closed by default: a
+    shape it doesn't recognize does not count."""
     import json
 
     query, params = capture, {}
@@ -209,46 +214,81 @@ def cypher_binds(capture: str, needles: tuple[str, ...]) -> bool:
         pass
     wanted = {str(n) for n in needles}
 
-    def bound(key: str) -> bool:
-        value = params.get(key)
-        values = value if isinstance(value, list) else [value]
-        return any(str(v) in wanted for v in values if v is not None)
+    def is_value(tokens: list[Token], i: int) -> bool:
+        kind, value = tokens[i]
+        if kind == "str":
+            return value in wanted
+        if kind == "word" and i > 0 and tokens[i - 1] == ("sym", "$"):
+            bound = params.get(value)
+            values = bound if isinstance(bound, list) else [bound]
+            return any(str(v) in wanted for v in values if v is not None)
+        return False
 
     try:
         tokens = _tokens(query)
     except CypherNotAllowed:
         return False
+
+    stack: list[str] = []  # "(" pattern, "f" call, "rel" relationship, "[" list, "{p" pattern map, "{" map
+    clause, optional = "", False
+    where: list[tuple[int, int]] = []  # (token index, depth) inside a filtering top-level WHERE
     in_where = False
-    stack: list[str] = []  # open brackets; "{p" marks a pattern property map
     for i, (kind, value) in enumerate(tokens):
-        if kind == "word" and not _is_name_position(tokens, i):
+        # Clause keywords count only at the top level (not inside a subquery).
+        if kind == "word" and not stack and not _is_name_position(tokens, i) and value.upper() in _CLAUSE_WORDS:
             upper = value.upper()
             if upper == "WHERE":
-                in_where = True
-            elif upper in _CLAUSE_WORDS:
+                in_where = clause == "WITH" or (clause == "MATCH" and not optional)
+            else:
                 in_where = False
+                if upper == "OPTIONAL":
+                    optional = True
+                elif upper == "MATCH":
+                    clause = "MATCH"
+                else:
+                    clause, optional = upper, False
+            continue
         if kind == "sym" and value in "([{":
             prev = tokens[i - 1] if i > 0 else None
             if value == "(":
-                # A function call's parenthesis, `count(`, is not a node pattern.
                 call = prev is not None and prev[0] in ("word", "ident") and prev[1].upper() not in _BEFORE_PATTERN
                 stack.append("f" if call else "(")
             elif value == "[":
-                stack.append("[")
+                stack.append("rel" if prev in (("sym", "-"), ("sym", "<")) else "[")
             else:
-                # `(n:Label {p: …})` / `[r:TYPE {p: …}]`: a map that filters the pattern.
-                in_pattern = bool(stack) and stack[-1] in ("(", "[")
-                stack.append("{p" if in_pattern else "{")
+                in_match_pattern = clause == "MATCH" and not optional and not in_where \
+                    and bool(stack) and stack[-1] in ("(", "rel") and all(e in ("(", "rel") for e in stack)
+                stack.append("{p" if in_match_pattern else "{")
             continue
         if kind == "sym" and value in ")]}":
             if stack:
                 stack.pop()
             continue
-        filtering = in_where or "{p" in stack
-        if not filtering:
-            continue
-        if kind == "word" and i > 0 and tokens[i - 1] == ("sym", "$") and bound(value):
+        if stack and stack[-1] == "{p" and is_value(tokens, i):
             return True
-        if kind == "str" and value in wanted:
+        if in_where:
+            where.append((i, len(stack)))
+
+    # The WHERE regions, split into conjuncts on top-level AND.
+    conjunct: list[int] = []
+    conjuncts: list[list[int]] = []
+    prev_index = None
+    for i, depth in where:
+        if prev_index is not None and i != prev_index + 1 and conjunct:
+            conjuncts.append(conjunct)  # a new WHERE region
+            conjunct = []
+        prev_index = i
+        kind, value = tokens[i]
+        if depth == 0 and kind == "word" and value.upper() == "AND":
+            conjuncts.append(conjunct)
+            conjunct = []
+            continue
+        conjunct.append(i)
+    if conjunct:
+        conjuncts.append(conjunct)
+    for part in conjuncts:
+        if any(tokens[i][0] == "word" and tokens[i][1].upper() in _WEAKENING for i in part):
+            continue
+        if any(is_value(tokens, i) for i in part):
             return True
     return False

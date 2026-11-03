@@ -255,6 +255,9 @@ def _identity_check(query, params, value):
 @pytest.mark.parametrize("query", [
     "MATCH (o:Order) WHERE o.owner = $owner RETURN o.total AS t",
     "MATCH (o:Order {owner: $owner}) RETURN o.total AS t",
+    "MATCH (o:Order)-[r:OWNS {by: $owner}]->(c) RETURN c.name AS t",
+    "MATCH (o:Order) WHERE o.total > 0 AND (o.owner = $owner) RETURN o.total AS t",
+    "MATCH (o:Order) WITH o WHERE o.owner IN $owner RETURN o.total AS t",
 ])
 def test_an_identity_value_filtering_the_query_passes_the_check(server, query, value):
     server()
@@ -265,6 +268,11 @@ def test_an_identity_value_filtering_the_query_passes_the_check(server, query, v
     "MATCH (o:Order) RETURN o.total AS t",  # passed but never used
     "MATCH (o:Order) WHERE o.total > 5 RETURN $owner AS who",  # used, but not as a filter
     "MATCH (o:Order) RETURN collect(o {k: $owner}) AS x",  # a map in a function call is not a pattern
+    "MATCH (o:Order) WHERE o.owner = $owner OR 1 = 1 RETURN o.total AS t",  # OR: true without the value
+    "MATCH (o:Order) WHERE NOT o.owner = $owner RETURN o.total AS t",
+    "MATCH (o:Order) RETURN [x IN o.tags WHERE x = $owner] AS t",  # filters list elements, not rows
+    "MATCH (o:Order) RETURN o.total AS t, [(o)-->(x {k: $owner}) | x] AS r",  # a pattern in a projection
+    "MATCH (o:Order) OPTIONAL MATCH (o)-->(x) WHERE x.k = $owner RETURN o.total AS t",  # optional: keeps every o
 ])
 def test_an_identity_value_that_does_not_filter_fails_the_check(server, query):
     server()
