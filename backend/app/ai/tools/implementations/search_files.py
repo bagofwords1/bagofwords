@@ -408,7 +408,7 @@ class SearchFilesTool(Tool):
             how += f", indexed {indexed_at}"
         if from_catalog and live_too:
             how += " + live scan"
-        hint = ""
+        hint = " Keyword indexes may use sampled content; no hit does not prove absence." if used_index else ""
         if catalog_names and not entries and not live_too:
             hint = (f" The catalog ({catalog_total} files) holds file names and paths only, not "
                     "document contents. Try other words from the file name, or deep=true to also "
@@ -417,6 +417,8 @@ class SearchFilesTool(Tool):
             hint += (f" The live scan stopped early because {_STOP_REASONS.get(stop_reason, stop_reason)}, "
                      "so results may be incomplete. Narrow the query, or use list_files with "
                      "folder_id/name_pattern.")
+        if stop_reason == "byte_budget":
+            hint += " Use grep_files for resumable text scanning beyond the byte budget."
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:
