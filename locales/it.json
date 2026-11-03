@@ -3911,6 +3911,12 @@
       "modern": "REST moderno",
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
+    },
+    "qlikOnPrem": {
+      "appFilterTitle": "Filtro applicazioni",
+      "appFilterDescription": "Nomi o ID delle applicazioni separati da virgole, nei flussi selezionati. Vuoto include tutte le applicazioni corrispondenti. Usa gli ID per i nomi con virgole.",
+      "concurrencyTitle": "Applicazioni simultanee",
+      "concurrencyDescription": "Numero massimo di applicazioni aperte insieme durante l’indicizzazione (1–4). Scegli 1 per applicazioni grandi o memoria limitata. Si caricano su richiesta; non servono attività di precaricamento."
     }
   },
   "share": {

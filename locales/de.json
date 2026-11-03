@@ -3911,6 +3911,12 @@
       "modern": "Modernes REST",
       "legacy": "SharePoint 2010",
       "libraryDescription": "Name der Dokumentbibliothek oder * für alle sichtbaren Bibliotheken. Ein leeres Feld wählt die Standardbibliothek nur im Modus „Modernes REST“."
+    },
+    "qlikOnPrem": {
+      "appFilterTitle": "App-Filter",
+      "appFilterDescription": "Optionale, durch Kommas getrennte App-Namen oder IDs in den ausgewählten Streams. Leer umfasst alle passenden Apps. Verwenden Sie IDs für Namen mit Kommas.",
+      "concurrencyTitle": "Gleichzeitige Apps",
+      "concurrencyDescription": "Maximal gleichzeitig geöffnete Apps bei der Indexierung (1–4). Wählen Sie 1 für große Apps oder wenig Arbeitsspeicher. Apps werden bei Bedarf geladen; Vorladeaufgaben sind nicht erforderlich."
     }
   },
   "share": {

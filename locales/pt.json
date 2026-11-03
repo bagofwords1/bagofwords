@@ -3911,6 +3911,12 @@
       "modern": "REST moderno",
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
+    },
+    "qlikOnPrem": {
+      "appFilterTitle": "Filtro de aplicações",
+      "appFilterDescription": "Nomes ou IDs de aplicações separados por vírgulas, nos fluxos selecionados. Vazio inclui todas as aplicações correspondentes. Use IDs para nomes com vírgulas.",
+      "concurrencyTitle": "Aplicações simultâneas",
+      "concurrencyDescription": "Máximo de aplicações abertas ao mesmo tempo durante a indexação (1–4). Escolha 1 para aplicações grandes ou memória limitada. São carregadas sob demanda; não são necessárias tarefas de pré-carregamento."
     }
   },
   "share": {

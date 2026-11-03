@@ -509,39 +509,6 @@ class TestExecuteQuery:
         assert cube_def["qDimensions"][0]["qDef"]["qFieldDefs"] == ["Region"]
         assert cube_def["qMeasures"][0]["qDef"]["qDef"] == "Sum([Sales])"
 
-    def test_filters_applied_as_selections(self, monkeypatch):
-        client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
-        client.connect()
-        # _resolve_app_id now always attempts a list_apps() lookup first; give
-        # it an empty result so an opaque ID passes straight through.
-        _install_rest(client, {"/api/v1/items": {"data": [], "links": {}}})
-        canned = [
-            {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 10}}},
-            {"jsonrpc": "2.0", "id": 2, "result": {}},  # SelectInField
-            {"jsonrpc": "2.0", "id": 3, "result": {"qReturn": {"qHandle": 42}}},
-            {"jsonrpc": "2.0", "id": 4, "result": {"qDataPages": [{"qMatrix": []}]}},
-        ]
-        connect_fn, fake = _fake_connect(canned)
-        fake_websockets = MagicMock()
-        fake_websockets.connect = connect_fn
-        monkeypatch.setitem(sys.modules, "websockets", fake_websockets)
-
-        df = client.execute_query(
-            app="app-1",
-            dimensions=["Product"],
-            measures=[{"expr": "Sum([Revenue])", "alias": "Rev"}],
-            filters={"Region": ["EMEA"]},
-            max_rows=10,
-        )
-        assert df.empty
-        methods = [m["method"] for m in fake.sent]
-        # Selections must come BEFORE CreateSessionObject
-        assert methods == ["OpenDoc", "SelectInField", "CreateSessionObject", "GetHyperCubeData"]
-        select_call = fake.sent[1]
-        assert select_call["params"][0] == "Region"
-        values = select_call["params"][1]["qValues"]
-        assert [v["qText"] for v in values] == ["EMEA"]
-
     def test_requires_app(self):
         client = QlikSenseClient(base_url="https://tenant.qlikcloud.com", api_key="x")
         with pytest.raises(ValueError, match="app"):

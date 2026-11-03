@@ -16,6 +16,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
+from numbers import Real
 import ssl
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -109,6 +111,32 @@ class QixSession:
                 err = msg["error"] or {}
                 raise RuntimeError(f"Qlik QIX error on {method}: {err.get('message') or err}")
             return msg.get("result") or {}
+
+
+async def apply_field_selections(qix: QixSession, doc_handle: int, selections: List) -> None:
+    """Select typed values on Field handles before building a cube.
+
+    GetField is a Doc method; SelectValues is a Field method. Refusing empty,
+    unsupported, or rejected selections prevents returning unfiltered data.
+    """
+    for field, values in selections:
+        if not isinstance(values, (list, tuple)) or not values:
+            raise ValueError(f"Qlik filter for {field!r} requires a non-empty list of values")
+        field_values = []
+        for value in values:
+            if isinstance(value, str):
+                field_values.append({"qText": value})
+            elif isinstance(value, Real) and not isinstance(value, bool) and math.isfinite(value):
+                field_values.append({"qIsNumeric": True, "qNumber": float(value)})
+            else:
+                raise ValueError(f"Qlik filter for {field!r} requires strings or finite numbers")
+        result = await qix.rpc(doc_handle, "GetField", [field])
+        field_handle = (result.get("qReturn") or {}).get("qHandle")
+        if field_handle is None:
+            raise RuntimeError(f"Qlik field {field!r} was not found")
+        selected = await qix.rpc(field_handle, "SelectValues", [field_values, False, False])
+        if selected.get("qReturn") is not True:
+            raise RuntimeError(f"Qlik selection failed for field {field!r}; no query was executed")
 
 
 def build_ssl_context(

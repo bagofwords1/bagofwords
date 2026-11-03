@@ -42,6 +42,7 @@ from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableC
 from app.data_sources.clients._qix_common import (
     _TAG_DTYPE_ORDER as _TAG_DTYPE_ORDER_SHARED,
     QixSession,
+    apply_field_selections,
     build_hypercube_def,
     build_ssl_context,
     build_tables_from_qix,
@@ -491,7 +492,8 @@ class QlikSenseClient(DataSourceClient):
             measures: list of ``{"expr": "...", "alias": "..."}`` dicts;
                 ``expr`` uses Qlik expression syntax (Sum, Count, Avg, ...).
             filters: ``{field: [allowed_values]}`` applied as Qlik selections
-                before the cube is built.
+                before the cube is built. Values must be non-empty lists of
+                strings or finite numbers.
             max_rows: maximum rows to return (paginated in 10k-cell chunks).
         """
         target = app or table_name
@@ -524,15 +526,7 @@ class QlikSenseClient(DataSourceClient):
             if doc_handle is None:
                 raise RuntimeError("Qlik OpenDoc did not return a document handle")
 
-            # Apply selections as SelectInField(field, [values], toggle=False)
-            for field, values in selections:
-                await qix.rpc(doc_handle, "SelectInField", [
-                    field,
-                    {"qMatchMode": 0, "qSoftLock": False, "qValues": [
-                        {"qText": str(v)} for v in (values or [])
-                    ]},
-                    False,
-                ])
+            await apply_field_selections(qix, doc_handle, selections)
 
             session = await qix.rpc(doc_handle, "CreateSessionObject", [{
                 "qInfo": {"qType": "bow-hypercube"},

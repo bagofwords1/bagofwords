@@ -53,6 +53,7 @@ import requests
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients._qix_common import (
     QixSession,
+    apply_field_selections,
     build_hypercube_def,
     build_ssl_context,
     fetch_hypercube_pages,
@@ -203,6 +204,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         max_apps: Optional[int] = None,
         max_concurrency: int = 4,
         timeout_sec: int = 60,
+        app_filter: Optional[str] = None,
     ):
         self.server_url = (server_url or "").strip().rstrip("/")
         self.host = self._parse_host(self.server_url)
@@ -234,6 +236,8 @@ class QlikSenseOnPremClient(DataSourceClient):
         if stream_filter:
             tokens = {t.strip() for t in str(stream_filter).split(",") if t.strip()}
             self._stream_filter = tokens or None
+        app_tokens = {t.strip() for t in (app_filter or "").split(",") if t.strip()}
+        self._app_filter = {t.lower() if _GUID_RE.fullmatch(t) else t for t in app_tokens} or None
 
         # A fresh nonce per client instance. Any 16 alphanumeric characters are
         # valid; what matters is that the query-string and header copies match.
@@ -524,7 +528,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         return self._stream_cache
 
     def list_apps(self) -> List[Dict[str, Any]]:
-        """Enumerate apps via /qrs/app/full, honouring the stream filter.
+        """Enumerate apps via /qrs/app/full, honouring stream and app filters.
 
         The app dicts use the same key names as the Cloud client's (`space_id` /
         `space_name` carry the stream) so the shared helpers in `_qix_common`
@@ -534,7 +538,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         return self._apps_from_rows(self._qrs_get("app/full") or [])
 
     def _apps_from_rows(self, rows: Any) -> List[Dict[str, Any]]:
-        """Apply the published/stream filters and the max_apps cap to QRS app
+        """Apply published/stream/app filters before the max_apps cap to QRS app
         rows. Works on both ``app/full`` and condensed ``app`` rows — the
         condensed form lacks the descriptive fields, which then stay empty."""
         apps: List[Dict[str, Any]] = []
@@ -549,6 +553,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             stream_name = stream.get("name") or ""
             if self._stream_filter is not None:
                 if stream_id not in self._stream_filter and stream_name not in self._stream_filter:
+                    continue
+            if self._app_filter is not None:
+                if (row.get("id") or "").lower() not in self._app_filter and row.get("name") not in self._app_filter:
                     continue
             apps.append({
                 "id": row.get("id"),
@@ -1240,35 +1247,35 @@ class QlikSenseOnPremClient(DataSourceClient):
     def _resolve_app(self, target: str) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Turn 'Stream/App', 'Stream/App/Table', 'App' or a GUID into an app id.
 
-        Returns the id plus the app row when one was found, since the row is
-        what decides which user the Engine session should act as.
+        Requires a unique app in the configured discovery scope. Returns the
+        id and its row, which decides which user the Engine should act as.
         """
         if not target:
             raise ValueError("app is required")
-        if _GUID_RE.match(target):
-            # Already an app id — skip the listing round-trip entirely.
-            return target, None
-
-        try:
-            apps = self.list_apps()
-        except Exception as e:
-            logger.debug("list_apps() failed while resolving %r: %s", target, e)
-            return target, None
-
-        candidates = [target]
-        # "Stream/App/Table" — drop the table segment and match the app.
-        parts = target.split("/")
-        if len(parts) >= 3:
-            candidates.append("/".join(parts[:2]))
-        if len(parts) >= 2:
-            candidates.append(parts[-2])
-        candidates.append(parts[-1])
-
-        for candidate in candidates:
-            for app in apps:
-                if candidate in (self._app_key(app), app.get("name"), app.get("id")):
-                    return app.get("id") or target, app
-        return target, None
+        # Resolve IDs too: dropping the row drops its owner and silently changes
+        # X-Qlik-User to sa_repository. Listing failures must remain failures.
+        apps = self.list_apps()
+        if _GUID_RE.fullmatch(target):
+            matches = [a for a in apps if (a.get("id") or "").lower() == target.lower()]
+        elif "/" not in target:
+            matches = [a for a in apps if target in (a.get("id"), a.get("name"))]
+        else:
+            # Prefer exact qualified names/IDs, then the longest app prefix of
+            # a full table path. Never strip a supplied stream and try elsewhere.
+            matches = [a for a in apps if target in (self._app_key(a), a.get("id"))]
+            if not matches:
+                matches = [a for a in apps if target.startswith(self._app_key(a) + "/")]
+                if matches:
+                    longest = max(len(self._app_key(a)) for a in matches)
+                    matches = [a for a in matches if len(self._app_key(a)) == longest]
+        if len(matches) > 1:
+            raise ValueError(f"Qlik app {target!r} is ambiguous; use its full Stream/App name or app ID")
+        if not matches:
+            raise ValueError(
+                f"Qlik app {target!r} was not found in the configured app/stream scope. "
+                "Use the full table name from describe_tables and check the connection's filters and access."
+            )
+        return matches[0]["id"], matches[0]
 
     def execute_query(
         self,
@@ -1288,7 +1295,8 @@ class QlikSenseOnPremClient(DataSourceClient):
             dimensions: Qlik field names to group by.
             measures: ``{"expr": "Sum([Sales])", "alias": "Total"}`` dicts.
             filters: ``{field: [values]}``, applied as Qlik selections before
-                the cube is built, so they propagate associatively.
+                the cube is built, so they propagate associatively. Values
+                must be non-empty lists of strings or finite numbers.
             max_rows: row cap; paging is handled internally.
         """
         target = app or table_name
@@ -1321,13 +1329,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             if doc_handle is None:
                 raise RuntimeError("Qlik OpenDoc did not return a document handle")
 
-            for field, values in selections:
-                await qix.rpc(doc_handle, "SelectInField", [
-                    field,
-                    {"qMatchMode": 0, "qSoftLock": False,
-                     "qValues": [{"qText": str(v)} for v in (values or [])]},
-                    False,
-                ])
+            await apply_field_selections(qix, doc_handle, selections)
 
             session = await qix.rpc(doc_handle, "CreateSessionObject", [{
                 "qInfo": {"qType": "bow-hypercube"},
@@ -1419,6 +1421,13 @@ df = client.execute_query(
 
 ### Key Query Rules
 
+- For inspection, use the same hypercube API with `max_rows=3` and explicit
+  dimensions or measures. Do not send SQL or infer that a connection/app error
+  means the data is empty or the business logic is wrong.
+- Preserve the full table path from `describe_tables` and its data source ID.
+  `No active tables matched` is a BOW catalog-resolution error, not a Qlik data
+  result: re-check the active catalog and source before one corrected retry.
+  `create_data` uses this same connection; it cannot bypass an unavailable app.
 - **Field names are case-sensitive** and must match the schema exactly. Wrap
   anything containing a space in square brackets: `Sum([Net Sales])`.
 - **Measures are Qlik expressions, not SQL** — `Sum(...)`, `Count(distinct ...)`,

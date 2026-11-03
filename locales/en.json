@@ -4312,6 +4312,12 @@
       "modern": "Modern REST",
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
+    },
+    "qlikOnPrem": {
+      "appFilterTitle": "App Filter",
+      "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
+      "concurrencyTitle": "Concurrent Apps",
+      "concurrencyDescription": "Maximum apps opened at once during indexing (1–4). Choose 1 for large apps or limited memory. Apps load on demand; preload tasks are not required."
     }
   },
   "share": {

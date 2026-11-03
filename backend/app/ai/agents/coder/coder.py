@@ -1151,6 +1151,12 @@ class Coder:
         {prompt}
         </user_prompt>
 
+        - Instructions:
+        {instructions_context}
+
+        - Resources:
+        {resources_context}
+
         - Schemas (already available; do not query information_schema):
         <schemas>
         {schemas}
@@ -1190,8 +1196,8 @@ class Coder:
 
         **Constraints**:
         1. **Keep it to 2-3 queries** — this is a quick validation, not a full analysis.
-        2. **Limit rows** — use `LIMIT 3` in SQL and `.head(3)` on DataFrames.
-        3. **Joins within one connection are fine**, but cross-connection joins do not work in SQL. If tables are under different `<connection>` tags, query each connection separately.
+        2. **Limit rows at the source** — follow the connection's API: `LIMIT 3` for SQL, `max_rows=3` for Qlik hypercubes; use `.head(3)` for printing DataFrames.
+        3. **Use each connection's query language and calling convention** from its description. SQL joins apply only to SQL sources; Qlik uses dimensions/measures and associative relationships. If tables are under different `<connection>` tags, query each connection separately.
         4. **Connection-Table Mapping**: Match `<connection name="...">` in schemas to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
         5. **Do not query information_schema** — schemas are already provided above.
         6. **Power BI connections**: pass the schema table name (`Dataset/Table`, exactly as shown) as the SECOND argument to `execute_query`, or `dataset_id=`/`workspace_id=` from the `<powerbi .../>` metadata. Never ask the user for these IDs.
