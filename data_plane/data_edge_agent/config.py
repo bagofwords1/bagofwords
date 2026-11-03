@@ -1,0 +1,279 @@
+"""Configuration for the data edge agent.
+
+Shape comes from a YAML file, secrets come from the environment. The agent runs
+in the customer's network and its config file is expected to live in their own
+deployment tooling, so nothing here should ever need to hold a password.
+
+`edge_agent_id` is the one field that cannot be generated at first boot: under
+v1's static NATS config the admin has to name it in `nats.conf` *before* the
+agent can connect, so an id invented on startup would deadlock the bootstrap.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
+from pydantic import BaseModel, Field, field_validator
+
+# Env wins over file: containers set these, and the file is often baked in.
+_ENV_PREFIX = "BOW_EDGE_AGENT_"
+
+_ENV_OVERRIDES = {
+    "tunnel_endpoint_url": "TUNNEL_ENDPOINT_URL",
+    "tls_ca": "TLS_CA",
+    "tls_cert": "TLS_CERT",
+    "tls_key": "TLS_KEY",
+    "tls_verify": "TLS_VERIFY",
+    "org_id": "ORG_ID",
+    "edge_agent_id": "EDGE_AGENT_ID",
+    "edge_agent_name": "EDGE_AGENT_NAME",
+    "admin_port": "ADMIN_PORT",
+    "admin_host": "ADMIN_HOST",
+    "admin_enabled": "ADMIN_ENABLED",
+    "store_path": "STORE_PATH",
+    "audit_path": "AUDIT_PATH",
+    "audit_retain": "AUDIT_RETAIN",
+    "log_level": "LOG_LEVEL",
+    "default_query_timeout_seconds": "QUERY_TIMEOUT_SECONDS",
+    "index_timeout_seconds": "INDEX_TIMEOUT_SECONDS",
+    "advertise_interval_seconds": "ADVERTISE_INTERVAL_SECONDS",
+    "heartbeat_interval_seconds": "HEARTBEAT_INTERVAL_SECONDS",
+}
+
+
+class ConnectionConfig(BaseModel):
+    """One data source this agent serves.
+
+    `config` is non-secret connection detail (host, port, database); credentials
+    are separate so they can be overridden per connection from the environment
+    and so the advertisement builder can be certain of what it is *not* sending.
+    Nothing in `credentials` ever leaves this process — the whole point of the
+    agent is that Bow holds the call, not the login.
+    """
+
+    name: str
+    type: str
+    label: Optional[str] = None
+
+    config: dict[str, Any] = Field(default_factory=dict)
+    credentials: dict[str, Any] = Field(default_factory=dict)
+
+    # Effective budget for this connection; None inherits the agent default.
+    query_timeout_seconds: Optional[int] = None
+
+    def client_params(self) -> dict[str, Any]:
+        """Config + credentials, merged for the client constructor."""
+        return {**self.config, **self.credentials}
+
+    def effective_query_timeout(self, default_query_timeout: int) -> int:
+        """The query budget this connection is served under (A5/C3).
+
+        One function for both the advertisement and the dispatcher, so what
+        the control plane is told is exactly what the agent enforces.
+        """
+        return self.query_timeout_seconds or default_query_timeout
+
+    def advertised(self, default_query_timeout: int,
+                   catalog_identity_available: bool = True) -> dict[str, Any]:
+        """What the control plane is told about this connection.
+
+        Built from an explicit allowlist rather than by removing `credentials`
+        from a dump: a subtractive version silently starts leaking the moment a
+        new secret-bearing field is added to the model.
+
+        `catalog_identity_available` is the client's own answer (see
+        data_sources/base.py); the control plane treats a missing value as
+        True, so it is always sent explicitly.
+        """
+        return {
+            "name": self.name,
+            "type": self.type,
+            "label": self.label,
+            "query_timeout_seconds": self.effective_query_timeout(default_query_timeout),
+            "catalog_identity_available": bool(catalog_identity_available),
+        }
+
+    @field_validator("name")
+    @classmethod
+    def _subject_safe(cls, v: str) -> str:
+        # The name becomes a NATS subject token, and NATS splits on ".".
+        # A dot here would silently create an extra token and route nowhere.
+        if not v or any(c in v for c in ". *>") or v.strip() != v:
+            raise ValueError(
+                f"connection name {v!r} is not a valid NATS subject token: "
+                "no dots, spaces, '*' or '>', and no surrounding whitespace"
+            )
+        return v
+
+
+class AgentConfig(BaseModel):
+    """Everything the agent needs to start and reach its broker."""
+
+    org_id: str
+    edge_agent_id: str
+    edge_agent_name: Optional[str] = None
+
+    tunnel_endpoint_url: str = "wss://localhost:9443"
+
+    # mTLS to the broker (design A11) — the ONLY supported authentication. The
+    # agent presents `tls_cert` + `tls_key`; the broker verifies the cert
+    # against its CA and maps its subject to a scoped NATS user
+    # (`verify_and_map`). Both are required — there is no token fallback. `tls_ca`
+    # is the CA that signed the broker's server cert (a private CA — only that CA
+    # is trusted, not the system roots). The endpoint URL must be TLS-bearing so
+    # the cert is exchanged in the handshake: `tls://host:4222` (native) or
+    # `wss://…`; a plain `ws://` carries no certificate.
+    tls_ca: Optional[str] = None        # path to CA cert PEM (verify the broker)
+    tls_cert: Optional[str] = None      # path to client cert PEM (mTLS, required)
+    tls_key: Optional[str] = None       # path to client key PEM (mTLS, required)
+    # Verify the broker's cert against `tls_ca` (or system roots if unset). Only
+    # turn this off for local experiments — it disables server authentication.
+    tls_verify: bool = True
+
+    connections: list[ConnectionConfig] = Field(default_factory=list)
+
+    # Local admin UI (design C4). Bound to loopback by design: the credential
+    # entry surface must never be reachable from off the box. `admin_enabled`
+    # turns it off entirely for a headless deployment configured only by file.
+    admin_port: int = 9191
+    admin_host: str = "127.0.0.1"
+    admin_enabled: bool = True
+
+    # Where admin-UI edits persist. Connections added or edited through the UI
+    # are written here (credentials encrypted at rest, see store.py) and merged
+    # over the file-defined connections at start-up. None keeps the store beside
+    # the config file, or in the CWD when the config itself is env-only.
+    store_path: Optional[str] = None
+
+    # Local audit trail (design C4/C5): every operation with timestamp, duration,
+    # row count and outcome, kept on this box. None keeps the JSONL file beside
+    # the config; `audit_retain` bounds the in-memory tail the admin UI reads.
+    audit_path: Optional[str] = None
+    audit_retain: int = 2000
+
+    log_level: str = "INFO"
+
+    # Budgets the control plane sizes its own waits against (A5). The query
+    # budget is per-connection with this as the default; the index budget is
+    # agent-level because get_schemas / warm_all run for minutes and would be
+    # aborted by any sane query budget.
+    default_query_timeout_seconds: int = 300
+    index_timeout_seconds: int = 900
+
+    # How often to re-publish the advertisement. It repeats rather than firing
+    # once because NATS core is at-most-once with no persistence: an
+    # advertisement published while the control plane is restarting is simply
+    # gone, and only the next cycle heals it.
+    advertise_interval_seconds: int = 60
+
+    # UI liveness (A10). NATS already detects a dead connection; this heartbeat
+    # is what lets the control plane show an agent online/stale/offline and
+    # deactivate its connections when it goes away.
+    heartbeat_interval_seconds: int = 15
+
+    @field_validator("org_id", "edge_agent_id")
+    @classmethod
+    def _subject_safe(cls, v: str) -> str:
+        if not v or any(c in v for c in ". *>") or v.strip() != v:
+            raise ValueError(
+                f"{v!r} is not a valid NATS subject token: no dots, spaces, "
+                "'*' or '>', and no surrounding whitespace"
+            )
+        return v
+
+    # -- subjects (docs/design/secure-data-tunnel-v4-nats.md, A3) -------------
+
+    @property
+    def subject_base(self) -> str:
+        return f"tunnel.{self.org_id}.{self.edge_agent_id}"
+
+    def connection_subject(self, connection_name: str) -> str:
+        return f"{self.subject_base}.conn.{connection_name}"
+
+    @property
+    def control_subject(self) -> str:
+        return f"{self.subject_base}.control"
+
+    @property
+    def advertisement_subject(self) -> str:
+        # Org-scoped, not global: the control plane reads tenancy off the
+        # subject because core NATS gives a subscriber no publisher identity.
+        return f"tunnel.{self.org_id}.advertisements"
+
+    @property
+    def heartbeat_subject(self) -> str:
+        return f"{self.subject_base}.heartbeat"
+
+    # -- TLS ------------------------------------------------------------------
+
+    def tls_context(self) -> "Any":
+        """Build the mTLS SSLContext for the NATS connection.
+
+        mTLS is the only supported authentication, so a client cert is
+        mandatory: `tls_cert` and `tls_key` must both be set or this raises.
+        `ssl` is imported lazily. Returns an `ssl.SSLContext` carrying the
+        loaded client certificate.
+        """
+        if not (self.tls_cert and self.tls_key):
+            raise ValueError(
+                "edge agent authentication is mTLS-only: set both tls_cert and "
+                "tls_key (paths to the client certificate and its key)"
+            )
+
+        import ssl
+
+        if self.tls_verify:
+            # cafile=None falls back to the system roots; a private CA path
+            # makes that CA the *only* trust anchor (no system roots), which is
+            # what a self-signed broker CA wants.
+            ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=self.tls_ca)
+        else:
+            ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        ctx.load_cert_chain(certfile=self.tls_cert, keyfile=self.tls_key)
+        return ctx
+
+
+_INT_FIELDS = {
+    "admin_port",
+    "audit_retain",
+    "default_query_timeout_seconds",
+    "index_timeout_seconds",
+    "advertise_interval_seconds",
+    "heartbeat_interval_seconds",
+}
+
+
+_BOOL_FIELDS = {"admin_enabled", "tls_verify"}
+
+
+def _coerce(field: str, raw: str) -> Any:
+    if field in _INT_FIELDS:
+        return int(raw)
+    if field in _BOOL_FIELDS:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return raw
+
+
+def load_config(path: str | Path | None = None) -> AgentConfig:
+    """Load YAML (if present) and apply environment overrides on top."""
+    data: dict[str, Any] = {}
+
+    path = path or os.environ.get(f"{_ENV_PREFIX}CONFIG")
+    if path:
+        p = Path(path)
+        if not p.is_file():
+            raise FileNotFoundError(f"config file not found: {p}")
+        data = yaml.safe_load(p.read_text()) or {}
+
+    for field, suffix in _ENV_OVERRIDES.items():
+        raw = os.environ.get(f"{_ENV_PREFIX}{suffix}")
+        if raw is not None and raw != "":
+            data[field] = _coerce(field, raw)
+
+    return AgentConfig(**data)

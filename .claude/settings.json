@@ -7,7 +7,8 @@
       "Grep",
       "Bash(wc:*)",
       "Bash(cat:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(kubectl:*)"
     ]
   }
 }

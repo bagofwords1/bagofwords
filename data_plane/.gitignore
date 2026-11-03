@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+.pytest_cache/
+config.yaml
+config-*.yaml
+*.db
+
+# Local admin-UI runtime state (contains an encryption key + credentials) —
+# never commit. Generated when the agent runs from this directory.
+edge-agent-store.json
+edge-agent-audit.jsonl
+.env
+
+# Admin-UI icon bundle: a build artifact copied from frontend/public by
+# data_edge_agent/admin/icons.py (Docker build, or the admin server on first
+# start in a checkout). Tracking the copies only let them drift from the
+# frontend's icons.
+data_edge_agent/admin/static/data_sources_icons/

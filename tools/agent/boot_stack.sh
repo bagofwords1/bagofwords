@@ -91,8 +91,11 @@ uv run alembic upgrade head
 if [ -f "$RUN_DIR/backend.pid" ] && kill -0 "$(cat "$RUN_DIR/backend.pid")" 2>/dev/null; then
   echo "backend already running (pid $(cat "$RUN_DIR/backend.pid"))"
 else
-  setsid uv run python main.py > "$RUN_DIR/backend.log" 2>&1 &
-  echo $! > "$RUN_DIR/backend.pid"
+  # Record the real pid, not setsid's transient wrapper (which exits at once and
+  # would make stop_all's group-kill miss the server). The inner shell becomes
+  # the session leader, writes its own pid, then exec's into the command.
+  setsid bash -c 'echo $$ > "$1"; shift; exec "$@"' _ \
+    "$RUN_DIR/backend.pid" uv run python main.py > "$RUN_DIR/backend.log" 2>&1 &
 fi
 wait_for "http://localhost:8000/health" "backend" 90
 
@@ -103,14 +106,16 @@ yarn install --frozen-lockfile
 if [ -f "$RUN_DIR/frontend.pid" ] && kill -0 "$(cat "$RUN_DIR/frontend.pid")" 2>/dev/null; then
   echo "frontend already running (pid $(cat "$RUN_DIR/frontend.pid"))"
 elif [ "$MODE" = "dev" ]; then
-  setsid yarn dev > "$RUN_DIR/frontend.log" 2>&1 &
-  echo $! > "$RUN_DIR/frontend.pid"
+  # --host: bind all interfaces, not just loopback, so the port is reachable
+  # from outside the pod (the k8s Service targets the pod IP, not localhost).
+  setsid bash -c 'echo $$ > "$1"; shift; exec "$@"' _ \
+    "$RUN_DIR/frontend.pid" yarn dev --host > "$RUN_DIR/frontend.log" 2>&1 &
 else
   # Production build, same as CI: pre-compiled routes hydrate fast and the
   # @nuxt-alt/proxy still forwards /api -> :8000 in the output server.
   NODE_OPTIONS="--max-old-space-size=4096" yarn build
-  setsid node .output/server/index.mjs > "$RUN_DIR/frontend.log" 2>&1 &
-  echo $! > "$RUN_DIR/frontend.pid"
+  setsid bash -c 'echo $$ > "$1"; shift; exec "$@"' _ \
+    "$RUN_DIR/frontend.pid" env HOST=0.0.0.0 node .output/server/index.mjs > "$RUN_DIR/frontend.log" 2>&1 &
 fi
 wait_for "http://localhost:3000" "frontend" 180
 

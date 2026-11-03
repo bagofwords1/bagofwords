@@ -24,6 +24,10 @@ dependencies = [
     "pyjwt>=2.15.1,<2.16",
     "httpx-oauth>=0.16.1,<0.17",
     "cryptography>=50.0.0,<51",
+    # Data-tunnel agent provisioning: create cert-manager Certificate CRs, read
+    # the issued Secret, and patch the nats-accounts ConfigMap from the Data
+    # Tunnels wizard. Async client so the request path never blocks the loop.
+    "kubernetes-asyncio>=32.0.0,<33",
     "sqlalchemy>=2.0.51,<2.1",
     "alembic>=1.18.4,<1.19",
     "asyncpg>=0.30.0,<0.32",
@@ -89,6 +93,10 @@ dependencies = [
     "python-slugify>=8.0.4,<8.1",
     "python-dotenv>=1.2.2,<1.3",
     "pyyaml>=6.0.3,<6.1",
+    # WebSocket transport (ws:// and wss://) needs the aiohttp extra; the edge
+    # agent always connects over websocket so 443 is the only port a customer
+    # has to allow outbound.
+    "nats-py[aiohttp]>=2.9.0,<3",
     "tiktoken>=0.13.0,<0.14",
     # Model-written regex (search_agents, describe_tables) runs with a timeout; stdlib re has none.
     "regex>=2026.5.9,<2027",

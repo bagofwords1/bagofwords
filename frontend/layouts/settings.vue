@@ -51,6 +51,7 @@ const allTabs = [
     { name: 'identity-provider', label: 'settings.identityProviderTab', requiredPermission: "manage_identity_providers" },
     { name: 'smtp', label: 'settings.smtpTab', requiredPermission: "manage_settings" },
     { name: 'license', label: 'settings.license', requiredPermission: "manage_settings" },
+    { name: 'data-tunnels', label: 'settings.dataTunnelsTab', requiredPermission: "manage_settings" },
 ]
 
 // Filter tabs based on user permissions + enterprise feature availability
