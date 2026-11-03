@@ -40,7 +40,10 @@ def test_delegation_block_follows_catalog_and_posture():
     assert "ONE `delegate` sub-agent per independent cause" not in explicit
 
 
-def test_subagent_system_prompt_is_the_lean_variant_with_finish_contract():
+@pytest.mark.parametrize("transcript", ["1", "0"], ids=["transcript", "legacy"])
+def test_subagent_system_prompt_is_the_lean_variant_with_finish_contract(transcript, monkeypatch):
+    # Both prompt paths carry the step budget (the legacy one once didn't).
+    monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", transcript)
     pi = PlannerInput(
         user_message="GOAL\nTest the pricing hypothesis", organization_name="Acme", organization_ai_analyst_name="Bow",
         mode="subagent", sub_agent_title="Pricing change hypothesis",

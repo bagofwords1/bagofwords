@@ -4530,7 +4530,7 @@
     "embed.user_inactive": "Your BOW account is deactivated.",
     "embed.session_invalid": "Your session ended. Sign in again.",
     "conversation.not_found": "That conversation doesn't exist.",
-    "conversation.unavailable": "Conversations aren't turned on here.",
+    "conversation.unavailable": "Conversations aren't available to you here.",
     "conversation.agent_forbidden": "You can't use that agent here.",
     "conversation.limit": "Too many messages. Wait a moment and try again.",
     "conversation.no_agents": "No agent is available to you here. Ask the owner which agents this app can use.",

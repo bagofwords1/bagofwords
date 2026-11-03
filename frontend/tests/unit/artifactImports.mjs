@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
 import {chromium} from 'playwright';
+import {CHROME_PATH} from './support/chromium.mjs';
 
 const root = new URL('../../', import.meta.url);
 const source = fs.readFileSync(new URL('utils/artifactIframe.ts', root), 'utf8');
@@ -52,7 +53,7 @@ function App() {
 makeRoot(document.getElementById('root')).render(<App />);
 </script>`;
 
-const browser = await chromium.launch({headless: true});
+const browser = await chromium.launch({headless: true, executablePath: CHROME_PATH});
 try {
   const page = await browser.newPage();
   await page.route('**/*', async (route) => {
