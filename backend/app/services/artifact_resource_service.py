@@ -694,6 +694,25 @@ class ArtifactResources:
             for name, field in definition.fields.items():
                 if (field.indexed or field.type == "file") and name in data:
                     hashed = digest(data[name])
+                    if field.unique and data[name] is not None:
+                        # Pre-flight the unique constraint so the caller gets a
+                        # field-named reason ("Field 'record_id' ...") instead of
+                        # the generic IntegrityError the DB raises on flush. The
+                        # row's own old index entries were deleted above, so a
+                        # match can only be another record. The constraint stays
+                        # the race-safe backstop (handled at the route).
+                        clash = await self.db.scalar(
+                            select(ArtifactRecordIndex.id)
+                            .where(
+                                ArtifactRecordIndex.resource_id == resource.id,
+                                ArtifactRecordIndex.field == name,
+                                ArtifactRecordIndex.unique_hash == hashed,
+                                ArtifactRecordIndex.record_id != row.id,
+                            )
+                            .limit(1)
+                        )
+                        if clash:
+                            fail("CONFLICT", f"Field '{name}' must be unique, and another record already has this value", 409)
                     self.db.add(
                         ArtifactRecordIndex(
                             resource_id=resource.id,

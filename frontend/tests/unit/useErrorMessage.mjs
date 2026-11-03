@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 
 import { createI18n } from 'vue-i18n'
 
-import { catalogMessage, errorCatalogKeys } from '../../composables/useErrorMessage.ts'
+import { catalogMessage, errorCatalogKeys, specificDetail } from '../../composables/useErrorMessage.ts'
 
 // The backend's AppError carries `error_code`, and the catalogs hold the
 // localized message under `errors.<code>`. Most codes hold a dot
@@ -49,5 +49,23 @@ const plain = codes.find((c) => !c.includes('.') && typeof en.errors[c] === 'str
 if (plain) assert.equal(catalogMessage({ error_code: plain, detail: 'English' }, t, te), en.errors[plain])
 assert.equal(catalogMessage({ error_code: 'no.such_code', detail: 'English' }, t, te), null)
 assert.equal(catalogMessage({ detail: 'English' }, t, te), null)
+
+// Exception: a few codes carry a field-level reason in `detail` that must
+// reach the user verbatim. The catalog still holds a generic line for them
+// (what the user would otherwise see), so detail-first is what surfaces the
+// real reason instead of "Invalid resource request".
+assert.ok(en.errors.ARTIFACT_RESOURCE_VALIDATION, 'the generic line detail must override exists')
+assert.equal(
+  specificDetail({ error_code: 'ARTIFACT_RESOURCE_VALIDATION', detail: "Field 'record_id' must be unique" }),
+  "Field 'record_id' must be unique",
+)
+assert.equal(
+  specificDetail({ error_code: 'ARTIFACT_RESOURCE_CONFLICT', detail: "Field 'slug' must be unique" }),
+  "Field 'slug' must be unique",
+)
+// Any other code, or a missing/non-string detail, falls back to the catalog.
+assert.equal(specificDetail({ error_code: dotted[0], detail: 'English' }), null)
+assert.equal(specificDetail({ error_code: 'ARTIFACT_RESOURCE_VALIDATION' }), null)
+assert.equal(specificDetail({ detail: 'English' }), null)
 
 console.log(`useErrorMessage: ${codes.length} codes resolve (${dotted.length} dotted)`)

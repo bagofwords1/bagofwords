@@ -118,35 +118,45 @@ class ResourceDefinition(StrictModel):
 
 
 def validate_value(field: FieldDefinition, value):
+    # Messages are phrased as predicates ("must be text") so callers can prefix
+    # them with the offending field name ("Field 'x' must be text").
     if value is None:
         if field.required:
-            raise ValueError("Required field is null")
+            raise ValueError("is required and cannot be empty")
         return
     if field.type in ("string", "file"):
-        if not isinstance(value, str) or len(value) > field.max_length:
-            raise ValueError("Invalid text field")
+        if not isinstance(value, str):
+            raise ValueError("must be text")
+        if len(value) > field.max_length:
+            raise ValueError(f"is too long ({len(value)} characters; the limit is {field.max_length})")
         if field.enum is not None and value not in field.enum:
-            raise ValueError("Invalid enum value")
+            raise ValueError(f"must be one of: {', '.join(field.enum)}")
     elif field.type == "number":
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-            raise ValueError("Invalid number")
+            raise ValueError("must be a number")
     elif type(value) is not bool:
-        raise ValueError("Invalid boolean")
+        raise ValueError("must be true or false")
 
 
 def validate_record(definition: ResourceDefinition, data: dict) -> dict:
-    if not isinstance(data, dict) or not set(data) <= set(definition.fields):
-        raise ValueError("Unknown record fields")
+    if not isinstance(data, dict):
+        raise ValueError("Record must be an object")
+    unknown = set(data) - set(definition.fields)
+    if unknown:
+        raise ValueError(f"Unknown field(s): {', '.join(sorted(unknown))}")
     result = dict(data)
     for name, field in definition.fields.items():
         if name not in result and field.default is not None:
             result[name] = field.default
         if name not in result and field.required:
-            raise ValueError("Missing required field")
+            raise ValueError(f"Field '{name}' is required")
         if name in result:
-            validate_value(field, result[name])
+            try:
+                validate_value(field, result[name])
+            except ValueError as exc:
+                raise ValueError(f"Field '{name}' {exc}")
     if len(json.dumps(result, allow_nan=False).encode()) > 262144:
-        raise ValueError("Record exceeds 256 KiB")
+        raise ValueError("Record exceeds the 256 KiB size limit")
     return result
 
 

@@ -80,17 +80,19 @@ def test_records_validate_paginate_conflict_and_deduplicate(artifact_api):
         ).json()
         == created.json()
     )
-    assert (
-        records(
-            client,
-            base,
-            headers,
-            action="create",
-            data={"title": "Another", "slug": "one"},
-            idempotency_key=str(uuid.uuid4()),
-        ).status_code
-        == 409
+    clash = records(
+        client,
+        base,
+        headers,
+        action="create",
+        data={"title": "Another", "slug": "one"},
+        idempotency_key=str(uuid.uuid4()),
     )
+    assert clash.status_code == 409, clash.text
+    # The reason names the unique field, so the app can tell the person which
+    # value already exists instead of a generic "invalid resource request".
+    assert "slug" in clash.json()["detail"]
+    assert clash.json()["error_code"] == "ARTIFACT_RESOURCE_CONFLICT"
     for number in range(3):
         response = records(
             client, base, headers, action="create", data={"title": str(number)}, idempotency_key=str(uuid.uuid4())
@@ -111,12 +113,12 @@ def test_records_validate_paginate_conflict_and_deduplicate(artifact_api):
     assert records(client, base, headers, **edit).status_code == 200
     edit["idempotency_key"] = str(uuid.uuid4())
     assert records(client, base, headers, **edit).status_code == 409
-    assert (
-        records(
-            client, base, headers, action="create", data={"title": None}, idempotency_key=str(uuid.uuid4())
-        ).status_code
-        == 400
+    invalid = records(
+        client, base, headers, action="create", data={"title": None}, idempotency_key=str(uuid.uuid4())
     )
+    assert invalid.status_code == 400
+    # Validation failures name the offending field too.
+    assert "title" in invalid.json()["detail"]
     assert records(client, base, {**headers, "X-Organization-Id": str(uuid.uuid4())}, action="list").status_code == 404
 
 

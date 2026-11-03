@@ -42,6 +42,34 @@ export function catalogMessage(
   return key ? t(key, (payload.params ?? {}) as Record<string, unknown>) : null
 }
 
+/**
+ * Error codes whose `detail` is a specific, field-level reason that must reach
+ * the user verbatim rather than be replaced by the generic localized line.
+ * Resource writes return these from the artifact-resource SDK; the detail names
+ * the field and what was wrong (too long, required, must be unique, …).
+ */
+export const DETAIL_FIRST_CODES = new Set<string>([
+  'ARTIFACT_RESOURCE_VALIDATION',
+  'ARTIFACT_RESOURCE_CONFLICT',
+])
+
+/**
+ * The server's specific `detail` for a code whose detail must reach the user
+ * verbatim, or null to fall back to the localized catalog line. Pure, so the
+ * precedence is unit-tested without an i18n context.
+ */
+export function specificDetail(payload: { error_code?: string; detail?: unknown }): string | null {
+  if (
+    payload.error_code &&
+    DETAIL_FIRST_CODES.has(payload.error_code) &&
+    typeof payload.detail === 'string' &&
+    payload.detail
+  ) {
+    return payload.detail
+  }
+  return null
+}
+
 export function useErrorMessage() {
   const { t, te } = useI18n()
 
@@ -65,6 +93,12 @@ export function useErrorMessage() {
 
   function getErrorMessage(err: unknown, fallback?: string): string {
     const payload = extractPayload(err)
+    // A few codes carry a specific, field-level reason in `detail` (which field
+    // failed validation, or which unique value already exists). For those the
+    // generic localized catalog line ("Invalid resource request") would hide the
+    // only useful part, so the server's detail wins. Every other code localizes.
+    const specific = specificDetail(payload)
+    if (specific) return specific
     const localized = catalogMessage(payload, t, te)
     if (localized) return localized
     // Fall back to server-provided English string, then caller fallback, then generic.
