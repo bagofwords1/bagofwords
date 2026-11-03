@@ -18,6 +18,7 @@ from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
+from app.ai.data_visibility import allow_llm_see_data, cut_before_value, names_only_structure, redact_error_text
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
 from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
@@ -181,29 +182,6 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
-# Error types whose message names the offending value (a cell): Python's own,
-# and pandas/numpy/DuckDB parsing and conversion errors, matched by name since
-# the sandbox passes only the name along.
-_VALUE_ERROR_NAMES = ("ValueError", "TypeError")
-_VALUE_ERROR_PARTS = ("Parse", "Parser", "Conversion", "Convert", "Cast", "OutOfBounds", "InvalidInput")
-
-
-def _names_a_value(type_name: str) -> bool:
-    name = str(type_name or "").rsplit(".", 1)[-1]
-    return name in _VALUE_ERROR_NAMES or any(part in name for part in _VALUE_ERROR_PARTS)
-
-
-def _cut_before_value(text: str) -> str:
-    """``text`` up to where an error names a value: its first quote, ": " or
-    " (" ("could not convert string to float: <cell>", "new category (<cell>)").
-    The cell may hold anything (quotes, line breaks, a repr cut short), so
-    nothing after that point is kept."""
-    match = re.search(r"['\"]|: | \(", text)
-    if match is None:
-        return text
-    return text[:match.start()].rstrip(" :") + ": <value hidden>"
-
-
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
     """The error text a retry sees for a failed execution: the message, then
     the tail of what the code printed before it raised (when there is any).
@@ -211,36 +189,22 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
     the codegen prompt gets the evidence.
 
     When the organization hides data from the model, what the code printed
-    is left out (it is usually data), and a ValueError/TypeError's own text
-    stops where it names a value. Other errors keep their text: a missing
-    column or a SQL error names structure, which a fix needs."""
+    is left out (it is usually data), and the error's own text stops where it
+    names a value, unless its type only names structure (data_visibility)."""
     if not allow_llm_see_data:
         # Generated code runs in the sandbox, which re-raises its error as a
         # SandboxExecutionError carrying the original type name and message.
         type_name = getattr(exc, "exc_type", None) or type(exc).__name__
-        if isinstance(exc, (ValueError, TypeError)) or _names_a_value(type_name):
-            # Conversion, parsing and categorical errors name the cell: the
-            # error's own text stops where it starts.
-            raw = getattr(exc, "message", None) if getattr(exc, "exc_type", None) else str(exc)
-            if raw and raw in message:
-                return message.replace(raw, _cut_before_value(raw))
-            return _cut_before_value(message)
-        return message
+        raw = getattr(exc, "message", None) if getattr(exc, "exc_type", None) else str(exc)
+        if names_only_structure(type_name, raw or ""):
+            return message
+        if raw and raw in message:
+            return message.replace(raw, cut_before_value(raw))
+        return cut_before_value(message)
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:
         return message
     return f"{message}\n<stdout_before_failure>\n{partial.rstrip()}\n</stdout_before_failure>"
-
-
-def _settings_allow_data(organization_settings) -> bool:
-    """The org's "Allow LLM to see data" switch (on without settings; off
-    when the settings cannot be read)."""
-    if organization_settings is None:
-        return True
-    try:
-        return bool(organization_settings.get_config("allow_llm_see_data").value)
-    except Exception:
-        return False
 
 
 def _stdout_router() -> _ThreadLocalStdoutRouter:
@@ -885,8 +849,12 @@ class QueryCapturingClientWrapper:
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
         max_concurrent_queries: Optional[int] = None,
         captured_column_titles: Optional[Dict[str, Any]] = None,
+        hide_values_in_errors: bool = False,
     ):
         self._original = original_client
+        # With "Allow LLM to see data" off, a recorded query error stops where
+        # it names a value: the planner, history and compaction all read it.
+        self._hide_values_in_errors = hide_values_in_errors
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._captured_column_titles = captured_column_titles
@@ -1020,7 +988,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": str(e)[:200],
+                    "error": self._recorded_error(e),
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
@@ -1037,12 +1005,18 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": str(e)[:200],
+                    "error": self._recorded_error(e),
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
+
+    def _recorded_error(self, e: BaseException) -> str:
+        text = str(e)
+        if self._hide_values_in_errors:
+            text = redact_error_text(text, type(e).__name__)
+        return text[:200]
 
     def _call_with_timeout(self, query, args, kwargs):
         """Run original.execute_query in a daemon thread; abandon it on timeout.
@@ -1298,6 +1272,7 @@ def wrap_clients_for_capture(
                 query_timeout_seconds=timeout,
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
                 captured_column_titles=captured_column_titles,
+                hide_values_in_errors=not allow_llm_see_data(organization_settings),
             )
         else:
             wrapped[key] = client
@@ -1714,7 +1689,7 @@ class StreamingCodeExecutor:
     def _retry_feedback(self, exc: BaseException, message: str) -> str:
         """What the coder's next attempt sees about a failed run, under this
         organization's "Allow LLM to see data" setting."""
-        return format_execution_failure(exc, message, _settings_allow_data(self.organization_settings))
+        return format_execution_failure(exc, message, allow_llm_see_data(self.organization_settings))
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""

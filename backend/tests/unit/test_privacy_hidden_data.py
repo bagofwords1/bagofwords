@@ -22,6 +22,7 @@ from app.ai.context.builders.message_context_builder import _compaction_observat
 from app.ai.context.builders.query_context_builder import QueryContextBuilder
 from app.ai.context.durable_transcript import _result_content
 from app.ai.context.hidden_data import hide_data_for_replay
+from app.ai.data_visibility import allow_llm_see_data, redact_error_text
 from app.ai.context.parts import Outcome
 from app.ai.persisted_summary import TOOL_CONTEXT_KIND_FIELD, TOOL_CONTEXT_OBSERVATION_KIND
 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
@@ -158,9 +159,10 @@ def test_a_code_retry_sees_no_printed_data_and_no_quoted_cell():
     assert SSN in shown and "<stdout_before_failure>" in shown
     hidden = format_execution_failure(exc, message, allow_llm_see_data=False)
     assert SSN not in hidden and "hidden>" in hidden
-    missing = KeyError("revenue")
+    missing = AttributeError("'DataFrame' object has no attribute 'revenue'")
     missing.captured_stdout = SSN
-    assert format_execution_failure(missing, "Execution error: 'revenue'", False) == "Execution error: 'revenue'"
+    message = f"Execution error: {missing}"
+    assert format_execution_failure(missing, message, False) == message
 
 
 def _Settings(allowed):
@@ -302,8 +304,111 @@ def test_a_sandbox_error_is_judged_by_its_original_type(type_name, message):
 def test_a_structural_sandbox_error_keeps_its_text():
     from app.ai.code_execution.sandbox.runner import SandboxExecutionError
 
-    exc = SandboxExecutionError("KeyError", "'revenue'")
-    assert format_execution_failure(exc, f"Execution error: {exc}", False) == "Execution error: KeyError: 'revenue'"
+    exc = SandboxExecutionError("NameError", "name 'revenue' is not defined")
+    assert format_execution_failure(exc, f"Execution error: {exc}", False) == f"Execution error: {exc}"
+
+
+def test_a_key_error_is_hidden_because_its_key_can_be_a_cell():
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    for exc in (KeyError(SSN), SandboxExecutionError("KeyError", f"'{SSN}'")):  # df.loc[<cell>]
+        hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
+        assert SSN not in hidden and "hidden>" in hidden
+
+
+CELL = "alice@acme.com"
+
+
+def _driver_errors():
+    """Real driver errors that quote the cell, as a failed query raises them."""
+    import psycopg2.errors
+    import sqlalchemy.exc
+
+    bad_text = psycopg2.errors.InvalidTextRepresentation(f'invalid input syntax for type integer: "{CELL}"')
+    yield bad_text
+    yield sqlalchemy.exc.DataError("SELECT email::int FROM people", {}, bad_text)
+    snowflake = type("ProgrammingError", (Exception,), {})
+    yield snowflake(f"100038 (22018): Numeric value '{CELL}' is not recognized")
+    bad_request = type("BadRequest", (Exception,), {})
+    yield bad_request(f"400 Bad int64 value: {CELL}")
+    yield KeyError(CELL)
+
+
+@pytest.mark.parametrize("exc", list(_driver_errors()), ids=["psycopg", "sqlalchemy-wrapped", "snowflake", "bigquery", "key-error"])
+def test_a_driver_error_that_quotes_a_cell_is_cut(exc):
+    message = f"Execution error: {exc}"
+    assert CELL in format_execution_failure(exc, message)
+    hidden = format_execution_failure(exc, message, False)
+    assert CELL not in hidden and "hidden>" in hidden
+    assert CELL not in redact_error_text(str(exc), type(exc).__name__)
+
+
+def test_a_wrapped_driver_error_that_names_structure_keeps_its_text():
+    import psycopg2.errors
+    import sqlalchemy.exc
+
+    missing = psycopg2.errors.UndefinedColumn('column "emaill" does not exist')
+    exc = sqlalchemy.exc.ProgrammingError("SELECT emaill FROM people", {}, missing)
+    message = f"Execution error: {exc}"
+    assert format_execution_failure(exc, message, False) == message
+
+
+class _FailingClient:
+    """A connection whose query fails the way Postgres does on email::int."""
+
+    def execute_query(self, query, *args, **kwargs):
+        import psycopg2.errors
+        import sqlalchemy.exc
+
+        raise sqlalchemy.exc.DataError(query, {}, psycopg2.errors.InvalidTextRepresentation(
+            f'invalid input syntax for type integer: "{CELL}"'))
+
+
+def _failed_run(settings):
+    """The final payload of a run whose every attempt fails on the query,
+    through the executor's public stream: what create_data and inspect_data
+    turn into the planner's observation (db_message, final_answer)."""
+    code = "def generate_df(ds_clients, excel_files):\n    return ds_clients['main'].execute_query('SELECT email::int FROM people')\n"
+
+    async def _gen(**kwargs):
+        return code
+
+    async def go():
+        done = None
+        async for event in StreamingCodeExecutor(organization_settings=settings).generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=2),
+            ds_clients={"main": _FailingClient()}, excel_files=[], code_generator_fn=_gen,
+        ):
+            if event["type"] == "done":
+                done = event["payload"]
+        return done
+
+    return asyncio.run(go())
+
+
+@pytest.mark.parametrize("allowed", [True, False], ids=["visible", "hidden"])
+def test_a_failed_query_records_its_error_without_the_cell_when_hidden(allowed):
+    payload = _failed_run(_Settings(allowed))
+    recorded = [t["error"] for t in payload["query_timings"] if t.get("error")]
+    retries = [text for _code, text in payload["errors"]]
+    assert recorded and retries
+    seen = json.dumps([recorded, retries])
+    if allowed:
+        assert CELL in seen
+    else:
+        assert CELL not in seen and "invalid input syntax for type integer" in seen
+
+
+@pytest.mark.parametrize("settings,expected", [
+    (None, True),
+    (SimpleNamespace(), False),  # present but unreadable: never "yes" by accident
+], ids=["no-settings", "unreadable"])
+def test_one_reader_for_the_switch(settings, expected):
+    from app.ai.tools.implementations._file_tool_common import allow_llm_see_data as file_tools_reader
+
+    assert allow_llm_see_data(settings) is expected
+    assert file_tools_reader({"organization": SimpleNamespace(settings=settings)}) is expected
+    assert allow_llm_see_data(_Settings(False)) is False and allow_llm_see_data(_Settings(True)) is True
 
 
 @pytest.mark.asyncio

@@ -20,27 +20,17 @@ from app.ai.tools.schemas import (
 )
 from app.ee.audit.tool_audit import log_tool_audit
 from app.ai.data_preview import gate_stats_for_privacy
+from app.ai.data_visibility import allow_llm_see_data
 from app.dependencies import async_session_maker
 
 logger = logging.getLogger(__name__)
-
-
-def _allow_llm_see_data(organization_settings) -> bool:
-    """The org's "Allow LLM to see data" switch, read as inspect_data reads it
-    (on without settings); off when the settings cannot be read."""
-    if organization_settings is None:
-        return True
-    try:
-        return bool(organization_settings.get_config("allow_llm_see_data").value)
-    except Exception:
-        return False
 
 
 def _model_data_fields(data_preview: str, info: Dict[str, Any], organization_settings) -> tuple:
     """The preview text and stats the model sees: the file's head and full
     stats only when the organization allows it; otherwise no rows and stats
     without raw cells. The tool output (UI, stored summary) keeps both."""
-    if _allow_llm_see_data(organization_settings):
+    if allow_llm_see_data(organization_settings):
         return data_preview, info
     return "", gate_stats_for_privacy(info)
 
