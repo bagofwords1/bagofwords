@@ -2756,7 +2756,7 @@ class DataSourceService:
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
         params = {**(config or {}), **(creds or {})}
         # Strip meta keys and oauth override keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
         # ConnectionService.construct_client. Forwarder subclasses (e.g.
@@ -3039,7 +3039,7 @@ class DataSourceService:
         ]
 
         clients: Dict[str, Any] = {}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         failed: list = []
 
         for conn in active_connections:
@@ -3432,8 +3432,18 @@ class DataSourceService:
                 client_params.update(credentials)
 
             # Strip meta keys, empty values, and oauth override keys (not part of client signatures)
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+            meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+
+            # Authentication can be a client argument as well as form metadata.
+            # Retain it only for constructors that accept it (including forwarders).
+            import inspect
+            signature = inspect.signature(ClientClass.__init__)
+            if "auth_type" not in signature.parameters and not any(
+                p.kind is inspect.Parameter.VAR_KEYWORD
+                for p in signature.parameters.values()
+            ):
+                client_params.pop("auth_type", None)
 
             from app.core.egress import check_connection_params
             check_connection_params(data_source_type, client_params)
@@ -5062,7 +5072,7 @@ class DataSourceService:
             db=db, connection=connection, data_source=data_source, current_user=user
         )
         params = {**(config or {}), **(creds or {})}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {
             k: v for k, v in (params or {}).items()
             if v is not None and k not in meta_keys and not k.startswith("oauth_")

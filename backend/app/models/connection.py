@@ -202,8 +202,15 @@ class Connection(BaseSchema):
                 client_params.update(decrypted_credentials)
             
             # Remove non-client params
-            if "auth_type" in client_params:
-                del client_params["auth_type"]
+            # Preserve client authentication settings while dropping form-only
+            # authentication metadata for constructors that do not accept it.
+            import inspect
+            signature = inspect.signature(ClientClass.__init__)
+            if "auth_type" not in signature.parameters and not any(
+                p.kind is inspect.Parameter.VAR_KEYWORD
+                for p in signature.parameters.values()
+            ):
+                client_params.pop("auth_type", None)
             if "demo_id" in client_params:
                 del client_params["demo_id"]
             # Runtime query limits read by the code-execution wrapper, not
