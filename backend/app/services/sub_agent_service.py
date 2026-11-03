@@ -996,6 +996,7 @@ async def run_fan_in(wave_id: str) -> None:
                 **surface,
                 summary=summary[:300], trigger_source="sub_agent_wave", message_type="sub_agent_wave_done",
                 instruction=instruction, meta=meta, mode=(wave.parent_mode or None), on_event=_on_event,
+                parent_completion_id=wave.parent_completion_id, original_request=wave.parent_prompt,
             )
         except Exception:
             logger.exception("fan-in turn for wave %s failed", wave_id)

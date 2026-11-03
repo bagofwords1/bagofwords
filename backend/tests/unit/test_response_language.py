@@ -53,3 +53,52 @@ async def test_invalid_column_labels_leave_original_metadata(reply):
         return reply
     await localize_column_headers(model, data, 'es')
     assert data == original
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('locale', ['he', 'ar', 'es'])
+@pytest.mark.parametrize('trigger', ['sub_agent_wave', 'wait', 'checkin'])
+async def test_automatic_turns_inherit_language_without_classifying_internal_text(locale, trigger):
+    calls = []
+    async def model(prompt):
+        calls.append(prompt)
+        return 'en'
+    assert await resolve_response_locale(
+        model, '[Automatic continuation] Summarize the English records.', locale,
+        trigger_source=trigger,
+    ) == locale
+    assert calls == []
+
+@pytest.mark.asyncio
+async def test_delayed_followup_uses_origin_snapshot_not_newer_conversation_language():
+    async def model(prompt):
+        return 'en'
+    assert await resolve_response_locale(model, 'Synthesize results', 'en',
+        trigger_source='sub_agent_wave', inherited='he') == 'he'
+
+@pytest.mark.asyncio
+async def test_legacy_followup_classifies_original_request_not_machine_instruction():
+    async def model(prompt):
+        import json
+        data = json.loads(prompt.split('\n', 1)[1])
+        assert data['user_request'] == 'اعرض المبيعات'
+        return 'ar'
+    assert await resolve_response_locale(model, 'Synthesize results in English', None,
+        trigger_source='sub_agent_wave', original_request='اعرض المبيعات') == 'ar'
+
+
+@pytest.mark.asyncio
+async def test_real_user_turn_can_change_language_despite_inherited_hint():
+    async def model(prompt):
+        return 'en'
+    assert await resolve_response_locale(model, 'Please answer in English', 'he',
+                                         inherited='he') == 'en'
+
+
+def test_persisted_machine_language_survives_response_schema_serialization():
+    from app.schemas.completion_schema import PromptSchema
+    from app.services.response_language_context import completion_response_metadata
+    for locale in ['he', 'ar', 'fr']:
+        saved = completion_response_metadata({'response_locale': locale}, 'wait')
+        assert PromptSchema(**saved).model_dump()['response_locale'] == locale
+        assert completion_response_metadata({'response_locale': locale}, None) is None
+    assert completion_response_metadata({'response_locale': 'invalid'}, 'wait') is None

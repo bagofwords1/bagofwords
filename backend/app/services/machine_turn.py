@@ -38,6 +38,8 @@ async def run_machine_turn(
     meta: Optional[dict] = None,
     mode: Optional[str] = None,
     on_event=None,
+    parent_completion_id: Optional[str] = None,
+    original_request: Optional[str] = None,
     platform=None,
     platform_context=None,
 ):
@@ -50,6 +52,31 @@ async def run_machine_turn(
     if the run raises."""
     from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
     from app.services.completion_service import CompletionService
+
+    from app.services.response_language_context import machine_response_context
+    language_context = await machine_response_context(
+        session, str(report.id), parent_completion_id=parent_completion_id,
+        original_request=original_request,
+    )
+
+    # Resolve legacy origins before creating the visible reply so its first
+    # persisted/broadcast state already has the right direction.
+    service = CompletionService()
+    from app.ai.response_language import resolve_response_locale, SUPPORTED_LOCALES
+    if language_context.get("response_locale") not in SUPPORTED_LOCALES:
+        from app.dependencies import _locale_from_org
+        await session.refresh(organization, ["settings"])
+        fallback = _locale_from_org(organization) or "en"
+        async def infer(prompt):
+            from app.ai.agents.reporter.reporter import Reporter
+            model = await service.llm_service.get_default_model(session, organization, user, is_small=True)
+            if model is None:
+                return ""
+            return await Reporter(model).infer_response_language(prompt)
+        language_context["response_locale"] = await resolve_response_locale(
+            infer, "", fallback=fallback, trigger_source=trigger_source,
+            original_request=language_context.get("response_original_request"),
+        )
 
     last = (
         await session.execute(
@@ -66,6 +93,7 @@ async def run_machine_turn(
         # so the frontend can render a locale-aware label instead.
         prompt={
             "content": summary,
+            "response_locale": language_context["response_locale"],
             "summary": summary,
             **({"details": details} if details else {}),
             **({"meta": meta} if meta else {}),
@@ -93,11 +121,11 @@ async def run_machine_turn(
             pass
 
     try:
-        await CompletionService().create_completion(
+        await service.create_completion(
             db=session,
             report_id=str(report.id),
             completion_data=CompletionCreate(
-                prompt=PromptSchema(content=instruction, mode=mode, platform=platform, platform_context=platform_context)
+                prompt=PromptSchema(content=instruction, mode=mode, platform=platform, platform_context=platform_context, **language_context)
             ),
             current_user=user,
             organization=organization,
