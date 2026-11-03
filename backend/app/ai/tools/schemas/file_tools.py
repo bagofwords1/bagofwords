@@ -640,6 +640,7 @@ class GrepFilesOutput(BaseModel):
     files_scanned: int = 0
     files_with_matches: int = 0
     bytes_read: int = 0
+    verification_bytes: int = Field(0, description="Additional integrity reads for local append validation; separate from scanned-content bytes.")
     coverage_complete: bool = True
     files_skipped: List[SkippedFile] = Field(default_factory=list)
     truncated: bool = Field(

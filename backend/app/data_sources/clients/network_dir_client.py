@@ -651,7 +651,7 @@ class NetworkDirClient(DataSourceClient):
 
     def search_files(
         self, query: str, max_results: int = 200, content: bool = True,
-        deadline=None, cancel_check=None, **_,
+        deadline=None, cancel_check=None, max_total_bytes=100_000_000, **_,
     ) -> List[Dict[str, Any]]:
         """Bounded live search. Partial coverage raises SearchStopped with hits.
 
@@ -666,6 +666,7 @@ class NetworkDirClient(DataSourceClient):
             return []
         deadline = deadline if deadline is not None else time.monotonic() + 60
         results, incomplete = [], None
+        remaining_bytes = max(0, int(max_total_bytes))
         files = self._iter_files(self._root(), recursive=True)
         if self._last_walk_truncated:
             incomplete = "catalog_limit"
@@ -678,8 +679,15 @@ class NetworkDirClient(DataSourceClient):
                 continue
             matched = q.casefold() in self._rel_id(path).casefold()
             if not matched and content:
+                if remaining_bytes <= 0:
+                    incomplete = incomplete or "byte_budget"
+                    continue  # Filename matches remain available without content I/O.
                 if _ext(path.name) in DOC_EXTS | {"xlsx", "xls"}:
+                    if entry["size"] > remaining_bytes:
+                        incomplete = incomplete or "byte_budget"
+                        continue
                     text = self._file_text(path)
+                    remaining_bytes -= entry["size"]
                     matched = q.casefold() in text.casefold()
                     if not matched and (len(text) >= 200_000 or (self.max_file_bytes and entry["size"] > self.max_file_bytes)):
                         incomplete = incomplete or "extraction_limit"
@@ -688,41 +696,47 @@ class NetworkDirClient(DataSourceClient):
                         candidates=[entry], open_stream=self._open_grep_stream,
                         pattern=q, is_regex=False, ignore_case=True,
                         first_match_per_file=True, cancel_check=cancel_check,
+                        max_total_bytes=remaining_bytes,
                         time_budget_seconds=max(0.001, deadline-time.monotonic()))
+                    remaining_bytes -= sweep["bytes_read"]
                     matched = bool(sweep["matches"])
                     if not sweep["coverage_complete"]:
                         incomplete = incomplete or (sweep["stop_reason"] if sweep["next_cursor"] else "skipped_files")
             if matched:
                 results.append(entry)
                 if len(results) >= max_results:
-                    raise SearchStopped("max_results", results)
+                    return results
         if incomplete:
             raise SearchStopped(incomplete, results)
         return results
 
     @contextmanager
-    def _open_grep_stream(self, entry, offset, expected_version):
+    def _open_grep_stream(self, entry, offset, expected_version, check=lambda: None):
         from app.data_sources.clients._streaming_grep import FileChanged
+        from app.data_sources.clients._local_grep_stream import LocalGrepStream
         path = self._resolve(entry["id"], must_exist=True)
         with path.open("rb") as stream:
+            if _ext(path.name) not in EMAIL_EXTS:
+                tracked = LocalGrepStream(stream, path, offset, expected_version, check)
+                yield tracked, tracked, tracked.size
+                tracked.validate()
+                return
+            # Rendered email offsets do not correspond to source bytes, so
+            # keep strict source identity and bounded extraction for emails.
             def identity():
                 stat = os.fstat(stream.fileno())
                 return f"{stat.st_dev}:{stat.st_ino}:{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}"
             version = identity()
             if expected_version and expected_version != version:
                 raise FileChanged()
-            if _ext(path.name) in EMAIL_EXTS:
-                from app.data_sources.clients._streaming_grep import ScanStopped
-                cap = min(self.max_file_bytes or 20_000_000, 20_000_000)
-                if os.fstat(stream.fileno()).st_size > cap:
-                    raise ScanStopped("too_large")
-                data = self._file_text(path, max_chars=cap).encode("utf-8")
-                with io.BytesIO(data) as rendered:
-                    rendered.seek(offset)
-                    yield rendered, version, len(data)
-            else:
-                stream.seek(offset)
-                yield stream, version, os.fstat(stream.fileno()).st_size
+            from app.data_sources.clients._streaming_grep import ScanStopped
+            cap = min(self.max_file_bytes or 20_000_000, 20_000_000)
+            if os.fstat(stream.fileno()).st_size > cap:
+                raise ScanStopped("too_large")
+            data = self._file_text(path, max_chars=cap).encode("utf-8")
+            with io.BytesIO(data) as rendered:
+                rendered.seek(offset)
+                yield rendered, version, len(data)
             if identity() != version:
                 raise FileChanged()
 

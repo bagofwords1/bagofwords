@@ -468,7 +468,7 @@ class S3Client(DataSourceClient):
         return byte_window(data, offset, total, window)
 
     @contextmanager
-    def _open_grep_stream(self, entry, offset, expected_version):
+    def _open_grep_stream(self, entry, offset, expected_version, check=lambda: None):
         from app.data_sources.clients._streaming_grep import FileChanged
         key = self._resolve_key(entry["id"])
         s3 = self._client()
