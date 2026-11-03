@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.0.608 (November 3, 2026)
+- Fixed embedded apps spinning forever when the frame can't load; the host now gets an `unavailable` event (#1555)
+- Fixed signing out of the host app leaving the embedded BOW session valid for up to an hour (#1555)
+- Fixed data tables in apps showing English labels to Hebrew and Spanish viewers (#1555)
+- Fixed apps with an `import` line in their code crashing with "require is not defined" (#1561)
+- Fixed the app chat telling non-members that conversations "aren't turned on" (#1562)
+- Fixed searching the agents page not finding agents shown through "Show all agents" (#1559)
+- Changed the agents list to sort A–Z (#1559)
+- Fixed members invited by email who also sign in with SSO showing twice and seeing "no available models" (#1560)
+- Fixed automatic follow-ups switching Hebrew and Arabic conversations to English (#1568)
+- Fixed searching large files on network-directory and S3 connections skipping them as too large (#1569)
+- Fixed valid SQLite `IS` / `IS NOT` comparisons being blocked as a security violation (#1570)
+
 ## Version 0.0.607 (November 2, 2026)
 - Updated chat typography, message spacing, tool cards and right-to-left layouts (#1557)
 
