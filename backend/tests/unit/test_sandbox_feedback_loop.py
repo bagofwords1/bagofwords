@@ -154,6 +154,18 @@ class TestErrorFeedbackReachesPrompts:
     def _feedback(self):
         return [(GETATTR_CODE, VIOLATION_MSG)]
 
+    def test_inspection_preserves_business_instructions_and_resources(self):
+        coder = _bare_coder()
+        instructions = "Revenue excludes returns using the certified master measure."
+        resources = "FiscalYear is numeric; the Orders key is Order Number."
+        asyncio.run(coder.generate_inspection_code(
+            prompt="check revenue", schemas="", ds_clients={}, excel_files=[],
+            code_and_error_messages=[], memories="", previous_messages="", retries=0,
+            context=_ctx(instructions_context=instructions, resources_context=resources),
+        ))
+        assert instructions in coder.llm.prompts[0]
+        assert resources in coder.llm.prompts[0]
+
     def test_inspection_prompt_contains_previous_error(self):
         coder = _bare_coder()
         asyncio.run(

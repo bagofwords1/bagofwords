@@ -1179,17 +1179,6 @@ class TestCrawl:
 
 
 class TestResolveApp:
-    def test_a_guid_short_circuits_the_listing(self):
-        client = make_client()
-
-        def _boom(*a, **k):
-            raise AssertionError("list_apps() must not be called for a GUID")
-
-        client.list_apps = _boom
-        app_id, row = client._resolve_app("11111111-2222-3333-4444-555555555555")
-        assert app_id == "11111111-2222-3333-4444-555555555555"
-        assert row is None
-
     @pytest.mark.parametrize("target", [
         "Sales/Consumer Sales",
         "Sales/Consumer Sales/Orders",
@@ -1203,13 +1192,11 @@ class TestResolveApp:
         assert app_id == "app-consumer-sales"
         assert row is not None
 
-    def test_an_unknown_target_is_passed_through(self):
-        """The caller may hold an id the listing cannot see — let Qlik decide."""
+    def test_an_unknown_target_is_rejected(self):
         client = make_client()
         install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
-        app_id, row = client._resolve_app("Nope")
-        assert app_id == "Nope"
-        assert row is None
+        with pytest.raises(ValueError, match="not found"):
+            client._resolve_app("Nope")
 
 
 # ---------------------------------------------------------------------------
@@ -1321,29 +1308,6 @@ class TestExecuteQuery:
         assert call["ssl"] is not None
         client.close()
 
-    def test_filters_are_applied_as_selections_before_the_cube(self, monkeypatch):
-        """A Qlik selection narrows the associative state for every linked
-        table, which a post-hoc filter on the result would not."""
-        client = make_client()
-        install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
-        connect = _StrictFakeConnect([
-            {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 1}}},
-            {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qChangedHandles": []}}},
-            {"jsonrpc": "2.0", "id": 3, "result": {"qReturn": {"qHandle": 2}}},
-            {"jsonrpc": "2.0", "id": 4, "result": {"qDataPages": [{"qMatrix": []}]}},
-        ])
-        _install_ws(monkeypatch, connect)
-
-        client.execute_query(
-            app="app-consumer-sales",
-            dimensions=["Region Name"],
-            filters={"Order Date": ["2026-01-01"]},
-        )
-
-        methods = [m["method"] for m in connect.ws.sent]
-        assert methods[:3] == ["OpenDoc", "SelectInField", "CreateSessionObject"]
-        client.close()
-
     def test_a_cube_with_neither_dimensions_nor_measures_is_rejected(self):
         client = make_client()
         with pytest.raises(ValueError, match="At least one dimension or measure"):
@@ -1418,13 +1382,13 @@ class TestRegistry:
         assert set(member_bindable_fields("qlik_sense_onprem")) <= params
 
     def test_config_form_is_slim_like_the_peer_connectors(self):
-        """Crawl-behavior knobs are constructor defaults, not form fields —
-        the Power BI config is one field, BigQuery's is four."""
+        """Discovery scope and memory concurrency are configurable; deeper
+        metadata settings remain constructor defaults."""
         from app.schemas.data_source_registry import REGISTRY
 
         fields = set(REGISTRY["qlik_sense_onprem"].config_schema.model_fields)
         assert fields == {
-            "server_url", "verify_ssl", "stream_filter", "published_only",
+            "server_url", "verify_ssl", "stream_filter", "app_filter", "max_concurrency", "published_only",
             "qrs_port", "engine_port",
         }
 

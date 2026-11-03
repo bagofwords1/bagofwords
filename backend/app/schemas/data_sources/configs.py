@@ -3440,7 +3440,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
 class QlikSenseOnPremConfig(BaseModel):
     """Connection form for QSEoW — deliberately small, like the Power BI and
     BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,
-    include_master_items, include_lineage, max_apps, max_concurrency,
+    include_master_items, include_lineage, max_apps,
     timeout_sec) stay client constructor defaults rather than form fields:
     they tune discovery internals, not connection identity."""
 
@@ -3468,6 +3468,20 @@ class QlikSenseOnPremConfig(BaseModel):
         title="Stream Filter",
         description="Optional comma-separated stream names or IDs. Empty crawls all visible streams.",
         json_schema_extra={"ui:type": "string"},
+    )
+    app_filter: Optional[str] = Field(
+        None,
+        title="App Filter",
+        description="Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.qlikOnPrem.appFilterTitle",
+                           "ui:descriptionKey": "data.qlikOnPrem.appFilterDescription"},
+    )
+    max_concurrency: int = Field(
+        4, ge=1, le=4,
+        title="Concurrent Apps",
+        description="Maximum apps opened at once during indexing (1–4). Choose 1 for large apps or limited memory. Apps load on demand; preload tasks are not required.",
+        json_schema_extra={"ui:type": "select", "ui:options": [1, 2, 3, 4], "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
+                           "ui:descriptionKey": "data.qlikOnPrem.concurrencyDescription"},
     )
     published_only: bool = Field(
         True,
