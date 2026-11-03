@@ -218,3 +218,14 @@ def test_large_file_grep_reports_partial_coverage_to_planner(test_client, org, p
     assert "grep_files" in planner.tool_names[0]
     assert any("byte_budget" in result and "coverage incomplete" in result
                for result in planner.tool_results), planner.tool_results
+
+
+@pytest.mark.parametrize("who", ["admin", "member"])
+def test_file_picker_returns_partial_search_hits(test_client, org, tmp_path, who):
+    shared = org['agents']['shared']
+    (tmp_path / 'shared' / 'large.log').write_bytes((b'x' * 8191 + b'\n') * 2600)
+    headers = {'Authorization': f"Bearer {org[who]['token']}", 'X-Organization-Id': str(org['org_id'])}
+    response = test_client.get(f"/api/connections/{shared['conn_id']}/files",
+                               params={'search': 'procedure'}, headers=headers)
+    assert response.status_code == 200, response.text
+    assert any(f['id'] == shared['file'] for f in response.json())

@@ -124,6 +124,11 @@ def _catalog_name_search(catalog: List[Dict[str, Any]], query: str, max_results:
 
 _STOP_REASONS = {
     "deadline": "it reached its time limit",
+    "time_budget": "it reached its time limit",
+    "byte_budget": "it reached its content-read budget",
+    "max_results": "it reached its result limit",
+    "extraction_limit": "some document content exceeded the extraction limit",
+    "skipped_files": "some files could not be fully scanned",
     "cancelled": "it was cancelled",
     "folder_limit": "it reached the folder limit for a live search",
     "catalog_limit": "it reached the connection's Max files cap",

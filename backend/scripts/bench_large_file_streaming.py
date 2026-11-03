@@ -33,7 +33,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--mb', type=int, default=1024)
     parser.add_argument('--source', choices=['network', 's3'], required=True)
+    parser.add_argument('--append-between-pages', action='store_true')
     args = parser.parse_args()
+    if args.append_between_pages and args.source != 'network':
+        parser.error('append validation applies to local files only')
     with tempfile.TemporaryDirectory(prefix='bow-streaming-') as root:
         path = Path(root) / 'events.log'
         line = b'x' * 8191 + b'\n'
@@ -52,7 +55,7 @@ def main():
         client.grep_files('FINAL_NEEDLE', file_ids=['events.log'], max_bytes_per_file=1024)
         tracemalloc.start()
         started = time.monotonic()
-        cursor, pages, hits, transferred = None, 0, [], 0
+        cursor, pages, hits, transferred, verification = None, 0, [], 0, 0
         while True:
             result = client.grep_files('FINAL_NEEDLE', is_regex=False,
                                       file_ids=['events.log'], cursor=cursor)
@@ -60,10 +63,14 @@ def main():
             pages += 1
             hits.extend(result['matches'])
             transferred += result['bytes_read']
+            verification += result.get('verification_bytes', 0)
             cursor = result['next_cursor']
             if not cursor:
                 assert result['coverage_complete']
                 break
+            if args.append_between_pages:
+                with path.open('ab') as output:
+                    output.write(b'continued\n')
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
         assert len(hits) == 1 and hits[0]['line_no'] == args.mb * 128 + 1
@@ -72,6 +79,7 @@ def main():
             assert all(b.closed for b in client._s3.bodies)
         print(json.dumps(dict(source=args.source, file_bytes=path.stat().st_size,
                               pages=pages, hits=len(hits), bytes_read=transferred,
+                              verification_bytes=verification, append_between_pages=args.append_between_pages,
                               peak_scan_mib=round(peak/1024/1024, 3),
                               seconds=round(time.monotonic()-started, 2))))
 

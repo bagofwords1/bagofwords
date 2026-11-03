@@ -131,3 +131,96 @@ Each final 1 GiB run read 1,076,346,893 bytes across pages for a 1,073,741,837-b
 - Email continues through bounded extraction, capped at 20 MB or the smaller connection cap. Large PDF/Office extraction, streaming dataset analysis, compressed-file seeking, and other connectors are outside this change.
 - Live AWS IAM, network behavior, billing, and throttling were not tested. All S3 verification is at the SDK transport boundary; no live cloud performance claim is made.
 - No frontend files or database schema changed. `git diff --check` passed. The initial broader test invocation needed `BOW_DATABASE_URL` set; after correcting that environment setup, the focused suites passed with no unresolved test failures.
+
+## PR #1569 review follow-up — four findings reproduced and fixed
+
+The first PR revision (`22f9bd27c`) introduced/retained four problems: the picker converted partial searches to HTTP 400; strict local identity rejected append-only logs; directory search reset its aggregate budget per file; and deadline-shortened regex timeouts permanently skipped the file.
+
+Before the fixes, `test_streaming_review_regressions.py` observed **5 failing client tests**, and the real picker API observed **2 failures** (admin/member). After the fixes:
+
+- `routes/file_reference.py` catches `SearchStopped` and returns its hits. Reaching `max_results` returns the normal bounded list. Agent stop-reason descriptions now cover content budgets, extraction limits and skipped files. A caller sweep found no other route/service calling `asearch_files` without this handling.
+- `clients/_local_grep_stream.py` hashes consumed bytes into a portable 64 KiB block chain. Each call reads to a fixed EOF. Unchanged files seek directly, reading only the checkpoint's partial block (under 64 KiB). If a file grows, validation rereads the consumed prefix in bounded chunks and checks its digest. Pure appends survive; rotation, shrinking files, same-size edits, and overwrite-plus-append of consumed content are rejected. Tests edit the middle of a consumed block, not just the header or cursor boundary.
+- Directory content search decrements one 100 MB read allowance across files. It can still find filename matches after content reads exhaust that allowance. Document source sizes are charged conservatively to the same allowance.
+- A regex timeout under a deadline-shortened allowance returns `time_budget` and a retry cursor; a full 50 ms regex timeout still reports `regex_timeout`.
+
+**Append-validation tradeoff:** detecting overwrite-plus-append requires checking previously consumed content, not merely accepting larger size or comparing a few samples. This extra I/O can exceed the scan byte budget; it is reported separately as `verification_bytes` and honors deadline/cancellation checkpoints. Unchanged files do not reread their full prefix. Validation is not a filesystem transaction or a snapshot of unconsumed bytes. It protects consistency of the consumed prefix while allowing the next page to see appended data. S3 retains strict object-version/ETag behavior; email retains strict source identity. Local cursors created by the initial PR revision should be restarted.
+
+Verification commands (from `backend`, after the environment setup above):
+
+```bash
+uv run pytest tests/unit/test_streaming_review_regressions.py \
+  tests/unit/test_large_file_streaming.py tests/unit/test_grep_files.py \
+  tests/unit/test_network_dir_client.py tests/unit/test_network_dir_incremental_index.py \
+  tests/unit/test_s3_client.py tests/unit/test_email_files.py tests/unit/test_file_tools.py \
+  --confcutdir=tests/unit -q --disable-warnings
+uv run pytest tests/e2e/rbac/test_file_tools_run_scope.py -q --disable-warnings
+PYTHONPATH=. uv run python scripts/bench_large_file_streaming.py --mb 1024 --source network
+PYTHONPATH=. uv run python scripts/bench_large_file_streaming.py --mb 1024 --source s3
+PYTHONPATH=. uv run python scripts/bench_large_file_streaming.py --mb 64 --source network --append-between-pages
+```
+
+Latest focused unit run: **253 passed, 0 failed**. The picker and planner coverage cases passed for both roles (**4 passed**, with unrelated cases deselected); the full file-tool run-scope result is recorded below.
+
+| Latest benchmark | Calls | Marker hits | Peak traced allocation | Integrity reads | Time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Network directory, 1 GiB | 54 | 1 | 0.258 MiB | 1,294,336 bytes | 5.59 s |
+| S3 client/local transport, 1 GiB | 54 | 1 | 0.199 MiB | 0 | 3.89 s |
+| Network directory, 64 MiB, append between every page | 4 | 1 | 0.248 MiB | 120,127,488 bytes | 0.39 s |
+
+### CI failure attribution
+
+The first PR CI run reported **24 unit failures** and **7 Azure integration failures**. No streaming test failed in that run. The 24 unit failures were reproduced from a clean `git archive` of the pre-PR baseline `94394a0aa55d45bcd252964d582ec091c7aeeace`: **24 failed, 42 passed** in the two affected modules. The exact set of failed test IDs equals the CI set. Reproduce from that baseline with:
+
+```bash
+TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db uv run pytest \
+  tests/unit/test_reply_language_reminder.py tests/unit/test_planner_upload_origin.py \
+  --confcutdir=tests/unit -q --disable-warnings
+```
+
+Evidence shared by each unit failure below: `PromptBuilderV3`/`prompt_language` last changed at `ecdcc273a`, before this PR. The language test last changed at `294072321`; the upload-origin test at `8647b4344`. None of those files differs between the reproduced baseline and initial PR head `22f9bd27c`. Classification: **pre-existing-defect**, based on executing the baseline, not on a neighboring PR's status.
+
+<details>
+<summary>Per-test baseline attribution (24 failures)</summary>
+
+| Failed test ID | Classification |
+| --- | --- |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-Anthropic]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-AzureClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-BedrockClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-Google]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-OpenAIResponsesClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[live-history-OpenAi]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-Anthropic]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-AzureClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-BedrockClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-Google]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-OpenAIResponsesClient]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_planner_upload_origin.py::test_uploads_remain_with_the_original_request_across_iterations[reconstructed-OpenAi]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-0-Πόσες πωλήσεις είχαμε πέρσι;-Greek]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-0-הראה לי את Invoice.Total לפי שנה-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-0-כמה מכרנו בשלוש שנים האחרונות ?-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-0-昨年の売上はいくらでしたか-Japanese]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-1-Πόσες πωλήσεις είχαμε πέρσι;-Greek]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-1-הראה לי את Invoice.Total לפי שנה-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-1-כמה מכרנו בשלוש שנים האחרונות ?-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-1-昨年の売上はいくらでしたか-Japanese]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-3-Πόσες πωλήσεις είχαμε πέρσι;-Greek]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-3-הראה לי את Invoice.Total לפי שנה-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-3-כמה מכרנו בשלוש שנים האחרונות ?-Hebrew]` | pre-existing-defect; reproduced on baseline |
+| `tests/unit/test_reply_language_reminder.py::test_newest_message_names_the_users_language_after_english_tool_results[transcript-3-昨年の売上はいくらでしたか-Japanese]` | pre-existing-defect; reproduced on baseline |
+
+</details>
+
+Azure failures are HTTP 401 responses reporting an invalid subscription key or endpoint. Classification: **CI authentication/configuration failure**; their historical pre-existence is not asserted because live credentials were not rerun on the baseline. The Azure adapter is unchanged by this PR (last change `df747a277`). Fixing CI secrets/endpoint configuration is outside the streaming patch.
+
+| Failed Azure test | Observed cause |
+| --- | --- |
+| `tests/integrations/llm_clients.py::test_llm_inference[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream_v2_tools[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream_v2_tool_schema_fidelity[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream_v2_tool_result_round_trip[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream_v2_reasoning[azure]` | HTTP 401 authentication failure |
+| `tests/integrations/llm_clients.py::test_llm_inference_stream_v2_transcript_shape[azure]` | HTTP 401 authentication failure |
+
+Full application run-scope verification after the review fixes: **17 passed, 0 failed** (`tests/e2e/rbac/test_file_tools_run_scope.py`), including admin/member partial-result searches and the existing allow/deny cases. `git diff --check` passed.

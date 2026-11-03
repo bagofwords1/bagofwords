@@ -262,6 +262,7 @@ class GrepFilesTool(Tool):
             "stop_reason": sweep.get("stop_reason", "complete"),
             "next_cursor": sweep.get("next_cursor"),
             "bytes_read": sweep.get("bytes_read", 0),
+            "verification_bytes": sweep.get("verification_bytes", 0),
             "coverage_complete": sweep.get("coverage_complete", not (sweep.get("skipped_files") or sweep.get("truncated") or sweep.get("next_cursor"))),
         }
 

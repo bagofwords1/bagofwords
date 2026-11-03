@@ -96,7 +96,7 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
             raise ValueError('Invalid or incompatible grep cursor; restart the same pattern and scope.')
     result = dict(matches=[], total_matches=0, files_scanned=0, files_with_matches=0,
                   skipped_files=[], truncated=False, stop_reason='complete',
-                  next_cursor=None, bytes_read=0, coverage_complete=True)
+                  next_cursor=None, bytes_read=0, verification_bytes=0, coverage_complete=True)
     deadline = time.monotonic() + max(0.001, time_budget_seconds)
 
     def check():
@@ -106,8 +106,9 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
             raise ScanStopped('time_budget')
 
     def stop(entry, offset, line, context, version, reason):
+        encoded_version = version.checkpoint(offset) if hasattr(version, 'checkpoint') else version
         payload = dict(format=1, h=scope, f=entry['id'], o=offset, l=line,
-                       b=list(context), v=version)
+                       b=list(context), v=encoded_version)
         result.update(truncated=True, coverage_complete=False, stop_reason=reason,
                       next_cursor=base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode())
 
@@ -131,10 +132,10 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
         if result['files_scanned'] >= max_files:
             stop(entry, offset, line, context, version, 'max_files')
             break
-        emitted, reader = 0, None
+        emitted, reader, stream = 0, None, None
         try:
             check()
-            with open_stream(entry, offset, version) as (stream, version, size):
+            with open_stream(entry, offset, version, check=check) as (stream, version, size):
                 if offset > size:
                     raise FileChanged()
                 reader = Lines(stream, offset, check)
@@ -155,10 +156,17 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
                     _, end, text = row
                     if line == 0 and '\x00' in text[:8192]:
                         raise ScanStopped('binary')
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ScanStopped('time_budget')
+                    allowance = min(0.05, remaining)
                     try:
-                        hit = rx.search(text, timeout=min(0.05, max(0.001, deadline-time.monotonic())))
+                        hit = rx.search(text, timeout=allowance)
                     except TimeoutError:
-                        raise ScanStopped('regex_timeout')
+                        # A deadline-shortened allowance says nothing about a
+                        # pattern's intrinsic cost. Preserve this line for retry.
+                        reason = 'time_budget' if allowance < 0.05 or time.monotonic() >= deadline else 'regex_timeout'
+                        raise ScanStopped(reason)
                     if hit:
                         # Look ahead for context without consuming those lines for
                         # matching. On resume, byte position remains before them.
@@ -174,9 +182,13 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
                         emitted += 1
                     context.append(_clip(text)[0])
                     offset, line = end, line+1
+                    if hasattr(stream, 'commit'):
+                        stream.commit(offset)
                     if hit and first_match_per_file:
                         break
         except (GlobScopeError, FileChanged, ScanStopped, OSError) as exc:
+            if stream is None:
+                result['verification_bytes'] += getattr(exc, 'verification_bytes', 0)
             reason = ('access_denied' if isinstance(exc, GlobScopeError) else
                       'file_changed' if isinstance(exc, FileChanged) else
                       str(exc) if isinstance(exc, ScanStopped) else 'unreadable')
@@ -193,6 +205,8 @@ def run_streaming_grep(*, candidates, open_stream, pattern, is_regex=True,
         finally:
             if reader:
                 result['bytes_read'] += reader.bytes_read
+            if stream:
+                result['verification_bytes'] += getattr(stream, 'verification_bytes', 0)
         if emitted:
             result['files_with_matches'] += 1
         if result['next_cursor']:

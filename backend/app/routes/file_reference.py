@@ -137,7 +137,13 @@ async def list_connection_files(
     from app.services.connection_service import ConnectionService
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
-        files = await (client.asearch_files(search) if search else client.alist_files())
+        from app.data_sources.clients.base import SearchStopped
+        try:
+            files = await (client.asearch_files(search) if search else client.alist_files())
+        except SearchStopped as stop:
+            # The picker consumes a bounded list; an unfinished content scan
+            # must not discard the hits it already found.
+            files = stop.files
     except NotImplementedError:
         raise HTTPException(status_code=400, detail="This connection does not support file listing.")
     except Exception as e:
