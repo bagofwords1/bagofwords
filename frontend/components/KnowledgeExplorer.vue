@@ -3588,9 +3588,9 @@ const fetchAgents = async () => {
     agents.value = (data.value || [])
       .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
-      // here; localeCompare groups by the active locale (so Hebrew and Latin
-      // each sort naturally).
-      .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || ''))
+      // here; pass the app's i18n locale (not the browser default) so the
+      // order matches the UI language, and fold case/accents via sensitivity.
+      .sort((a: any, b: any) => (a.name || '').localeCompare(b.name || '', locale.value, { sensitivity: 'base' }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')

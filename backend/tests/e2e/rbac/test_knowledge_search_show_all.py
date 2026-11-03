@@ -97,3 +97,34 @@ def test_member_still_finds_their_own_agent_without_show_all(
     assert ds["id"] in _search_agent_ids(
         test_client, creator["token"], org_id, tag
     )
+
+
+def _search_agent_names(test_client, token, org_id, q, **params):
+    r = test_client.get(
+        "/api/knowledge/search",
+        params={"q": q, "limit": 50, **params},
+        headers=_hdr(token, org_id),
+    )
+    assert r.status_code == 200, r.text[:400]
+    return [a["name"] for a in r.json()["agents"]]
+
+
+@pytest.mark.e2e
+def test_search_agent_results_come_back_alphabetical(
+    test_client, bootstrap_admin, sqlite_data_source
+):
+    """The "Agents" results group is ordered A–Z (sorted before the limit cut),
+    so it matches the /agents tree — not the server's creation order."""
+    creator = bootstrap_admin("creator")
+    org_id = creator["org_id"]
+
+    tag = uuid.uuid4().hex[:8]
+    # Created deliberately out of alphabetical order.
+    for prefix in ("zeta", "alpha", "mu"):
+        sqlite_data_source(
+            name=f"{prefix}-{tag}", user_token=creator["token"], org_id=org_id
+        )
+
+    names = _search_agent_names(test_client, creator["token"], org_id, tag)
+    ours = [n for n in names if n.endswith(tag)]
+    assert ours == sorted(ours, key=str.lower), ours
