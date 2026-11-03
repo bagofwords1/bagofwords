@@ -4473,7 +4473,39 @@ class DataSourceService:
             sort_column = DataSourceTable.is_active
         elif sort_by == "richness":
             sort_column = DataSourceTable.richness
-        
+        elif sort_by == "usage_count":
+            # Order by the same usage number the grid shows. Usage lives on
+            # TableStats, not on DataSourceTable, matched to a row by id and
+            # falling back to the name-keyed legacy row — exactly the lookup
+            # the per-row stats merge below performs. A correlated scalar
+            # subquery (not a join) so the page query can never fan out and
+            # inflate the row set, and so this stays a no-op when stats are
+            # absent. Covers all rows regardless of `with_stats`, which only
+            # decides whether the number is also returned for display.
+            from app.models.table_stats import TableStats
+            from sqlalchemy import or_ as _or_us, and_ as _and_us
+            usage_subq = (
+                select(TableStats.usage_count)
+                .where(
+                    TableStats.report_id.is_(None),
+                    TableStats.data_source_id == data_source_id,
+                    _or_us(
+                        TableStats.datasource_table_id == DataSourceTable.id,
+                        _and_us(
+                            TableStats.datasource_table_id.is_(None),
+                            func.lower(TableStats.table_fqn) == func.lower(DataSourceTable.name),
+                        ),
+                    ),
+                )
+                # Prefer the id-matched row over a name-keyed fallback, like the
+                # display: is_(None) sorts False (id match) before True.
+                .order_by(TableStats.datasource_table_id.is_(None))
+                .limit(1)
+                .correlate(DataSourceTable)
+                .scalar_subquery()
+            )
+            sort_column = func.coalesce(usage_subq, 0)
+
         if sort_dir.lower() == "desc":
             base_query = base_query.order_by(sort_column.desc().nullslast())
         else:
