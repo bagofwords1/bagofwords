@@ -17,9 +17,10 @@ Not verified: a real **Aura** instance (`neo4j+s://`), and a real **cluster**. T
 | Layer | Check | Result |
 |---|---|---|
 | Registry | `resolve_client_class('neo4j')`; discovery cancels before any I/O (`test_discovery_progress_contract`'s check, run on `neo4j` alone) | `Neo4jClient`; cancels |
-| Unit | `tests/unit/test_neo4j_client.py`, with the driver replaced at `_read` | 57 passed |
-| Unit | Cypher guard: 12 read queries pass, 24 write / admin / outbound forms refused (string literals, `//` and `/* */` comments, backslash escapes, backticks, mixed case, `CALL {…} IN TRANSACTIONS`, `apoc.*` in CALL and function position, `genai.*`) | all as expected |
+| Unit | `tests/unit/test_neo4j_client.py`, with only `neo4j.GraphDatabase.driver` faked | 91 passed |
+| Unit | Cypher guard: 15 read queries pass, 34 write / admin / outbound forms refused (string literals, `//` comments ended by `\n` or `\r`, `/* */`, backslash escapes, backticks, mixed case, `CALL {…} IN [CONCURRENT] TRANSACTIONS`, `apoc.*` / `genai.*` in CALL, function and map-value positions, non-ASCII namespaces) | all as expected |
 | Unit | SSRF: `test_neo4j_uri_never_contacts_metadata`, 5 metadata forms × `bolt` / `neo4j+s` | refused before any connect |
+| Unit | Identity scoping through `verify_identity_binds_in_queries`: `$owner` in a top-level `WHERE` conjunct, a `WITH … WHERE` or a `MATCH` pattern map passes (ASCII and Hebrew); passed-but-unused, used only in `RETURN`, in a map inside `collect()`, under `OR` / `NOT`, in a list or pattern comprehension, or after `OPTIONAL MATCH` fails | as expected |
 | Break tests | guard removed from the executor → 2 tests fail; `native_query_params` off → the params test fails | as expected |
 | Live (both images) | `tests/integrations/test_neo4j_live.py`: connection; catalog with patterns; plain values (node, path, date); params through the executor; **the server refuses a write with our guard switched off**; `LOAD CSV` refused by the guard; a slow query stopped by the server's transaction timeout; the row cap while reading; a `neo4j://` URI checks every routing-table address, and fails closed when one is refused | 18 passed |
 | Integration suite | `ds_clients` container entry: the suite's own flow (container, seed, `test_connection`, `get_schemas`) | passed |
@@ -54,9 +55,35 @@ Desktop sandbox: the branch's backend on :8002 with a fresh SQLite database, the
   - In a Hebrew conversation, the tool chips showed `(:Movie)` as `(Movie:)`. Table names are now `<bdi dir="ltr">` in the CreateData, InspectData and DescribeTables chips (`chat-hebrew-before-bidi-fix.png` / `chat-hebrew-names-after-bidi-fix.png`).
   - The onboarding selector's own noun code said "Search collections…". It now uses the shared `nounFor` with the connector's `catalog_nouns`. This screen wasn't re-captured after the fix, because the sandbox org had finished onboarding. The logic is the one `catalogNouns.mjs` tests.
 
+## Large graph
+
+`neo4j:5.26-community` with 200,000 nodes (40 labels, each with string / integer / float / date properties) and 500,000 relationships (25 types):
+
+| Check | Result |
+|---|---|
+| `get_schemas` | 40 labels, 25 relationship types in 0.8 s, with patterns and property types |
+| `MATCH (n) RETURN n` | stops at 10,000 rows in 1.1 s with the notice, and memory grows by 16 MB |
+| An aggregate over a relationship type | 0.3 s |
+| `MATCH (a)-[*1..8]-(b) RETURN count(*)` with a 10 s budget | the server ends the transaction at 7.7 s |
+
+## Independent code review (fresh agent, exploits run against a live server)
+
+| Finding | Fix |
+|---|---|
+| **Blocking:** a `//` comment ends at `\r` too in Neo4j, but the guard ended it only at `\n`, so `// x\rLOAD CSV …`, `CALL apoc.load.json …` and `SHOW DATABASES` passed | `//` ends at `\r` or `\n`; 4 regression cases |
+| **Blocking:** a namespaced function in a map value (`{k: apoc.cypher.runFirstColumnSingle(…)}`) skipped the allow-list, because the word after `:` was read as a label | calls are checked wherever a name starts a chain; 3 regression shapes |
+| The identity check passed on any Neo4j capture (the value is always in `params`), and refused Hebrew values (`ensure_ascii`). A re-review then found 3 more accepted shapes: `OR 1=1`, a list-comprehension `WHERE`, a pattern map inside `RETURN` | `cypher_binds` counts only a top-level `WHERE` after `MATCH` / `WITH` (AND-conjuncts without `OR` / `XOR` / `NOT`) and `MATCH` pattern maps; `ensure_ascii=False` |
+| A routing-table probe could be answered differently from the real driver | `neo4j://` is read as `bolt://`; no routing at all |
+| Unit tests faked our own `_read` | only `GraphDatabase.driver` is faked |
+| `dir="ltr"` on `<bdi>` would misorder Hebrew names | `<bdi>` alone (auto direction) |
+| Nits: `IN CONCURRENT TRANSACTIONS`, non-ASCII namespaces | refused |
+| The UI noun change also affects 8 connectors that already define `catalog_nouns` | kept, and declared in the PR |
+
+Each fix was reverted once to see its tests fail.
+
 ## Not covered / follow-ups
 
-- Aura and a real cluster, as above.
+- Aura and a real cluster, as above. A `neo4j://` URI connects directly to the host entered, so a cluster is read through that one member.
 - Table scope isn't enforced at query time for Cypher, as for every non-SQL connector (`table_scope.py`): a hand-written query can read deselected labels.
 - Type annotations, APOC and GDS are refused by design in v1.
 - The expanded relationship row shows its properties but not the `(:A)-[:R]->(:B)` patterns. The agent gets them in its schema.
