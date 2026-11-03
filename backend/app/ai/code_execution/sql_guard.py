@@ -101,14 +101,14 @@ def ensure_read_only(client, query) -> None:
 
 
 def check_sql(sql: str, dialect: str) -> None:
-    import sqlglot
+    from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
     try:
         # A comment after the final `;` parses as a bare Semicolon node holding
         # only that comment; it runs nothing, so it is not a second statement.
-        statements = [s for s in sqlglot.parse(sql, read=dialect)
+        statements = [s for s in parse_guard_sql(sql, dialect)
                       if s is not None and not isinstance(s, exp.Semicolon)]
     except SqlglotError as e:
         logger.warning("sql_guard: %s parser could not read query, using keyword check: %s",
