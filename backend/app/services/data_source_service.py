@@ -1,3 +1,4 @@
+from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
 import logging
 import os
@@ -2754,28 +2755,11 @@ class DataSourceService:
         # Merge config and creds
         config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
-        params = {**(config or {}), **(creds or {})}
+        params = merge_client_credentials(config, creds)
         # Strip meta keys and oauth override keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
-        # Narrow to constructor signature — same VAR_KEYWORD-aware logic as
-        # ConnectionService.construct_client. Forwarder subclasses (e.g.
-        # `class OnedriveClient(GraphDriveClient): def __init__(self, **kw): super().__init__(**kw)`)
-        # only expose `self` + `kwargs` to inspect; narrowing on that would
-        # strip every real arg (access_token, tenant_id, …). When the ctor
-        # accepts **kwargs, pass everything through.
-        try:
-            import inspect
-            sig = inspect.signature(ClientClass.__init__)
-            accepts_var_kwargs = any(
-                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-            )
-            if accepts_var_kwargs:
-                allowed = params
-            else:
-                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        except Exception:
-            allowed = params
+        allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
         return ClientClass(**allowed)
 
@@ -2996,7 +2980,6 @@ class DataSourceService:
         first error is raised as before and nothing is appended — callers keep
         reporting that as a data-source-level failure.
         """
-        import inspect
         from typing import Dict, Any
 
         # Access backstop: never build a credentialed client for a data source
@@ -3039,7 +3022,7 @@ class DataSourceService:
         ]
 
         clients: Dict[str, Any] = {}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         failed: list = []
 
         for conn in active_connections:
@@ -3062,22 +3045,10 @@ class DataSourceService:
                     current_user=current_user
                 )
 
-                params = {**(config or {}), **(creds or {})}
+                params = merge_client_credentials(config, creds)
                 params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
-                # Narrow to constructor signature (VAR_KEYWORD-aware; see
-                # ConnectionService.construct_client for the reasoning).
-                try:
-                    sig = inspect.signature(ClientClass.__init__)
-                    accepts_var_kwargs = any(
-                        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-                    )
-                    if accepts_var_kwargs:
-                        allowed = params
-                    else:
-                        allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-                except Exception:
-                    allowed = params
+                allowed = filter_client_parameters(ClientClass, params)
 
                 await _acheck_connection_destination(conn.type, params)
                 client = ClientClass(**allowed)
@@ -3427,13 +3398,15 @@ class DataSourceService:
         try:
             ClientClass = resolve_client_class(data_source_type)
 
-            client_params = (config or {}).copy()
-            if credentials:
-                client_params.update(credentials)
+            client_params = merge_client_credentials(config, credentials)
 
             # Strip meta keys, empty values, and oauth override keys (not part of client signatures)
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+            meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
             client_params = {k: v for k, v in (client_params or {}).items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+
+            client_params = filter_client_parameters(
+                ClientClass, client_params, only={"auth_type"}
+            )
 
             from app.core.egress import check_connection_params
             check_connection_params(data_source_type, client_params)
@@ -5054,29 +5027,19 @@ class DataSourceService:
         `construct_client` cannot be used here: it always builds the FIRST
         connection's client, which is why the per-user overlay only ever
         described one connection no matter how many an agent had."""
-        import inspect
 
         ClientClass = resolve_client_class(connection.type)
         config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
         creds = await self.resolve_credentials_for_connection(
             db=db, connection=connection, data_source=data_source, current_user=user
         )
-        params = {**(config or {}), **(creds or {})}
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        params = merge_client_credentials(config, creds)
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {
             k: v for k, v in (params or {}).items()
             if v is not None and k not in meta_keys and not k.startswith("oauth_")
         }
-        try:
-            sig = inspect.signature(ClientClass.__init__)
-            accepts_var_kwargs = any(
-                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
-            )
-            allowed = params if accepts_var_kwargs else {
-                k: v for k, v in params.items() if k in sig.parameters and k != "self"
-            }
-        except Exception:
-            allowed = params
+        allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
         return ClientClass(**allowed)
 
