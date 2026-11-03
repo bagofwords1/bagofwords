@@ -4316,6 +4316,17 @@
         return _origReact(api, Object.assign({}, opts, { runtime: 'classic' }), dir);
       };
     }
+    // babel-standalone compiles a classic text/babel script with
+    // ["react", "env"], and env turns `import` into `require(...)`, which
+    // doesn't exist here. Keep modules as written: the hook below binds or
+    // removes the import statements. (artifact_precompile.py compiles with the
+    // same options, so both paths produce the same code.)
+    if (window.Babel && window.Babel.availablePresets && window.Babel.availablePresets.env) {
+      var _origEnv = window.Babel.availablePresets.env;
+      window.Babel.availablePresets.env = function(api, opts, dir) {
+        return _origEnv(api, Object.assign({}, opts, { modules: false }), dir);
+      };
+    }
     // Artifact code runs as a classic script, where `import` is a syntax
     // error, so import statements are removed before it runs. Most imports
     // only name things that already exist as sandbox globals (React,
