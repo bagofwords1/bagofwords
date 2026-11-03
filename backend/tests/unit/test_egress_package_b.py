@@ -105,6 +105,21 @@ async def test_connection_test_params_never_contacts_metadata(trap, host):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["bolt", "neo4j+s"])
+@pytest.mark.parametrize("host", METADATA_FORMS)
+async def test_neo4j_uri_never_contacts_metadata(trap, host, scheme):
+    """Neo4j names its destination in `uri` (neo4j+s://host:7687), a key only it
+    uses: the pre-save test refuses the host before the driver connects."""
+    from app.services.connection_service import ConnectionService
+
+    t = trap()
+    res = await ConnectionService().test_connection_params(
+        "neo4j", {"uri": f"{scheme}://{host}:7687", "database": "neo4j"}, {"username": "u", "password": "p"})
+    assert res["success"] is False
+    assert t.hits == []
+
+
+@pytest.mark.asyncio
 async def test_connection_to_internal_database_still_attempted_and_blocked_with_flag(trap, monkeypatch):
     from app.services.connection_service import ConnectionService
 

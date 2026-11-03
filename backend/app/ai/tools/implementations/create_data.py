@@ -1965,6 +1965,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "predicate (build the SQL conditionally or use a `(:name IS NULL OR col = :name)` pattern; "
                 "when you pass params to execute_query, include every placeholder used in that SQL).\n"
                 "3. A list-typed parameter renders as an IN list: use `col IN :name`.\n"
+                "   Neo4j (Cypher) is the exception: write `$name` (and `x IN $name` for a list), "
+                "never `:name`, and pass the same params={...}; Neo4j binds them itself.\n"
                 "4. identity-source parameters carry the viewing user's identity — always "
                 "apply them as filters so each viewer sees only their rows.\n"
                 "5. Every declared parameter above MUST be read from `params` in the code.\n"

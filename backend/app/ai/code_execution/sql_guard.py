@@ -95,6 +95,16 @@ def ensure_read_only(client, query) -> None:
     if name == "SplunkClient":
         _check_spl(query)
         return
+    from app.data_sources.clients.neo4j_client import Neo4jClient
+
+    if isinstance(client, Neo4jClient):
+        from app.data_sources.clients.cypher_guard import CypherNotAllowed, check_cypher
+
+        try:
+            check_cypher(query)
+        except CypherNotAllowed as e:
+            raise ReadOnlyViolation(str(e)) from e
+        return
     dialect = CLIENT_DIALECTS.get(name)
     if dialect:
         check_sql(query, dialect)

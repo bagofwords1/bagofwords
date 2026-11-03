@@ -192,7 +192,7 @@ async def list_connections(
     # trips per page load) ────────────────────────────────────────────────
     from sqlalchemy.orm import defer
     from app.models.connection_indexing import ConnectionIndexing
-    from app.schemas.data_source_registry import tool_provider_types, data_shape_for
+    from app.schemas.data_source_registry import tool_provider_types, data_shape_for, catalog_nouns_override
     from app.services.data_source_service import _conn_connector_key, _conn_icon
     _TOOL_PROVIDER_TYPES = tool_provider_types()
 
@@ -375,6 +375,7 @@ async def list_connections(
             connector_key=_conn_connector_key(conn),
             icon=_conn_icon(conn),
             data_shape=data_shape_for(conn.type),
+            catalog_nouns=catalog_nouns_override(conn.type),
         ))
     await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
     return result
@@ -407,7 +408,7 @@ async def create_connection(
     
     # Inline the latest indexing run so the modal can show progress
     # immediately without a second roundtrip.
-    from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    from app.schemas.data_source_registry import tool_provider_types, data_shape_for, catalog_nouns_override; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
     # eager-loaded catalog: that collection is the entire source schema
     # (50k+ rows on a large warehouse) and materializing it to produce two
@@ -443,6 +444,7 @@ async def create_connection(
         connector_key=_conn_connector_key(connection),
         icon=_conn_icon(connection),
         data_shape=data_shape_for(connection.type),
+        catalog_nouns=catalog_nouns_override(connection.type),
     )
 
 
@@ -510,7 +512,7 @@ async def get_connection(
             except Exception:
                 credentials_meta = None
 
-    from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    from app.schemas.data_source_registry import tool_provider_types, data_shape_for, catalog_nouns_override; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
     # eager-loaded catalog: that collection is the entire source schema
     # (50k+ rows on a large warehouse) and materializing it to produce two
@@ -559,6 +561,7 @@ async def get_connection(
         rate_limit_per_day=connection.rate_limit_per_day,
         **query_limits,
         data_shape=data_shape_for(connection.type),
+        catalog_nouns=catalog_nouns_override(connection.type),
     )
 
 
@@ -632,7 +635,7 @@ async def update_connection(
         except Exception:
             pass
     
-    from app.schemas.data_source_registry import tool_provider_types, data_shape_for; _TOOL_PROVIDER_TYPES = tool_provider_types()
+    from app.schemas.data_source_registry import tool_provider_types, data_shape_for, catalog_nouns_override; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
     # eager-loaded catalog: that collection is the entire source schema
     # (50k+ rows on a large warehouse) and materializing it to produce two
@@ -658,6 +661,7 @@ async def update_connection(
         tool_count=len(connection.connection_tools) if connection.type in _TOOL_PROVIDER_TYPES and connection.connection_tools else 0,
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         data_shape=data_shape_for(connection.type),
+        catalog_nouns=catalog_nouns_override(connection.type),
     )
 
 

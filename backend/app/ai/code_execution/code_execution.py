@@ -879,16 +879,25 @@ class QueryCapturingClientWrapper:
         plain SQL through its unchanged interface. The captured query is the
         rendered text, so identity verification sees what actually ran.
         """
+        native_params = None
         if "params" in kwargs:
-            param_values = kwargs.pop("params")
-            if isinstance(query, str) and isinstance(param_values, dict) and param_values:
-                from app.ai.code_execution.query_params import render_sql_with_params
-                query = render_sql_with_params(
-                    query, param_values,
-                    client_type_name=type(self._original).__name__,
-                )
+            if getattr(self._original, "native_query_params", False):
+                # The client binds them itself (Cypher's $name); its own syntax
+                # would not survive SQL rendering. Captured with the query, so
+                # the identity check still sees the values.
+                native_params = kwargs["params"]
+            else:
+                param_values = kwargs.pop("params")
+                if isinstance(query, str) and isinstance(param_values, dict) and param_values:
+                    from app.ai.code_execution.query_params import render_sql_with_params
+                    query = render_sql_with_params(
+                        query, param_values,
+                        client_type_name=type(self._original).__name__,
+                    )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
+        elif native_params:
+            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str)
         else:
             capture = query
         if isinstance(capture, dict) and (

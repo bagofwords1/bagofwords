@@ -43,6 +43,10 @@ DATA_SOURCES = [
     "qvd",
     "teradata",
     "opensearch",
+    # Container mode: {"neo4j": {"enabled": true, "container": true}} in
+    # integrations.json (neo4j:5.26, a small movies graph). The deeper live
+    # checks are in tests/integrations/test_neo4j_live.py.
+    "neo4j",
     # Remote mode: Zabbix is a multi-container stack (server + web + db), so it
     # doesn't fit the single-`container_cls` testcontainer pattern. Point
     # integrations.json at a live instance — `tools/zabbix/docker-compose.yaml`
@@ -307,6 +311,29 @@ try:
         "image": "rancher/k3s:v1.31.4-k3s1",
         "get_kwargs": lambda c: {"access_file": _k3s_access_file(c)},
         "seed_fn": _seed_kubernetes,
+    }
+except ImportError:
+    pass
+
+try:
+    from testcontainers.neo4j import Neo4jContainer
+
+    def _seed_neo4j(container) -> None:
+        with container.get_driver() as driver, driver.session() as s:
+            s.run(
+                "CREATE (k:Person {name: 'Keanu Reeves'})-[:ACTED_IN {roles: ['Neo']}]->"
+                "(m:Movie {title: 'The Matrix', released: 1999})"
+            ).consume()
+
+    CONTAINER_REGISTRY["neo4j"] = {
+        "container_cls": Neo4jContainer,
+        "image": "neo4j:5.26-community",
+        "get_kwargs": lambda c: {
+            "uri": f"bolt://{c.get_container_host_ip()}:{c.get_exposed_port(7687)}",
+            "username": c.username,
+            "password": c.password,
+        },
+        "seed_fn": _seed_neo4j,
     }
 except ImportError:
     pass

@@ -165,6 +165,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Apache Druid | Database / warehouse |
 | Oracle Database | Database / warehouse |
 | MongoDB | Database / warehouse |
+| Neo4j | Database / warehouse |
 | Sybase SQL Anywhere | Database / warehouse |
 | Teradata Vantage | Database / warehouse |
 | SQLite | Database / warehouse |
