@@ -1,7 +1,7 @@
 """data edge agents + connection tunnel fields (design D2/D3)
 
 Revision ID: tunnel01
-Revises: durctx01
+Revises: memberdup01
 Create Date: 2026-09-02
 
 Creates data_edge_agents (one row per agent per org, upserted by the
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision: str = "tunnel01"
-down_revision: Union[str, None] = "submsg02"
+down_revision: Union[str, None] = "memberdup01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
