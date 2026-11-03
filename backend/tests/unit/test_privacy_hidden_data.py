@@ -399,6 +399,22 @@ def test_a_failed_query_records_its_error_without_the_cell_when_hidden(allowed):
         assert CELL not in seen and "invalid input syntax for type integer" in seen
 
 
+def test_replay_cuts_error_text_recorded_while_data_was_visible():
+    raw = f'(psycopg2.errors.InvalidTextRepresentation) invalid input syntax for type integer: "{CELL}"'
+    observation = {
+        "success": False, "terminal_execution_error": True, "final_answer": raw,
+        "error": {"type": "infrastructure_failure", "message": f"Execution error: {raw}",
+                  "detail": raw, "db_message": raw, "failed_sql": "SELECT email::int FROM people"},
+        "retry_summary": {"attempts": 2, "last_error_message": raw},
+        "query_timings": [{"sql": "SELECT email::int FROM people", "error": raw}],
+    }
+    for body in (observation, {"observation": observation}):
+        hidden = hide_data_for_replay(body, "create_data")
+        assert CELL not in json.dumps(hidden)
+        assert "invalid input syntax for type integer" in json.dumps(hidden)
+        assert "SELECT email::int FROM people" in json.dumps(hidden)
+
+
 @pytest.mark.parametrize("settings,expected", [
     (None, True),
     (SimpleNamespace(), False),  # present but unreadable: never "yes" by accident

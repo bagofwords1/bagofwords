@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.ai.data_preview import gate_stats_for_privacy
+from app.ai.data_visibility import redact_error_text
 
 # Keys whose list/dict values are cells (result rows, profile samples).
 _ROW_KEYS = frozenset({"rows", "head_rows", "sample_rows", "sample_values"})
@@ -20,6 +21,10 @@ _ROW_KEYS = frozenset({"rows", "head_rows", "sample_rows", "sample_values"})
 # it is derived from cells, so it goes as a whole.
 _SAMPLE_STATS_KEYS = frozenset({"column_stats"})
 _FILE_TOOLS = frozenset({"read_file", "read_email", "read_note"})
+# Error text (a DB or conversion error can quote a cell): recorded while data
+# was visible, it is cut before the value on replay.
+_ERROR_TEXT_KEYS = frozenset({"db_message", "error_message", "error_detail", "last_error_message"})
+_ERROR_DICT_TEXT_KEYS = frozenset({"message", "detail", "db_message"})
 HIDDEN_NOTE = (
     "Hidden by organization policy (allow_llm_see_data is off): only structure "
     "and aggregate stats are available."
@@ -50,6 +55,16 @@ def _scrub(value: Any) -> Any:
             continue
         if key == "columns" and isinstance(item, list):
             out[key] = [_column(col) for col in item]
+            continue
+        if key in _ERROR_TEXT_KEYS or (key == "error" and isinstance(item, str)):
+            out[key] = redact_error_text(item)
+            continue
+        if key == "error" and isinstance(item, dict):
+            out[key] = {k: redact_error_text(v) if k in _ERROR_DICT_TEXT_KEYS else _scrub(v) for k, v in item.items()}
+            continue
+        if key == "final_answer" and value.get("terminal_execution_error"):
+            # A terminal failure's final answer is the DB error itself.
+            out[key] = redact_error_text(item)
             continue
         out[key] = _scrub(item)
     if hidden:
