@@ -237,7 +237,7 @@ async def get_data_source_full_schema(
     schema_filter: Optional[str] = Query(None, description="Comma-separated schema names to filter"),
     connection_filter: Optional[str] = Query(None, description="Comma-separated connection IDs to filter"),
     search: Optional[str] = Query(None, description="Search tables by name"),
-    sort_by: str = Query("name", description="Sort by: name, centrality_score, is_active, richness"),
+    sort_by: str = Query("name", description="Sort by: name, centrality_score, is_active, richness, usage_count"),
     sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
     selected_state: Optional[str] = Query(None, description="Filter by selection state: 'selected' or 'unselected'"),
     db: AsyncSession = Depends(get_async_db),

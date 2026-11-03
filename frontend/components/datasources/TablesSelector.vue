@@ -1533,7 +1533,7 @@ async function fetchTables() {
       if (sort.key) {
         // Map frontend sort keys to backend
         let sortBy = sort.key
-        if (sort.key === 'usage') sortBy = 'centrality_score' // or usage_count if available
+        if (sort.key === 'usage') sortBy = 'usage_count' // backend orders by the TableStats usage number the grid shows
         params.set('sort_by', sortBy)
         params.set('sort_dir', sort.direction)
       }

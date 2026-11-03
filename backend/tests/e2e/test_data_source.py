@@ -1,8 +1,13 @@
+import asyncio
 import pytest
 from pathlib import Path
 
 
 DATA_SOURCE_TEST_DB_PATH = (Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite").resolve()
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 @pytest.mark.e2e
@@ -204,6 +209,94 @@ def test_paginated_full_schema(
         user_token=user_token,
         org_id=org_id
     )
+
+
+@pytest.mark.e2e
+def test_sort_by_usage_count_orders_by_recorded_usage(
+    create_data_source,
+    delete_data_source,
+    refresh_schema,
+    get_full_schema_paginated,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Sorting the tables selector by Usage orders rows by the recorded usage
+    count the grid shows — the number on each row — not by the structural
+    centrality score the picker used to fall back to, and not by name.
+
+    Regression for the customer report that 'sort by Usage does nothing': the
+    frontend asked for sort_by=centrality_score while rendering usage numbers,
+    and the backend had no usage ordering at all.
+    """
+    from app.models.table_stats import TableStats
+
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    data_source = create_data_source(
+        name="Usage Sort Test DB",
+        type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+    refresh_schema(data_source_id=data_source["id"], user_token=user_token, org_id=org_id)
+
+    everything = get_full_schema_paginated(
+        data_source_id=data_source["id"], user_token=user_token, org_id=org_id, page_size=500,
+    )
+    by_name = {t["name"]: t for t in everything["tables"]}
+
+    # Usage assigned OUT of alphabetical order on purpose: a correct usage sort
+    # cannot then be mistaken for the default name sort. Values are varied (not
+    # all 1) so the test asserts true magnitude ordering, not just "non-zero".
+    seeded = {"Artist": 90, "Customer": 40, "Album": 5}
+    zero_usage = "Genre"  # left WITHOUT a stats row -> coalesces to usage 0
+    for name in list(seeded) + [zero_usage]:
+        assert name in by_name, f"{name} missing from {sorted(by_name)}"
+
+    # Usage accrues only from real agent query runs, which an e2e cannot
+    # deterministically produce, and there is no CRUD API for it. Seed the
+    # data-source rollup rows (report_id=None) the selector reads directly.
+    # (tests/AGENTS.md rule 5)
+    async def _seed():
+        from app.dependencies import async_session_maker
+        async with async_session_maker() as db:
+            for name, usage in seeded.items():
+                db.add(TableStats(
+                    org_id=org_id,
+                    report_id=None,
+                    data_source_id=data_source["id"],
+                    datasource_table_id=by_name[name]["id"],
+                    table_fqn=name,
+                    usage_count=usage,
+                ))
+            await db.commit()
+    _run(_seed())
+
+    def _position(sort_dir):
+        rows = get_full_schema_paginated(
+            data_source_id=data_source["id"], user_token=user_token, org_id=org_id,
+            page_size=500, sort_by="usage_count", sort_dir=sort_dir,
+        )["tables"]
+        order = [t["name"] for t in rows]
+        return {name: order.index(name) for name in list(seeded) + [zero_usage]}
+
+    # Descending: highest usage first, the unseeded (0) row below every seeded one.
+    desc = _position("desc")
+    assert desc["Artist"] < desc["Customer"] < desc["Album"] < desc[zero_usage]
+
+    # Ascending: mirror image — the 0-usage row first, then ascending usage.
+    asc = _position("asc")
+    assert asc[zero_usage] < asc["Album"] < asc["Customer"] < asc["Artist"]
+
+    delete_data_source(data_source_id=data_source["id"], user_token=user_token, org_id=org_id)
 
 
 @pytest.mark.e2e
