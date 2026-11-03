@@ -201,3 +201,20 @@ def test_file_agent_attached_mid_run_brings_its_file_tools_to_the_next_step(test
     assert "create_agent" in planner.tool_names[0], sorted(planner.tool_names[0])
     assert planner.tool_names[1] >= FILE_TOOLS, sorted(planner.tool_names[1])
     assert any(shared["marker"] in r for r in planner.tool_results), planner.tool_results
+
+
+@pytest.mark.parametrize("who", ["admin", "member"])
+def test_large_file_grep_reports_partial_coverage_to_planner(test_client, org, planner, tmp_path, who):
+    """Real gateway/tool/client, with only the LLM boundary scripted."""
+    shared = org["agents"]["shared"]
+    (tmp_path / "shared" / shared["file"]).write_bytes(
+        b"ordinary line\n" * 1000 + shared["marker"].encode() + b"\n"
+    )
+    planner.force_tool = ("grep_files", {
+        "connection_id": shared["conn_id"], "file_ids": [shared["file"]],
+        "pattern": shared["marker"], "is_regex": False, "max_bytes_per_file": 1024,
+    })
+    _ask(test_client, org[who]["token"], org["org_id"], [])
+    assert "grep_files" in planner.tool_names[0]
+    assert any("byte_budget" in result and "coverage incomplete" in result
+               for result in planner.tool_results), planner.tool_results

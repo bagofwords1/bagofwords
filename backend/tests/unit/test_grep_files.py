@@ -413,24 +413,20 @@ class TestS3Grep:
         from botocore.response import StreamingBody
         return StreamingBody(io.BytesIO(data), len(data))
 
-    def test_sweep_lists_then_gets_matching_objects(self):
+    def test_sweep_streams_objects_larger_than_scan_budget(self):
         client, stub = self._stubbed()
-        listing = {
-            "Contents": [
-                {"Key": "logs/a.log", "Size": 20},
-                {"Key": "logs/huge.log", "Size": 99_999_999},
-            ],
-        }
+        contents = {"a.log": b"ok\nERR here\n", "huge.log": b"ordinary\n" * 1000}
+        listing = {"Contents": [{"Key": "logs/" + k, "Size": len(v)} for k, v in contents.items()]}
         stub.add_response("list_objects_v2", listing, {"Bucket": "b", "Prefix": "logs/"})
-        stub.add_response(
-            "get_object", {"Body": self._body(b"ok\nERR here\n")},
-            {"Bucket": "b", "Key": "logs/a.log"},
-        )
+        for name, data in contents.items():
+            stub.add_response("head_object", {"ContentLength": len(data)}, {"Bucket": "b", "Key": "logs/" + name})
+            stub.add_response("get_object", {"Body": self._body(data)}, {"Bucket": "b", "Key": "logs/" + name})
         with stub:
             r = client.grep_files("ERR", max_bytes_per_file=1000)
         assert [(m["file_id"], m["line_no"]) for m in r["matches"]] == [("a.log", 2)]
-        assert r["skipped_files"] == [{"file_id": "huge.log", "reason": "too_large"}]
-        assert r["stop_reason"] == "complete"
+        assert not r["skipped_files"]
+        assert r["stop_reason"] == "byte_budget"
+        assert r["next_cursor"] and not r["coverage_complete"]
 
     def test_explicit_id_off_glob_denied_without_get(self):
         client, stub = self._stubbed()

@@ -21,6 +21,7 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress
 
 import hashlib
+from contextlib import contextmanager
 import io
 import json
 import mimetypes
@@ -66,7 +67,7 @@ from app.data_sources.clients.base import Capability, DataSourceClient
 # Extensions we parse into DataFrames / structured objects; everything else is
 # returned as text (if decodable) or raw bytes.
 TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
-TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml", "xml", "py", "sql"}
+TEXT_EXTS = {"txt", "md", "json", "html", "htm", "log", "yaml", "yml", "xml", "py", "sql", "ndjson", "jsonl"}
 # Rich document formats (pdf/docx/pptx) we extract plain text from so their
 # contents are readable and searchable — see _document_text.DOC_EXTS.
 # Extensions we're willing to scan for content matches in search_files: text,
@@ -605,6 +606,9 @@ class NetworkDirClient(DataSourceClient):
         if ext not in GREPPABLE_EXTS:
             return ""
         try:
+            if ext in TEXT_EXTS | {"csv", "tsv"}:
+                with path.open("rb") as stream:
+                    return stream.read(max_chars).decode("utf-8", errors="ignore")
             if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
                 return ""
             if ext in DOC_EXTS:
@@ -646,34 +650,81 @@ class NetworkDirClient(DataSourceClient):
         return path.read_bytes(), display, mime
 
     def search_files(
-        self, query: str, max_results: int = 200, content: bool = True, **_
+        self, query: str, max_results: int = 200, content: bool = True,
+        deadline=None, cancel_check=None, **_,
     ) -> List[Dict[str, Any]]:
-        """Live filename + content search under root (the exhaustive fallback).
+        """Bounded live search. Partial coverage raises SearchStopped with hits.
 
-        A file matches if the (case-insensitive) query is a substring of its
-        relative path, OR appears in its extracted content. Mirrors `grep -ril`
-        + a filename check. Fast keyword search runs at the tool layer against
-        the indexed catalog; this is what the tool falls back to for the
-        not-yet-indexed / deep case.
+        Text uses the streaming scanner; documents retain bounded extraction.
+        For resumable deep text search use grep_files and its byte cursor.
         """
-        root = self._root()
-        q = (query or "").strip().lower()
+        import time
+        from app.data_sources.clients.base import SearchStopped
+        from app.data_sources.clients._streaming_grep import run_streaming_grep
+        q = (query or "").strip()
         if not q:
             return []
-        results: List[Dict[str, Any]] = []
-        for p in self._iter_files(root, recursive=True):
-            rel = self._rel_id(p).lower()
-            matched = q in rel
+        deadline = deadline if deadline is not None else time.monotonic() + 60
+        results, incomplete = [], None
+        files = self._iter_files(self._root(), recursive=True)
+        if self._last_walk_truncated:
+            incomplete = "catalog_limit"
+        for path in files:
+            if (cancel_check and cancel_check()) or time.monotonic() >= deadline:
+                raise SearchStopped("deadline", results)
+            try:
+                entry = self._entry(path)
+            except FileNotFoundError:
+                continue
+            matched = q.casefold() in self._rel_id(path).casefold()
             if not matched and content:
-                matched = q in self._file_text(p).lower()
+                if _ext(path.name) in DOC_EXTS | {"xlsx", "xls"}:
+                    text = self._file_text(path)
+                    matched = q.casefold() in text.casefold()
+                    if not matched and (len(text) >= 200_000 or (self.max_file_bytes and entry["size"] > self.max_file_bytes)):
+                        incomplete = incomplete or "extraction_limit"
+                elif _ext(path.name) in GREPPABLE_EXTS:
+                    sweep = run_streaming_grep(
+                        candidates=[entry], open_stream=self._open_grep_stream,
+                        pattern=q, is_regex=False, ignore_case=True,
+                        first_match_per_file=True, cancel_check=cancel_check,
+                        time_budget_seconds=max(0.001, deadline-time.monotonic()))
+                    matched = bool(sweep["matches"])
+                    if not sweep["coverage_complete"]:
+                        incomplete = incomplete or (sweep["stop_reason"] if sweep["next_cursor"] else "skipped_files")
             if matched:
-                try:
-                    results.append(self._entry(p))
-                except FileNotFoundError:
-                    continue  # vanished between the walk and the stat
+                results.append(entry)
                 if len(results) >= max_results:
-                    break
+                    raise SearchStopped("max_results", results)
+        if incomplete:
+            raise SearchStopped(incomplete, results)
         return results
+
+    @contextmanager
+    def _open_grep_stream(self, entry, offset, expected_version):
+        from app.data_sources.clients._streaming_grep import FileChanged
+        path = self._resolve(entry["id"], must_exist=True)
+        with path.open("rb") as stream:
+            def identity():
+                stat = os.fstat(stream.fileno())
+                return f"{stat.st_dev}:{stat.st_ino}:{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}"
+            version = identity()
+            if expected_version and expected_version != version:
+                raise FileChanged()
+            if _ext(path.name) in EMAIL_EXTS:
+                from app.data_sources.clients._streaming_grep import ScanStopped
+                cap = min(self.max_file_bytes or 20_000_000, 20_000_000)
+                if os.fstat(stream.fileno()).st_size > cap:
+                    raise ScanStopped("too_large")
+                data = self._file_text(path, max_chars=cap).encode("utf-8")
+                with io.BytesIO(data) as rendered:
+                    rendered.seek(offset)
+                    yield rendered, version, len(data)
+            else:
+                stream.seek(offset)
+                yield stream, version, os.fstat(stream.fileno()).st_size
+            if identity() != version:
+                raise FileChanged()
 
     def grep_files(
         self,
@@ -693,10 +744,11 @@ class NetworkDirClient(DataSourceClient):
         max_bytes_per_file: Optional[int] = None,
         cursor: Optional[str] = None,
         time_budget_seconds: float = 60.0,
+        cancel_check=None,
         **_,
     ) -> Dict[str, Any]:
         """Line-level grep under root: matching lines + context + sweep
-        accounting (see `_grep_common.run_grep_sweep` for the contract).
+        accounting (see `_streaming_grep.run_streaming_grep` for the contract).
 
         Candidates go through the SAME scoping as every other read: explicit
         file_ids resolve via `_resolve` (an off-glob id is reported as an
@@ -709,7 +761,6 @@ class NetworkDirClient(DataSourceClient):
             DEFAULT_MAX_BYTES_PER_FILE,
             SKIP_ACCESS_DENIED,
             SKIP_NOT_FOUND,
-            run_grep_sweep,
         )
 
         root = self._root()
@@ -746,24 +797,15 @@ class NetworkDirClient(DataSourceClient):
                     continue  # vanished between the walk and the stat
                 candidates.append({"id": rel, "path": rel, "size": size})
 
-        def _read(entry: Dict[str, Any]) -> bytes:
-            path = self._resolve(entry["id"], must_exist=True)
-            # Email files grep over their RENDERED text (headers, body,
-            # attachment text): the raw MIME is quoted-printable/base64 for
-            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
-            # miss nearly every real term and sniff the Outlook file as binary.
-            if _ext(path.name) in EMAIL_EXTS:
-                return (self._file_text(path, max_chars=byte_cap) or "").encode("utf-8")
-            return path.read_bytes()
-
         scope_key = "|".join([
             "network_dir", self.root_path, str(folder_id or ""), str(name_pattern or ""),
             str(bool(recursive)), ",".join(sorted(str(f) for f in (file_ids or []))),
             pattern, str(bool(is_regex)), str(bool(ignore_case)),
         ])
-        return run_grep_sweep(
+        from app.data_sources.clients._streaming_grep import run_streaming_grep
+        result = run_streaming_grep(
             candidates=candidates,
-            read_bytes=_read,
+            open_stream=self._open_grep_stream,
             pattern=pattern,
             is_regex=is_regex,
             ignore_case=ignore_case,
@@ -776,7 +818,14 @@ class NetworkDirClient(DataSourceClient):
             scope_key=scope_key,
             cursor=cursor,
             time_budget_seconds=time_budget_seconds,
+            cancel_check=cancel_check,
         )
+        if not file_ids and getattr(self, "_last_walk_truncated", False):
+            result["coverage_complete"] = False
+            if not result["next_cursor"]:
+                result["stop_reason"] = "catalog_limit"
+                result["truncated"] = True
+        return result
 
     def write_file(
         self,
@@ -917,9 +966,13 @@ class NetworkDirClient(DataSourceClient):
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             if self.index_content:
+                meta["index_version"] = 2
+                meta["content_coverage"] = "prefix_sample"
+                meta["sample_max_bytes"] = 200_000 if _ext(f["name"]) in TEXT_EXTS | {"csv", "tsv"} else None
                 prior = self._prior_meta(prior_catalog, name)
                 if (
                     prior.get("indexed")
+                    and prior.get("index_version") == 2
                     and prior.get("size") == f.get("size")
                     and prior.get("modified_at") == f.get("modified_at")
                 ):
@@ -928,6 +981,7 @@ class NetworkDirClient(DataSourceClient):
                     meta["keywords"] = prior.get("keywords") or []
                     meta["content_hash"] = prior.get("content_hash")
                     meta["indexed"] = True
+                    meta["content_coverage"] = prior.get("content_coverage", "prefix_sample")
                 else:
                     try:
                         # Through the chokepoint, never `root / id`: the
@@ -941,8 +995,11 @@ class NetworkDirClient(DataSourceClient):
                             (text or "").encode("utf-8", "ignore")
                         ).hexdigest() if text else None
                         meta["indexed"] = True
+                        if not text:
+                            meta["content_coverage"] = "unavailable"
                     except Exception:
                         meta["indexed"] = False
+                description += " Content keywords use a bounded sample."
                 if meta.get("keywords"):
                     description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
             tables.append(Table(

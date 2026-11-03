@@ -27,6 +27,7 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
 import hashlib
+from contextlib import contextmanager
 import io
 import json
 import mimetypes
@@ -279,8 +280,10 @@ class S3Client(DataSourceClient):
     # ---------------------------------------------------- public capabilities
 
     def list_files(
-        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None
+        self, folder_id: Optional[str] = None, recursive: Optional[bool] = None,
+        *, limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
+        self._last_list_truncated = False
         s3 = self._client()
         rec = self.recursive if recursive is None else bool(recursive)
         # Scope the listing to prefix (+ optional sub-folder id).
@@ -313,6 +316,10 @@ class S3Client(DataSourceClient):
                 ):
                     continue
                 entries.append(self._entry(key, obj.get("Size", 0), obj.get("LastModified")))
+                if limit and len(entries) >= limit:
+                    self._last_list_truncated = True
+                    entries.sort(key=lambda e: (not e["is_folder"], e["path"].lower()))
+                    return entries
         entries.sort(key=lambda e: (not e["is_folder"], e["path"].lower()))
         return entries
 
@@ -460,6 +467,58 @@ class S3Client(DataSourceClient):
                 pass
         return byte_window(data, offset, total, window)
 
+    @contextmanager
+    def _open_grep_stream(self, entry, offset, expected_version):
+        from app.data_sources.clients._streaming_grep import FileChanged
+        key = self._resolve_key(entry["id"])
+        s3 = self._client()
+        head = entry.get("head") or s3.head_object(Bucket=self.bucket, Key=key)
+        version = ":".join(str(head.get(k) or "") for k in ("VersionId", "ETag", "ContentLength", "LastModified"))
+        if expected_version and expected_version != version:
+            raise FileChanged()
+        size = int(head["ContentLength"])
+        if offset >= size and _ext(key) not in EMAIL_EXTS:
+            with io.BytesIO(b"") as empty:
+                yield empty, version, size
+            return
+        args = dict(Bucket=self.bucket, Key=key)
+        if offset and _ext(key) not in EMAIL_EXTS:
+            args["Range"] = f"bytes={offset}-"
+        if head.get("VersionId") and head["VersionId"] != "null":
+            args["VersionId"] = head["VersionId"]
+        if head.get("ETag"):
+            args["IfMatch"] = head["ETag"]
+        try:
+            response = s3.get_object(**args)
+        except Exception as exc:
+            if str(getattr(exc, "response", {}).get("Error", {}).get("Code")) in ("PreconditionFailed", "412", "NoSuchVersion"):
+                raise FileChanged() from exc
+            raise
+        body = response["Body"]
+        try:
+            if offset and _ext(key) not in EMAIL_EXTS:
+                # Some S3-compatible endpoints ignore Range. Never label bytes
+                # from the beginning of the object as a resumed scan.
+                content_range = response.get("ContentRange", "")
+                if not content_range.startswith(f"bytes {offset}-"):
+                    raise OSError("S3 did not honor the requested byte range")
+            if _ext(key) in EMAIL_EXTS:
+                from app.data_sources.clients._streaming_grep import ScanStopped
+                cap = min(self.max_file_bytes or 20_000_000, 20_000_000)
+                if size > cap:
+                    raise ScanStopped("too_large")
+                data = body.read(cap + 1)
+                if len(data) > cap:
+                    raise ScanStopped("too_large")
+                text = extract_document_text_from_bytes(data, key, max_chars=cap).encode("utf-8")
+                with io.BytesIO(text) as rendered:
+                    rendered.seek(offset)
+                    yield rendered, version, len(text)
+            else:
+                yield body, version, size
+        finally:
+            body.close()
+
     def grep_files(
         self,
         pattern: str,
@@ -478,23 +537,23 @@ class S3Client(DataSourceClient):
         max_bytes_per_file: Optional[int] = None,
         cursor: Optional[str] = None,
         time_budget_seconds: float = 60.0,
+        cancel_check=None,
         **_,
     ) -> Dict[str, Any]:
         """Line-level grep under the bucket/prefix — same contract as
         network_dir.grep_files (see `_grep_common.run_grep_sweep`).
 
-        Cost shape: one LIST for the sweep (or one HEAD per explicit id), then
-        one GET per candidate that passes the size gate — the listing carries
-        object sizes, so oversized objects are skipped without a GET. All
-        candidates flow through `_resolve_key`, the same confinement chokepoint
-        as read_file.
+        Listing is bounded by max_catalog_objects. Each candidate gets a HEAD
+        and a streamed GET, conditional on its identity; continuation uses Range.
+        Text scan budgets stop with a byte cursor instead of rejecting large
+        objects. Email extraction remains size-capped. All candidates pass the
+        same _resolve_key confinement check as read_file.
         """
         from app.data_sources.clients._grep_common import (
             DEFAULT_MAX_BYTES_PER_FILE,
             SKIP_ACCESS_DENIED,
             SKIP_NOT_FOUND,
             SKIP_UNREADABLE,
-            run_grep_sweep,
         )
 
         byte_cap = int(max_bytes_per_file) if max_bytes_per_file else DEFAULT_MAX_BYTES_PER_FILE
@@ -509,7 +568,7 @@ class S3Client(DataSourceClient):
                     rel = self._rel_id(key)
                     candidates.append({
                         "id": rel, "path": rel,
-                        "size": int(head.get("ContentLength", 0)),
+                        "size": int(head.get("ContentLength", 0)), "head": head,
                     })
                 except GlobScopeError:
                     candidates.append({"id": str(fid), "skip_reason": SKIP_ACCESS_DENIED})
@@ -526,7 +585,7 @@ class S3Client(DataSourceClient):
         else:
             import fnmatch
             pat = (name_pattern or "").strip().lower()
-            for f in self.list_files(folder_id=folder_id, recursive=recursive):
+            for f in self.list_files(folder_id=folder_id, recursive=recursive, limit=self.max_catalog_objects):
                 if f.get("is_folder"):
                     continue
                 rel = f["id"]
@@ -537,25 +596,15 @@ class S3Client(DataSourceClient):
                     continue
                 candidates.append({"id": rel, "path": rel, "size": f.get("size")})
 
-        def _read(entry: Dict[str, Any]) -> bytes:
-            key = self._resolve_key(entry["id"])
-            data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
-            # Email files grep over their RENDERED text (headers, body,
-            # attachment text): the raw MIME is quoted-printable/base64 for
-            # anything non-ASCII and .msg is binary, so a raw-bytes grep would
-            # miss nearly every real term and sniff the Outlook file as binary.
-            if _ext(key) in EMAIL_EXTS:
-                return (extract_document_text_from_bytes(data, key, max_chars=byte_cap) or "").encode("utf-8")
-            return data
-
         scope_key = "|".join([
             "s3", self.bucket, self.prefix, str(folder_id or ""), str(name_pattern or ""),
             str(bool(recursive)), ",".join(sorted(str(f) for f in (file_ids or []))),
             pattern, str(bool(is_regex)), str(bool(ignore_case)),
         ])
-        return run_grep_sweep(
+        from app.data_sources.clients._streaming_grep import run_streaming_grep
+        result = run_streaming_grep(
             candidates=candidates,
-            read_bytes=_read,
+            open_stream=self._open_grep_stream,
             pattern=pattern,
             is_regex=is_regex,
             ignore_case=ignore_case,
@@ -568,7 +617,14 @@ class S3Client(DataSourceClient):
             scope_key=scope_key,
             cursor=cursor,
             time_budget_seconds=time_budget_seconds,
+            cancel_check=cancel_check,
         )
+        if not file_ids and getattr(self, "_last_list_truncated", False):
+            result["coverage_complete"] = False
+            if not result["next_cursor"]:
+                result["stop_reason"] = "catalog_limit"
+                result["truncated"] = True
+        return result
 
     def read_raw_bytes(
         self, file_id: str, *, max_bytes: Optional[int] = None
@@ -587,11 +643,20 @@ class S3Client(DataSourceClient):
         ext = _ext(key)
         if ext not in GREPPABLE_EXTS:
             return ""
-        if self.max_file_bytes and size > self.max_file_bytes:
+        if ext not in TEXT_EXTS | {"csv", "tsv"} and self.max_file_bytes and size > self.max_file_bytes:
             return ""
         try:
             s3 = self._client()
-            data = s3.get_object(Bucket=self.bucket, Key=key)["Body"].read()
+            args = dict(Bucket=self.bucket, Key=key)
+            if ext in TEXT_EXTS | {"csv", "tsv"}:
+                if not size:
+                    return ""
+                args["Range"] = f"bytes=0-{min(size, max_chars)-1}"
+            body = s3.get_object(**args)["Body"]
+            try:
+                data = body.read(max_chars) if ext in TEXT_EXTS | {"csv", "tsv"} else body.read()
+            finally:
+                body.close()
             if ext in DOC_EXTS:
                 text = extract_document_text_from_bytes(data, key, max_chars=max_chars)
                 # Glyph-soup extraction (broken ToUnicode map) → index by
@@ -666,6 +731,8 @@ class S3Client(DataSourceClient):
                 f"Object '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             if self.index_content:
+                meta["content_coverage"] = "prefix_sample"
+                meta["sample_max_bytes"] = 200_000 if _ext(f["name"]) in TEXT_EXTS | {"csv", "tsv"} else None
                 try:
                     text = self._file_text(self._resolve_key(f["id"]), f.get("size", 0))
                     meta["keywords"] = extract_file_keywords(text, f["name"], self.max_keywords)
@@ -673,6 +740,9 @@ class S3Client(DataSourceClient):
                         hashlib.sha1(text.encode("utf-8", "ignore")).hexdigest() if text else None
                     )
                     meta["indexed"] = True
+                    if not text:
+                        meta["content_coverage"] = "unavailable"
+                    description += " Content keywords use a bounded sample."
                     if meta["keywords"]:
                         description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
                 except IndexingCancelled:
