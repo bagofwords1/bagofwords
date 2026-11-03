@@ -12,8 +12,9 @@ connects (``(:Person)-[:ACTED_IN]->(:Movie)``).
 from __future__ import annotations
 
 import math
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any
 from urllib.parse import urlsplit
 
 import pandas as pd
@@ -113,8 +114,8 @@ class Neo4jClient(DataSourceClient):
         "date.truncate('month', date()) starts this month."
     )
 
-    def __init__(self, uri: str, database: str = "neo4j", username: Optional[str] = None,
-                 password: Optional[str] = None):
+    def __init__(self, uri: str, database: str = "neo4j", username: str | None = None,
+                 password: str | None = None):
         super().__init__()
         self.uri = validate_uri(uri)
         self.database = (database or "neo4j").strip()
@@ -142,13 +143,14 @@ class Neo4jClient(DataSourceClient):
         before any query reaches them."""
         if self._routing_checked or urlsplit(self.uri).scheme not in ROUTING_SCHEMES:
             return
-        from app.core.egress import check_host
         from neo4j import GraphDatabase
 
+        from app.core.egress import check_host
+
         direct = self.uri.replace("neo4j", "bolt", 1)
-        with GraphDatabase.driver(direct, auth=self._auth(), connection_timeout=15) as probe:
-            with probe.session(database=self.database, default_access_mode="READ") as session:
-                rows = session.run("CALL dbms.routing.getRoutingTable({}, $db)", db=self.database).data()
+        with GraphDatabase.driver(direct, auth=self._auth(), connection_timeout=15) as probe, \
+                probe.session(database=self.database, default_access_mode="READ") as session:
+            rows = session.run("CALL dbms.routing.getRoutingTable({}, $db)", db=self.database).data()
         for row in rows:
             for server in row.get("servers") or []:
                 for address in server.get("addresses") or []:
@@ -174,8 +176,8 @@ class Neo4jClient(DataSourceClient):
         finally:
             driver.close()
 
-    def _read(self, cypher: str, params: Optional[dict] = None, *, limit: Optional[int] = None,
-              timeout: Optional[float] = None):
+    def _read(self, cypher: str, params: dict | None = None, *, limit: int | None = None,
+              timeout: float | None = None):
         """(columns, rows, truncated) for a read transaction."""
         from neo4j import unit_of_work
 
@@ -185,7 +187,7 @@ class Neo4jClient(DataSourceClient):
         def work(tx):
             result = tx.run(cypher, params or {})
             keys = list(result.keys())
-            rows: List[list] = []
+            rows: list[list] = []
             truncated = False
             for record in result:
                 if len(rows) >= limit:
@@ -199,7 +201,7 @@ class Neo4jClient(DataSourceClient):
 
     # ── queries ─────────────────────────────────────────────────────────────
 
-    def execute_query(self, query: str, params: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def execute_query(self, query: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
         """Run read-only Cypher; parameters bind as $name."""
         if not isinstance(query, str) or not query.strip():
             raise ValueError("execute_query takes a Cypher string, e.g. 'MATCH (n:Person) RETURN n.name LIMIT 10'.")
@@ -217,8 +219,8 @@ class Neo4jClient(DataSourceClient):
 
     # ── schema ──────────────────────────────────────────────────────────────
 
-    def _label_columns(self, session_rows: List[dict], key: str) -> Dict[str, List[TableColumn]]:
-        out: Dict[str, Dict[str, TableColumn]] = {}
+    def _label_columns(self, session_rows: list[dict], key: str) -> dict[str, list[TableColumn]]:
+        out: dict[str, dict[str, TableColumn]] = {}
         for row in session_rows:
             names = row.get(key)
             names = names if isinstance(names, list) else [str(names or "").strip(":`")]
@@ -229,7 +231,7 @@ class Neo4jClient(DataSourceClient):
                     cols[prop] = TableColumn(name=prop, dtype=_type_name(row.get("propertyTypes")))
         return {k: list(v.values()) for k, v in out.items()}
 
-    def _schema_from_procedures(self) -> List[Table]:
+    def _schema_from_procedures(self) -> list[Table]:
         timeout = DEFAULT_TIMEOUT_SECONDS
         _, node_rows, _ = self._read(
             "CALL db.schema.nodeTypeProperties() YIELD nodeLabels, propertyName, propertyTypes "
@@ -238,11 +240,11 @@ class Neo4jClient(DataSourceClient):
             "CALL db.schema.relTypeProperties() YIELD relType, propertyName, propertyTypes "
             "RETURN relType, propertyName, propertyTypes", timeout=timeout)
         viz = self._schema_patterns(timeout)
-        nodes = self._label_columns([dict(zip(("nodeLabels", "propertyName", "propertyTypes"), r)) for r in node_rows],
-                                    "nodeLabels")
-        rels = self._label_columns([dict(zip(("relType", "propertyName", "propertyTypes"), r)) for r in rel_rows],
-                                   "relType")
-        patterns: Dict[str, List[str]] = {}
+        nodes = self._label_columns(
+            [dict(zip(("nodeLabels", "propertyName", "propertyTypes"), r, strict=True)) for r in node_rows], "nodeLabels")
+        rels = self._label_columns(
+            [dict(zip(("relType", "propertyName", "propertyTypes"), r, strict=True)) for r in rel_rows], "relType")
+        patterns: dict[str, list[str]] = {}
         for from_labels, rel, to_labels in viz:
             for a in from_labels or ["?"]:
                 for b in to_labels or ["?"]:
@@ -251,7 +253,7 @@ class Neo4jClient(DataSourceClient):
                         patterns[rel].append(p)
         return self._tables(nodes, rels, patterns)
 
-    def _schema_patterns(self, timeout: float) -> List[tuple]:
+    def _schema_patterns(self, timeout: float) -> list[tuple]:
         """(from_labels, type, to_labels) for each relationship in
         db.schema.visualization(). Its relationships are virtual: their end
         nodes are matched to the returned nodes by id in Python, since
@@ -272,18 +274,18 @@ class Neo4jClient(DataSourceClient):
         with self.connect() as session:
             return session.execute_read(work)
 
-    def _schema_from_samples(self) -> List[Table]:
+    def _schema_from_samples(self) -> list[Table]:
         """When the schema procedures are restricted: labels, types and the
         keys of a sample of each."""
         _, labels, _ = self._read("CALL db.labels() YIELD label RETURN label", timeout=DEFAULT_TIMEOUT_SECONDS)
         _, types, _ = self._read("CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType",
                                  timeout=DEFAULT_TIMEOUT_SECONDS)
-        nodes: Dict[str, List[TableColumn]] = {}
+        nodes: dict[str, list[TableColumn]] = {}
         for (label,) in discovery_items(labels, "labels", label=lambda r: r[0]):
             q = f"MATCH (n:`{label.replace('`', '``')}`) WITH n LIMIT {SAMPLE_SIZE} UNWIND keys(n) AS k RETURN DISTINCT k"
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
             nodes[label] = [TableColumn(name=k, dtype="object") for (k,) in keys]
-        rels: Dict[str, List[TableColumn]] = {}
+        rels: dict[str, list[TableColumn]] = {}
         for (rel,) in types:
             q = f"MATCH ()-[r:`{rel.replace('`', '``')}`]->() WITH r LIMIT {SAMPLE_SIZE} UNWIND keys(r) AS k RETURN DISTINCT k"
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
@@ -291,8 +293,8 @@ class Neo4jClient(DataSourceClient):
         return self._tables(nodes, rels, {})
 
     @staticmethod
-    def _tables(nodes: Dict[str, List[TableColumn]], rels: Dict[str, List[TableColumn]],
-                patterns: Dict[str, List[str]]) -> List[Table]:
+    def _tables(nodes: dict[str, list[TableColumn]], rels: dict[str, list[TableColumn]],
+                patterns: dict[str, list[str]]) -> list[Table]:
         tables = [
             Table(name=f"(:{label})", description=f"Nodes labelled {label}.", columns=cols, pks=[], fks=[],
                   metadata_json={"type": "node_label", "label": label})
@@ -308,7 +310,7 @@ class Neo4jClient(DataSourceClient):
         return tables
 
     @discovery_progress
-    def get_schemas(self, progress_callback=None) -> List[Table]:
+    def get_schemas(self, progress_callback=None) -> list[Table]:
         from neo4j.exceptions import ClientError
 
         try:

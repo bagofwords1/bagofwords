@@ -15,7 +15,6 @@ property, label, relationship type or parameter, not a clause.
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Tuple
 
 
 class CypherNotAllowed(ValueError):
@@ -45,11 +44,11 @@ _ALLOWED_FUNCTION_NAMESPACES = frozenset({
 
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
-Token = Tuple[str, str]  # (kind, value): kind is "word", "ident" (backticked) or "sym"
+Token = tuple[str, str]  # (kind, value): kind is "word", "ident" (backticked) or "sym"
 
 
-def _tokens(query: str) -> List[Token]:
-    out: List[Token] = []
+def _tokens(query: str) -> list[Token]:
+    out: list[Token] = []
     i, n = 0, len(query)
     while i < n:
         c = query[i]
@@ -98,10 +97,10 @@ def _tokens(query: str) -> List[Token]:
     return out
 
 
-def _dotted_name(tokens: List[Token], start: int) -> Tuple[str, int]:
+def _dotted_name(tokens: list[Token], start: int) -> tuple[str, int]:
     """The name ``a.b.c`` (words or backticked parts) starting at ``start``,
     lowercased, and the index after it."""
-    parts: List[str] = []
+    parts: list[str] = []
     i = start
     while i < len(tokens) and tokens[i][0] in ("word", "ident"):
         parts.append(tokens[i][1])
@@ -113,7 +112,7 @@ def _dotted_name(tokens: List[Token], start: int) -> Tuple[str, int]:
     return ".".join(parts).lower(), i
 
 
-def _is_name_position(tokens: List[Token], i: int) -> bool:
+def _is_name_position(tokens: list[Token], i: int) -> bool:
     """A word that names something rather than starting a clause: a property
     (``n.set``), a label or type (``:Delete``), a parameter (``$use``), or a
     map key (``{set: 1}``)."""
@@ -124,7 +123,7 @@ def _is_name_position(tokens: List[Token], i: int) -> bool:
     return nxt == ("sym", ":") and prev in (("sym", "{"), ("sym", ","))
 
 
-def check_cypher(query: Optional[str]) -> None:
+def check_cypher(query: str | None) -> None:
     """Raise ``CypherNotAllowed`` unless ``query`` is read-only Cypher that
     stays in its database and calls only allowed procedures and functions."""
     if not isinstance(query, str) or not query.strip():
@@ -161,12 +160,12 @@ def check_cypher(query: Optional[str]) -> None:
         # A namespaced function call: name.part(...)
         if i + 1 < len(tokens) and tokens[i + 1] == ("sym", "."):
             name, end = _dotted_name(tokens, i)
-            if end < len(tokens) and tokens[end] == ("sym", "(") and "." in name:
-                if name.split(".", 1)[0] not in _ALLOWED_FUNCTION_NAMESPACES:
-                    raise CypherNotAllowed(
-                        f"The function {name}() is not allowed on this connection. "
-                        "Use Cypher's built-in functions."
-                    )
+            called = end < len(tokens) and tokens[end] == ("sym", "(") and "." in name
+            if called and name.split(".", 1)[0] not in _ALLOWED_FUNCTION_NAMESPACES:
+                raise CypherNotAllowed(
+                    f"The function {name}() is not allowed on this connection. "
+                    "Use Cypher's built-in functions."
+                )
             i = end
             continue
         i += 1
