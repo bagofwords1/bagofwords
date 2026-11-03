@@ -605,6 +605,11 @@ the `app` argument.
 
 Signature: `execute_query(app, dimensions, measures, filters=None, max_rows=10000)`
 
+Filter values must retain their Qlik types: send numeric years/IDs as numbers,
+and textual IDs (including leading zeros) as strings. Dual/date fields may
+require verified numeric Qlik values rather than formatted date text; never
+guess date serials or silently drop a filter when selection fails.
+
 ```python
 # Total sales by region
 df = client.execute_query(

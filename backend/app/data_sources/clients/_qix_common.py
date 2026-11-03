@@ -117,7 +117,8 @@ async def apply_field_selections(qix: QixSession, doc_handle: int, selections: L
     """Select typed values on Field handles before building a cube.
 
     GetField is a Doc method; SelectValues is a Field method. Refusing empty,
-    unsupported, or rejected selections prevents returning unfiltered data.
+    unsupported, rejected, or unapplied selections prevents returning
+    unfiltered data. An RPC success flag alone does not prove a value matched.
     """
     for field, values in selections:
         if not isinstance(values, (list, tuple)) or not values:
@@ -137,6 +138,30 @@ async def apply_field_selections(qix: QixSession, doc_handle: int, selections: L
         selected = await qix.rpc(field_handle, "SelectValues", [field_values, False, False])
         if selected.get("qReturn") is not True:
             raise RuntimeError(f"Qlik selection failed for field {field!r}; no query was executed")
+
+    if not selections:
+        return
+    # Check after ALL selections: a later associative selection can clear an
+    # earlier one. The session object lives only as long as this query's socket.
+    result = await qix.rpc(doc_handle, "CreateSessionObject", [{
+        "qInfo": {"qType": "SelectionCheck"}, "qSelectionObjectDef": {},
+    }])
+    handle = (result.get("qReturn") or {}).get("qHandle")
+    if handle is None:
+        raise RuntimeError("Qlik selections could not be verified; no query was executed")
+    result = await qix.rpc(handle, "GetLayout", [])
+    current = (result.get("qLayout") or {}).get("qSelectionObject") or {}
+    selected_fields = {
+        item.get("qField") for item in current.get("qSelections", [])
+        if (item.get("qSelectedCount") or 0) > 0
+    }
+    for field, _ in selections:
+        if field not in selected_fields:
+            raise RuntimeError(
+                f"Qlik filter for {field!r} has no selected values; no query was executed. "
+                "Verify the field values and types. Numeric and dual/date fields may require "
+                "their verified numeric values rather than display text."
+            )
 
 
 def build_ssl_context(

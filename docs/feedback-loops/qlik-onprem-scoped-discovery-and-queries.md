@@ -117,9 +117,11 @@ catalogs; existing missing/extra counts did not increase.
 ## Intentional behavior changes and limits
 
 - A query's app must now resolve within the connection's published/stream/app
-  scope (including an explicitly configured `max_apps` cap). A raw GUID no
-  longer bypasses that scope or skips QRS metadata lookup. If QRS is unavailable,
-  the error propagates instead of silently changing identity.
+  filter scope. `max_apps` limits discovery only, not query resolution. A raw
+  GUID no longer bypasses the filters or drops its owner metadata. Scoped,
+  uncapped metadata is cached on the identity-bound client for 30 seconds;
+  discovery refreshes it. Expired-cache QRS errors propagate instead of
+  silently changing identity or reusing stale metadata.
 - Empty filter lists, booleans, nulls and non-finite numbers are rejected.
   Omit a field from `filters` when it should not constrain the query. Text
   identifiers such as `"001"` remain text.
@@ -136,3 +138,42 @@ catalogs; existing missing/extra counts did not increase.
   after upgrading, with one selected app and concurrency 1, and retain both
   tool errors/generated code. Version 0.0.601's transient-disconnect/table
   retention fix (#1508) is a prerequisite for assessing the old deployment.
+
+## Review follow-up
+
+The five review threads were checked against the implementation and Qlik's
+[current-selection protocol](https://help.qlik.com/en-us/sense-developer/3.0/Subsystems/EngineAPI/Content/DiscoveringAndAnalysing/MakeSelections/get-current-selections.htm).
+
+- Both clients now read `qSelectionObject` after all selections and require a
+  positive `qSelectedCount` for every requested field before creating a cube.
+  A successful RPC with no selected values, including a dual-date display
+  string that does not match, fails explicitly. A later filter clearing an
+  earlier filter also fails. This verifies that filters are present, not that
+  every value in a multi-value filter matched. Numeric/date values are never
+  guessed; both connector prompts explain the typed-value contract.
+- Query metadata is uncapped and cached for 30 seconds per client, preserving
+  owner identity and ambiguity detection. Tests cover cache reuse, expiry,
+  QRS failure after expiry, owner refresh, and queries outside the indexing cap.
+- App-filter names are case-insensitive; GUIDs remain case-insensitive even in
+  `GUID/Table` references. The zero-app connectivity message names both filters.
+  Query names and full paths still require the canonical schema spelling.
+- Concurrency uses the existing schema-driven select with numeric options 1–4.
+  Decimal, empty and null values also remain rejected by backend validation.
+- Inspection retains the supplied context. `InstructionContextBuilder` already
+  applies relevance/on-demand and organization limits (while preserving
+  `always` instructions); structured `ResourcesSection.render()` includes at
+  most 10 full resources and 200 index entries per repository. Arbitrary
+  inspection-only truncation would risk discarding business rules. Token cost
+  still grows with repository count, large entries, and `always` instructions;
+  this PR does not claim a hard token budget or measured latency improvement.
+
+Reproduction: run `test_qlik_query_contract.py` with its updated tests but the
+two production client/helper files from `e90d61840`: **11 failed, 39 passed**.
+On the review fixes the same suite passes **50/50**. The broader command above
+passes **256 tests, 0 failed, 0 skipped**. These are boundary simulations,
+not confirmation of dual-value behavior on a real Qlik installation.
+
+UI evidence: `review-input.png` uses the pre-review backend config schema and
+shows the numeric input on the same page and viewport; `review-select.png`
+and `review-select-he.png` show the real updated form in English/Hebrew.
+Browser verification found exactly the options 1, 2, 3, 4 and selected 1.

@@ -26,12 +26,14 @@ APPS = [
 
 
 class Engine:
-    def __init__(self, headers, selected=True):
+    def __init__(self, headers, selected=True, selected_fields=None):
         self.headers = dict(headers)
         self.selected = selected
         self.selection = None
         self.opened_app = None
         self.cube_created = False
+        self.selected_fields = selected_fields
+        self.field = None
 
     async def __aenter__(self):
         return self
@@ -47,7 +49,7 @@ class Engine:
             self.opened_app = params[0]
             result = {"qReturn": {"qHandle": 10}}
         elif handle == 10 and method == "GetField":
-            assert params == ["Region"]
+            self.field = params[0]
             result = {"qReturn": {"qHandle": 20}}
         elif handle == 10 and method == "GetAppLayout":
             result = {"qLayout": {"qHasData": True}}
@@ -59,8 +61,16 @@ class Engine:
             self.selection = values
             result = {"qReturn": self.selected}
         elif handle == 10 and method == "CreateSessionObject":
-            self.cube_created = True
-            result = {"qReturn": {"qHandle": 30}}
+            if "qSelectionObjectDef" in params[0]:
+                result = {"qReturn": {"qHandle": 40}}
+            else:
+                self.cube_created = True
+                result = {"qReturn": {"qHandle": 30}}
+        elif handle == 40 and method == "GetLayout":
+            fields = self.selected_fields
+            if fields is None:
+                fields = [{"qField": self.field, "qSelectedCount": len(self.selection or [])}]
+            result = {"qLayout": {"qSelectionObject": {"qSelections": fields}}}
         elif handle == 30 and method == "GetHyperCubeData":
             result = {"qDataPages": [{"qMatrix": [[{"qText": "matched"}]]}]}
         else:
@@ -75,12 +85,13 @@ class Engine:
 @pytest.fixture
 def boundary(monkeypatch):
     sockets = []
-    state = {"selected": True, "apps": APPS}
+    state = {"selected": True, "apps": APPS, "app_requests": 0}
 
     def get(session, url, **kwargs):
         if state.get("qrs_unavailable") and "/qrs/" in url:
             raise requests.Timeout("QRS temporarily unavailable")
         if url.endswith("/app/full") or url.endswith("/app"):
+            state["app_requests"] += 1
             body = state["apps"]
         elif url.endswith("/stream/count"):
             body = {"value": 2}
@@ -98,7 +109,7 @@ def boundary(monkeypatch):
         return response
 
     def connect(uri, *, additional_headers, **kwargs):
-        engine = Engine(additional_headers, state["selected"])
+        engine = Engine(additional_headers, state["selected"], state.get("selected_fields"))
         sockets.append(engine)
         return engine
 
@@ -141,6 +152,36 @@ def test_rejected_selection_never_returns_an_unfiltered_cube(kind, boundary):
 
 
 @pytest.mark.parametrize("kind", ["onprem", "cloud"])
+@pytest.mark.parametrize("selected_fields", [[], [{"qField": "Order Date", "qSelectedCount": 0}]])
+def test_successful_rpc_without_selected_values_never_builds_a_cube(kind, selected_fields, boundary):
+    state, sockets = boundary
+    # A dual date's display text need not match a text-only FieldValue.
+    state["selected_fields"] = selected_fields
+    with client_for(kind) as client, pytest.raises(RuntimeError, match="Order Date"):
+        client.execute_query(app=APP_ID, dimensions=["Region"], filters={"Order Date": ["2026-01-01"]})
+    assert not sockets[0].cube_created
+
+
+@pytest.mark.parametrize("kind", ["onprem", "cloud"])
+def test_verified_numeric_dual_date_can_be_selected(kind, boundary):
+    state, sockets = boundary
+    state["selected_fields"] = [{"qField": "Order Date", "qSelectedCount": 1}]
+    with client_for(kind) as client:
+        frame = client.execute_query(app=APP_ID, dimensions=["Region"], filters={"Order Date": [46023]})
+    assert not frame.empty
+    assert sockets[0].selection == [{"qIsNumeric": True, "qNumber": 46023}]
+
+
+@pytest.mark.parametrize("kind", ["onprem", "cloud"])
+def test_later_selection_cannot_silently_clear_an_earlier_filter(kind, boundary):
+    state, sockets = boundary
+    state["selected_fields"] = [{"qField": "Year", "qSelectedCount": 1}]
+    with client_for(kind) as client, pytest.raises(RuntimeError, match="Region"):
+        client.execute_query(app=APP_ID, dimensions=["Region"], filters={"Region": ["North"], "Year": [2025]})
+    assert not sockets[0].cube_created
+
+
+@pytest.mark.parametrize("kind", ["onprem", "cloud"])
 @pytest.mark.parametrize("values", [[], [None], [True], [float("nan")], [float("inf")]])
 def test_invalid_selection_values_do_not_silently_remove_the_filter(kind, values, boundary):
     _, sockets = boundary
@@ -162,7 +203,7 @@ def test_query_identity_is_independent_of_app_reference(identity, expected, boun
     assert {s.headers["X-Qlik-User"] for s in sockets} == {expected}
 
 
-@pytest.mark.parametrize("token", [APP_ID, " Revenue "])
+@pytest.mark.parametrize("token", [APP_ID, " Revenue ", " revenue "])
 def test_app_filter_intersects_stream_filter_and_applies_before_cap(token, boundary):
     with client_for("onprem", app_filter=token, max_apps=1) as client:
         assert [app["id"] for app in client.list_apps()] == [APP_ID]
@@ -191,6 +232,46 @@ def test_app_id_filter_is_case_insensitive(boundary):
     state["apps"] = [{**APPS[0], "id": app_id}]
     with client_for("onprem", app_filter=app_id.upper()) as client:
         assert [app["id"] for app in client.list_apps()] == [app_id]
+        client.execute_query(app=app_id.upper() + "/Orders", dimensions=["Region"])
+    assert boundary[1][0].opened_app == app_id
+
+
+def test_empty_scope_connection_diagnostic_mentions_both_filters(boundary):
+    with client_for("onprem", app_filter="missing") as client:
+        result = client.test_connection()
+    assert result["success"] and result["app_count"] == 0
+    assert "app" in result["message"].lower() and "filter" in result["message"].lower()
+    assert "app filter" in result["message"].lower()
+
+
+def test_indexing_cap_does_not_restrict_queries_or_hide_ambiguity(boundary):
+    state, sockets = boundary
+    with client_for("onprem", max_apps=1) as client:
+        assert [a["name"] for a in client.list_apps()] == ["Costs"]
+        client.execute_query(app="Sales/Revenue/Orders", dimensions=["Region"])
+    assert sockets[0].opened_app == APP_ID
+    state["apps"] = [APPS[0], {**APPS[1], "name": "Revenue"}]
+    with client_for("onprem", max_apps=1) as client, pytest.raises(ValueError, match="ambiguous"):
+        client.execute_query(app="Revenue", dimensions=["Region"])
+
+
+def test_query_metadata_is_cached_briefly_and_refreshed_without_identity_fallback(boundary, monkeypatch):
+    state, sockets = boundary
+    clock = [100.0]
+    monkeypatch.setattr("time.monotonic", lambda: clock[0])
+    with client_for("onprem") as client:
+        client.execute_query(app=APP_ID, dimensions=["Region"])
+        state["qrs_unavailable"] = True
+        client.execute_query(app="Sales/Revenue/Orders", dimensions=["Region"])
+        assert state["app_requests"] == 1
+        clock[0] += 31
+        with pytest.raises(requests.Timeout):
+            client.execute_query(app=APP_ID, dimensions=["Region"])
+        state["qrs_unavailable"] = False
+        state["apps"] = [{**APPS[0], "owner": {"userDirectory": "CORP", "userId": "new-owner"}}]
+        client.execute_query(app=APP_ID, dimensions=["Region"])
+    assert state["app_requests"] == 2
+    assert sockets[-1].headers["X-Qlik-User"] == "UserDirectory=CORP; UserId=new-owner"
 
 
 def test_app_filter_does_not_override_published_only(boundary):
@@ -217,7 +298,7 @@ def test_form_config_preserves_app_selection_and_serial_indexing(boundary):
         assert [app["id"] for app in client.list_apps()] == [APP_ID]
 
 
-@pytest.mark.parametrize("value", [0, -1, 5])
+@pytest.mark.parametrize("value", [0, -1, 5, 1.5, "", None])
 def test_form_rejects_unbounded_indexing_concurrency(value):
     from pydantic import ValidationError
     from app.schemas.data_sources.configs import QlikSenseOnPremConfig

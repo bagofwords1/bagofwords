@@ -3480,7 +3480,7 @@ class QlikSenseOnPremConfig(BaseModel):
         4, ge=1, le=4,
         title="Concurrent Apps",
         description="Maximum apps opened at once during indexing (1–4). Choose 1 for large apps or limited memory. Apps load on demand; preload tasks are not required.",
-        json_schema_extra={"ui:type": "number", "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
+        json_schema_extra={"ui:type": "select", "ui:options": [1, 2, 3, 4], "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
                            "ui:descriptionKey": "data.qlikOnPrem.concurrencyDescription"},
     )
     published_only: bool = Field(

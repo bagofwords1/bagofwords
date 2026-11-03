@@ -43,6 +43,7 @@ import os
 import re
 import secrets
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
@@ -237,7 +238,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             tokens = {t.strip() for t in str(stream_filter).split(",") if t.strip()}
             self._stream_filter = tokens or None
         app_tokens = {t.strip() for t in (app_filter or "").split(",") if t.strip()}
-        self._app_filter = {t.lower() if _GUID_RE.fullmatch(t) else t for t in app_tokens} or None
+        self._app_filter = {t.casefold() for t in app_tokens} or None
 
         # A fresh nonce per client instance. Any 16 alphanumeric characters are
         # valid; what matters is that the query-string and header copies match.
@@ -247,6 +248,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         # `Stream/App` keys of the apps the last get_schemas could not read.
         self._unread_app_keys: List[str] = []
         self._stream_cache: Optional[Dict[str, Dict[str, Any]]] = None
+        self._query_app_cache: Optional[Tuple[float, List[Dict[str, Any]]]] = None
         self._temp_dir: Optional[str] = None
         self._cert_path: Optional[str] = None
         self._key_path: Optional[str] = None
@@ -480,7 +482,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         else:
             msg = (
                 f"Connected to Qlik Sense Enterprise {version} as '{acting}', but no apps are "
-                "visible. Check the stream filter, and that this identity has read access to "
+                "visible. Check the app filter, stream filter, and that this identity has read access to "
                 "the streams you expect."
             )
         return {
@@ -535,9 +537,24 @@ class QlikSenseOnPremClient(DataSourceClient):
         and the `Stream/App/Table` naming both fall out without a translation
         layer.
         """
-        return self._apps_from_rows(self._qrs_get("app/full") or [])
+        apps = self._scoped_apps(refresh=True)
+        return apps[:self.max_apps] if self.max_apps else apps
 
-    def _apps_from_rows(self, rows: Any) -> List[Dict[str, Any]]:
+    def _scoped_apps(self, *, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Briefly reuse owner metadata; indexing caps never restrict queries.
+
+        Cache only successful reads, on this identity-bound client instance.
+        Expired reads fail closed on QRS errors; Engine still enforces access.
+        """
+        if not refresh and self._query_app_cache is not None:
+            fetched_at, apps = self._query_app_cache
+            if time.monotonic() - fetched_at < 30:
+                return apps
+        apps = self._apps_from_rows(self._qrs_get("app/full") or [], apply_cap=False)
+        self._query_app_cache = (time.monotonic(), apps)
+        return apps
+
+    def _apps_from_rows(self, rows: Any, *, apply_cap: bool = True) -> List[Dict[str, Any]]:
         """Apply published/stream/app filters before the max_apps cap to QRS app
         rows. Works on both ``app/full`` and condensed ``app`` rows — the
         condensed form lacks the descriptive fields, which then stay empty."""
@@ -555,7 +572,7 @@ class QlikSenseOnPremClient(DataSourceClient):
                 if stream_id not in self._stream_filter and stream_name not in self._stream_filter:
                     continue
             if self._app_filter is not None:
-                if (row.get("id") or "").lower() not in self._app_filter and row.get("name") not in self._app_filter:
+                if (row.get("id") or "").casefold() not in self._app_filter and (row.get("name") or "").casefold() not in self._app_filter:
                     continue
             apps.append({
                 "id": row.get("id"),
@@ -579,7 +596,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         # Newest reload first, so a max_apps cap keeps the apps most likely to
         # hold current data rather than an arbitrary slice.
         apps.sort(key=lambda a: (a.get("last_reload") or ""), reverse=True)
-        if self.max_apps:
+        if apply_cap and self.max_apps:
             apps = apps[: self.max_apps]
         return apps
 
@@ -1247,16 +1264,18 @@ class QlikSenseOnPremClient(DataSourceClient):
     def _resolve_app(self, target: str) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Turn 'Stream/App', 'Stream/App/Table', 'App' or a GUID into an app id.
 
-        Requires a unique app in the configured discovery scope. Returns the
+        Requires a unique app in the configured filter scope, without the
+        discovery-only max_apps cap. Returns the
         id and its row, which decides which user the Engine should act as.
         """
         if not target:
             raise ValueError("app is required")
         # Resolve IDs too: dropping the row drops its owner and silently changes
         # X-Qlik-User to sa_repository. Listing failures must remain failures.
-        apps = self.list_apps()
-        if _GUID_RE.fullmatch(target):
-            matches = [a for a in apps if (a.get("id") or "").lower() == target.lower()]
+        apps = self._scoped_apps()
+        target_id = target.split("/", 1)[0]
+        if _GUID_RE.fullmatch(target_id):
+            matches = [a for a in apps if (a.get("id") or "").lower() == target_id.lower()]
         elif "/" not in target:
             matches = [a for a in apps if target in (a.get("id"), a.get("name"))]
         else:
@@ -1385,6 +1404,11 @@ analysis the app's authors agreed on, which a raw `Sum()` will not reproduce.
 ### How to Execute Queries
 
 Signature: `execute_query(app, dimensions, measures, filters=None, max_rows=10000)`
+
+Filter values must retain their Qlik types: send numeric years/IDs as numbers,
+and textual IDs (including leading zeros) as strings. Dual/date fields may
+require verified numeric Qlik values rather than formatted date text; never
+guess date serials or silently drop a filter when selection fails.
 
 ```python
 # Total sales by region
