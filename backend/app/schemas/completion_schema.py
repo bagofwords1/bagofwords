@@ -8,6 +8,7 @@ from .step_schema import StepSchema
 
 class PromptSchema(BaseModel):
     content: str = ""  # Default to an empty string
+    response_locale: Optional[str] = None
     reasoning: Optional[str] = None  # Default to None
     widget_id: Optional[str] = None  # Default to None
     step_id: Optional[str] = None  # Default to None

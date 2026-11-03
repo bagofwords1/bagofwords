@@ -104,6 +104,7 @@ async def run_wait_wake(
                 trigger_source="wait",
                 message_type="wait_resume_event",
                 instruction=wake_prompt,
+                parent_completion_id=system_completion_id,
                 # Structured fields for locale-aware frontend rendering.
                 meta={"reason": reason[:200]},
                 **surface,

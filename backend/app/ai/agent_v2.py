@@ -3254,26 +3254,35 @@ class AgentV2:
         from sqlalchemy import select
         # Persist in the existing encrypted prompt metadata: no global UI change
         # and no schema migration. Replays reuse the original response language.
+        from app.ai.response_language import SUPPORTED_LOCALES
         saved = (self.system_completion.prompt or {}).get("response_locale")
-        if saved:
+        if saved in SUPPORTED_LOCALES:
             self.response_locale = saved
-            return
-        prior = (await self.db.execute(
-            select(Completion).where(
-                Completion.report_id == self.report_id,
-                Completion.role == "system",
-                Completion.turn_index < self.system_completion.turn_index,
-            ).order_by(Completion.turn_index.desc()).limit(1)
-        )).scalars().first()
-        previous = (prior.prompt or {}).get("response_locale") if prior else None
-        self.response_locale = await resolve_response_locale(
-            self.reporter.infer_response_language,
-            self._follow_ups_user_message(), previous, self.org_locale or "en",
-        )
-        self.system_completion.prompt = {
-            **(self.system_completion.prompt or {}), "response_locale": self.response_locale,
-        }
-        await self.db.commit()
+        else:
+            head_prompt = self.head_completion.prompt or {}
+            trigger = getattr(self.head_completion, "trigger_source", None)
+            # Child work is not the visible conversation's language authority.
+            prior = (await self.db.execute(
+                select(Completion).where(
+                    Completion.report_id == self.report_id,
+                    Completion.role == "system",
+                    Completion.turn_index < self.system_completion.turn_index,
+                    (Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"),
+                ).order_by(Completion.turn_index.desc()).limit(1)
+            )).scalars().first()
+            previous = (prior.prompt or {}).get("response_locale") if prior else None
+            inherited = head_prompt.get("response_locale") if trigger else None
+            original = head_prompt.get("response_original_request") if trigger else None
+            self.response_locale = await resolve_response_locale(
+                self.reporter.infer_response_language,
+                self._follow_ups_user_message(), previous, self.org_locale or "en",
+                trigger_source=trigger, inherited=inherited, original_request=original,
+            )
+            self.system_completion.prompt = {
+                **(self.system_completion.prompt or {}), "response_locale": self.response_locale,
+            }
+            await self.db.commit()
+        # Replays and pre-seeded machine turns must also notify live clients.
         await self._emit_sse_event(SSEEvent(
             event="completion.language", completion_id=str(self.system_completion_id),
             data={"locale": self.response_locale},

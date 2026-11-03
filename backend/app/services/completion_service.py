@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 from app.models.plan import Plan
 from app.models.completion import Completion
+from app.services.response_language_context import completion_response_metadata
 from app.models.report import Report
 from app.models.widget import Widget
 from app.models.mention import Mention, MentionType
@@ -875,7 +876,7 @@ class CompletionService:
 
             # Create system completion to populate with results
             system_completion = Completion(
-                prompt=None,
+                prompt=completion_response_metadata(prompt_dict, trigger_source),
                 completion={"content": ""},
                 model=model.model_id,
                 widget_id=prompt_dict.get('widget_id'),
@@ -2881,6 +2882,7 @@ class CompletionService:
                         # client's placeholder has model_id=null when Auto/router is
                         # selected, so without this the badge only appears on reload.
                         "model": model.model_id,
+                        "response_locale": (system_completion.prompt or {}).get("response_locale"),
                     }
                 )
                 yield _format_sse_event_traced(start_event)
@@ -3719,7 +3721,7 @@ class CompletionService:
 
                 head = await db.get(Completion, next_id)
                 system_completion = Completion(
-                    prompt=None,
+                    prompt=completion_response_metadata(head.prompt, head.trigger_source),
                     completion={"content": ""},
                     model=head.model,
                     user_id=head.user_id,
