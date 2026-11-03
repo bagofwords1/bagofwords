@@ -891,3 +891,129 @@ def test_attach_dedups_multiple_open_invites_to_one_membership(
             assert leftovers == 0
 
     asyncio.run(_check())
+
+
+@pytest.mark.e2e
+def test_insert_membership_if_absent_survives_race_and_preserves_pending_writes(
+    create_user,
+    login_user,
+    whoami,
+):
+    """A lost insert race must not poison the outer transaction.
+
+    ``insert_membership_if_absent`` guards the insert with a SAVEPOINT. The guard
+    only works if the conflicting row is added strictly INSIDE the savepoint:
+    ``begin_nested()`` pre-flushes the whole session on open, so an ``add`` placed
+    before the savepoint would write in the OUTER transaction and a lost race would
+    roll the whole thing back (and the handler would then fire on a dead session).
+
+    This drives an actual race: an unrelated pending write is staged, then an
+    insert that loses to an existing live row. The call must return the existing
+    row, and the unrelated write must still commit — proving the outer transaction
+    stayed alive. Against the pre-flush bug this raises instead.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+    from app.models.user import User
+    from app.core.permission_resolver import insert_membership_if_absent
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _run():
+        async with async_session_maker() as db:
+            # Unrelated pending write in the SAME transaction.
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+            user.name = "RenamedDuringRace"
+            # The admin already holds a live membership → this insert loses.
+            row, created = await insert_membership_if_absent(
+                db, Membership(user_id=user_id, organization_id=org_id, role="member")
+            )
+            assert created is False
+            assert str(row.user_id) == str(user_id)
+            await db.commit()  # must not raise — outer transaction still alive
+
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+            assert user.name == "RenamedDuringRace"  # unrelated write survived
+            rows = (await db.execute(select(Membership).where(
+                Membership.user_id == user_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            ))).scalars().all()
+            assert len(rows) == 1
+
+    asyncio.run(_run())
+
+
+@pytest.mark.e2e
+def test_claim_pending_invite_survives_race_and_preserves_pending_writes(
+    create_user,
+    login_user,
+    whoami,
+):
+    """Same SAVEPOINT guarantee for ``claim_pending_invite``.
+
+    When an open invite exists but the user already has a live membership in the
+    org (SCIM/OIDC won the race), claiming must stamp the invite INSIDE the
+    savepoint, lose cleanly (return None), and leave the outer transaction usable.
+    """
+    import asyncio
+    import uuid as _uuid
+    from sqlalchemy import select
+    from fastapi_users.password import PasswordHelper
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+    from app.models.user import User
+    from app.core.permission_resolver import claim_pending_invite
+
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+
+    # Seed a separate user directly (this config disables uninvited signup), who
+    # already holds a live membership in the org, plus a still-open invite for the
+    # same email — the exact "SSO won the race, invite left open" state.
+    email = f"racer_{_uuid.uuid4().hex[:8]}@test.com"
+    ph = PasswordHelper()
+
+    async def _seed():
+        async with async_session_maker() as db:
+            u = User(
+                email=email, name="Racer", hashed_password=ph.hash(ph.generate()),
+                is_active=True, is_verified=True, is_superuser=False,
+            )
+            db.add(u)
+            await db.commit()
+            await db.refresh(u)
+            db.add(Membership(user_id=u.id, organization_id=org_id, role="member"))
+            db.add(Membership(email=email, organization_id=org_id, role="admin"))
+            await db.commit()
+            return u.id
+
+    member_id = asyncio.run(_seed())
+
+    async def _run():
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == member_id))).scalar_one()
+            user.name = "ClaimRaceRename"  # unrelated pending write
+            claimed = await claim_pending_invite(db, user, org_id)
+            assert claimed is None  # lost the race, cleanly
+            await db.commit()  # must not raise
+
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == member_id))).scalar_one()
+            assert user.name == "ClaimRaceRename"
+            rows = (await db.execute(select(Membership).where(
+                Membership.user_id == member_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            ))).scalars().all()
+            assert len(rows) == 1  # still exactly one live row
+
+    asyncio.run(_run())

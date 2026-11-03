@@ -411,13 +411,25 @@ async def insert_membership_if_absent(db: AsyncSession, membership):
     from app.models.membership import Membership
     from sqlalchemy.exc import IntegrityError
 
-    db.add(membership)
+    # Flush the caller's unrelated pending state FIRST, in the outer transaction,
+    # before the savepoint. ``begin_nested()`` pre-flushes the whole session when
+    # it opens: were ``membership`` already ``add``ed at that point, the
+    # conflicting INSERT would run in the OUTER transaction and a lost race would
+    # roll the whole thing back (and ``expunge`` below would then fire on a dead
+    # session). So ``add`` + flush the membership strictly INSIDE the savepoint,
+    # where only it rolls back on conflict.
+    await db.flush()
     try:
         async with db.begin_nested():
+            db.add(membership)
             await db.flush([membership])
         return membership, True
     except IntegrityError:
-        db.expunge(membership)
+        # The savepoint rollback already auto-expunges a pending object that was
+        # ``add``ed inside it; only expunge explicitly if it somehow survived
+        # (expunging a detached instance would itself raise).
+        if membership in db:
+            db.expunge(membership)
         if membership.user_id is None:
             raise
         existing = (await db.execute(
@@ -473,21 +485,31 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
     if invite is None:
         return None
 
-    invite.user_id = user.id
-    invite.email = None
-    invite.invite_token = None
     # SAVEPOINT around the claim: between the caller's existence check and here, a
     # concurrent path may have created the live (user, org) membership that the
     # partial unique index now bars. Losing that race must not poison the outer
     # transaction (LDAP's batch) or 500 the login (OIDC). On conflict, drop the
     # rolled-back claim and report "nothing claimed" — the caller's create path
     # (itself savepoint-guarded) then treats the user as already a member.
+    #
+    # Flush the caller's unrelated pending state FIRST, in the outer transaction,
+    # then stamp the claim attributes INSIDE the savepoint: ``begin_nested()``
+    # pre-flushes the session on open, so a claim written before the savepoint
+    # would hit the index in the OUTER transaction and roll the whole thing back.
     from sqlalchemy.exc import IntegrityError
+    await db.flush()
     try:
         async with db.begin_nested():
+            invite.user_id = user.id
+            invite.email = None
+            invite.invite_token = None
             await db.flush([invite])
     except IntegrityError:
-        db.expunge(invite)
+        # Savepoint rolled back the claim; the invite (a persistent row) stays in
+        # the session with its attributes restored. Detach it so the caller's
+        # create path re-queries cleanly; guard in case it was already expunged.
+        if invite in db:
+            db.expunge(invite)
         return None
     await materialize_pending_rbac(db, invite, str(user.id))
     await ensure_system_role_assignment(

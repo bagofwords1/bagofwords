@@ -250,18 +250,26 @@ class UserManager(BaseUserManager[User, str]):
 
             claimed = False
             if existing is None:
-                membership.user_id = user.id
-                membership.email = None
-                membership.invite_token = None
                 # SAVEPOINT: a concurrent create between the check above and here
                 # would hit the unique index; don't 500 the registration/login.
+                # Flush the caller's unrelated pending state (is_verified,
+                # reactivation, the OAuth link) FIRST, in the outer transaction —
+                # ``begin_nested()`` pre-flushes on open, so a claim stamped before
+                # the savepoint would write in the OUTER transaction and a lost
+                # race would roll back the whole registration. Stamp the claim
+                # strictly INSIDE the savepoint instead.
+                await session.flush()
                 try:
                     async with session.begin_nested():
+                        membership.user_id = user.id
+                        membership.email = None
+                        membership.invite_token = None
                         await session.flush([membership])
                     claimed = True
                 except IntegrityError:
-                    # Lost the race — a live row now exists. Drop the rolled-back
-                    # claim and retire the invite onto that row instead.
+                    # Lost the race — a live row now exists. The savepoint rolled
+                    # back only the claim; the outer transaction is still alive, so
+                    # refresh the invite and retire it onto the existing row.
                     await session.refresh(membership)
 
             # Move any pre-assigned (pending) RBAC and the invite's base role onto
@@ -888,13 +896,17 @@ async def auto_provision_user_for_org(
         select(User).where(func.lower(User.email) == email_norm)
     )).scalar_one_or_none()
 
+    # Multiple open invites for one email in an org are allowed, so this must not
+    # use scalar_one_or_none() (it would raise MultipleResultsFound). It is only a
+    # presence flag here; the actual claim re-queries deterministically.
     open_invite = (await db.execute(
         select(Membership).where(
             Membership.organization_id == organization_id,
             func.lower(Membership.email) == email_norm,
             Membership.user_id.is_(None),
-        )
-    )).scalar_one_or_none()
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
 
     policy = await _org_signup_policy(db, organization_id)
     domain = email_norm.split("@", 1)[-1]
@@ -919,7 +931,12 @@ async def auto_provision_user_for_org(
 
     if existing_user:
         if open_invite:
-            open_invite.user_id = existing_user.id
+            # Claim via the shared, savepoint-guarded primitive — a bare
+            # ``open_invite.user_id = ...`` would 500 at commit if a concurrent
+            # SCIM/OIDC provision of the same user won the race against the unique
+            # index. On a lost race it returns None (the user is already a member).
+            from app.core.permission_resolver import claim_pending_invite
+            await claim_pending_invite(db, existing_user, organization_id)
         else:
             role = str(policy.get("auto_invite_role") or "member")
             from app.core.permission_resolver import insert_membership_if_absent
@@ -946,7 +963,10 @@ async def auto_provision_user_for_org(
     await db.flush()
 
     if open_invite:
-        open_invite.user_id = user.id
+        # Claim via the shared, savepoint-guarded primitive (see the existing-user
+        # branch above) rather than a bare assignment that would 500 on a race.
+        from app.core.permission_resolver import claim_pending_invite
+        await claim_pending_invite(db, user, organization_id)
     else:
         role = str(policy.get("auto_invite_role") or "member")
         from app.core.permission_resolver import insert_membership_if_absent
