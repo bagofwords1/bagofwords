@@ -232,3 +232,100 @@ async def test_prune_removes_only_bow_written_files(maker, tmp_path):
     manifest = json.loads((bow / ".bow-manifest.json").read_text())
     assert "bow/global/new-one.md" in manifest["files"]
     assert "bow/general/legacy.md" not in manifest["files"]
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_prune_ignores_manifest_entries_outside_bow(maker, tmp_path):
+    """A crafted manifest (absolute path, or one escaping bow/) must never make
+    the push delete a file outside bow/."""
+    repo = _repo(tmp_path)
+    bow = repo / "bow"
+    bow.mkdir()
+    victim = tmp_path / "victim.md"                       # absolute, outside the repo
+    victim.write_text("do not touch")
+    (repo / "escape.md").write_text("outside bow, inside repo")
+    (bow / "global").mkdir()
+    (bow / "global/stale.md").write_text("legit stale bow file")
+    (bow / ".bow-manifest.json").write_text(json.dumps({"files": [
+        str(victim),            # absolute -> ignored
+        "bow/../escape.md",     # escapes bow/ -> ignored
+        "bow/global/stale.md",  # legit, inside bow/ -> pruned
+    ]}))
+
+    async with maker() as db:
+        org = await _org(db)
+        build = await _build(db, org.id)
+        await _instruction(db, org.id, build, text="x", title="Keeper", ds_ids=[])
+        await db.commit()
+        await GitService()._write_build_to_repo(db, build, str(repo))
+
+    assert victim.exists()                          # absolute entry ignored
+    assert (repo / "escape.md").exists()            # escaping entry ignored
+    assert not (bow / "global/stale.md").exists()   # legit stale -> pruned
+    assert (bow / "global/keeper.md").is_file()
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_agent_named_like_legacy_folder_is_suffixed(maker, tmp_path):
+    """An agent whose slug matches a legacy folder ("general", ...) gets an
+    id-suffixed folder, so it never writes into a real legacy folder."""
+    repo = _repo(tmp_path)
+    async with maker() as db:
+        org = await _org(db)
+        gen = await _ds(db, org.id, "General")
+        build = await _build(db, org.id)
+        await _instruction(db, org.id, build, text="x", title="Policy", ds_ids=[gen.id])
+        await db.commit()
+        await GitService()._write_build_to_repo(db, build, str(repo))
+
+    dirs = [p.name for p in (repo / "bow").iterdir() if p.is_dir()]
+    assert dirs == [d for d in dirs if d.startswith("general-")], dirs
+    assert "general" not in dirs
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_legacy_sweep_is_one_time_only(maker, tmp_path):
+    """Once a manifest exists, legacy folders are no longer swept, so a hand note
+    left in a legacy-named folder survives later pushes."""
+    repo = _repo(tmp_path)
+    bow = repo / "bow"
+    (bow / "general").mkdir(parents=True)
+    (bow / "general/team-note.md").write_text("hand note")
+    (bow / "global").mkdir()
+    (bow / "global/old.md").write_text("stale")
+    (bow / ".bow-manifest.json").write_text(json.dumps({"files": ["bow/global/old.md"]}))
+
+    async with maker() as db:
+        org = await _org(db)
+        build = await _build(db, org.id)
+        await _instruction(db, org.id, build, text="x", title="Fresh", ds_ids=[])
+        await db.commit()
+        await GitService()._write_build_to_repo(db, build, str(repo))
+
+    assert (bow / "general/team-note.md").exists()   # manifest present -> no legacy sweep
+    assert not (bow / "global/old.md").exists()      # in manifest, not rewritten -> pruned
+    assert (bow / "global/fresh.md").is_file()
+
+
+@pytest.mark.db
+@pytest.mark.asyncio
+async def test_same_title_suffix_is_deterministic_by_id(maker, tmp_path):
+    """Contents are sorted by instruction id, so the smaller-id instruction keeps
+    the bare filename and the other is suffixed - stable across pushes."""
+    repo = _repo(tmp_path)
+    async with maker() as db:
+        org = await _org(db)
+        build = await _build(db, org.id)
+        a = await _instruction(db, org.id, build, text="first", title="Dup Title", ds_ids=[])
+        b = await _instruction(db, org.id, build, text="second", title="Dup Title", ds_ids=[])
+        await db.commit()
+        body_by_id = {a.id: "first", b.id: "second"}
+        smaller = min(a.id, b.id)
+        await GitService()._write_build_to_repo(db, build, str(repo))
+
+    bare = (repo / "bow/global/dup-title.md").read_text().strip()
+    assert bare.endswith(body_by_id[smaller])
+    assert len(list((repo / "bow/global").glob("dup-title-*.md"))) == 1

@@ -1140,10 +1140,25 @@ class GitService:
         
         return simple_refs
 
+    # Folders written by the OLD by-category layout. Swept once (on migration,
+    # when no manifest exists yet) and reserved so an agent named e.g. "General"
+    # can never own one and have the sweep delete notes left in it.
+    _LEGACY_DIRS = ("general", "code", "data-modeling", "visualizations", "dashboard", "system")
+
     @staticmethod
     def _slugify(value: str) -> str:
         """Filesystem-safe slug: keep word chars (Unicode-aware), spaces -> '-', lower."""
         return re.sub(r'[^\w\s-]', '', value or '').strip().replace(' ', '-').lower()
+
+    @staticmethod
+    def _is_within(path: Path, root: Path) -> bool:
+        """True iff `path` resolves to a location inside `root` - no escape via an
+        absolute entry, '..', or a symlink. Guards the prune so a crafted manifest
+        can never make the server delete a file outside bow/."""
+        try:
+            return path.resolve().is_relative_to(root.resolve())
+        except (OSError, ValueError):
+            return False
 
     async def _resolve_agent_folders(
         self, db: AsyncSession, organization_id: str, used_ds_ids: set
@@ -1176,8 +1191,9 @@ class GitService:
             base_names[ds_id] = self._slugify(ds_name) or ds_id
 
         # Count collisions across the whole org so folder names stay stable
-        # push-to-push, not just within the set of agents in this build.
-        reserved = {"shared", "global"}
+        # push-to-push, not just within the set of agents in this build. The
+        # legacy category names are reserved too, so an agent can never own one.
+        reserved = {"shared", "global", *self._LEGACY_DIRS}
         name_counts: Dict[str, int] = {}
         for safe in base_names.values():
             name_counts[safe] = name_counts.get(safe, 0) + 1
@@ -1215,6 +1231,9 @@ class GitService:
 
         build_service = BuildService()
         contents = await build_service.get_build_contents(db, build.id)
+        # Deterministic order (get_build_contents has no ORDER BY) so which of two
+        # same-title instructions gets the id suffix is stable across pushes.
+        contents = sorted(contents, key=lambda c: (c.instruction.id if c.instruction else ""))
 
         # Organize user-created instructions by agent (data source). Pin the
         # placement to each version's snapshot (data_source_ids), not the live
@@ -1336,44 +1355,45 @@ class GitService:
 
         # Prune only files BOW itself wrote, so hand-authored notes/READMEs and
         # Git-owned files under bow/ are never deleted. Candidates come from the
-        # previous push's manifest plus the legacy by-category folders (a one-time
-        # migration from the old layout); anything this push rewrote, or a
-        # linked-git file, is kept.
+        # previous push's manifest; the legacy by-category folders are swept only
+        # once, when no manifest exists yet (a one-time migration from the old
+        # layout). Every candidate must resolve to a real file under bow/ - a
+        # manifest entry that is absolute or escapes bow/ is ignored, so a crafted
+        # repo can never make the server delete a file elsewhere.
         manifest_path = bow_root / ".bow-manifest.json"
-        previous_files: set = set()
+        candidates: set = set()
         if manifest_path.exists():
             try:
-                previous_files = set(json.loads(manifest_path.read_text()).get("files", []))
+                candidates.update(json.loads(manifest_path.read_text()).get("files", []))
             except (ValueError, OSError):
-                previous_files = set()
-
-        legacy_dirs = ("general", "code", "data-modeling", "visualizations", "dashboard", "system")
-        candidates = set(previous_files)
-        for name in legacy_dirs:
-            legacy_dir = bow_root / name
-            if legacy_dir.is_dir():
-                for path in legacy_dir.rglob("*.md"):
-                    candidates.add(path.relative_to(repo_path).as_posix())
+                candidates = set()
+        else:
+            # First push on this repo: migrate the old category layout once.
+            for name in self._LEGACY_DIRS:
+                legacy_dir = bow_root / name
+                if legacy_dir.is_dir() and not legacy_dir.is_symlink():
+                    for path in legacy_dir.rglob("*.md"):
+                        candidates.add(path.relative_to(repo_path).as_posix())
 
         pruned_count = 0
         for rel in candidates:
             if rel in written_rel:
                 continue
             path = Path(repo_path) / rel
+            if not self._is_within(path, bow_root):
+                continue  # absolute / escaping entry - never touch it
             if path.resolve() in keep_paths:
                 continue
-            if path.is_file():
+            if path.is_file() and not path.is_symlink():
                 path.unlink()
                 pruned_count += 1
 
-        # Record what this push wrote, for the next push's prune.
-        if written_rel:
-            bow_root.mkdir(parents=True, exist_ok=True)
-            manifest_path.write_text(
-                json.dumps({"files": sorted(written_rel)}, ensure_ascii=False, indent=2)
-            )
-        elif manifest_path.exists():
-            manifest_path.unlink()
+        # Record what this push wrote, for the next push's prune - and to mark the
+        # one-time legacy migration as done even when this build wrote nothing.
+        bow_root.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps({"files": sorted(written_rel)}, ensure_ascii=False, indent=2)
+        )
 
         # Drop directories the pruning left empty.
         if bow_root.exists():
