@@ -345,12 +345,14 @@ async def search_knowledge(
     q: str = Query("", description="Search query (matches agent names and instruction text/title)"),
     limit: int = Query(20, ge=1, le=50),
     data_source_id: Optional[str] = Query(None, description="Scope the search to one agent: only instructions attached to it; agents are not returned"),
+    show_all: bool = Query(False, description="Admin-only: match every agent in the org (not just the caller's memberships), mirroring the /agents tree's 'Show all agents' toggle so agents visible there are also searchable"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     return await instruction_service.search_knowledge(
         db, organization, current_user, q, limit=limit, data_source_id=data_source_id,
+        show_all=show_all,
     )
 
 
