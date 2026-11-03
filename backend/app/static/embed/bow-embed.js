@@ -11,7 +11,7 @@
  *   <script>
  *     const embed = BOWEmbed.mount({
  *       baseUrl: 'https://bow.example.com',
- *       hostApp: 'host_…',                    // Settings → Integrations → Host applications
+ *       hostApp: 'host_…',                    // Settings → Channels → Connected applications
  *       artifact: 'sales-overview',           // the artifact's id or name
  *       container: '#bow',                    // or mode: 'floating'
  *       identity: {
@@ -24,10 +24,21 @@
  *     })
  *     embed.on('authenticated', ({ user }) => {})
  *     embed.on('unavailable', ({ reason }) => {})  // not_published | not_found | denied | not_allowed | failed (retry)
+ *                                                  // | no_response (the frame never answered, see startTimeout)
  *     embed.updateContext({ customerId: 'C-1043' })
  *     embed.logout()      // on your sign-out or user switch
- *     embed.destroy()
+ *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
+ *
+ * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
+ * refuses (the artifact doesn't exist or doesn't allow this application, the
+ * application is disabled, this origin isn't listed) never runs, so it can't
+ * say why. If BOW hasn't answered by then, the SDK reports `unavailable` with
+ * reason `no_response`. A late answer still continues normally.
+ *
+ * destroy() right after logout() waits for the frame to finish signing out
+ * before removing it. If your page removes the container or navigates away
+ * itself, wait for `authRequired` with status `signed_out` first.
  *
  * The private key never belongs in the browser: getAssertion must call your
  * backend, which checks its own session and signs for that user only.
@@ -71,6 +82,14 @@
     var listeners = {};
     var context = plain(options.context);
     var state = { status: 'starting', user: null, destroyed: false, open: mode === 'inline' };
+    // Cleared by the frame's first message that carries the nonce: proof the
+    // BOW page runs and accepted this host (a bare `hello` is not).
+    var startTimeout = options.startTimeout == null ? 15000 : Number(options.startTimeout) || 0;
+    var startTimer = null;
+    var answered = false;
+    // logout() sent and `signed_out` not heard yet; destroy() then waits for it.
+    var loggingOut = false;
+    var teardownTimer = null;
 
     // ── DOM ──────────────────────────────────────────────────────────────
     var iframe = document.createElement('iframe');
@@ -116,7 +135,7 @@
     }
 
     function setOpen(open) {
-      if (mode !== 'floating') return;
+      if (mode !== 'floating' || state.destroyed) return;
       state.open = !!open;
       wrapper.style.display = state.open ? 'block' : 'none';
       launcher.setAttribute('aria-expanded', String(state.open));
@@ -142,6 +161,7 @@
     function emit(name, detail) {
       var fns = (listeners[name] || []).slice();
       for (var i = 0; i < fns.length; i++) {
+        if (state.destroyed) return;  // a listener destroyed the embed: the rest hear nothing
         try { fns[i](detail); } catch (e) { if (root.console) root.console.error('[bow-embed] listener failed', e); }
       }
     }
@@ -168,14 +188,21 @@
     }
 
     function onMessage(event) {
-      if (state.destroyed || event.source !== iframe.contentWindow || event.origin !== bowOrigin) return;
+      if (event.source !== iframe.contentWindow || event.origin !== bowOrigin) return;
       var data = event.data;
       if (!data || typeof data !== 'object' || typeof data.type !== 'string' || data.type.indexOf(PROTOCOL) !== 0) return;
       var type = data.type.slice(PROTOCOL.length);
+      if (state.destroyed) {
+        // Only the sign-out a destroy() is waiting for, then the frame goes.
+        if (loggingOut && type === 'auth' && data.status === 'signed_out' && data.nonce === secret) removeNow();
+        return;
+      }
       if (type === 'hello') { sendInit(); return; }
       if (data.nonce !== secret) return;
+      if (!answered) { answered = true; clearTimer(startTimer); startTimer = null; }
       if (type === 'credential-request') answer(String(data.requestId || ''), data.kind);
       else if (type === 'auth') {
+        if (data.status === 'signed_out') loggingOut = false;
         state.status = data.status;
         if (data.status === 'authenticated') { state.user = data.user || null; emit('authenticated', { user: state.user }); }
         else emit('authRequired', { status: data.status, message: data.error || null });
@@ -188,25 +215,53 @@
       }
     }
 
+    function clearTimer(timer) { if (timer) root.clearTimeout(timer); }
+
+    function removeNow() {
+      clearTimer(teardownTimer); teardownTimer = null;
+      loggingOut = false;
+      root.removeEventListener('message', onMessage);
+      if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
+    }
+
     root.addEventListener('message', onMessage);
     iframe.addEventListener('load', sendInit);
+    if (startTimeout > 0) {
+      startTimer = root.setTimeout(function () {
+        startTimer = null;
+        if (answered || state.destroyed) return;
+        state.status = 'unavailable';
+        emit('unavailable', {
+          reason: 'no_response',
+          message: 'BOW did not answer. The artifact may not exist or may not allow this application, ' +
+            'the application may be disabled, or this page\'s origin may not be listed.'
+        });
+      }, startTimeout);
+    }
 
     // ── public API ───────────────────────────────────────────────────────
     var api = {
-      on: function (name, fn) { (listeners[name] = listeners[name] || []).push(fn); return api; },
+      on: function (name, fn) { if (!state.destroyed) (listeners[name] = listeners[name] || []).push(fn); return api; },
       off: function (name, fn) { listeners[name] = (listeners[name] || []).filter(function (f) { return f !== fn; }); return api; },
       open: function () { setOpen(true); return api; },
       close: function () { setOpen(false); return api; },
       updateContext: function (next) { context = plain(next) || {}; post('context', { context: context }); return api; },
       setLocale: function (locale) { post('locale', { locale: locale || null }); return api; },
-      logout: function () { post('logout'); return api; },
+      logout: function () { if (!state.destroyed) { loggingOut = true; post('logout'); } return api; },
       destroy: function () {
         if (state.destroyed) return;
         state.destroyed = true;
-        root.removeEventListener('message', onMessage);
-        if (wrapper.parentNode) wrapper.parentNode.removeChild(wrapper);
-        if (launcher && launcher.parentNode) launcher.parentNode.removeChild(launcher);
+        clearTimer(startTimer); startTimer = null;
         listeners = {};
+        if (launcher && launcher.parentNode) launcher.parentNode.removeChild(launcher);
+        if (loggingOut && answered) {
+          // The frame is still signing out (revoking its session): hide it
+          // now, remove it when it says signed_out, or after 6 s at most.
+          wrapper.style.display = 'none';
+          teardownTimer = root.setTimeout(removeNow, 6000);
+          return;
+        }
+        removeNow();
       },
       get state() { return { status: state.status, user: state.user, open: state.open }; },
       iframe: iframe,

@@ -798,3 +798,75 @@ class TestOidcGroupSyncService:
                 await db.execute(select(Group).where(Group.external_id == ext_id))
             ).scalar_one()
             assert group.name == f"Retired-Team ({ext_id})"
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_oidc_sync_claims_open_invite_instead_of_duplicating(
+    oidc_setup, test_client,
+):
+    """An OIDC login for a user invited by email must CLAIM the open invite, not
+    create a SECOND membership (the invite + SSO duplicate that broke
+    principal_belongs_to_org). The claimed invite stays admin-owned (manual), so
+    its directory_provider is left NULL."""
+    import uuid as _uuid
+    from fastapi_users.password import PasswordHelper
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+    from app.models.membership import Membership
+    from app.models.user import User
+    from sqlalchemy import select, func
+
+    org_id = oidc_setup["org_id"]
+    email = f"oidc_invitee_{_uuid.uuid4().hex[:8]}@test.com"
+
+    # Seed an existing (non-member) user directly: this org's enterprise config
+    # disables uninvited signup, so the public register endpoint can't create one
+    # here. Models someone who already exists (another org / prior SSO identity).
+    ph = PasswordHelper()
+    async with async_session_maker() as db:
+        u = User(
+            email=email, name="Invitee", hashed_password=ph.hash(ph.generate()),
+            is_active=True, is_verified=True, is_superuser=False,
+        )
+        db.add(u)
+        await db.commit()
+        await db.refresh(u)
+        invitee_id = u.id
+
+    # Admin invites the (existing, non-member) user by email → one open invite.
+    r = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers=oidc_setup["headers"],
+    )
+    assert r.status_code == 200, r.json()
+
+    async with async_session_maker() as db:
+        await sync_user_oidc_groups(
+            db=db, user_id=invitee_id, organization_id=org_id,
+            group_ids=["g-claim-1"], group_names={"g-claim-1": "Claimers"},
+        )
+
+    async with async_session_maker() as db:
+        rows = (await db.execute(
+            select(Membership).where(
+                Membership.organization_id == org_id,
+                Membership.user_id == invitee_id,
+                Membership.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        assert len(rows) == 1, f"expected one membership, got {len(rows)}"
+        assert rows[0].email is None
+        # Fix: an admin-issued invite claimed via SSO stays manually owned, so it
+        # is not swept by directory cleanup.
+        assert rows[0].directory_provider is None
+        open_invites = (await db.execute(
+            select(func.count(Membership.id)).where(
+                Membership.organization_id == org_id,
+                func.lower(Membership.email) == email.lower(),
+                Membership.user_id.is_(None),
+                Membership.deleted_at.is_(None),
+            )
+        )).scalar()
+        assert open_invites == 0

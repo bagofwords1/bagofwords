@@ -80,6 +80,10 @@ class PromptSchema(BaseModel):
     # Per-completion reasoning effort (the model picker's level). Resolution:
     #   per-completion > report level > trigger words > LLMModel.config default > off
     # None = Default. Each provider client clamps it to what the model accepts.
+    # Internal continuation context; only honored on machine-triggered turns.
+    response_locale: Optional[str] = None
+    response_parent_completion_id: Optional[str] = None
+    response_original_request: Optional[str] = None
     reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
     # Free-form values the calling app attaches to this question (e.g. its chat
     # id). Stored with the completion; merged into MCP tool-call metadata on

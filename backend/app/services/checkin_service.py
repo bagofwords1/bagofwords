@@ -683,6 +683,7 @@ class CheckinService:
                 summary="Follow-up",  # fallback text; meta drives the localized label
                 meta={"checkin_id": checkin_id},
                 instruction=instruction,
+                parent_completion_id=row.source_completion_id,
                 on_event=lambda ev: event_ref.update(id=str(ev.id), turn_index=ev.turn_index),
             )
         except Exception as e:

@@ -1,5 +1,5 @@
 <template>
-    <!-- Settings → Embed: which host applications (Settings → Integrations)
+    <!-- Settings → Embed: which connected applications (Settings → Channels)
          may show this artifact, and the snippet each one pastes. Embedding
          never widens who may see it: the host's user needs view access too. -->
     <div class="space-y-6" data-testid="settings-embed">

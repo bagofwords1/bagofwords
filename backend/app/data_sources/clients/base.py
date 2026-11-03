@@ -387,7 +387,14 @@ class DataSourceClient(ABC):
             raise
 
     async def agrep_files(self, pattern: str, **kwargs) -> dict:
-        return await asyncio.to_thread(self.grep_files, pattern, **kwargs)
+        cancelled = threading.Event()
+        if _accepts_kwarg(self.grep_files, "cancel_check"):
+            kwargs["cancel_check"] = cancelled.is_set
+        try:
+            return await asyncio.to_thread(self.grep_files, pattern, **kwargs)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
 
     async def afile_version(self, file_id: str) -> Optional[str]:
         return await asyncio.to_thread(self.file_version, file_id)

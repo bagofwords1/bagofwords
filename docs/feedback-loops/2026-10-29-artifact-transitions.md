@@ -35,7 +35,7 @@ bash scripts/download-vendor-libs.sh          # vendored libs (once)
 cd frontend && yarn install --frozen-lockfile
 node tests/unit/artifactMotion.mjs
 # If the pinned Playwright's own browser is missing (cloud sandbox):
-PW_CHROMIUM=/opt/pw-browsers/chromium node tests/unit/artifactMotion.mjs
+PW_CHROMIUM_PATH=/opt/pw-browsers/chromium node tests/unit/artifactMotion.mjs
 ```
 
 The test renders artifacts through the real `buildArtifactIframeHtml`, served

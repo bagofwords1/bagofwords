@@ -261,6 +261,9 @@ class GrepFilesTool(Tool):
             "truncated": sweep.get("truncated", False),
             "stop_reason": sweep.get("stop_reason", "complete"),
             "next_cursor": sweep.get("next_cursor"),
+            "bytes_read": sweep.get("bytes_read", 0),
+            "verification_bytes": sweep.get("verification_bytes", 0),
+            "coverage_complete": sweep.get("coverage_complete", not (sweep.get("skipped_files") or sweep.get("truncated") or sweep.get("next_cursor"))),
         }
 
         # Observation carries the accounting even when the lines don't fit —
@@ -273,9 +276,13 @@ class GrepFilesTool(Tool):
         if len(output["matches"]) < output["total_matches"]:
             bits.append(f"showing {len(output['matches'])}")
         if output["files_skipped"]:
-            bits.append(f"{len(output['files_skipped'])} file(s) skipped")
+            reasons = ", ".join(sorted({s["reason"] for s in output["files_skipped"]}))
+            bits.append(f"{len(output['files_skipped'])} file(s) skipped ({reasons})")
+        if not output["coverage_complete"]:
+            bits.append("coverage incomplete")
         if output["stop_reason"] != "complete":
-            bits.append(f"stopped: {output['stop_reason']} — continue with cursor")
+            action = "continue with cursor" if output["next_cursor"] else "narrow the scope or inspect skipped files"
+            bits.append(f"stopped: {output['stop_reason']} — {action}")
         observation: Dict[str, Any] = {"summary": " — ".join(bits), "success": True}
         # The planner reads the observation, not the raw output — ship the
         # matched lines themselves (grep-style, capped) or the whole sweep is

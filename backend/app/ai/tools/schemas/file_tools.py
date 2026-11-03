@@ -588,12 +588,17 @@ class GrepFilesInput(BaseModel):
     )
     max_matches_per_file: int = Field(
         50, ge=1, le=500,
-        description="Per-file cap so one noisy file can't exhaust the whole match budget.",
+        description="Per-file match cap. Network directory/S3 returns a cursor to continue this file; other sources may truncate it.",
     )
     max_files: int = Field(500, ge=1, le=5000, description="Max files to scan this call.")
     max_bytes_per_file: int = Field(
         20_000_000, ge=1024, le=100_000_000,
-        description="Files larger than this are skipped and reported in files_skipped.",
+        description=(
+            "Network directory/S3 text: bytes scanned per file per call, resumable "
+            "with cursor; also bounded by 100 MB total per call. Budgets may "
+            "overrun to finish a line/context (1 MiB maximum line). Other sources "
+            "retain a file-size cap; email extraction is capped at 20 MB."
+        ),
     )
     cursor: Optional[str] = Field(
         None,
@@ -617,7 +622,7 @@ class GrepMatch(BaseModel):
 
 class SkippedFile(BaseModel):
     file_id: str
-    reason: Literal["too_large", "binary", "unreadable", "access_denied", "not_found"]
+    reason: Literal["too_large", "binary", "unreadable", "access_denied", "not_found", "file_changed", "line_too_long", "regex_timeout"]
 
 
 class GrepFilesOutput(BaseModel):
@@ -634,21 +639,24 @@ class GrepFilesOutput(BaseModel):
     )
     files_scanned: int = 0
     files_with_matches: int = 0
+    bytes_read: int = 0
+    verification_bytes: int = Field(0, description="Additional integrity reads for local append validation; separate from scanned-content bytes.")
+    coverage_complete: bool = True
     files_skipped: List[SkippedFile] = Field(default_factory=list)
     truncated: bool = Field(
-        False, description="True when matches were dropped due to max_matches / per-file caps."
+        False, description="True when a scan or result budget prevented completing the sweep."
     )
-    stop_reason: Literal["complete", "max_matches", "max_files", "time_budget"] = Field(
+    stop_reason: Literal["complete", "max_matches", "max_files", "time_budget", "byte_budget", "cancelled", "catalog_limit"] = Field(
         "complete",
         description=(
-            "Why the sweep ended: 'complete' = everything in scope was scanned; "
+            "Why the sweep ended: 'complete' = enumeration finished; check skipped files and coverage_complete; "
             "'max_matches' = page forward with cursor; 'max_files'/'time_budget' "
             "= narrow the scope or continue with cursor."
         ),
     )
     next_cursor: Optional[str] = Field(
         None,
-        description="Pass back as `cursor` (same pattern + scope) to continue. Null when complete.",
+        description="Pass back as `cursor` (same pattern + scope + context) to continue. Null means no continuation; check coverage_complete and skips before claiming exhaustive results.",
     )
     error: Optional[str] = None
 

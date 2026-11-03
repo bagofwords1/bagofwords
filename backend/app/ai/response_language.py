@@ -7,11 +7,20 @@ from collections.abc import Awaitable, Callable
 SUPPORTED_LOCALES = frozenset({'en', 'es', 'he', 'fr', 'sv', 'ar', 'ru', 'de', 'pt', 'it'})
 
 async def resolve_response_locale(infer: Callable[[str], Awaitable[str]], message: str,
-                                  previous: str | None = None, fallback: str = 'en') -> str:
+                                  previous: str | None = None, fallback: str = 'en', *,
+                                  trigger_source: str | None = None, inherited: str | None = None,
+                                  original_request: str | None = None) -> str:
     """Classify user intent once; never let tool output select a language."""
     default = previous if previous in SUPPORTED_LOCALES else fallback
     if default not in SUPPORTED_LOCALES:
         default = 'en'
+    if trigger_source:
+        if inherited in SUPPORTED_LOCALES:
+            return inherited
+        # Machine text and tool results are never a new language choice.
+        if not original_request:
+            return default
+        message = original_request
     if not message.strip():
         return default
     prompt = ('Select the presentation language for one assistant response. Return ONLY one code: '

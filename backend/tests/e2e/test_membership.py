@@ -728,3 +728,292 @@ def test_invite_link_regenerates_when_expired(test_client, create_user, login_us
     assert test_client.post("/api/auth/register", json={
         "name": "Exp", "email": email, "password": "test123", "invite_token": new_token,
     }).status_code == 201
+
+
+@pytest.mark.e2e
+def test_second_live_membership_for_same_user_and_org_is_rejected(
+    create_user,
+    login_user,
+    whoami,
+):
+    """The database enforces one live membership per (user, organization).
+
+    This is the backstop for the duplicate that broke principal_belongs_to_org
+    (two live rows -> MultipleResultsFound -> org-scoped routes 500, i.e. the
+    "no available models" the customer hit). Open invites (user_id NULL) are
+    intentionally NOT constrained, so this only covers user-bound rows.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _attempt_duplicate():
+        async with async_session_maker() as db:
+            # The admin already holds exactly one live membership (created with
+            # the org). A second live row for the same (user, org) must be refused.
+            existing = (await db.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == user_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            assert len(existing) == 1
+            db.add(Membership(user_id=user_id, organization_id=org_id, role="member"))
+            with pytest.raises(IntegrityError):
+                await db.flush()
+
+    asyncio.run(_attempt_duplicate())
+
+
+@pytest.mark.e2e
+def test_duplicate_membership_does_not_block_querying_models(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """Reproduction of the customer bug ("no available models", cannot query).
+
+    A user with two live membership rows for one org made
+    principal_belongs_to_org raise MultipleResultsFound, so
+    get_current_organization 500'd and GET /api/llm/models (the model picker's
+    source) failed -> the UI showed no models. This asserts the promised
+    end-state: the duplicate can no longer be created AND the model endpoint
+    stays 200 for the member.
+
+    Against the PRE-FIX code this test fails: the second row inserts and
+    GET /api/llm/models returns 500.
+    """
+    import asyncio
+    from sqlalchemy.exc import IntegrityError
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _try_make_duplicate():
+        async with async_session_maker() as db:
+            db.add(Membership(user_id=user_id, organization_id=org_id, role="member"))
+            try:
+                await db.commit()
+                return True   # pre-fix: a duplicate live membership was created
+            except IntegrityError:
+                await db.rollback()
+                return False  # fixed: barred by the partial unique index
+
+    duplicate_created = asyncio.run(_try_make_duplicate())
+
+    # The exact endpoint behind "no available models" must never 500 for a member.
+    resp = test_client.get(
+        "/api/llm/models",
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+    )
+    assert resp.status_code == 200, f"model list returned {resp.status_code}: {resp.text}"
+
+    # The duplicate state must be unreachable on the fixed code.
+    assert duplicate_created is False, "a second live membership should be rejected by the unique index"
+
+
+@pytest.mark.e2e
+def test_attach_dedups_multiple_open_invites_to_one_membership(
+    create_user,
+    login_user,
+    whoami,
+    test_client,
+):
+    """When more than one open invite exists for a user in one org, accepting them
+    yields exactly ONE live membership: _attach_open_memberships claims one and
+    retires (hard-deletes) the rest onto it, instead of creating duplicate rows.
+    """
+    import asyncio
+    import uuid as _uuid
+    from sqlalchemy import select, func
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+
+    email = f"invitee_{_uuid.uuid4().hex[:8]}@test.com"
+    r = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers={"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id},
+    )
+    assert r.status_code == 200, r.json()
+
+    # Seed a SECOND open invite for the same email+org directly (the API guard
+    # blocks a duplicate invite; this models a pre-existing duplicate / race),
+    # with a different role so the retire path exercises role preservation.
+    async def _seed_second_invite():
+        async with async_session_maker() as db:
+            db.add(Membership(email=email, organization_id=org_id, role="admin"))
+            await db.commit()
+
+    asyncio.run(_seed_second_invite())
+
+    # The invitee registers → _attach claims one invite and retires the other.
+    create_user(email=email, password="test123")
+    invitee_id = whoami(login_user(email, "test123"))["id"]
+
+    async def _check():
+        async with async_session_maker() as db:
+            rows = (await db.execute(
+                select(Membership).where(
+                    Membership.organization_id == org_id,
+                    Membership.user_id == invitee_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            assert len(rows) == 1, f"expected one membership, got {len(rows)}"
+            # Retired invite is hard-deleted and the claimed one cleared its email,
+            # so no email-keyed rows linger for this address in the org.
+            leftovers = (await db.execute(
+                select(func.count(Membership.id)).where(
+                    Membership.organization_id == org_id,
+                    func.lower(Membership.email) == email.lower(),
+                )
+            )).scalar()
+            assert leftovers == 0
+
+    asyncio.run(_check())
+
+
+@pytest.mark.e2e
+def test_insert_membership_if_absent_survives_race_and_preserves_pending_writes(
+    create_user,
+    login_user,
+    whoami,
+):
+    """A lost insert race must not poison the outer transaction.
+
+    ``insert_membership_if_absent`` guards the insert with a SAVEPOINT. The guard
+    only works if the conflicting row is added strictly INSIDE the savepoint:
+    ``begin_nested()`` pre-flushes the whole session on open, so an ``add`` placed
+    before the savepoint would write in the OUTER transaction and a lost race would
+    roll the whole thing back (and the handler would then fire on a dead session).
+
+    This drives an actual race: an unrelated pending write is staged, then an
+    insert that loses to an existing live row. The call must return the existing
+    row, and the unrelated write must still commit — proving the outer transaction
+    stayed alive. Against the pre-flush bug this raises instead.
+    """
+    import asyncio
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+    from app.models.user import User
+    from app.core.permission_resolver import insert_membership_if_absent
+
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    user_id = info["id"]
+
+    async def _run():
+        async with async_session_maker() as db:
+            # Unrelated pending write in the SAME transaction.
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+            user.name = "RenamedDuringRace"
+            # The admin already holds a live membership → this insert loses.
+            row, created = await insert_membership_if_absent(
+                db, Membership(user_id=user_id, organization_id=org_id, role="member")
+            )
+            assert created is False
+            assert str(row.user_id) == str(user_id)
+            await db.commit()  # must not raise — outer transaction still alive
+
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == user_id))).scalar_one()
+            assert user.name == "RenamedDuringRace"  # unrelated write survived
+            rows = (await db.execute(select(Membership).where(
+                Membership.user_id == user_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            ))).scalars().all()
+            assert len(rows) == 1
+
+    asyncio.run(_run())
+
+
+@pytest.mark.e2e
+def test_claim_pending_invite_survives_race_and_preserves_pending_writes(
+    create_user,
+    login_user,
+    whoami,
+):
+    """Same SAVEPOINT guarantee for ``claim_pending_invite``.
+
+    When an open invite exists but the user already has a live membership in the
+    org (SCIM/OIDC won the race), claiming must stamp the invite INSIDE the
+    savepoint, lose cleanly (return None), and leave the outer transaction usable.
+    """
+    import asyncio
+    import uuid as _uuid
+    from sqlalchemy import select
+    from fastapi_users.password import PasswordHelper
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+    from app.models.user import User
+    from app.core.permission_resolver import claim_pending_invite
+
+    admin = create_user()
+    admin_token = login_user(admin["email"], admin["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+
+    # Seed a separate user directly (this config disables uninvited signup), who
+    # already holds a live membership in the org, plus a still-open invite for the
+    # same email — the exact "SSO won the race, invite left open" state.
+    email = f"racer_{_uuid.uuid4().hex[:8]}@test.com"
+    ph = PasswordHelper()
+
+    async def _seed():
+        async with async_session_maker() as db:
+            u = User(
+                email=email, name="Racer", hashed_password=ph.hash(ph.generate()),
+                is_active=True, is_verified=True, is_superuser=False,
+            )
+            db.add(u)
+            await db.commit()
+            await db.refresh(u)
+            db.add(Membership(user_id=u.id, organization_id=org_id, role="member"))
+            db.add(Membership(email=email, organization_id=org_id, role="admin"))
+            await db.commit()
+            return u.id
+
+    member_id = asyncio.run(_seed())
+
+    async def _run():
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == member_id))).scalar_one()
+            user.name = "ClaimRaceRename"  # unrelated pending write
+            claimed = await claim_pending_invite(db, user, org_id)
+            assert claimed is None  # lost the race, cleanly
+            await db.commit()  # must not raise
+
+        async with async_session_maker() as db:
+            user = (await db.execute(select(User).where(User.id == member_id))).scalar_one()
+            assert user.name == "ClaimRaceRename"
+            rows = (await db.execute(select(Membership).where(
+                Membership.user_id == member_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            ))).scalars().all()
+            assert len(rows) == 1  # still exactly one live row
+
+    asyncio.run(_run())

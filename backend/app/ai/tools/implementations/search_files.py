@@ -124,6 +124,11 @@ def _catalog_name_search(catalog: List[Dict[str, Any]], query: str, max_results:
 
 _STOP_REASONS = {
     "deadline": "it reached its time limit",
+    "time_budget": "it reached its time limit",
+    "byte_budget": "it reached its content-read budget",
+    "max_results": "it reached its result limit",
+    "extraction_limit": "some document content exceeded the extraction limit",
+    "skipped_files": "some files could not be fully scanned",
     "cancelled": "it was cancelled",
     "folder_limit": "it reached the folder limit for a live search",
     "catalog_limit": "it reached the connection's Max files cap",
@@ -408,7 +413,7 @@ class SearchFilesTool(Tool):
             how += f", indexed {indexed_at}"
         if from_catalog and live_too:
             how += " + live scan"
-        hint = ""
+        hint = " Keyword indexes may use sampled content; no hit does not prove absence." if used_index else ""
         if catalog_names and not entries and not live_too:
             hint = (f" The catalog ({catalog_total} files) holds file names and paths only, not "
                     "document contents. Try other words from the file name, or deep=true to also "
@@ -417,6 +422,8 @@ class SearchFilesTool(Tool):
             hint += (f" The live scan stopped early because {_STOP_REASONS.get(stop_reason, stop_reason)}, "
                      "so results may be incomplete. Narrow the query, or use list_files with "
                      "folder_id/name_pattern.")
+        if stop_reason == "byte_budget":
+            hint += " Use grep_files for resumable text scanning beyond the byte budget."
         # Repeat-enumeration guard — see list_files._end.
         enum_hint = ""
         if runtime_ctx is not None:

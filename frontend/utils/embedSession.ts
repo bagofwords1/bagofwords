@@ -52,7 +52,7 @@ export function runtimeIdentity(embed: { token: string, organizationId: string, 
 }
 
 // Who BOW does not know (or knows twice, or deactivated) gains nothing from a retry.
-export const PERMANENT_ERROR_CODES = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive']
+export const PERMANENT_ERROR_CODES = ['embed.identity_unmapped', 'embed.identity_ambiguous', 'embed.user_inactive', 'host_app.disabled']
 
 /** A sign-in or renewal failed with `errorCode`, after `failures` earlier
  * failed renewals, with `remainingMs` left of the current session (if any).

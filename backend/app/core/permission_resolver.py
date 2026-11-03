@@ -8,7 +8,7 @@ The resolver is cached per-request on request.state to avoid repeated queries.
 """
 import logging
 from dataclasses import dataclass, field
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
@@ -175,24 +175,34 @@ async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
 
     if getattr(user, "is_service_account", False):
         from app.models.service_account import ServiceAccount
+        # Existence check (not scalar_one_or_none): same duplicate-tolerance as the
+        # membership branch below, so two rows for the same (user, org) can never
+        # turn this binding check into a MultipleResultsFound 500.
         result = await db.execute(
-            select(ServiceAccount).where(
+            select(ServiceAccount.id).where(
                 ServiceAccount.user_id == str(user.id),
                 ServiceAccount.organization_id == str(org_id),
                 ServiceAccount.disabled_at.is_(None),
                 ServiceAccount.deleted_at.is_(None),
-            )
+            ).limit(1)
         )
-        return result.scalar_one_or_none() is not None
+        return result.first() is not None
 
+    # Existence check, NOT scalar_one_or_none(): a user with two live membership
+    # rows for the same org (a duplicate that provisioning paths could create —
+    # see claim_pending_invite) would make scalar_one_or_none() raise
+    # MultipleResultsFound, which 500s get_current_organization and every
+    # org-scoped route that depends on it (the model list, completion, ...),
+    # presenting to the user as "no available models" / unable to query. The
+    # binding question only needs "does at least one row exist", so limit(1).
     result = await db.execute(
-        select(Membership).where(
+        select(Membership.id).where(
             Membership.user_id == str(user.id),
             Membership.organization_id == str(org_id),
             Membership.deleted_at.is_(None),
-        )
+        ).limit(1)
     )
-    return result.scalar_one_or_none() is not None
+    return result.first() is not None
 
 
 async def principal_can_act_in_org(db: AsyncSession, user, org_id: str) -> bool:
@@ -268,6 +278,244 @@ async def ensure_system_role_assignment(
         principal_type="user",
         principal_id=user_id,
     ))
+
+
+async def materialize_pending_rbac(
+    db: AsyncSession, membership, user_id: str
+) -> None:
+    """Rewrite an invite's pending (membership-keyed) RBAC onto the registered user.
+
+    An org admin can pre-assign roles, groups and usage policies to an invite
+    before the user registers. Those are stored keyed on the invite's
+    ``Membership.id`` (``RoleAssignment``/``UsagePolicyAssignment`` with
+    ``principal_type='membership'``, ``GroupMembership`` with ``membership_id``).
+    When the invite is claimed we convert them to the user-keyed equivalents,
+    de-duplicating against anything the user already has, so the resolver (which
+    only knows 'user'/'group') sees the intended permissions immediately.
+
+    Used by both invite-acceptance (``_attach_open_memberships``) and the
+    provisioning paths (``claim_pending_invite``). Does NOT commit — the caller
+    commits. Never raises: a missing pending-RBAC table (pre-migration) or a
+    transient conflict must not block login/provisioning.
+    """
+    from app.models.role_assignment import RoleAssignment
+    from app.models.usage_policy import UsagePolicyAssignment
+
+    org_id = membership.organization_id
+    # Flush the CALLER's own pending writes (invite claim, OAuth link, ...) to the
+    # OUTER transaction first. With autoflush on, the first query inside the
+    # savepoint below would otherwise pull those writes into the savepoint and
+    # discard them on a swallowed rollback. Not wrapped in try: a caller-write
+    # failure is the caller's to surface, not ours to swallow.
+    await db.flush()
+    try:
+        # SAVEPOINT: on any failure (pending-RBAC tables absent pre-migration, or a
+        # concurrent duplicate-RBAC conflict on flush) only the conversions below
+        # roll back — the outer transaction stays clean so the caller's immediate
+        # commit (SCIM/OIDC claim paths) doesn't hit PendingRollbackError.
+        async with db.begin_nested():
+            # Role assignments: membership principal → user principal
+            ra_result = await db.execute(
+                select(RoleAssignment).where(
+                    RoleAssignment.organization_id == org_id,
+                    RoleAssignment.principal_type == "membership",
+                    RoleAssignment.principal_id == membership.id,
+                    RoleAssignment.deleted_at.is_(None),
+                )
+            )
+            for assignment in ra_result.scalars().all():
+                existing = await db.execute(
+                    select(RoleAssignment).where(
+                        RoleAssignment.organization_id == org_id,
+                        RoleAssignment.role_id == assignment.role_id,
+                        RoleAssignment.principal_type == "user",
+                        RoleAssignment.principal_id == user_id,
+                        RoleAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await db.delete(assignment)
+                else:
+                    assignment.principal_type = "user"
+                    assignment.principal_id = user_id
+
+            # Group memberships: membership-keyed → user-keyed
+            gm_result = await db.execute(
+                select(GroupMembership).where(
+                    GroupMembership.membership_id == membership.id,
+                    GroupMembership.deleted_at.is_(None),
+                )
+            )
+            for gm in gm_result.scalars().all():
+                existing = await db.execute(
+                    select(GroupMembership).where(
+                        GroupMembership.group_id == gm.group_id,
+                        GroupMembership.user_id == user_id,
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await db.delete(gm)
+                else:
+                    gm.user_id = user_id
+                    gm.membership_id = None
+
+            # Usage-policy (quota) assignments: membership principal → user principal
+            upa_result = await db.execute(
+                select(UsagePolicyAssignment).where(
+                    UsagePolicyAssignment.organization_id == org_id,
+                    UsagePolicyAssignment.principal_type == "membership",
+                    UsagePolicyAssignment.principal_id == membership.id,
+                    UsagePolicyAssignment.deleted_at.is_(None),
+                )
+            )
+            for upa in upa_result.scalars().all():
+                existing = await db.execute(
+                    select(UsagePolicyAssignment).where(
+                        UsagePolicyAssignment.organization_id == org_id,
+                        UsagePolicyAssignment.policy_id == upa.policy_id,
+                        UsagePolicyAssignment.principal_type == "user",
+                        UsagePolicyAssignment.principal_id == user_id,
+                        UsagePolicyAssignment.deleted_at.is_(None),
+                    )
+                )
+                if existing.scalar_one_or_none():
+                    await db.delete(upa)
+                else:
+                    upa.principal_type = "user"
+                    upa.principal_id = user_id
+            await db.flush()
+    except Exception:
+        # Never block the caller if pending-RBAC tables aren't present
+        # (pre-migration) or a conversion hits a transient conflict.
+        pass
+
+
+async def insert_membership_if_absent(db: AsyncSession, membership):
+    """Insert ``membership`` unless a live row for its (user_id, organization_id)
+    already exists. Returns ``(row, created)``.
+
+    Race-safe against the partial unique index ``uq_memberships_one_live_per_user_org``:
+    a concurrent insert that loses the race raises IntegrityError, which is caught
+    inside a SAVEPOINT (so the outer transaction — e.g. an LDAP batch — is not
+    poisoned and a login is not 500'd) and the already-present row is returned.
+
+    This is the single membership-insert primitive; every path that creates a
+    ``user_id``-keyed membership routes through it so none hits an unguarded
+    IntegrityError. Pending invites (``user_id`` NULL) are not constrained by the
+    index, so for them the insert simply succeeds. The returned row is always
+    present (never ``None``): if the conflict has no surviving live row to return
+    (the winner was deleted in the same window — pathological), the original error
+    is re-raised rather than handing the caller a ``None`` to dereference. Does
+    NOT commit.
+    """
+    from app.models.membership import Membership
+    from sqlalchemy.exc import IntegrityError
+
+    # Flush the caller's unrelated pending state FIRST, in the outer transaction,
+    # before the savepoint. ``begin_nested()`` pre-flushes the whole session when
+    # it opens: were ``membership`` already ``add``ed at that point, the
+    # conflicting INSERT would run in the OUTER transaction and a lost race would
+    # roll the whole thing back (and ``expunge`` below would then fire on a dead
+    # session). So ``add`` + flush the membership strictly INSIDE the savepoint,
+    # where only it rolls back on conflict.
+    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(membership)
+            await db.flush([membership])
+        return membership, True
+    except IntegrityError:
+        # The savepoint rollback already auto-expunges a pending object that was
+        # ``add``ed inside it; only expunge explicitly if it somehow survived
+        # (expunging a detached instance would itself raise).
+        if membership in db:
+            db.expunge(membership)
+        if membership.user_id is None:
+            raise
+        existing = (await db.execute(
+            select(Membership).where(
+                Membership.user_id == membership.user_id,
+                Membership.organization_id == membership.organization_id,
+                Membership.deleted_at.is_(None),
+            ).limit(1)
+        )).scalars().first()
+        if existing is None:
+            raise
+        return existing, False
+
+
+async def claim_pending_invite(db: AsyncSession, user, org_id: str):
+    """Attach an open email invite to ``user`` instead of creating a second row.
+
+    An invite is a ``Membership`` row with ``user_id IS NULL`` and ``email`` set.
+    The invite-acceptance path (``_attach_open_memberships``) claims these by
+    email on register/login. Provisioning paths (SCIM/OIDC/LDAP) that only looked
+    up a ``user_id``-keyed row never saw the leftover invite, so they created a
+    SECOND membership and the later acceptance claimed the invite too — two live
+    rows for the same (user, org), which is exactly what breaks
+    ``principal_belongs_to_org``. Those paths call this first.
+
+    Returns the claimed ``Membership`` (with its role assignment ensured and
+    pending RBAC materialized), or ``None`` when there is no open invite to claim.
+    Expiry is intentionally ignored — this mirrors ``_attach_open_memberships``,
+    which claims invites regardless of ``invite_expires_at``. Does NOT commit.
+
+    An invite is always admin intent, so ``directory_provider`` is deliberately
+    left as-is (NULL for a hand-issued invite): stamping it would make an
+    admin-granted membership eligible for directory cleanup (``_cleanup_org_memberships``
+    deletes by ``directory_provider``). Multiple open invites for one email are
+    allowed, so the most-privileged (then oldest) is claimed deterministically —
+    the same ordering the dedup migration uses — instead of an arbitrary row.
+    """
+    from app.models.membership import Membership
+    from sqlalchemy import case
+
+    email = (getattr(user, "email", None) or "").strip().lower()
+    if not email:
+        return None
+    role_rank = case((Membership.role == "admin", 0), (Membership.role == "member", 1), else_=2)
+    invite = (await db.execute(
+        select(Membership).where(
+            func.lower(Membership.email) == email,
+            Membership.organization_id == str(org_id),
+            Membership.user_id.is_(None),
+            Membership.deleted_at.is_(None),
+        ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc()).limit(1)
+    )).scalars().first()
+    if invite is None:
+        return None
+
+    # SAVEPOINT around the claim: between the caller's existence check and here, a
+    # concurrent path may have created the live (user, org) membership that the
+    # partial unique index now bars. Losing that race must not poison the outer
+    # transaction (LDAP's batch) or 500 the login (OIDC). On conflict, drop the
+    # rolled-back claim and report "nothing claimed" — the caller's create path
+    # (itself savepoint-guarded) then treats the user as already a member.
+    #
+    # Flush the caller's unrelated pending state FIRST, in the outer transaction,
+    # then stamp the claim attributes INSIDE the savepoint: ``begin_nested()``
+    # pre-flushes the session on open, so a claim written before the savepoint
+    # would hit the index in the OUTER transaction and roll the whole thing back.
+    from sqlalchemy.exc import IntegrityError
+    await db.flush()
+    try:
+        async with db.begin_nested():
+            invite.user_id = user.id
+            invite.email = None
+            invite.invite_token = None
+            await db.flush([invite])
+    except IntegrityError:
+        # Savepoint rolled back the claim; the invite (a persistent row) stays in
+        # the session with its attributes restored. Detach it so the caller's
+        # create path re-queries cleanly; guard in case it was already expunged.
+        if invite in db:
+            db.expunge(invite)
+        return None
+    await materialize_pending_rbac(db, invite, str(user.id))
+    await ensure_system_role_assignment(
+        db, str(org_id), str(user.id), invite.role or "member"
+    )
+    return invite
 
 
 async def resolve_permissions(

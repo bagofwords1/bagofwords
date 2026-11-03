@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import ts from 'typescript';
 import {chromium} from 'playwright';
+import {CHROME_PATH} from './support/chromium.mjs';
 const root=new URL('../../',import.meta.url);
 const source=fs.readFileSync(new URL('utils/artifactIframe.ts',root),'utf8');
 const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -26,7 +27,7 @@ function App() {
 }
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>`;
-const browser=await chromium.launch({headless:true});
+const browser=await chromium.launch({headless:true, executablePath:CHROME_PATH});
 try{
  for(const runtime of [0,11]) for(const hostile of [false,true]){
   const page=await browser.newPage();

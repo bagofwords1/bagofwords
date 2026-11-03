@@ -18,7 +18,7 @@ from fastapi_users.authentication import (
     JWTStrategy,
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, case
 from httpx_oauth.oauth2 import BaseOAuth2
 
 # fastapi-mail is no longer used here: account email goes through
@@ -204,12 +204,17 @@ class UserManager(BaseUserManager[User, str]):
                 raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
     async def _attach_open_memberships(self, user: User, session: AsyncSession):
+        # Order by role privilege (then oldest, then id) so that when several open
+        # invites exist for one org, the most-privileged is the one CLAIMED (the
+        # surviving row's legacy `role`); the rest are retired. Deterministic, and
+        # identical to the dedup migration / claim_pending_invite ordering.
+        role_rank = case((Membership.role == "admin", 0), (Membership.role == "member", 1), else_=2)
         stmt = select(Membership).where(
             and_(
                 func.lower(Membership.email) == (user.email or "").strip().lower(),
                 Membership.user_id.is_(None)
             )
-        )
+        ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc())
         open_memberships = (await session.execute(stmt)).scalars().all()
         
         if open_memberships:
@@ -223,59 +228,77 @@ class UserManager(BaseUserManager[User, str]):
         from app.models.role import Role
         from app.models.role_assignment import RoleAssignment
 
+        from sqlalchemy.exc import IntegrityError
+        from app.core.permission_resolver import ensure_system_role_assignment
+
         for membership in open_memberships:
-            membership.user_id = user.id
-            membership_role = membership.role
-            membership.email = None  # Clear the email since we now have a user
+            org_id = membership.organization_id
+            invite_role = membership.role
+            # Try to CLAIM this invite as the user's membership. If the user
+            # already has a live row in the org (SCIM/OIDC/LDAP provisioned it, or
+            # a concurrent create wins the race below), fall back to RETIRING the
+            # invite instead: move its pending RBAC + base role onto the existing
+            # row and hard-delete the invite. Two live rows for one (user, org) is
+            # the duplicate that broke principal_belongs_to_org ("no models").
+            existing = (await session.execute(
+                select(Membership.id).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == org_id,
+                    Membership.deleted_at.is_(None),
+                ).limit(1)
+            )).first()
 
-            # Materialize any pre-assigned (pending) RBAC roles and group
-            # memberships from the invite onto the freshly-registered user.
-            await self._materialize_pending_rbac(session, membership, user.id)
-
-            # Create the matching RBAC role_assignment so the invited user
-            # actually has permissions in the org. Mirrors
-            # OrganizationService._assign_system_role.
-            if membership_role:
+            claimed = False
+            if existing is None:
+                # SAVEPOINT: a concurrent create between the check above and here
+                # would hit the unique index; don't 500 the registration/login.
+                # Flush the caller's unrelated pending state (is_verified,
+                # reactivation, the OAuth link) FIRST, in the outer transaction —
+                # ``begin_nested()`` pre-flushes on open, so a claim stamped before
+                # the savepoint would write in the OUTER transaction and a lost
+                # race would roll back the whole registration. Stamp the claim
+                # strictly INSIDE the savepoint instead.
+                await session.flush()
                 try:
-                    role_result = await session.execute(
-                        select(Role).where(
-                            Role.name == membership_role,
-                            Role.is_system == True,
-                            Role.organization_id.is_(None),
-                            Role.deleted_at.is_(None),
-                        )
-                    )
-                    system_role = role_result.scalar_one_or_none()
-                    if system_role:
-                        existing = await session.execute(
-                            select(RoleAssignment).where(
-                                RoleAssignment.organization_id == membership.organization_id,
-                                RoleAssignment.role_id == system_role.id,
-                                RoleAssignment.principal_type == "user",
-                                RoleAssignment.principal_id == user.id,
-                                RoleAssignment.deleted_at.is_(None),
-                            )
-                        )
-                        if not existing.scalar_one_or_none():
-                            session.add(RoleAssignment(
-                                organization_id=membership.organization_id,
-                                role_id=system_role.id,
-                                principal_type="user",
-                                principal_id=user.id,
-                            ))
-                except Exception:
-                    pass
+                    async with session.begin_nested():
+                        membership.user_id = user.id
+                        membership.email = None
+                        membership.invite_token = None
+                        await session.flush([membership])
+                    claimed = True
+                except IntegrityError:
+                    # Lost the race — a live row now exists. The savepoint rolled
+                    # back only the claim; the outer transaction is still alive, so
+                    # refresh the invite and retire it onto the existing row.
+                    await session.refresh(membership)
+
+            # Move any pre-assigned (pending) RBAC and the invite's base role onto
+            # the user — needed whether we claimed the invite or are retiring it
+            # (the pre-existing row may hold a lower role than the invite granted;
+            # ensure_system_role_assignment is a no-op when already held).
+            await self._materialize_pending_rbac(session, membership, user.id)
+            if invite_role:
+                await ensure_system_role_assignment(session, org_id, str(user.id), invite_role)
+
+            if not claimed:
+                # Hard-delete the retired invite — membership removal is a hard
+                # delete everywhere else, and a soft-deleted row would reappear in
+                # the many (user, org) reads that don't filter deleted_at.
+                await session.delete(membership)
+                await session.flush()
+                continue
+
             # Telemetry: invited user accepted invite and signed up
             try:
                 await telemetry.capture(
                     "organization_member_joined_via_invite",
                     {
-                        "organization_id": str(membership.organization_id),
+                        "organization_id": str(org_id),
                         "membership_id": str(membership.id),
                         "user_id": str(user.id),
                     },
                     user_id=str(user.id),
-                    org_id=str(membership.organization_id),
+                    org_id=str(org_id),
                 )
             except Exception:
                 pass
@@ -284,94 +307,12 @@ class UserManager(BaseUserManager[User, str]):
     async def _materialize_pending_rbac(session: AsyncSession, membership: Membership, user_id: str) -> None:
         """Rewrite pending (membership-keyed) RBAC rows onto the registered user.
 
-        An org admin can pre-assign roles and groups to an invite before the
-        user registers. Those are stored as ``RoleAssignment`` rows with
-        ``principal_type='membership'`` and ``GroupMembership`` rows with
-        ``membership_id`` set. When the invitee registers we convert them to
-        the user-keyed equivalents, de-duplicating against anything the user
-        may already have, so the resolver (which only knows 'user'/'group')
-        sees the intended permissions immediately.
+        Thin wrapper over ``permission_resolver.materialize_pending_rbac`` so the
+        invite-acceptance path and the provisioning paths (SCIM/OIDC via
+        ``claim_pending_invite``) share one implementation.
         """
-        from app.models.role_assignment import RoleAssignment
-        from app.models.group_membership import GroupMembership
-        from app.models.usage_policy import UsagePolicyAssignment
-
-        org_id = membership.organization_id
-        try:
-            # Role assignments: membership principal → user principal
-            ra_result = await session.execute(
-                select(RoleAssignment).where(
-                    RoleAssignment.organization_id == org_id,
-                    RoleAssignment.principal_type == "membership",
-                    RoleAssignment.principal_id == membership.id,
-                    RoleAssignment.deleted_at.is_(None),
-                )
-            )
-            for assignment in ra_result.scalars().all():
-                existing = await session.execute(
-                    select(RoleAssignment).where(
-                        RoleAssignment.organization_id == org_id,
-                        RoleAssignment.role_id == assignment.role_id,
-                        RoleAssignment.principal_type == "user",
-                        RoleAssignment.principal_id == user_id,
-                        RoleAssignment.deleted_at.is_(None),
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(assignment)
-                else:
-                    assignment.principal_type = "user"
-                    assignment.principal_id = user_id
-
-            # Group memberships: membership-keyed → user-keyed
-            gm_result = await session.execute(
-                select(GroupMembership).where(
-                    GroupMembership.membership_id == membership.id,
-                    GroupMembership.deleted_at.is_(None),
-                )
-            )
-            for gm in gm_result.scalars().all():
-                existing = await session.execute(
-                    select(GroupMembership).where(
-                        GroupMembership.group_id == gm.group_id,
-                        GroupMembership.user_id == user_id,
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(gm)
-                else:
-                    gm.user_id = user_id
-                    gm.membership_id = None
-
-            # Usage-policy (quota) assignments: membership principal → user principal
-            upa_result = await session.execute(
-                select(UsagePolicyAssignment).where(
-                    UsagePolicyAssignment.organization_id == org_id,
-                    UsagePolicyAssignment.principal_type == "membership",
-                    UsagePolicyAssignment.principal_id == membership.id,
-                    UsagePolicyAssignment.deleted_at.is_(None),
-                )
-            )
-            for upa in upa_result.scalars().all():
-                existing = await session.execute(
-                    select(UsagePolicyAssignment).where(
-                        UsagePolicyAssignment.organization_id == org_id,
-                        UsagePolicyAssignment.policy_id == upa.policy_id,
-                        UsagePolicyAssignment.principal_type == "user",
-                        UsagePolicyAssignment.principal_id == user_id,
-                        UsagePolicyAssignment.deleted_at.is_(None),
-                    )
-                )
-                if existing.scalar_one_or_none():
-                    await session.delete(upa)
-                else:
-                    upa.principal_type = "user"
-                    upa.principal_id = user_id
-            await session.flush()
-        except Exception:
-            # Never block registration if pending-RBAC tables aren't present
-            # (pre-migration) or a conversion hits a transient conflict.
-            pass
+        from app.core.permission_resolver import materialize_pending_rbac
+        await materialize_pending_rbac(session, membership, user_id)
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
@@ -554,13 +495,16 @@ class UserManager(BaseUserManager[User, str]):
                 async with self.user_db.session as session:
                     # If uninvited signups are disabled and not first user, require invite
                     if await any_user_exists(session) and not settings.bow_config.features.allow_uninvited_signups:
-                        stmt = select(Membership).where(
+                        # Existence check only, and limited: the same address can
+                        # hold open invites in several orgs, so scalar_one_or_none()
+                        # would raise MultipleResultsFound and 500 the OAuth signup.
+                        stmt = select(Membership.id).where(
                             and_(
                                 func.lower(Membership.email) == (account_email or "").strip().lower(),
                                 Membership.user_id.is_(None)
                             )
-                        )
-                        open_membership = (await session.execute(stmt)).scalar_one_or_none()
+                        ).limit(1)
+                        open_membership = (await session.execute(stmt)).first()
                         if not open_membership and await self._has_domain_invite(account_email, session):
                             open_membership = True
                         if not open_membership:
@@ -877,9 +821,10 @@ async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_c
             ldap_identity=identity, ldap_dn=identity["dn"])
         session.add(user)
         await session.flush()
-        session.add(Membership(user_id=user.id, organization_id=ldap_config.organization_id,
+        from app.core.permission_resolver import ensure_system_role_assignment, insert_membership_if_absent
+        await insert_membership_if_absent(session, Membership(
+            user_id=user.id, organization_id=ldap_config.organization_id,
             role="member", directory_provider=identity["provider"]))
-        from app.core.permission_resolver import ensure_system_role_assignment
         await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
     else:
         if not user.is_active or user.is_superuser:
@@ -951,13 +896,17 @@ async def auto_provision_user_for_org(
         select(User).where(func.lower(User.email) == email_norm)
     )).scalar_one_or_none()
 
+    # Multiple open invites for one email in an org are allowed, so this must not
+    # use scalar_one_or_none() (it would raise MultipleResultsFound). It is only a
+    # presence flag here; the actual claim re-queries deterministically.
     open_invite = (await db.execute(
         select(Membership).where(
             Membership.organization_id == organization_id,
             func.lower(Membership.email) == email_norm,
             Membership.user_id.is_(None),
-        )
-    )).scalar_one_or_none()
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).scalars().first()
 
     policy = await _org_signup_policy(db, organization_id)
     domain = email_norm.split("@", 1)[-1]
@@ -982,10 +931,16 @@ async def auto_provision_user_for_org(
 
     if existing_user:
         if open_invite:
-            open_invite.user_id = existing_user.id
+            # Claim via the shared, savepoint-guarded primitive — a bare
+            # ``open_invite.user_id = ...`` would 500 at commit if a concurrent
+            # SCIM/OIDC provision of the same user won the race against the unique
+            # index. On a lost race it returns None (the user is already a member).
+            from app.core.permission_resolver import claim_pending_invite
+            await claim_pending_invite(db, existing_user, organization_id)
         else:
             role = str(policy.get("auto_invite_role") or "member")
-            db.add(Membership(
+            from app.core.permission_resolver import insert_membership_if_absent
+            await insert_membership_if_absent(db, Membership(
                 user_id=existing_user.id,
                 organization_id=organization_id,
                 role=role,
@@ -1008,10 +963,14 @@ async def auto_provision_user_for_org(
     await db.flush()
 
     if open_invite:
-        open_invite.user_id = user.id
+        # Claim via the shared, savepoint-guarded primitive (see the existing-user
+        # branch above) rather than a bare assignment that would 500 on a race.
+        from app.core.permission_resolver import claim_pending_invite
+        await claim_pending_invite(db, user, organization_id)
     else:
         role = str(policy.get("auto_invite_role") or "member")
-        db.add(Membership(
+        from app.core.permission_resolver import insert_membership_if_absent
+        await insert_membership_if_absent(db, Membership(
             user_id=user.id,
             organization_id=organization_id,
             role=role,
