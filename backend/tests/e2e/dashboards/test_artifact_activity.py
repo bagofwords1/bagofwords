@@ -548,12 +548,15 @@ def test_a_short_event_id_never_resolves_to_a_withheld_event(corpus, corpus_rows
     aid, owner, secret, report_id = withheld_setup(corpus, corpus_rows, test_client)
     ui = test_client.get(path(aid), headers=owner).json()["events"]
     withheld_id = next(e["id"] for e in ui if secret in e["text"])
-    # Store visible events until one shares the withheld event's first character.
+    # Store visible events until one shares the withheld event's first
+    # character: a full batch per request (50 new ids), so a few requests at
+    # most (a miss after 4 batches is 1 in ~10^5).
     visible_id = None
-    for _ in range(200):
-        assert test_client.post(path(aid), json=batch({"kind": "click", "detail": {"target": "button 'Go'"}}),
+    click = {"kind": "click", "detail": {"target": "button 'Go'"}}
+    for _ in range(4):
+        assert test_client.post(path(aid), json=batch(*[click] * artifact_activity.MAX_BATCH),
                                 headers=owner).status_code == 200
-        ids = [e["id"] for e in test_client.get(path(aid), headers=owner).json()["events"]]
+        ids = [e["id"] for e in test_client.get(path(aid), params={"limit": 200}, headers=owner).json()["events"]]
         visible_id = next((i for i in ids if i != withheld_id and i[0] == withheld_id[0]), None)
         if visible_id:
             break
