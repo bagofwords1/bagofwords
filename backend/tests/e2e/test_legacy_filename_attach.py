@@ -172,6 +172,32 @@ def test_a_failed_attach_leaves_the_session_usable(create_user, login_user, whoa
 
 
 @pytest.mark.e2e
+def test_a_failed_attach_logs_text_any_utf8_sink_can_write(create_user, login_user, whoami, monkeypatch, caplog):
+    """The failure is logged with the name it failed on. Logged raw, its
+    surrogates broke every UTF-8 sink: under pytest-xdist the captured log
+    could not be sent from the worker and the whole e2e run crashed."""
+    import logging
+
+    import app.ai.tools.implementations._file_tool_common as ftc
+
+    monkeypatch.setattr(ftc, "storage_safe_name", lambda s: s)
+    # alembic's fileConfig disables loggers that exist when migrations run, so
+    # whether this one logs depends on test order; make it log.
+    monkeypatch.setattr(ftc.logger, "disabled", False)
+    caplog.set_level(logging.WARNING, logger=ftc.logger.name)
+
+    org_id, user_id = _org_and_user(create_user, login_user, whoami)
+    report_id = _run(_seed_report(org_id, user_id))
+    file_id, _ = _run(_attach(report_id, org_id, user_id, filename=SURROGATE_NAME))
+
+    assert file_id is None
+    failures = [r.getMessage() for r in caplog.records if "persistence failed" in r.getMessage()]
+    assert failures, "the failed attach is logged"
+    for text in failures:
+        text.encode("utf-8")  # raises on a surrogate
+
+
+@pytest.mark.e2e
 def test_uploading_a_legacy_named_file_persists_and_round_trips(
     create_user, login_user, whoami
 ):

@@ -1008,7 +1008,7 @@ async def attach_drive_file_to_session(
         return None
     if len(content_bytes) > _ATTACH_MAX_BYTES:
         logger.info(
-            "attach_drive_file_to_session: %s skipped (%.1f MB > cap)",
+            "attach_drive_file_to_session: %r skipped (%.1f MB > cap)",
             filename, len(content_bytes) / (1024 * 1024),
         )
         return None
@@ -1071,7 +1071,7 @@ async def attach_drive_file_to_session(
                 unchanged = False
             if unchanged:
                 logger.info(
-                    "attach_drive_file_to_session: %s unchanged, reusing session file %s",
+                    "attach_drive_file_to_session: %r unchanged, reusing session file %s",
                     filename, cached.id,
                 )
                 if analysis:
@@ -1086,7 +1086,7 @@ async def attach_drive_file_to_session(
             await db.commit()
             await db.refresh(db_file)
             logger.info(
-                "attach_drive_file_to_session: refreshed %s in place (session file %s)",
+                "attach_drive_file_to_session: refreshed %r in place (session file %s)",
                 filename, db_file.id,
             )
         else:
@@ -1142,12 +1142,14 @@ async def attach_drive_file_to_session(
             db.add(db_file)
             await db.commit()
         except Exception as e:
-            logger.warning("attach_drive_file_to_session: preview failed for %s: %s", filename, e)
+            logger.warning("attach_drive_file_to_session: preview failed for %r: %r", filename, e)
 
-        logger.info("attach_drive_file_to_session: attached %s as session file %s", filename, db_file.id)
+        logger.info("attach_drive_file_to_session: attached %r as session file %s", filename, db_file.id)
         return str(db_file.id)
     except Exception as e:
-        logger.warning("attach_drive_file_to_session: persistence failed for %s: %s", filename, e)
+        # %r: the name (and the driver's error quoting it) can carry
+        # surrogateescape'd bytes, which no UTF-8 log sink can write.
+        logger.warning("attach_drive_file_to_session: persistence failed for %r: %r", filename, e)
         # A failure during flush (bad encoding, constraint violation) leaves the
         # session in a state where EVERY later statement raises "This Session's
         # transaction has been rolled back" — the attach is best-effort, but
