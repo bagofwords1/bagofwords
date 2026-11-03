@@ -213,3 +213,64 @@ console.log('PASS: an embed that cannot open its artifact says why, in every cat
   }
 }
 console.log('PASS: an unavailable message is the catalog text, else the built-in English, never a raw key')
+
+// ── a disabled application is a permanent refusal ─────────────────────────
+assert.deepEqual(failed({ errorCode: 'host_app.disabled' }), { kind: 'fail', retryable: false })
+assert.deepEqual(failed({ errorCode: 'host_app.disabled', hasCredential: false }), { kind: 'fail', retryable: false })
+console.log('PASS: a renewal or sign-in against a disabled application fails at once, with no retry')
+
+// ── the broker tells the page when BOW refuses the session ────────────────
+// The real useArtifactRuntime, a frame bound by BOW_RUNTIME_READY, and a
+// stubbed fetch: an app call refused with 401 or embed.session_invalid calls
+// onSessionEnded with the authorization it sent; other refusals do not.
+async function brokerCall(response, { stream = false, authorizationAfter, context } = {}) {
+  const embed = ref(alice), appToken = ref('')
+  const listeners = {}
+  const ended = []
+  const frameWindow = { postMessage: (_m, _o, ports) => { frameWindow.port = ports?.[0] } }
+  const frame = { contentWindow: frameWindow, srcdoc: 'window.__BOW_RUNTIME_NONCE__="ab12-cd34"' }
+  const fetchStub = async (url) => {
+    if (String(url).endsWith('/context')) return context ? context() : new Response('{}', { status: 200 })
+    if (authorizationAfter) embed.value = authorizationAfter  // renewed while the call was in flight
+    return response()
+  }
+  const windowStub = { addEventListener: (t, fn) => { listeners[t] = fn }, removeEventListener: () => {}, location: { pathname: '/d/x' } }
+  const stubs = {
+    require: () => embedSession,
+    useEmbedCredential: () => embed, useAuth: () => ({ token: appToken }), computed,
+    useApiAuthorization: () => computed(() => (embed.value ? `Bearer ${embed.value.token}` : '')),
+    useErrorMessage: () => ({ getErrorMessage: () => 'refused' }),
+    onMounted: (fn) => fn(), onUnmounted: () => {}, watch: () => {},
+    window: windowStub, fetch: fetchStub, IntersectionObserver: class { observe() {} disconnect() {} },
+  }
+  const exports = {}
+  new Function('exports', ...Object.keys(stubs), runtimeModule)(exports, ...Object.values(stubs))
+  exports.useArtifactRuntime(() => ({ frames: [frame], artifactId: 'art-1', recordViews: false,
+    onSessionEnded: (sent) => ended.push(sent) }))
+  listeners.message({ data: { type: 'BOW_RUNTIME_READY', nonce: 'ab12-cd34' }, source: frameWindow })
+  const replies = []
+  frameWindow.port.onmessage = (e) => replies.push(e.data)
+  frameWindow.port.postMessage({ id: 'r1', method: stream ? 'conversationSend' : 'conversations',
+    args: stream ? { id: 'c1', text: 'hi' } : { op: 'list' } })
+  for (let i = 0; i < 50 && !replies.some((r) => r.error || 'result' in r); i++) await new Promise((r) => setTimeout(r, 5))
+  frameWindow.port.close()
+  return { ended, replies }
+}
+const json = (status, body) => () => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+{
+  let r = await brokerCall(json(401, { error_code: 'embed.session_invalid' }))
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'a typed 401 ends the session')
+  r = await brokerCall(json(401, {}))
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'a bare 401 too')
+  r = await brokerCall(json(403, { error_code: 'conversation.agent_forbidden' }))
+  assert.deepEqual(r.ended, [], 'an ordinary refusal does not')
+  r = await brokerCall(json(503, {}))
+  assert.deepEqual(r.ended, [], 'nor a server error')
+  r = await brokerCall(() => new Response(JSON.stringify({ type: 'error', code: 'embed.session_invalid', message: 'x' }) + '\n', { status: 200 }), { stream: true })
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'a stream error event with the session code ends it')
+  r = await brokerCall(json(200, { items: [] }), { context: json(403, { error_code: 'embed.session_invalid' }) })
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'the runtime context refused with the session code ends it too')
+  r = await brokerCall(json(401, { error_code: 'embed.session_invalid' }), { authorizationAfter: renewed })
+  assert.deepEqual(r.ended, ['Bearer bow_embed_a1'], 'it reports the authorization the request sent, not the renewed one')
+}
+console.log('PASS: the broker reports a refused session with the authorization it sent, and only for 401 or embed.session_invalid')

@@ -1,6 +1,6 @@
 // The backend step a host application needs, per identity mode, in the
-// languages customers' back offices run. Shown in Settings → Integrations →
-// Host applications and in an artifact's Embed tab. Keep the two languages
+// languages customers' back offices run. Shown in Settings → Channels →
+// Connected applications and in an artifact's Embed tab. Keep the two languages
 // equivalent: same claims, same 60-second lifetime, same one-time jti.
 
 export type ExampleLang = 'python' | 'node'
@@ -43,7 +43,7 @@ export function backendExample(host: Host, lang: ExampleLang): string {
 import os, time, uuid
 import jwt
 
-PRIVATE_KEY = os.environ["BOW_HOST_PRIVATE_KEY"]  # shown once in Settings → Integrations
+PRIVATE_KEY = os.environ["BOW_HOST_PRIVATE_KEY"]  # shown once in Settings → Channels → Connected applications
 
 def bow_assertion(user) -> str:
     now = int(time.time())
@@ -72,7 +72,7 @@ def bow_assertion(user) -> str:
 import jwt from 'jsonwebtoken'
 import crypto from 'node:crypto'
 
-const PRIVATE_KEY = process.env.BOW_HOST_PRIVATE_KEY // shown once in Settings → Integrations
+const PRIVATE_KEY = process.env.BOW_HOST_PRIVATE_KEY // shown once in Settings → Channels → Connected applications
 
 app.post('/bow/assertion', requireLogin, (req, res) => {
   const assertion = jwt.sign(

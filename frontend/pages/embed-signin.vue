@@ -52,6 +52,11 @@ onMounted(async () => {
   })
   if (error.value || !(data.value as any)?.code) {
     stop(getErrorMessage(error.value))
+    // The frame that opened us is waiting: tell it why (same origin, same
+    // state as a code would carry; no secret in it).
+    const errorCode = (error.value as any)?.data?.error_code
+    opener.postMessage({ type: 'bow:sso-error', state: nonce, error_code: typeof errorCode === 'string' ? errorCode : null,
+      message: message.value }, window.location.origin)
     return
   }
   opener.postMessage({ type: 'bow:sso-code', code: (data.value as any).code, state: nonce }, window.location.origin)

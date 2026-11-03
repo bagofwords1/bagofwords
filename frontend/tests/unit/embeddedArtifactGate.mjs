@@ -30,13 +30,24 @@ const MINUTE = 60_000
 // `credentials` answers each host.requestCredential in turn; `sessions` each
 // POST /session ({ ok, status, body }, or a promise of one: an exchange still
 // in flight).
-function mountGate({ credentials, sessions }) {
+function mountGate({ credentials, sessions, boot, deletes = [], setLocale = async () => {} }) {
   const credential = ref(null)
   const requested = []
   const posted = []
   const deleted = []
+  // Every DELETE and every post to the host, in order, to check what the host
+  // hears before the session is revoked.
+  const log = []
   let hostHandlers = null
   let mounted = null
+  let unmount = null
+  // As useEmbedHost: init is heard only after start(), and nothing reaches the
+  // host before that init bound it (a post before is dropped).
+  let started = false
+  let bound = false
+  // SSO: the popup window.open returns, and the frame's message listener.
+  const popup = { close() {} }
+  const sso = { url: null, onMessage: null, listeners: 0 }
   const stubs = {
     require: (id) => {
       if (id === 'vue') return { defineComponent: (options) => options }
@@ -50,14 +61,14 @@ function mountGate({ credentials, sessions }) {
     useErrorMessage: () => ({ getErrorMessage: (e) => `error:${e?.data?.error_code}` }),
     useRuntimeConfig: () => ({ public: { baseURL: '/api' } }),
     useEmbedCredential: () => credential,
-    useNuxtApp: () => ({}),
+    useNuxtApp: () => ({ $setLocale: setLocale }),
     useEmbedHost: (_origins, handlers) => {
       hostHandlers = handlers
       return {
         embedded: true,
-        start: () => {},
+        start: () => { started = true },
         stop: () => {},
-        post: (type, payload) => posted.push({ type, ...payload }),
+        post: (type, payload) => { if (!bound) return; posted.push({ type, ...payload }); log.push(`post:${type}:${payload?.status ?? payload?.reason ?? ''}`) },
         requestCredential: (kind) => {
           requested.push(kind)
           const next = credentials.shift()
@@ -66,21 +77,41 @@ function mountGate({ credentials, sessions }) {
       }
     },
     fetch: async (url, init = {}) => {
-      if (url.endsWith('/bootstrap')) return { ok: true, json: async () => ({ enabled: true, identity_mode: 'assertion', allowed_origins: [] }) }
-      if (init.method === 'DELETE') { deleted.push(init.headers?.Authorization); return { ok: true, status: 204, json: async () => ({}) } }
+      if (url.endsWith('/bootstrap')) return { ok: true, json: async () => ({ enabled: true, identity_mode: 'assertion', allowed_origins: [], ...boot }) }
+      if (init.method === 'DELETE') {
+        deleted.push(init.headers?.Authorization)
+        log.push(`delete:${init.headers?.Authorization}:${init.keepalive ? 'keepalive' : 'plain'}`)
+        const next = deletes.shift() ?? 204
+        if (next instanceof Error) throw next
+        return { ok: next < 400, status: next, json: async () => ({}) }
+      }
       assert.equal(init.method, 'POST')
       const { ok = true, status = 200, body } = await sessions.shift()
       return { ok, status, json: async () => body }
     },
     onMounted: (fn) => { mounted = fn },
-    onBeforeUnmount: () => {},
+    window: {
+      open: (url) => { sso.url = url; return popup },
+      addEventListener: (type, fn) => { if (type === 'message') { sso.onMessage = fn; sso.listeners++ } },
+      removeEventListener: (type, fn) => { if (type === 'message' && fn === sso.onMessage) sso.listeners-- },
+      location: { origin: 'https://bow.test' },
+    },
+    onBeforeUnmount: (fn) => { unmount = fn },
   }
   const exports = {}
   new Function('exports', ...Object.keys(stubs), compiled)(exports, ...Object.values(stubs))
   let exposed = {}
   const bindings = exports.default.setup({ hostApplication: 'host_1' }, { expose: (o) => { exposed = o }, emit: () => {} })
-  return { bindings, credential, requested, posted, deleted, exposed: () => exposed || {}, mounted: () => mounted(),
-    init: () => hostHandlers.onInit({ context: null }), logout: () => hostHandlers.onLogout() }
+  return { bindings, credential, requested, posted, deleted, log, exposed: () => exposed || {}, mounted: () => mounted(),
+    init: (extra = {}) => { if (!started) return; bound = true; return hostHandlers.onInit({ context: null, ...extra }) },
+    logout: () => hostHandlers.onLogout(),
+    unmount: () => unmount(),
+    ssoListeners: () => sso.listeners,
+    // SSO: the popup posts its one-time code back (bound to the state in its URL).
+    ssoCode: (code) => sso.onMessage({ origin: 'https://bow.test', source: popup,
+      data: { type: 'bow:sso-code', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), code } }),
+    ssoError: (error_code, message) => sso.onMessage({ origin: 'https://bow.test', source: popup,
+      data: { type: 'bow:sso-error', state: new URL(sso.url, 'https://bow.test').searchParams.get('state'), error_code, message } }) }
 }
 
 // Let the gate's awaits (credential, exchange, json) run between timer ticks.
@@ -289,7 +320,8 @@ try {
   await settle()
   assert.equal(gate.bindings.status.value, 'signed_out', 'a renewal that fails after the logout does not turn it into a failure')
   assert.equal(gate.credential.value, null)
-  assert.deepEqual(gate.posted.slice(postsAtLogout), [], 'the host hears nothing more')
+  assert.deepEqual(gate.posted.slice(postsAtLogout).map((p) => p.status), ['signed_out'],
+    'the host hears signed_out once the renewal settled, and nothing failed')
   mock.timers.tick(60 * MINUTE)
   await settle()
   assert.equal(gate.requested.length, 2, 'and no renewal is scheduled')
@@ -343,3 +375,283 @@ try {
   mock.timers.reset()
 }
 console.log('PASS: a same-viewer renewal swaps the credential and its viewer in place')
+
+// ── signing out: the host hears signed_out only after the frame's cleanup ──
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A signed-in user: the session is revoked (keepalive, so it outlives a
+  // frame the host removes) before the host hears signed_out.
+  const gate = await readyGate()
+  gate.log.length = 0
+  gate.logout()
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_a1:keepalive', 'post:bow:auth:signed_out'])
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A first sign-in still in flight at the logout: the server issues its
+  // session after the logout. The host hears signed_out only after that late
+  // session was revoked too.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [pending.promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.logout()
+  await settle()
+  assert.deepEqual(gate.log, [], 'nothing yet: no session to revoke, the sign-in has not settled')
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_late' } })
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_late:keepalive', 'post:bow:auth:signed_out'])
+  assert.equal(gate.credential.value, null)
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A revoke that fails on the server is tried once more, after a second.
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }], deletes: [500, 204] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.log.length = 0
+  gate.logout()
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_a1:keepalive'])
+  mock.timers.tick(1000)
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_a1:keepalive', 'delete:Bearer bow_embed_a1:keepalive', 'post:bow:auth:signed_out'])
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A sign-in that never settles cannot hold the host: signed_out after 5 s.
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [deferred().promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.logout()
+  await settle()
+  mock.timers.tick(5000 - 1)
+  await settle()
+  assert.equal(gate.posted.filter((p) => p.status === 'signed_out').length, 0)
+  mock.timers.tick(1)
+  await settle()
+  assert.equal(gate.posted.filter((p) => p.status === 'signed_out').length, 1)
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: signing out revokes the session (and a late one) before the host hears signed_out, with a retry and a 5 s cap')
+
+// ── a disabled application: the host is told why, after its init ──────────
+{
+  const gate = mountGate({ credentials: [], sessions: [], boot: { enabled: false } })
+  await gate.mounted()
+  assert.equal(gate.bindings.status.value, 'unavailable')
+  assert.deepEqual(gate.posted, [], 'nothing before the host is bound')
+  gate.init()
+  await settle()
+  assert.deepEqual(gate.posted.map((p) => [p.type, p.reason]), [['bow:unavailable', 'not_allowed']])
+  assert.equal(gate.requested.length, 0, 'no sign-in is attempted')
+}
+console.log('PASS: a disabled application tells the host `unavailable` once its init arrives')
+
+// ── sign-out races (second logout, a retry meanwhile, an SSO exchange) ─────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A second logout while the first still waits for a sign-in in flight: the
+  // host hears signed_out once, after the late session was revoked.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [pending.promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.logout()
+  await settle()
+  gate.logout()
+  await settle()
+  assert.deepEqual(gate.log, [], 'the second logout does not tell the host early')
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_late' } })
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_late:keepalive', 'post:bow:auth:signed_out'])
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // Retry pressed while the sign-out still waits: the new sign-in is what the
+  // host hears; the old sign-out stays silent.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [pending.promise, { body: { ...SESSION, token: 'bow_embed_new' } }] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  gate.logout()
+  await settle()
+  await gate.bindings.signIn()
+  await settle()
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_late' } })
+  await settle()
+  mock.timers.tick(5000)
+  await settle()
+  assert.equal(gate.bindings.status.value, 'ready')
+  assert.equal(gate.credential.value?.token, 'bow_embed_new')
+  assert.deepEqual(gate.posted.map((p) => p.status), ['authenticated'], 'no stale signed_out after the new sign-in')
+  assert.ok(gate.deleted.includes('Bearer bow_embed_late'), 'the late session is still revoked')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // SSO: the code exchange is in flight at the logout. The host hears
+  // signed_out only after the session it returns was revoked.
+  const pending = deferred()
+  const gate = mountGate({ credentials: [], sessions: [pending.promise], boot: { identity_mode: 'sso' } })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  await gate.bindings.signInWithPopup()
+  gate.ssoCode('code-1')
+  await settle()
+  gate.log.length = 0
+  gate.logout()
+  await settle()
+  assert.deepEqual(gate.log, [], 'not before the SSO exchange settled')
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_sso_late' } })
+  await settle()
+  assert.deepEqual(gate.log, ['delete:Bearer bow_embed_sso_late:keepalive', 'post:bow:auth:signed_out'])
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a second logout, a retry and an SSO exchange during sign-out leave no live session and no stale signed_out')
+
+// ── the host's language is in place before the artifact frame is built ────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // $setLocale loads the catalog first; the sign-in that leads to the
+  // artifact (built with the page's <html lang>) waits for it.
+  const catalog = deferred()
+  const order = []
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }],
+    setLocale: async (code) => { order.push(`locale:start:${code}`); await catalog.promise; order.push(`locale:done:${code}`) } })
+  await gate.mounted()
+  gate.init({ locale: 'he' })
+  await settle()
+  assert.equal(gate.requested.length, 0, 'no sign-in before the language is applied')
+  catalog.resolve()
+  await settle()
+  assert.deepEqual(order, ['locale:start:he', 'locale:done:he'])
+  assert.equal(gate.requested.length, 1, 'then the sign-in starts')
+  assert.equal(gate.bindings.status.value, 'ready')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: the gate applies the host language before it signs in, so the artifact frame is built in it')
+
+// ── a logout while the language loads is not undone by the sign-in after it ──
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  const catalog = deferred()
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }],
+    setLocale: async () => { await catalog.promise } })
+  await gate.mounted()
+  gate.init({ locale: 'es' })
+  await settle()
+  gate.logout()
+  mock.timers.tick(5000)
+  await settle()
+  catalog.resolve()
+  await settle()
+  assert.equal(gate.requested.length, 0, 'no credential is requested after the logout')
+  assert.equal(gate.bindings.status.value, 'signed_out')
+  assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:auth').map((p) => p.status), ['signed_out'],
+    'the host hears signed_out and nothing after it')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a logout while the host language loads keeps the user signed out')
+
+// ── BOW ended the session (e.g. the app was disabled) ─────────────────────
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // Several requests report it at once: the host hears it once, and the
+  // renewal scheduled for later never runs.
+  const gate = await readyGate()
+  const before = gate.posted.length
+  gate.exposed().artifactUnavailable('session_invalid')
+  gate.exposed().artifactUnavailable('session_invalid')
+  await settle()
+  assert.deepEqual(gate.posted.slice(before).map((p) => [p.type, p.status]), [['bow:auth', 'failed']])
+  assert.equal(gate.credential.value, null)
+  mock.timers.tick(60 * MINUTE)
+  await settle()
+  assert.equal(gate.requested.length, 1, 'no renewal after the session ended')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // A renewal in flight when BOW refuses the session cannot bring it back.
+  const pending = deferred()
+  const gate = mountGate({ credentials: ['assertion-1', 'assertion-2'], sessions: [{ body: SESSION }, pending.promise] })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  mock.timers.tick(55 * MINUTE)  // the renewal starts
+  await settle()
+  gate.exposed().artifactUnavailable('session_invalid')
+  pending.resolve({ body: { ...SESSION, token: 'bow_embed_late' } })
+  await settle()
+  assert.equal(gate.bindings.status.value, 'failed')
+  assert.equal(gate.credential.value, null, 'the late renewal did not restore the session')
+  assert.ok(gate.deleted.includes('Bearer bow_embed_late'), 'its session is revoked')
+} finally {
+  mock.timers.reset()
+}
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // SSO: the popup's own refusal (a disabled app) reaches the frame, which
+  // stops waiting and offers no retry.
+  const gate = mountGate({ credentials: [], sessions: [], boot: { identity_mode: 'sso' } })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  await gate.bindings.signInWithPopup()
+  assert.equal(gate.bindings.status.value, 'signing_in')
+  gate.ssoError('host_app.disabled', "This application's access to BOW is turned off.")
+  await settle()
+  assert.equal(gate.bindings.status.value, 'failed')
+  assert.equal(gate.bindings.retryable.value, false)
+  assert.equal(gate.bindings.message.value, "This application's access to BOW is turned off.")
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a session BOW refused ends once, drops a renewal in flight, and an SSO refusal stops the wait')
+
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  // Abandoned SSO popups leave no listeners: a new attempt, a sign-out and
+  // an unmount each remove the previous one.
+  const gate = mountGate({ credentials: [], sessions: [], boot: { identity_mode: 'sso' } })
+  await gate.mounted()
+  gate.init()
+  await settle()
+  await gate.bindings.signInWithPopup()
+  await gate.bindings.signInWithPopup()
+  assert.equal(gate.ssoListeners(), 1, 'a new attempt replaces the abandoned one')
+  // Two attempts started together (each awaits its PKCE hash): one listener.
+  await Promise.all([gate.bindings.signInWithPopup(), gate.bindings.signInWithPopup()])
+  assert.equal(gate.ssoListeners(), 1, 'overlapping attempts leave one listener')
+  gate.logout()
+  await settle()
+  assert.equal(gate.ssoListeners(), 0, 'a sign-out removes it')
+  await gate.bindings.signInWithPopup()
+  gate.unmount()
+  assert.equal(gate.ssoListeners(), 0, 'an unmount removes it')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: abandoned SSO attempts leave no message listeners behind')
