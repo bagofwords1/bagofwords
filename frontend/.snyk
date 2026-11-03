@@ -181,3 +181,33 @@ ignore:
           affected). Re-review on expiry or when the Nuxt 4 upgrade drops the
           chain.
         expires: 2026-12-21T00:00:00.000Z
+  # Files or Directories Accessible to External Parties in @nuxt/vite-builder
+  # (High, CVSS 8.2, CVE-2026-119199 / GHSA-648h-gw55-m2g7). The flaw is in the
+  # Vite DEV SERVER's filesystem access controls (packages/vite/src/vite.ts):
+  # it fails to deny requests for the Nitro dev-server output directory, so an
+  # attacker who can reach a running `nuxt dev` server could read compiled
+  # server-side code and secrets. Introduced via:
+  #   nuxt > @nuxt/vite-builder
+  # The vulnerable path executes ONLY under `nuxt dev` — a long-running Vite dev
+  # server on a developer's machine. It is NOT in the production runtime: this
+  # app is an SSR-disabled Nuxt 3 SPA built with `nuxt generate`, which emits a
+  # static bundle under .output/public that the Dockerfile copies to
+  # /app/frontend/dist and serves as static files through FastAPI — the prod
+  # image ships no Vite/Nitro dev server and no Node runtime. The only requests
+  # the dev server answers are the developer's own localhost traffic, never
+  # attacker-controlled production input. Unlike the other entries here a fix
+  # does exist (@nuxt/vite-builder 4.6.3), but vite-builder's major version
+  # tracks nuxt's and cannot be forced to 4.x under nuxt 3 — it is the same
+  # Nuxt 4 major upgrade these entries are all deferred to. Time-boxed for
+  # re-review with the rest of the Nuxt 4 cohort.
+  SNYK-JS-NUXTVITEBUILDER-22132207:
+    - '*':
+        reason: >-
+          Dev-server-only flaw in @nuxt/vite-builder's Vite dev server
+          filesystem access controls; the path runs only under `nuxt dev`,
+          never in production, which ships a static `nuxt generate` .output
+          served by FastAPI (no Vite/Nitro dev server, no Node runtime). Fix is
+          @nuxt/vite-builder 4.6.3 (the Nuxt 4 major upgrade) and cannot be
+          forced under nuxt 3. Deferred to the Nuxt 4 upgrade; re-review on
+          expiry.
+        expires: 2026-12-21T00:00:00.000Z
