@@ -89,6 +89,14 @@ c = await chrome(await mount(table(HE_ROWS), 'en'));
 assert.equal(c.search, 'Search...');
 assert.match(c.range, /^1–10 of 24/);
 
+// Spanish viewer (BOW's third shipped language).
+c = await chrome(await mount(table(EN_ROWS), 'es'));
+assert.equal(c.search, 'Buscar...');
+assert.equal(c.download, 'Descargar CSV');
+assert.match(c.range, /^1–10 de 24/);
+c = await chrome(await mount(`h(DataTable, {rows: [], columns: [{field: 'a', headerName: 'A'}]})`, 'es-ES'));
+assert.match(c.text, /No hay datos disponibles/);
+
 // No page language (an older host): the table's own text decides.
 c = await chrome(await mount(table(HE_ROWS), null));
 assert.equal(c.lang, null);

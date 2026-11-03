@@ -1359,21 +1359,25 @@
     var ltr = (sample.match(/[A-Za-z]/g) || []).length;
     return rtl > ltr ? 'rtl' : 'ltr';
   }
-  // The table's own words. `labels` wins; otherwise Hebrew or English, from
-  // (in order) a language hint (ChatResult passes one), the page's <html lang>
-  // (the viewer's BOW language), and only without either, the table's text.
+  // The table's own words. `labels` wins; otherwise English, Spanish or
+  // Hebrew (BOW's shipped languages), from (in order) a language hint
+  // (ChatResult passes one), the page's <html lang> (the viewer's BOW
+  // language), and only without either, the table's text (Hebrew or English).
   var _DT_LABELS = {
     en: { search: 'Search...', download: 'Download CSV', csv: 'CSV', range: '{start}–{end} of {total}',
       matches: '{shown} of {total} rows match', printCap: 'first {n} rows in print/PDF', empty: 'No data available' },
     he: { search: 'חיפוש...', download: 'הורדת CSV', csv: 'CSV', range: '\u2066{start}–{end}\u2069 מתוך {total}',
-      matches: '{shown} מתוך {total} שורות תואמות', printCap: '{n} השורות הראשונות בהדפסה/PDF', empty: 'אין נתונים להצגה' }
+      matches: '{shown} מתוך {total} שורות תואמות', printCap: '{n} השורות הראשונות בהדפסה/PDF', empty: 'אין נתונים להצגה' },
+    es: { search: 'Buscar...', download: 'Descargar CSV', csv: 'CSV', range: '{start}–{end} de {total}',
+      matches: '{shown} de {total} filas coinciden', printCap: 'primeras {n} filas en impresión/PDF', empty: 'No hay datos disponibles.' }
   };
   var _HE_CHARS = /[\u0590-\u05FF]/g;
   function _dtIsHe(lang) { return /^(he|iw)\b/i.test(String(lang || '')); }
+  function _dtCode(lang) { return _dtIsHe(lang) ? 'he' : /^es\b/i.test(String(lang || '')) ? 'es' : 'en'; }
   function _dtLang(hint, cols, rows) {
-    if (hint) return _dtIsHe(hint) ? 'he' : 'en';
+    if (hint) return _dtCode(hint);
     var docLang = typeof document !== 'undefined' && document.documentElement ? document.documentElement.getAttribute('lang') : '';
-    if (docLang) return _dtIsHe(docLang) ? 'he' : 'en';
+    if (docLang) return _dtCode(docLang);
     var sample = '';
     for (var i = 0; i < cols.length; i++) sample += (cols[i].header || '') + ' ';
     for (var r = 0; r < rows.length && r < 5; r++) {
