@@ -551,6 +551,29 @@ try {
 }
 console.log('PASS: the gate applies the host language before it signs in, so the artifact frame is built in it')
 
+// ── a logout while the language loads is not undone by the sign-in after it ──
+mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
+try {
+  const catalog = deferred()
+  const gate = mountGate({ credentials: ['assertion-1'], sessions: [{ body: SESSION }],
+    setLocale: async () => { await catalog.promise } })
+  await gate.mounted()
+  gate.init({ locale: 'es' })
+  await settle()
+  gate.logout()
+  mock.timers.tick(5000)
+  await settle()
+  catalog.resolve()
+  await settle()
+  assert.equal(gate.requested.length, 0, 'no credential is requested after the logout')
+  assert.equal(gate.bindings.status.value, 'signed_out')
+  assert.deepEqual(gate.posted.filter((p) => p.type === 'bow:auth').map((p) => p.status), ['signed_out'],
+    'the host hears signed_out and nothing after it')
+} finally {
+  mock.timers.reset()
+}
+console.log('PASS: a logout while the host language loads keeps the user signed out')
+
 // ── BOW ended the session (e.g. the app was disabled) ─────────────────────
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.parse('2026-10-29T15:00:00Z') })
 try {

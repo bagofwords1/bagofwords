@@ -84,7 +84,10 @@ const host = useEmbedHost(() => allowedOrigins, {
         // The artifact frame takes the page's language when it is built (its
         // <html lang>, which the sandbox's own words follow), so the host's
         // language is in place before the sign-in that leads to it.
+        // A logout while the catalog loads wins: no sign-in after it.
+        const gen = generation;
         if (init.locale) await applyLocale(init.locale);
+        if (gen !== generation) return;
         signIn();
     },
     onContext: (context) => emit('context', context),
