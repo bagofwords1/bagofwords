@@ -13,10 +13,12 @@ This service handles all Git-related operations:
 import git
 import tempfile
 import os
+import json
 import logging
 import shutil
 import re
 import httpx
+import yaml
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
@@ -32,7 +34,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
-from app.models.instruction import Instruction, instruction_data_source_association
+from app.models.instruction import Instruction
 from app.errors.redact import redact_error
 from app.services.git_hardening import ssh_command, with_https_auth
 from app.schemas.git_repository_schema import (
@@ -1138,51 +1140,43 @@ class GitService:
         
         return simple_refs
 
-    async def _resolve_build_agent_folders(
-        self, db: AsyncSession, instruction_ids: List[str]
-    ) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
-        """
-        Map each instruction to its data sources ("agents") and compute a
-        unique, filesystem-safe folder name per data source.
+    @staticmethod
+    def _slugify(value: str) -> str:
+        """Filesystem-safe slug: keep word chars (Unicode-aware), spaces -> '-', lower."""
+        return re.sub(r'[^\w\s-]', '', value or '').strip().replace(' ', '-').lower()
 
-        Returns (instr_to_ds_ids, ds_folder, ds_id_to_name):
-        - instr_to_ds_ids: {instruction_id: [data_source_id, ...]}
+    async def _resolve_agent_folders(
+        self, db: AsyncSession, organization_id: str, used_ds_ids: set
+    ) -> Tuple[Dict[str, str], Dict[str, str]]:
+        """
+        Resolve the agents (data sources) referenced by a build into a stable
+        folder name per agent.
+
+        Returns (ds_id_to_name, ds_folder):
+        - ds_id_to_name: {data_source_id: "Original Agent Name"} - live, non-deleted
         - ds_folder: {data_source_id: "safe-folder-name"}
-        - ds_id_to_name: {data_source_id: "Original Agent Name"} (for frontmatter)
 
-        Folder names come from the agent name (sanitized). When two different
-        agents sanitize to the same name - or to a reserved name ("shared"/
-        "global") - they are disambiguated with a short id suffix so they
-        never collide on disk.
+        Folder names are derived from the agent name and are STABLE across pushes:
+        collisions are resolved against every agent in the org (not just those in
+        this build), so an unchanged agent is never renamed because another
+        same-named agent appeared later. Reserved names ("shared"/"global") and
+        genuine duplicates get a short id suffix. Soft-deleted agents are excluded
+        so a deleted agent never claims a folder or an `agents:` entry.
         """
-        instr_to_ds_ids: Dict[str, List[str]] = {}
         ds_id_to_name: Dict[str, str] = {}
-
-        if instruction_ids:
-            assoc = instruction_data_source_association
-            stmt = (
-                select(
-                    assoc.c.instruction_id,
-                    DataSource.id,
-                    DataSource.name,
-                )
-                .join(DataSource, DataSource.id == assoc.c.data_source_id)
-                .where(assoc.c.instruction_id.in_(instruction_ids))
-            )
-            result = await db.execute(stmt)
-            for instr_id, ds_id, ds_name in result:
-                instr_to_ds_ids.setdefault(instr_id, []).append(ds_id)
-                ds_id_to_name[ds_id] = ds_name
-
-        # Sanitize each agent name into a base folder name.
         base_names: Dict[str, str] = {}
-        for ds_id, name in ds_id_to_name.items():
-            safe = re.sub(r'[^\w\s-]', '', name or '').strip().replace(' ', '-').lower()
-            base_names[ds_id] = safe or ds_id
 
-        # Count collisions so only ambiguous names get an id suffix. Reserved
-        # folder names ("shared"/"global") are also disambiguated so an agent
-        # that happens to share one of those names never lands in them.
+        stmt = select(DataSource.id, DataSource.name).where(
+            DataSource.organization_id == organization_id,
+            DataSource.deleted_at.is_(None),
+        )
+        result = await db.execute(stmt)
+        for ds_id, ds_name in result:
+            ds_id_to_name[ds_id] = ds_name
+            base_names[ds_id] = self._slugify(ds_name) or ds_id
+
+        # Count collisions across the whole org so folder names stay stable
+        # push-to-push, not just within the set of agents in this build.
         reserved = {"shared", "global"}
         name_counts: Dict[str, int] = {}
         for safe in base_names.values():
@@ -1195,7 +1189,12 @@ class GitService:
             else:
                 ds_folder[ds_id] = safe
 
-        return instr_to_ds_ids, ds_folder, ds_id_to_name
+        # Keep only the agents this build references.
+        if used_ds_ids:
+            ds_id_to_name = {k: v for k, v in ds_id_to_name.items() if k in used_ds_ids}
+            ds_folder = {k: v for k, v in ds_folder.items() if k in used_ds_ids}
+
+        return ds_id_to_name, ds_folder
 
     async def _write_build_to_repo(
         self, db: AsyncSession, build: InstructionBuild, repo_path: str
@@ -1217,23 +1216,30 @@ class GitService:
         build_service = BuildService()
         contents = await build_service.get_build_contents(db, build.id)
 
-        # Organize user-created instructions by agent (data source) rather than
-        # by category. data_sources is lazy="raise" on the ORM, so resolve the
-        # associations explicitly up front.
-        instruction_ids = [
-            content.instruction.id
-            for content in contents
-            if content.instruction_version and content.instruction
-        ]
-        instr_to_ds_ids, ds_folder, ds_id_to_name = await self._resolve_build_agent_folders(
-            db, instruction_ids
+        # Organize user-created instructions by agent (data source). Pin the
+        # placement to each version's snapshot (data_source_ids), not the live
+        # associations, so old / rollback builds keep the scope they were cut
+        # with. Resolve agent names + stable folder names once up front.
+        instr_to_ds_ids: Dict[str, List[str]] = {}
+        used_ds_ids: set = set()
+        for content in contents:
+            if not (content.instruction_version and content.instruction):
+                continue
+            ids = content.instruction_version.data_source_ids or []
+            instr_to_ds_ids[content.instruction.id] = list(ids)
+            used_ds_ids.update(ids)
+        ds_id_to_name, ds_folder = await self._resolve_agent_folders(
+            db, build.organization_id, used_ds_ids
         )
 
-        # Track what this push writes (and which linked-git files to preserve)
-        # so stale BOW files can be pruned afterwards - see the cleanup below.
         bow_root = Path(repo_path) / "bow"
-        written_paths: set = set()
+        # Paths this push writes under bow/ (repo-relative, posix) - used both as
+        # the next manifest and to decide what the prune may remove.
+        written_rel: set = set()
+        # Linked-git files to protect from the prune even if not (re)written.
         keep_paths: set = set()
+        # Filenames already used per folder, to avoid same-title overwrites.
+        used_filenames: Dict[str, set] = {}
 
         written_count = 0
         skipped_linked = 0
@@ -1266,29 +1272,30 @@ class GitService:
                 filepath.parent.mkdir(parents=True, exist_ok=True)
             else:
                 # RULE 3: User-created instruction - organize by agent (data source).
-                # One linked agent -> that agent's folder; no linked agent
-                # (applies to all) -> "global"; multiple linked agents ->
-                # "shared", with the agent names recorded in the frontmatter.
-                ds_ids = instr_to_ds_ids.get(instruction.id, [])
+                # Keep only agents that still resolve (drops soft-deleted / unknown).
+                # One agent -> that agent's folder; none (applies to all, or every
+                # linked agent was deleted) -> "global"; several -> "shared", with
+                # the agent names recorded in the frontmatter.
+                ds_ids = [d for d in instr_to_ds_ids.get(instruction.id, []) if d in ds_folder]
                 if len(ds_ids) == 1:
-                    folder = ds_folder.get(ds_ids[0]) or 'global'
+                    folder = ds_folder[ds_ids[0]]
                 elif len(ds_ids) == 0:
                     folder = 'global'
                 else:
                     folder = 'shared'
-                    agent_names = sorted(
-                        ds_id_to_name.get(ds_id, ds_id) for ds_id in ds_ids
-                    )
+                    agent_names = sorted(ds_id_to_name[d] for d in ds_ids)
 
-                bow_dir = Path(repo_path) / "bow" / folder
+                bow_dir = bow_root / folder
                 bow_dir.mkdir(parents=True, exist_ok=True)
-                
-                title = version.title or instruction.title or str(instruction.id)
-                safe_title = re.sub(r'[^\w\s-]', '', title).strip().replace(' ', '-').lower()
-                if not safe_title:
-                    safe_title = str(instruction.id)
-                
+
+                safe_title = self._slugify(version.title or instruction.title or '') or str(instruction.id)
+                # Disambiguate same-title instructions in one folder so the later
+                # one does not silently overwrite the earlier one.
+                folder_used = used_filenames.setdefault(folder, set())
                 filename = f"{safe_title}.md"
+                if filename in folder_used:
+                    filename = f"{safe_title}-{instruction.id[:8]}.md"
+                folder_used.add(filename)
                 filepath = bow_dir / filename
 
             # Frontmatter carries the agents (for shared instructions) and the
@@ -1299,40 +1306,77 @@ class GitService:
             if version.references_json and isinstance(version.references_json, list):
                 simple_refs = await self._resolve_reference_names(db, version.references_json)
 
-            # Write file
-            with open(filepath, 'w') as f:
-                # Only write a frontmatter block if there is something to put in it
-                if agent_names or simple_refs:
-                    f.write("---\n")
-                    if agent_names:
-                        f.write("agents:\n")
-                        for agent_name in agent_names:
-                            f.write(f"  - {agent_name}\n")
-                    if simple_refs:
-                        f.write("references:\n")
-                        for ref in simple_refs:
-                            f.write(f"  - {ref}\n")
-                    f.write("---\n\n")
+            # Emit frontmatter via yaml.safe_dump so names/refs with YAML-special
+            # characters (":", leading "-"/"#", "777", "yes", ...) stay valid and
+            # re-parse cleanly on sync-back.
+            frontmatter: Dict[str, Any] = {}
+            if agent_names:
+                frontmatter['agents'] = agent_names
+            if simple_refs:
+                frontmatter['references'] = simple_refs
 
+            with open(filepath, 'w') as f:
+                if frontmatter:
+                    f.write("---\n")
+                    f.write(yaml.safe_dump(
+                        frontmatter,
+                        default_flow_style=False,
+                        allow_unicode=True,
+                        sort_keys=False,
+                    ))
+                    f.write("---\n\n")
                 if version.title:
                     f.write(f"# {version.title}\n\n")
                 f.write(version.text or "")
 
-            written_paths.add(filepath.resolve())
+            if bow_root in filepath.parents:
+                written_rel.add(filepath.relative_to(repo_path).as_posix())
             written_count += 1
             logger.debug(f"Wrote instruction to {filepath}")
 
-        # Targeted cleanup: prune stale BOW-exported markdown under bow/ that
-        # this build no longer produces (old category layout, deleted
-        # instructions), while leaving linked-git files and any non-.md files
-        # alone, then drop directories the pruning left empty.
+        # Prune only files BOW itself wrote, so hand-authored notes/READMEs and
+        # Git-owned files under bow/ are never deleted. Candidates come from the
+        # previous push's manifest plus the legacy by-category folders (a one-time
+        # migration from the old layout); anything this push rewrote, or a
+        # linked-git file, is kept.
+        manifest_path = bow_root / ".bow-manifest.json"
+        previous_files: set = set()
+        if manifest_path.exists():
+            try:
+                previous_files = set(json.loads(manifest_path.read_text()).get("files", []))
+            except (ValueError, OSError):
+                previous_files = set()
+
+        legacy_dirs = ("general", "code", "data-modeling", "visualizations", "dashboard", "system")
+        candidates = set(previous_files)
+        for name in legacy_dirs:
+            legacy_dir = bow_root / name
+            if legacy_dir.is_dir():
+                for path in legacy_dir.rglob("*.md"):
+                    candidates.add(path.relative_to(repo_path).as_posix())
+
         pruned_count = 0
+        for rel in candidates:
+            if rel in written_rel:
+                continue
+            path = Path(repo_path) / rel
+            if path.resolve() in keep_paths:
+                continue
+            if path.is_file():
+                path.unlink()
+                pruned_count += 1
+
+        # Record what this push wrote, for the next push's prune.
+        if written_rel:
+            bow_root.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps({"files": sorted(written_rel)}, ensure_ascii=False, indent=2)
+            )
+        elif manifest_path.exists():
+            manifest_path.unlink()
+
+        # Drop directories the pruning left empty.
         if bow_root.exists():
-            for path in bow_root.rglob("*.md"):
-                resolved = path.resolve()
-                if resolved not in written_paths and resolved not in keep_paths:
-                    path.unlink()
-                    pruned_count += 1
             for dir_path in sorted(
                 (p for p in bow_root.rglob("*") if p.is_dir()),
                 key=lambda p: len(p.parts),
