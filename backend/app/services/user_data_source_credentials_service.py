@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 
 from typing import Optional
 
@@ -21,7 +22,6 @@ from fastapi import HTTPException
 from app.schemas.data_source_schema import DataSourceUserStatus
 from app.schemas.data_source_registry import resolve_client_class
 import json
-import inspect
 
 
 class UserDataSourceCredentialsService:
@@ -418,16 +418,11 @@ class UserDataSourceCredentialsService:
             from app.services.connection_service import ConnectionService
             creds = ConnectionService._kerberos_delegated_credentials(connection, user, None)
         ClientClass = resolve_client_class(ds_type)
-        params = {**(config or {}), **creds}
+        params = merge_client_credentials(config, creds)
         # Strip meta keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
+        meta_keys = {"auth_policy", "allowed_user_auth_modes"} | RUNTIME_CONFIG_KEYS
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
-        # Filter by signature
-        try:
-            sig = inspect.signature(ClientClass.__init__)
-            params = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        except Exception:
-            pass
+        params = filter_client_parameters(ClientClass, params)
         try:
             # Constructing the client can itself fail on bad/missing params or
             # a missing driver; report it as a failed test, not a 500.

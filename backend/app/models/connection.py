@@ -1,3 +1,4 @@
+from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, Integer, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -194,23 +195,11 @@ class Connection(BaseSchema):
 
             # Parse config if it's a string
             config = json.loads(self.config) if isinstance(self.config, str) else self.config
-            client_params = config.copy()
-            
-            # Only decrypt and merge credentials if they exist
-            if self.credentials:
-                decrypted_credentials = self.decrypt_credentials()
-                client_params.update(decrypted_credentials)
-            
-            # Remove non-client params
-            # Preserve client authentication settings while dropping form-only
-            # authentication metadata for constructors that do not accept it.
-            import inspect
-            signature = inspect.signature(ClientClass.__init__)
-            if "auth_type" not in signature.parameters and not any(
-                p.kind is inspect.Parameter.VAR_KEYWORD
-                for p in signature.parameters.values()
-            ):
-                client_params.pop("auth_type", None)
+            credentials = self.decrypt_credentials() if self.credentials else {}
+            client_params = merge_client_credentials(config, credentials)
+            client_params = filter_client_parameters(
+                ClientClass, client_params, only={"auth_type"}
+            )
             if "demo_id" in client_params:
                 del client_params["demo_id"]
             # Runtime query limits read by the code-execution wrapper, not

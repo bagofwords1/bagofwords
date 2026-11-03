@@ -1,45 +1,61 @@
 # Feedback Loop — authentication selection is ignored
 
-Connection setup can silently use a driver's default authentication mode even
-when the user selects another mode. The regression checks preserve the selected
-mode across new-connection testing, saved connections, and runtime construction.
+Connection setup must preserve credential-level authentication settings without
+forwarding the registry form selector as a driver's authentication argument.
 
-## Root cause (validated)
+## Root cause and review findings
 
-`backend/app/services/data_source_service.py:3435` classified `auth_type` as
-form metadata and removed it after merging credentials into configuration.
-`backend/app/models/connection.py:205` did the same for saved connections.
-The runtime construction paths also excluded this field. Drivers consequently
-received no authentication selection and used their constructor defaults.
+The original parameter filtering removed `auth_type` after merging credentials,
+forcing driver defaults. The initial PR retained the merged key, but review
+correctly identified a regression: when credentials omit the key, the config's
+form selector could replace the driver's default. Review also identified the
+same original filtering bug in the personal-credential test path.
 
-## Loop A — deterministic reproduction
+## Deterministic reproduction
 
-From a checkout with backend dependencies installed:
+With backend dependencies installed:
 
 ```sh
 cd backend
-TESTING=true .venv/bin/python -m pytest tests/unit/test_connection_auth_selection.py -q
+TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db .venv/bin/python -m pytest tests/unit/test_connection_auth_selection.py tests/unit/test_egress_callers.py -q
 ```
 
-The tests replace only the external driver boundary. Three authentication modes
-are exercised through three public construction surfaces with explicit,
-forwarding, and unsupported constructor signatures. Credentials must override
-form-level authentication metadata; clients without the parameter must continue
-to construct successfully. No database or external service is required.
+The regression matrix uses registered test drivers at the external driver
+boundary. It exercises three explicit selections plus missing and empty settings,
+four constructor signatures (explicit, forwarding, unsupported, opaque), and
+four public surfaces (new connection, saved connection, runtime, personal test).
+No live server or database is needed.
 
-With the production files restored to their pre-fix versions and the regression
-test retained: **18 failed, 9 passed**. Authentication-aware drivers received the
-default instead of the selected mode. With the fix: **27 passed**.
+Observed evidence:
 
-## The fix
+- Original 27-case regression against the pre-PR implementation: 18 failed,
+  9 passed; initial fix: 27 passed.
+- Expanded 80-case regression against the initial PR: 31 failed, 49 passed.
+- Revised implementation plus egress caller checks: 106 passed.
+- Mutation that bypasses signature filtering: 12 unsupported-argument cases
+  fail; the 8 missing/empty-setting cases correctly remain green.
 
-Preserve authentication selection when filtering runtime parameters. In the two
-paths without general signature filtering, remove `auth_type` only when the
-constructor accepts neither that argument nor arbitrary keyword arguments.
-Existing signature-aware runtime paths retain the selection automatically.
+## Fix and context map
 
-## What this proves / regression notes
+- `backend/app/data_sources/client_parameters.py`: remove the config form
+  selector before merging credentials; missing or empty credential settings
+  leave driver defaults intact. Centralize signature filtering, retain keyword
+  forwarders, and tolerate TypeError/ValueError for opaque signatures.
+- `backend/app/models/connection.py`: use the helpers for saved connections.
+- `backend/app/services/data_source_service.py`: use the same merge policy for
+  new tests, runtime clients, and catalog clients.
+- `backend/app/services/user_data_source_credentials_service.py`: apply the
+  policy to personal credential tests, including keyword-forwarding drivers.
+- `backend/tests/unit/test_connection_auth_selection.py`: public-surface matrix.
 
-The selected authentication mode reaches compatible driver constructors, and
-unsupported constructors remain compatible. This does not validate credentials
-or authentication configuration on a live external server.
+Only legacy paths that previously discarded the config selector use this merge
+policy. Tool-provider construction that deliberately consumes config-level
+settings is outside this change. Existing full-argument filtering stays full;
+paths that only filtered authentication continue to filter only that argument.
+
+## Verification limits
+
+No live credentials or server configuration were tested. The unsupported driver
+uses its own fixed default, and mutation testing proves the compatibility checks
+fail if unsupported arguments are forwarded. Passing against the old code is
+expected for compatibility cases; the failure check is against a relevant fault.
