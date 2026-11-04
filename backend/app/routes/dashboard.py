@@ -29,11 +29,13 @@ from app.schemas.dashboard_schema import (
     DashboardNotifyRequest,
     DashboardPublishRequest,
     DashboardPublishStatusSchema,
+    DashboardSeenResponse,
     DashboardSettingsSchema,
     DashboardSettingsUpdate,
     DashboardSharingSchema,
     DashboardSharingUpdate,
     DashboardSourceKind,
+    DashboardStarResponse,
     DashboardJoinRequest,
     DraftDashboardSchema,
     PublicGeneralSettings,
@@ -144,6 +146,47 @@ async def list_dashboards(
 
     return await list_for(db, current_user, organization, filter=filter, search=search, mode=mode,
                           page=page, limit=limit)
+
+
+@router.post("/artifacts/shared/seen", response_model=DashboardSeenResponse)
+@requires_permission("view_reports")
+async def mark_shared_dashboards_seen(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The reader looked at the Shared tab: what is New is measured from here
+    on; the previous time is returned for the rest of this visit."""
+    from app.services.dashboard_list import mark_shared_seen
+
+    return await mark_shared_seen(db, current_user, organization)
+
+
+@router.post("/artifacts/{dashboard_id}/star", response_model=DashboardStarResponse)
+@requires_permission("view_reports")
+async def star_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """A personal star on a dashboard the reader can open."""
+    from app.services.dashboard_list import set_star
+
+    return await set_star(db, current_user, organization, dashboard_id, True)
+
+
+@router.delete("/artifacts/{dashboard_id}/star", response_model=DashboardStarResponse)
+@requires_permission("view_reports")
+async def unstar_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    from app.services.dashboard_list import set_star
+
+    return await set_star(db, current_user, organization, dashboard_id, False)
 
 
 @router.get("/artifacts/{dashboard_id}/sharing", response_model=DashboardSharingSchema)

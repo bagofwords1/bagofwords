@@ -13,13 +13,18 @@ A card carries the conversation id only for whoever may edit the dashboard
 (the pencil); readers get the /d link. The thumbnail is the published
 version's for everyone, else -- for its editors -- the draft's.
 """
+from datetime import datetime
+
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
-from app.errors import AppError
+from app.errors import AppError, ErrorCode
 from app.models.artifact import Artifact, ArtifactVersion
+from app.models.artifact_list_seen import ArtifactListSeen
 from app.models.artifact_release import ArtifactShare
+from app.models.artifact_star import ArtifactStar
 
 def _like(text: str) -> str:
     """The words typed, not a pattern: % and _ match themselves."""
@@ -65,7 +70,7 @@ async def _draft_thumbnail(db, artifact: Artifact) -> str | None:
     )).scalar_one_or_none()
 
 
-async def _card(db, artifact: Artifact, user) -> dict:
+async def _card(db, artifact: Artifact, user, starred: set[str]) -> dict:
     from app.models.report import Report
     from app.models.user import User
     from app.services.dashboard_access import can_edit, is_owner, published_release
@@ -90,6 +95,7 @@ async def _card(db, artifact: Artifact, user) -> dict:
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
         "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at,
         "created_at": artifact.created_at, "edited_at": artifact.content_updated_at or artifact.created_at,
+        "is_starred": str(artifact.id) in starred,
     }
 
 
@@ -182,8 +188,94 @@ async def list_dashboards(db, user, organization, *, filter: str = "my", search:
         except (AppError, HTTPException):
             continue
         shown.append(artifact)
+    starred = await _starred_ids(db, user, [str(a.id) for a in shown])
     return {
-        "dashboards": [await _card(db, a, user) for a in shown],
+        "dashboards": [await _card(db, a, user, starred) for a in shown],
         "meta": {"total": total, "page": page, "limit": limit, "total_pages": total_pages,
                  "has_next": page < total_pages, "has_prev": page > 1},
     }
+
+
+# ── stars and the Shared tab's watermark (dashlist01) ───────────────────
+
+async def _starred_ids(db, user, dashboard_ids: list[str]) -> set[str]:
+    """Which of these dashboards the reader starred: one query per page."""
+    if not dashboard_ids:
+        return set()
+    return set((await db.execute(
+        select(ArtifactStar.artifact_id).where(ArtifactStar.user_id == str(user.id),
+                                               ArtifactStar.artifact_id.in_(dashboard_ids))
+    )).scalars().all())
+
+
+def _is_unique_pair(exc: IntegrityError, constraint: str, columns: str) -> bool:
+    """True when `exc` is that unique constraint firing. Postgres names the
+    constraint; SQLite only lists its columns (as
+    artifact_service._is_version_number_collision)."""
+    message = str(exc.orig)
+    return constraint in message or columns in message
+
+
+async def set_star(db, user, organization, dashboard_id: str, starred: bool) -> dict:
+    """Star or unstar a dashboard the reader can open (dashboard_access.
+    admit_reader). A missing dashboard and one the reader cannot open answer
+    the same 404, so a star never tells whether a dashboard exists. Starring
+    twice, or two POSTs at once, leaves one star; unstarring deletes it."""
+    from app.services import dashboard_access
+
+    artifact = (await db.execute(
+        select(Artifact).where(Artifact.id == str(dashboard_id), Artifact.organization_id == str(organization.id),
+                               Artifact.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if artifact is None:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    try:
+        await dashboard_access.admit_reader(db, artifact, user)
+    except (AppError, HTTPException):
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND) from None
+    aid, uid = str(artifact.id), str(user.id)
+    if starred:
+        # No existence check first: a repeat meets the unique pair exactly as
+        # a concurrent POST does. The savepoint undoes only this insert.
+        try:
+            async with db.begin_nested():
+                db.add(ArtifactStar(artifact_id=aid, user_id=uid))
+                await db.flush()
+        except IntegrityError as exc:
+            if not _is_unique_pair(exc, "uq_artifact_stars_artifact_user",
+                                   "artifact_stars.artifact_id, artifact_stars.user_id"):
+                raise
+    else:
+        await db.execute(delete(ArtifactStar).where(ArtifactStar.artifact_id == aid, ArtifactStar.user_id == uid))
+    await db.commit()
+    return {"id": aid, "is_starred": starred}
+
+
+async def mark_shared_seen(db, user, organization) -> dict:
+    """The reader looked at the Shared tab of this organization now. Returns
+    when they did before (None on the first visit): the page keeps showing
+    what is New against that for the rest of the visit."""
+    now = datetime.utcnow()
+    uid, oid = str(user.id), str(organization.id)
+    mine = (ArtifactListSeen.user_id == uid, ArtifactListSeen.organization_id == oid)
+    row = (await db.execute(select(ArtifactListSeen).where(*mine))).scalar_one_or_none()
+    previous = None
+    if row is None:
+        try:
+            async with db.begin_nested():
+                db.add(ArtifactListSeen(user_id=uid, organization_id=oid, shared_seen_at=now))
+                await db.flush()
+        except IntegrityError as exc:
+            # Two first visits at once: the other one wrote the row.
+            if not _is_unique_pair(exc, "uq_artifact_list_seen_user_org",
+                                   "artifact_list_seen.user_id, artifact_list_seen.organization_id"):
+                raise
+            row = (await db.execute(select(ArtifactListSeen).where(*mine))).scalar_one()
+    seen = now
+    if row is not None:
+        previous = row.shared_seen_at
+        # Never back: a concurrent visit may have committed a later time.
+        seen = max(previous, now)
+        row.shared_seen_at = seen
+    await db.commit()
+    return {"previous_seen_at": previous, "seen_at": seen}

@@ -249,6 +249,8 @@ class DashboardListItem(BaseModel):
     created_at: datetime | None = None
     # When its content last changed (dashlist01); never a data refresh.
     edited_at: datetime | None = None
+    # The reader's own star (dashlist01).
+    is_starred: bool = False
 
 
 class DashboardListMeta(BaseModel):
@@ -263,6 +265,17 @@ class DashboardListMeta(BaseModel):
 class DashboardListResponse(BaseModel):
     dashboards: list[DashboardListItem]
     meta: DashboardListMeta
+
+
+class DashboardStarResponse(BaseModel):
+    id: str
+    is_starred: bool
+
+
+class DashboardSeenResponse(BaseModel):
+    """The Shared tab's watermark: `previous_seen_at` is None on the first visit."""
+    previous_seen_at: datetime | None = None
+    seen_at: datetime
 
 
 # ── collaboration (collab01) ─────────────────────────────────────────────
