@@ -23,6 +23,7 @@ from app.dependencies import get_current_organization
 from app.models.report import Report
 from app.schemas.stream_delivery_schema import StreamDeliveryReport, StreamDeliveryVerdict
 from app.streaming.delivery import analyze_client_delivery, instrument_stream
+from app.errors import AppError, ErrorCode
 
 router = APIRouter(tags=["completions"])
 
@@ -395,18 +396,18 @@ async def respond_to_mcp_tool_confirmation(
             raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
 
     shell_target = (row.arguments or {}).get("_execution_target", {}) if row is not None else {}
-    shell_scope = body.get("permission_scope", "once")
+    shell_scope = body.get("permission_scope") or ("user" if remember else "once")
     shell_rule = None
     if shell_target.get("shell_permissions"):
         from app.schemas.data_sources.remote_server import ShellRule
         if shell_scope not in ("once", "session", "user"):
-            raise HTTPException(status_code=400, detail="Invalid permission scope")
+            raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
         if shell_target.get("mandatory_approval"):
             shell_scope = "once"
         remember = shell_scope != "once"
         if remember:
             if shell_scope == "session" and not row.report_id:
-                raise HTTPException(status_code=400, detail="Session permissions require a report")
+                raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "Session permissions require a report")
             try:
                 shell_rule = ShellRule.model_validate({
                     "pattern": body.get("command_pattern") or row.arguments.get("command"),
@@ -418,7 +419,10 @@ async def respond_to_mcp_tool_confirmation(
                 if not rule_matches(shell_rule, row.arguments.get("command", ""), row.arguments.get("working_directory")):
                     raise ValueError("Rule must match this command")
             except ValueError:
-                raise HTTPException(status_code=400, detail="Invalid command rule or pattern does not match this command")
+                raise AppError.bad_request(
+                    ErrorCode.SHELL_CONFIRMATION_RULE_MISMATCH,
+                    "Invalid command rule or pattern does not match this command",
+                )
 
     shell_handled = bool(shell_target.get("shell_permissions"))
     if shell_handled:

@@ -52,14 +52,14 @@ def rule_matches(rule, command, cwd=None):
 def resolve_shell_policy(config, command, *, personal=None, user_rules=(), cwd=None):
     c = config_dict(config)
     mode = c.get("shell_policy", "policy")
+    rules = c.get("shell_rules") or []
+    # Administrator denials are absolute in every mode.
+    if any(r["action"] == "deny" and rule_matches(r, command, cwd) for r in rules):
+        return "deny"
     if mode in ("allow", "deny"):
         return mode
     if mode == "strict":
         return "deny" if personal == "deny" else "ask"
-    rules = c.get("shell_rules") or []
-    # Administrator denials are absolute in policy-controlled mode.
-    if any(r["action"] == "deny" and rule_matches(r, command, cwd) for r in rules):
-        return "deny"
     default = "ask"
     for r in rules:
         if rule_matches(r, command, cwd):
@@ -99,10 +99,13 @@ async def user_shell_rules(db, user_id, tool_id, report_id=None):
     )
 
 
-async def save_shell_rule(db, user_id, tool_id, rule, *, report_id=None):
-    from app.services.tool_policy_service import ToolPolicyService
+# Stored when a user saves command rules without choosing a personal policy;
+# normalize_tool_policy() maps it to "no preference", so admin policy still applies.
+INHERIT_POLICY = "inherit"
 
-    clean = ShellRule.model_validate(rule).model_dump()
+
+async def shell_rule_row(db, user_id, tool_id):
+    """The user's preference row for a tool, locked for update; created without a personal policy."""
     row = (
         await db.execute(
             select(UserConnectionToolPreference)
@@ -114,8 +117,16 @@ async def save_shell_rule(db, user_id, tool_id, rule, *, report_id=None):
         )
     ).scalar_one_or_none()
     if row is None:
-        row = await ToolPolicyService().set_user_preference(db, user_id, tool_id, "ask")
+        row = UserConnectionToolPreference(
+            user_id=str(user_id), connection_tool_id=str(tool_id), policy=INHERIT_POLICY
+        )
     row.deleted_at = None
+    return row
+
+
+async def save_shell_rule(db, user_id, tool_id, rule, *, report_id=None):
+    clean = ShellRule.model_validate(rule).model_dump()
+    row = await shell_rule_row(db, user_id, tool_id)
     if report_id:
         clean.update(session_id=str(report_id), expires_at=time.time() + 8 * 3600)
     rules = [
@@ -154,7 +165,7 @@ def display_policy(connection, tool_name, admin, personal):
     kind = connection.get("type") if isinstance(connection, dict) else getattr(connection, "type", None)
     config = connection.get("config") if isinstance(connection, dict) else getattr(connection, "config", None)
     if kind == "remote_ssh" and tool_name == "execute_shell":
-        if admin == "deny":
+        if admin == "deny" or not config_dict(config).get("enable_shell"):
             return "deny"
         return resolve_shell_policy(config, "", personal=personal)
     return resolve_effective_policy(admin, personal)

@@ -8,6 +8,11 @@ import signal
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+# The worker is imported by module name, so run it from the backend root rather
+# than whatever cwd the API process happened to start in.
+BACKEND_ROOT = str(Path(__file__).resolve().parents[3])
 
 
 class SMBSession:
@@ -21,6 +26,7 @@ class SMBSession:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=self.workspace[1],
+                cwd=BACKEND_ROOT,
                 start_new_session=True,
             )
         except BaseException:

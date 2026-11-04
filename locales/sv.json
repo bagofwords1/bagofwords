@@ -4030,6 +4030,11 @@
     "fork": "Skapa kopia"
   },
   "errors": {
+    "shell_rules.tool_required": "Kommandoregler kräver ett fjärrskalverktyg.",
+    "shell_rules.invalid": "Ogiltiga kommandoregler.",
+    "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
+    "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
+    "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",

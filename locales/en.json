@@ -4438,6 +4438,11 @@
     "fork": "Fork"
   },
   "errors": {
+    "shell_rules.tool_required": "Command rules require a remote shell tool.",
+    "shell_rules.invalid": "Invalid command rules.",
+    "shell_confirmation.invalid_scope": "Invalid permission scope.",
+    "shell_confirmation.report_required": "Session permissions require a report.",
+    "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
     "saml_unavailable": "SSO configuration is unavailable. Contact your administrator.",
     "saml_login_failed": "SSO sign-in failed. Try again or contact your administrator.",
     "invitation_required": "Sign-up is disabled. Ask your admin for an invite.",

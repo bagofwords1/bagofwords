@@ -4030,6 +4030,11 @@
     "fork": "Criar cópia"
   },
   "errors": {
+    "shell_rules.tool_required": "As regras de comando exigem uma ferramenta de shell remoto.",
+    "shell_rules.invalid": "Regras de comando inválidas.",
+    "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
+    "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
+    "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",

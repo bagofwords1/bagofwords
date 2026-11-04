@@ -4030,6 +4030,11 @@
     "fork": "إنشاء نسخة"
   },
   "errors": {
+    "shell_rules.tool_required": "تتطلب قواعد الأوامر أداة صدفة بعيدة.",
+    "shell_rules.invalid": "قواعد أوامر غير صالحة.",
+    "shell_confirmation.invalid_scope": "نطاق إذن غير صالح.",
+    "shell_confirmation.report_required": "تتطلب أذونات الجلسة تقريرًا.",
+    "shell_confirmation.rule_mismatch": "قاعدة أمر غير صالحة، أو أن النمط لا يطابق هذا الأمر.",
     "saml_unavailable": "إعدادات تسجيل الدخول الموحد غير متاحة. تواصل مع المسؤول.",
     "saml_login_failed": "فشل تسجيل الدخول الموحد. أعد المحاولة أو تواصل مع المسؤول.",
     "invitation_required": "التسجيل معطّل. اطلب دعوة من المسؤول.",

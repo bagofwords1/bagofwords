@@ -4376,6 +4376,11 @@
     "fork": "יצירת עותק"
   },
   "errors": {
+    "shell_rules.tool_required": "כללי פקודות דורשים כלי מעטפת מרוחק.",
+    "shell_rules.invalid": "כללי פקודות לא תקינים.",
+    "shell_confirmation.invalid_scope": "היקף הרשאה לא תקין.",
+    "shell_confirmation.report_required": "הרשאות סשן דורשות דוח.",
+    "shell_confirmation.rule_mismatch": "כלל פקודה לא תקין, או שהתבנית אינה תואמת לפקודה זו.",
     "saml_unavailable": "הגדרות ההתחברות הארגונית אינן זמינות. יש לפנות למנהל המערכת.",
     "saml_login_failed": "ההתחברות הארגונית נכשלה. יש לנסות שוב או לפנות למנהל המערכת.",
     "invitation_required": "ההרשמה מושבתת. יש לבקש הזמנה ממנהל המערכת.",

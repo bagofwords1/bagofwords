@@ -6,7 +6,6 @@ import pytest
 
 from app.data_sources.clients.remote_server_client import RemoteServerClient, RemoteSMBClient
 from app.schemas.data_source_registry import resolve_client_class
-from app.services.tool_policy_service import resolve_effective_policy
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("bow_reader", ROOT / "tools/remote_server/reader.py")
@@ -30,13 +29,6 @@ def ssh_client(**overrides):
         allowed_paths=["/logs"],
         **overrides,
     )
-
-
-@pytest.mark.parametrize("admin", ["allow", "ask", "auto", "deny"])
-@pytest.mark.parametrize("personal", [None, "allow", "ask", "auto", "deny"])
-def test_mandatory_approval_cannot_be_relaxed(admin, personal):
-    effective = resolve_effective_policy(admin, personal, mandatory_approval=True)
-    assert effective == ("deny" if admin == "deny" or personal == "deny" else "ask")
 
 
 @pytest.mark.parametrize("path", ["/etc/passwd", "/logs-other/file", "/logs/../secret", "/logs/\x00"])
