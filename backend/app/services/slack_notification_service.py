@@ -41,8 +41,54 @@ def _step_row_count(step: 'Step') -> int:
     except Exception:
         return 0
 
+# Clean, colorblind-friendly palette for chart images sent to chat platforms.
+# First color is the primary (single-series bars/lines); the rest cycle for
+# multi-category charts (pie slices, etc.).
+_CHART_COLORS = [
+    "#2563eb",  # blue
+    "#0d9488",  # teal
+    "#f59e0b",  # amber
+    "#db2777",  # pink
+    "#7c3aed",  # violet
+    "#16a34a",  # green
+    "#dc2626",  # red
+    "#0891b2",  # cyan
+    "#ca8a04",  # gold
+    "#64748b",  # slate
+]
+_INK = "#1e293b"       # axis text / labels
+_MUTED = "#94a3b8"     # spines / ticks
+_GRID = "#e2e8f0"      # gridlines
+
+
+def _style_axes(ax):
+    """Apply the shared clean look to a chart axes: no top/right spines,
+    muted remaining spines, a light horizontal grid behind the data, and
+    readable label colors."""
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(_MUTED)
+    ax.tick_params(colors=_INK, labelsize=11)
+    ax.yaxis.grid(True, color=_GRID, linewidth=1)
+    ax.xaxis.grid(False)
+    ax.set_axisbelow(True)
+
+
+def _fmt_value(v) -> str:
+    """Compact numeric label for bar annotations (1.2K, 3.5M, else the number)."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    for unit, size in (("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if abs(n) >= size:
+            return f"{n / size:.1f}{unit}".replace(".0", "")
+    return f"{n:g}"
+
+
 def create_plot(data_model: dict, data: dict, title: str) -> str:
-    """Creates a plot from a step's data and data_model."""
+    """Creates a styled plot image from a step's data and data_model."""
     chart_type = data_model.get('type')
     series_info = data_model.get('series')
     rows = data.get('rows')
@@ -57,16 +103,24 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
         return None
 
     series = series_info[0]
+    primary = _CHART_COLORS[0]
 
     try:
-        plt.figure(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(10, 6), facecolor="white")
+        ax.set_facecolor("white")
 
         if chart_type == 'bar_chart':
             x_col, y_col = series['key'], series['value']
-            plt.bar(df[x_col], df[y_col])
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
+            bars = ax.bar(df[x_col].astype(str), df[y_col], color=primary, width=0.65)
+            ax.set_xlabel(x_col, color=_INK)
+            ax.set_ylabel(y_col, color=_INK)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            _style_axes(ax)
+            try:  # value labels above each bar (matplotlib >= 3.4)
+                ax.bar_label(bars, labels=[_fmt_value(v) for v in df[y_col]],
+                             padding=3, color=_INK, fontsize=10)
+            except Exception:
+                pass
 
         elif chart_type == 'line_chart':
             x_col, y_col = series['key'], series['value']
@@ -76,10 +130,12 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     df = df.sort_values(by=x_col)
                 except (ValueError, TypeError):
                     pass
-            plt.plot(df[x_col], df[y_col], marker='o')
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
+            ax.plot(df[x_col], df[y_col], marker='o', color=primary, linewidth=2.2,
+                    markersize=5, markerfacecolor="white", markeredgecolor=primary)
+            ax.set_xlabel(x_col, color=_INK)
+            ax.set_ylabel(y_col, color=_INK)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            _style_axes(ax)
 
         elif chart_type == 'pie_chart':
             labels_col, values_col = series['key'], series['value']
@@ -89,8 +145,16 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                 df_plot = pd.concat([df_sorted, pd.DataFrame([{labels_col: 'Other', values_col: other_sum}])])
             else:
                 df_plot = df
-            plt.pie(df_plot[values_col], labels=df_plot[labels_col], autopct='%1.1f%%', startangle=90)
-            plt.axis('equal')
+            colors = [_CHART_COLORS[i % len(_CHART_COLORS)] for i in range(len(df_plot))]
+            wedges, texts, autotexts = ax.pie(
+                df_plot[values_col], labels=df_plot[labels_col], autopct='%1.1f%%',
+                startangle=90, colors=colors,
+                wedgeprops=dict(edgecolor="white", linewidth=1.5),
+                textprops=dict(color=_INK, fontsize=11))
+            for at in autotexts:
+                at.set_color("white")
+                at.set_fontsize(10)
+            ax.axis('equal')
 
         elif chart_type == 'area_chart':
             x_col, y_col = series['key'], series['value']
@@ -100,47 +164,52 @@ def create_plot(data_model: dict, data: dict, title: str) -> str:
                     df = df.sort_values(by=x_col)
                 except (ValueError, TypeError):
                     pass
-            plt.fill_between(df[x_col], df[y_col], alpha=0.4)
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
-            plt.xticks(rotation=45, ha='right')
-        
+            ax.fill_between(df[x_col], df[y_col], alpha=0.25, color=primary)
+            ax.plot(df[x_col], df[y_col], color=primary, linewidth=2.2)
+            ax.set_xlabel(x_col, color=_INK)
+            ax.set_ylabel(y_col, color=_INK)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
+            _style_axes(ax)
+
         elif chart_type == 'scatter_plot':
             x_col, y_col = series['x'], series['y']
-            plt.scatter(df[x_col], df[y_col])
-            plt.xlabel(x_col)
-            plt.ylabel(y_col)
+            ax.scatter(df[x_col], df[y_col], color=primary, alpha=0.75, edgecolor="white", s=55)
+            ax.set_xlabel(x_col, color=_INK)
+            ax.set_ylabel(y_col, color=_INK)
+            _style_axes(ax)
 
         elif chart_type == 'heatmap':
             x_col, y_col, val_col = series['x'], series['y'], series['value']
             pivot_df = df.pivot(index=y_col, columns=x_col, values=val_col)
-            cax = plt.matshow(pivot_df, cmap='viridis')
-            plt.colorbar(cax)
-            plt.xticks(ticks=range(len(pivot_df.columns)), labels=pivot_df.columns, rotation=90)
-            plt.yticks(ticks=range(len(pivot_df.index)), labels=pivot_df.index)
+            im = ax.imshow(pivot_df, cmap='viridis', aspect='auto')
+            fig.colorbar(im, ax=ax)
+            ax.set_xticks(range(len(pivot_df.columns)))
+            ax.set_xticklabels(pivot_df.columns, rotation=90)
+            ax.set_yticks(range(len(pivot_df.index)))
+            ax.set_yticklabels(pivot_df.index)
+            ax.tick_params(colors=_INK, labelsize=11)
 
         elif chart_type in ['candlestick', 'map', 'treemap', 'radar_chart']:
-            plt.text(0.5, 0.5, f"'{chart_type}' is a complex chart.\nPlotting support is coming soon!", 
-                     ha='center', va='center', size=12, bbox=dict(facecolor='lightgray', alpha=0.5))
-            plt.axis('off')
+            ax.text(0.5, 0.5, f"'{chart_type}' is a complex chart.\nPlotting support is coming soon!",
+                    ha='center', va='center', size=12, bbox=dict(facecolor='lightgray', alpha=0.5))
+            ax.axis('off')
 
         else:
             logger.warning("Unsupported chart type: %s", chart_type)
             return None
 
-        plt.title(title)
-        plt.grid(True, linestyle='--', alpha=0.6)
-        plt.tight_layout()
-        
+        ax.set_title(title, color=_INK, fontsize=15, fontweight="bold", pad=14)
+        fig.tight_layout()
+
         image_path = f"/tmp/{uuid.uuid4()}.png"
-        plt.savefig(image_path)
+        fig.savefig(image_path, dpi=150, facecolor="white", bbox_inches="tight")
         return image_path
 
     except Exception as e:
         logger.warning("Error creating plot for chart type %r: %s", chart_type, e)
         return None
     finally:
-        plt.close()
+        plt.close('all')
 
 def df_to_csv(data: dict) -> str:
     """Creates a CSV file from dictionary data."""
@@ -180,6 +249,26 @@ async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', th
         if os.path.exists(file_path):
             os.remove(file_path)
     return success
+
+async def _handle_table_step_link(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+    """WhatsApp: link to the full table in BOW instead of a raw CSV file.
+
+    A UUID-named CSV attachment is useless inside a phone chat — the customer
+    can't open or act on it. A link opens the real, interactive table in the
+    web report instead.
+    """
+    from app.settings.config import settings
+    try:
+        report = step.widget.report if step.widget else None
+    except Exception:
+        report = None
+    if not report:
+        return False
+    title = step.title or "Table"
+    url = f"{settings.bow_config.base_url}/reports/{report.id}"
+    # Bare URL (not a markdown link) so WhatsApp auto-links it; *title* is WhatsApp bold.
+    msg = f"*{title}*\n{url}"
+    return await adapter.send_dm_in_thread(external_user_id, msg, thread_ts, channel_id=channel_id)
 
 async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None, platform_type: str = None):
     """Handles sending chart data (as an image), optionally in a thread."""
@@ -296,7 +385,12 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 return
 
             if data_type == "table":
-                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
+                if platform_type == "whatsapp":
+                    # WhatsApp: a raw CSV is useless on a phone — send a link to
+                    # the full table in BOW instead (customer request).
+                    success = await _handle_table_step_link(adapter, external_user_id, step, thread_ts, channel_id)
+                else:
+                    success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
             elif data_type == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))

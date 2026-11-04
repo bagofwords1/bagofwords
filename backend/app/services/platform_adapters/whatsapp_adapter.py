@@ -1,6 +1,7 @@
 import hmac
 import hashlib
 import os
+import re
 import mimetypes
 import httpx
 from typing import Dict, Any, Optional
@@ -11,6 +12,64 @@ from app.settings.config import settings
 def _graph_base_url() -> str:
     """Meta Graph API base URL. Overridable via env for sandbox / tests."""
     return os.environ.get("WHATSAPP_GRAPH_BASE_URL", "https://graph.facebook.com/v20.0")
+
+
+# Markdown link: [label](url) -> capture label and url
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+# Bold: **text** or __text__ -> *text* (WhatsApp bold is a single marker)
+_MD_BOLD_RE = re.compile(r"(?<!\*)\*\*(?!\s)([^*\n]+?)(?<!\s)\*\*(?!\*)")
+_MD_BOLD_US_RE = re.compile(r"(?<!_)__(?!\s)([^_\n]+?)(?<!\s)__(?!_)")
+# ATX heading at line start: leading #'s -> bold line
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$", re.MULTILINE)
+# Markdown table separator row: |---|:--:|---| (dashes/colons/pipes/space only)
+_MD_TABLE_SEP_RE = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
+
+
+def _flatten_markdown_tables(text: str) -> str:
+    """Turn markdown table rows into plain lines WhatsApp can show.
+
+    A markdown table (``| a | b |`` with a ``|---|---|`` separator) renders as a
+    wall of literal pipes and dashes on WhatsApp. The full data is available via
+    the report link we send alongside, so here we just de-uglify the text: drop
+    separator rows and collapse each ``| x | y |`` row to ``x — y``.
+    """
+    out = []
+    for line in text.split("\n"):
+        s = line.strip()
+        if _MD_TABLE_SEP_RE.match(s):
+            continue  # drop the |---|---| divider
+        if s.startswith("|"):
+            cells = [c.strip() for c in s.strip().strip("|").split("|")]
+            out.append(" — ".join(c for c in cells if c))
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def markdown_to_whatsapp(text: str) -> str:
+    """Convert the agent's markdown into WhatsApp's own text conventions.
+
+    The planner is told to use WhatsApp formatting, but LLM output still slips
+    into standard markdown (``**bold**``, ``# headings``, ``[label](url)``,
+    tables), which WhatsApp shows as literal characters. This is the safety net
+    that normalizes it so the user never sees stray ``**``, ``[]()`` or ``|``:
+
+      ``**x**`` / ``__x__`` -> ``*x*``   (WhatsApp bold is a single ``*``)
+      ``# Heading``          -> ``*Heading*``
+      ``[label](url)``       -> ``label: url``
+      ``| a | b |`` table    -> ``a — b`` lines (divider row dropped)
+
+    Bullet lines (``- item``) are left as-is — WhatsApp renders them fine.
+    """
+    if not text:
+        return text
+    # Links first, before bold, so a bolded label inside a link is handled once.
+    text = _MD_LINK_RE.sub(lambda m: f"{m.group(1)}: {m.group(2)}", text)
+    text = _flatten_markdown_tables(text)
+    text = _MD_HEADING_RE.sub(lambda m: f"*{m.group(1).strip()}*" if m.group(1).strip() else "", text)
+    text = _MD_BOLD_RE.sub(r"*\1*", text)
+    text = _MD_BOLD_US_RE.sub(r"*\1*", text)
+    return text
 
 
 class WhatsAppAdapter(PlatformAdapter):
@@ -145,6 +204,10 @@ class WhatsAppAdapter(PlatformAdapter):
         if not to or not text:
             print("WhatsApp: send_response missing 'to' or 'text'")
             return False
+
+        # Normalize markdown the agent may emit into WhatsApp's own conventions
+        # (so **bold**, # headings and [label](url) don't show as literal text).
+        text = markdown_to_whatsapp(text)
 
         payload: Dict[str, Any] = {
             "messaging_product": "whatsapp",
