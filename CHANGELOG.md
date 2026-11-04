@@ -2,7 +2,7 @@
 
 ## Version 0.0.610 (November 4, 2026)
 - Fixed answers ending in a cut-off error when a query hit a table the agent can't use; the agent now explains and continues (#1592)
-- Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1591) — `width` / `height` options in `BOWEmbed.mount`
+- Changed the floating embedded chat to open at 600 × 720 px, matching BOW's preview (#1594) — `width` / `height` options in `BOWEmbed.mount`
 - Added chart images to WhatsApp replies, with brief plain-text answers and a report link for large tables instead of a CSV file (#1589)
 - Fixed agents losing their selected tables when a scheduled catalog refresh failed partway (#1583)
 - Added pinning a private CA so the agent can open app previews on self-hosted installs (#1581) — `BOW_ARTIFACT_PREVIEW_CERT_SPKI`
