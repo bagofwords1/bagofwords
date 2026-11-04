@@ -3,11 +3,13 @@
 import asyncio
 import base64
 import contextlib
+import fnmatch
 import hashlib
 import json
 import ntpath
 import os
 import posixpath
+import re
 import shlex
 import sys
 import tempfile
@@ -131,11 +133,23 @@ class RemoteServerClient(ToolProviderClient):
                 raise PermissionError("Path traversal is not permitted")
             if isinstance(self.config, RemoteSMBConfig) and (lib.isabs(path) or ":" in path):
                 raise PermissionError("SMB paths must be share-relative")
+            if not isinstance(self.config, RemoteSMBConfig) and not lib.isabs(path):
+                raise PermissionError("Absolute SSH path required")
+            if (
+                windows
+                and not isinstance(self.config, RemoteSMBConfig)
+                and (not re.match(r"^[A-Za-z]:[\\/]", path) or ":" in path[2:])
+            ):
+                raise PermissionError("Local drive path required; streams are prohibited")
             normalized = lib.normcase(lib.normpath(path))
             roots = [lib.normcase(lib.normpath(p)) for p in self.config.allowed_paths]
             if not any(
-                normalized == r
-                or normalized.startswith(r.rstrip("/\\") + lib.sep)
+                r == "*"
+                or ("*" in r or "?" in r or "[" in r)
+                and fnmatch.fnmatchcase(normalized, r)
+                or normalized == r
+                or not any(c in r for c in "*?[")
+                and normalized.startswith(r.rstrip("/\\") + lib.sep)
                 or (r == "." and not lib.isabs(path))
                 for r in roots
             ):
@@ -309,6 +323,8 @@ class RemoteServerClient(ToolProviderClient):
 
     def _inspect(self, name, arguments):
         c = self.config
+        if c.inspection_mode == "agentless":
+            return self._inspect_agentless(name, arguments)
         reader_path = c.reader_path or (
             "/usr/local/lib/bow/reader.py" if c.operating_system == "linux" else r"C:\ProgramData\BOW\reader.ps1"
         )
@@ -326,6 +342,41 @@ class RemoteServerClient(ToolProviderClient):
         result = json.loads(out)
         if not isinstance(result, dict) or "success" not in result:
             raise ValueError("Invalid remote reader response")
+        return result
+
+    def _inspect_agentless(self, name, arguments):
+        """Execute the bounded reader in memory; do not write or install on the host."""
+        c = self.config
+        assets = Path(__file__).resolve().parents[4] / "tools" / "remote_server"
+        request = {"operation": name, **arguments, "max_bytes": c.max_output_bytes}
+        if c.operating_system == "linux":
+            source = (assets / "reader.py").read_text().split('\nif __name__ == "__main__":')[0]
+            source += '\ntry:\n    payload = json.load(sys.stdin)\n    result = handle(payload["request"], payload["config"])\nexcept Exception as exc:\n    result = {"success": False, "error": str(exc)[:500]}\nprint(json.dumps(result))\n'
+            command = "python3 -I -c " + shlex.quote(source)
+            payload = json.dumps({"request": request, "config": c.model_dump()}).encode()
+        else:
+            source = (assets / "reader.ps1").read_text()
+            source = source.replace(
+                "Get-Content -LiteralPath 'C:\\ProgramData\\BOW\\reader.json' -Raw | ConvertFrom-Json",
+                "$payload.config",
+            ).replace("$line = [Console]::ReadLine()", "$line = $payload.request")
+            # Keep the Windows command line short; script/config/request travel on stdin.
+            bootstrap = (
+                "$payload = [Console]::In.ReadToEnd() | ConvertFrom-Json; & ([ScriptBlock]::Create($payload.source))"
+            )
+            command = (
+                "powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand "
+                + base64.b64encode(bootstrap.encode("utf-16le")).decode()
+            )
+            payload = json.dumps({"source": source, "config": c.model_dump(), "request": json.dumps(request)}).encode()
+        code, out, _ = self._ssh(command, payload)
+        if code:
+            raise ValueError(
+                "Agentless inspection failed. Check SSH access and existing Python 3 (Linux) or PowerShell (Windows)."
+            )
+        result = json.loads(out)
+        if not isinstance(result, dict) or "success" not in result:
+            raise ValueError("Invalid inspection response")
         return result
 
     def _shell(self, arguments):
@@ -372,14 +423,14 @@ class RemoteServerClient(ToolProviderClient):
             result = self._inspect("capabilities", {})
             return {
                 "success": bool(result.get("success")),
-                "message": "Authenticated; reader protocol reachable. Account restrictions are configured on the server."
+                "message": "Authenticated; inspection is ready. Remote account permissions apply."
                 if result.get("success")
                 else result.get("error", "Reader unavailable"),
             }
         except Exception:
             return {
                 "success": False,
-                "message": "Cannot authenticate or reach the restricted reader. Check host key, credentials, network and reader installation.",
+                "message": "SSH inspection failed. Check host key, credentials, network and the runtime or installed reader required by your inspection mode.",
             }
 
 

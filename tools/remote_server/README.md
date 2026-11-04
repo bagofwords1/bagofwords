@@ -5,6 +5,34 @@
 existing agent/connection RBAC, per-tool policies, user preferences and audit flow.
 The catalog forms are generated from `backend/app/schemas/data_sources/remote_server.py`.
 
+## Default: agentless SSH
+
+No reader installation is required. The connection runs bounded inspection code
+in memory using existing Python 3 on Linux or PowerShell on Windows. It writes no
+reader or policy files on the host. If the required runtime is unavailable, the
+connection test fails with setup guidance; it does not install software.
+
+Host, port, OS, verified host key and authentication are the main settings.
+Advanced settings contains inspection mode, allowed paths, shell policy and limits.
+The shell is enabled by default with policy-controlled permissions: unmatched
+commands require approval. Saved permissions and administrator restrictions apply.
+
+Allowed paths accepts literal roots and wildcard patterns (JSON list), for example
+`["/var/log/*.log"]`, `["C:\\Logs\\*.log"]`, or `["*"]`. A bare `*` permits any
+valid path readable by the remote account (within the configured share for SMB).
+Wildcards match full paths, including separators; inspection requests still name
+one concrete file/directory and remain bounded. Empty paths deny file inspection.
+Traversal, special files, symlinks and Windows alternate streams remain prohibited.
+For a file pattern, use a concrete matching file; listing an ancestor directory
+requires its own allowed root. These app settings do not constrain the SSH account
+outside the app. OS permissions remain the enforcement boundary.
+
+## Optional: installed restricted reader
+
+Select **Restricted reader** under Advanced settings to use the installation
+instructions below. The server-owned policy is an additional restriction; a client
+wildcard cannot widen it. Use a separate maintenance account if ForceCommand is set.
+
 ## Linux SSH inspection setup
 
 An administrator installs the reader and its policy. Use a dedicated unprivileged

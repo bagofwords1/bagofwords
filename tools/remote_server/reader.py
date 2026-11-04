@@ -4,6 +4,7 @@ Configuration is local, never supplied by the SSH client. No shell or subprocess
 """
 
 import json
+import fnmatch
 import os
 import signal
 import stat
@@ -24,7 +25,11 @@ def open_scoped(path, roots, directory=False):
         raise PermissionError("Absolute path within an approved root required")
     path = str(PurePosixPath(path))
     if not any(
-        path == r.rstrip("/") or path.startswith(r.rstrip("/") + "/") for r in roots
+        r == "*"
+        or fnmatch.fnmatchcase(path, r)
+        or not any(c in r for c in "*?[")
+        and (path == r.rstrip("/") or path.startswith(r.rstrip("/") + "/"))
+        for r in roots
     ):
         raise PermissionError("Path outside server-approved roots")
     # Walk every component via directory FDs: no symlink traversal or check/open race.
@@ -93,6 +98,10 @@ def handle(request, config):
             data["uptime_seconds"] = f.read(128).split()[0]
         disks = {}
         for root in config.get("allowed_paths", [])[:20]:
+            if any(c in root for c in "*?["):
+                continue
+            if not os.path.isdir(root):
+                continue
             fd = open_scoped(root, config["allowed_paths"], directory=True)
             try:
                 v = os.fstatvfs(fd)

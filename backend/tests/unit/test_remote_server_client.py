@@ -126,3 +126,83 @@ def test_subprocess_drains_stdout_and_stderr():
         timeout=3,
     )
     assert code == 0 and b"input" in out and b"error" in err
+
+
+@pytest.mark.parametrize("pattern", ["*", "{root}/*.log", "{root}"])
+def test_agentless_reads_without_installing_reader(tmp_path, pattern):
+    import subprocess
+    import sys
+    import shlex
+
+    log = tmp_path / "service.log"
+    log.write_text("ready\nerror: synthetic\n")
+    client = RemoteServerClient(
+        host="server.example",
+        host_public_key="ssh-ed25519 YWJj",
+        username="reader",
+        private_key="test-only",
+        allowed_paths=[pattern.format(root=tmp_path)],
+    )
+
+    def local_transport(command, payload=b""):
+        argv = shlex.split(command)
+        assert argv[:3] == ["python3", "-I", "-c"]
+        result = subprocess.run([sys.executable, *argv[1:]], input=payload, capture_output=True, timeout=5)
+        return result.returncode, result.stdout, result.stderr
+
+    with patch.object(client, "_ssh", side_effect=local_transport):
+        result = client.call_tool("read_file", {"path": str(log)})
+        assert result["success"], result
+        assert "synthetic" in result["data"]["text"]
+        result = client.call_tool("search_file", {"path": str(log), "text": "error"})
+        assert result["success"] and "error" in result["data"]["text"]
+    assert client.config.inspection_mode == "agentless"
+    shell = next(t for t in client.list_tools() if t["name"] == "execute_shell")
+    assert shell["explicit_policy"] == "ask"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["service.log"]
+
+
+@pytest.mark.parametrize("path", ["/logs/../secret", "relative.log", "/logs/\x00bad"])
+def test_all_paths_wildcard_still_rejects_invalid_paths(path):
+    client = RemoteServerClient(
+        host="server.example",
+        host_public_key="ssh-ed25519 YWJj",
+        username="reader",
+        private_key="test-only",
+        allowed_paths=["*"],
+    )
+    with patch.object(client, "_ssh", side_effect=AssertionError("Must not connect")):
+        assert not client.call_tool("read_file", {"path": path})["success"]
+
+
+def test_wildcard_does_not_allow_nonmatching_file(tmp_path):
+    file = tmp_path / "secret.txt"
+    file.write_text("private")
+    with pytest.raises(PermissionError):
+        reader.handle({"operation": "read_file", "path": str(file)}, {"allowed_paths": [str(tmp_path / "*.log")]})
+
+
+def test_restricted_reader_remains_explicit_option():
+    client = ssh_client(inspection_mode="restricted_reader", reader_path="/opt/reader.py")
+    with patch.object(client, "_ssh", return_value=(0, b'{"success":true}', b"")) as transport:
+        assert client.test_connection()["success"]
+    assert transport.call_args.args[0] == "python3 -I /opt/reader.py"
+
+
+def test_windows_agentless_uses_inline_powershell():
+    import base64
+
+    client = ssh_client(operating_system="windows")
+    with patch.object(client, "_ssh", return_value=(0, b'{"success":true}', b"")) as transport:
+        assert client.test_connection()["success"]
+    command = transport.call_args.args[0]
+    source = base64.b64decode(command.split()[-1]).decode("utf-16le")
+    assert "-EncodedCommand" in command
+    assert "Get-Content -LiteralPath" not in source
+    import json
+
+    payload = json.loads(transport.call_args.args[1])
+    assert "ReadToEnd" in source
+    assert "Get-Content -LiteralPath" not in payload["source"]
+    assert "$config = $payload.config" in payload["source"]
+    assert payload["config"]["inspection_mode"] == "agentless"

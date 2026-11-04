@@ -72,7 +72,7 @@ try:
             os.path.expanduser(settings["identityfile"])
         ).read_text(),
         host_public_key=public,
-        reader_path=remote + "/entry.py",
+        reader_path=remote + "/not-installed.py",
         allowed_paths=[remote + "/logs"],
         allowed_operations=[
             "list_directory",
@@ -190,6 +190,24 @@ try:
     results["posix_shell"] = (
         sh_result["success"] and sh_result["data"]["stdout"] == "sh-verification"
     )
+    restricted = RemoteServerClient(
+        **{
+            **kwargs,
+            "inspection_mode": "restricted_reader",
+            "reader_path": remote + "/entry.py",
+        }
+    )
+    results["restricted_reader"] = restricted.call_tool(
+        "read_file", {"path": remote + "/logs/app.log"}
+    )["success"]
+    for pattern, label in [
+        ("*", "all_paths_wildcard"),
+        (remote + "/logs/*.log", "log_pattern"),
+    ]:
+        wildcard = RemoteServerClient(**{**kwargs, "allowed_paths": [pattern]})
+        results[label] = wildcard.call_tool(
+            "read_file", {"path": remote + "/logs/app.log"}
+        )["success"]
     print(json.dumps(results))
     assert all(results.values())
 finally:
