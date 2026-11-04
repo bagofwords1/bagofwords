@@ -26,6 +26,7 @@ pytestmark = pytest.mark.db  # opens real sessions — see tests/unit/conftest.p
 
 
 _MARKER = "later-row-must-not-enter-step-context-"
+_TOP_CELL = "most-frequent-region-cell"
 
 
 @pytest_asyncio.fixture
@@ -87,6 +88,8 @@ async def _seed_summarized_query(db):
                 "total_columns": 2,
                 "column_info": {
                     "net_revenue": {"dtype": "int64", "mean": 20, "count": 5},
+                    # describe()'s top is a verbatim cell.
+                    "region": {"dtype": "object", "count": 5, "top": _TOP_CELL},
                 },
             },
         },
@@ -154,6 +157,7 @@ async def test_query_context_uses_step_summary_without_step_data(
     assert observation.row_count == 101_039
     assert observation.column_names == ["region", "net_revenue"]
     assert bool(observation.data_preview) is include_data_preview
+    assert (_TOP_CELL in json.dumps(observation.stats)) is include_data_preview
     assert _MARKER not in section.render()
 
     normalized = [re.sub(r"[\"`]", "", statement) for statement in statements]

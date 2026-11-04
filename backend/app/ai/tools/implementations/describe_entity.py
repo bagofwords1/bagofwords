@@ -12,6 +12,7 @@ from typing import AsyncIterator, Dict, Any, Type, Optional, List
 from pydantic import BaseModel
 from sqlalchemy import select, or_
 
+from app.ai.data_preview import is_date_dtype
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -179,15 +180,19 @@ class DescribeEntityTool(Tool):
 
         cols: List[Dict[str, Any]] = []
         for name, meta in (column_info.items() if isinstance(column_info, dict) else []):
-            cols.append({
+            col = {
                 "name": name,
                 "dtype": meta.get("dtype"),
                 "non_null_count": meta.get("non_null_count"),
                 "unique_count": meta.get("unique_count"),
                 "null_count": meta.get("null_count"),
-                "min": meta.get("min"),
-                "max": meta.get("max"),
-            })
+            }
+            # min/max are verbatim cells: only when the model may see data,
+            # or for a date column (a time range).
+            if allow_llm_see_data or is_date_dtype(meta.get("dtype")):
+                col["min"] = meta.get("min")
+                col["max"] = meta.get("max")
+            cols.append(col)
 
         # If column_info is empty but we have columns list, build from that
         if not cols and columns:

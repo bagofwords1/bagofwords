@@ -12,11 +12,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
+from app.ai.data_preview import is_date_dtype
 from app.ai.tools.base import Tool
 from app.models.file import File
 from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
+
+# Parameter fields that hold data values, left out when data is hidden.
+_PARAM_VALUE_KEYS = frozenset({"default", "options"})
 
 
 from app.ai.tools.metadata import ToolMetadata
@@ -851,8 +855,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 meta = column_info[field]
                 col["dtype"] = meta.get("dtype")
                 col["unique_count"] = meta.get("unique_count")
-                dtype = str(meta.get("dtype") or "").lower()
-                if allow_llm_see_data or "date" in dtype or "time" in dtype:
+                if allow_llm_see_data or is_date_dtype(meta.get("dtype")):
                     if meta.get("min") is not None:
                         col["min"] = meta["min"]
                     if meta.get("max") is not None:
@@ -906,7 +909,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if series_aggs:
                 profile["view_config"]["series_aggregations"] = series_aggs
             default_filters = inner_view.get("defaultFilters") or []
-            if default_filters:
+            # Filter values and parameter options/defaults are often cells.
+            if default_filters and allow_llm_see_data:
                 profile["view_config"]["default_filters"] = default_filters
             # Include palette if present
             palette = inner_view.get("palette") or {}
@@ -918,10 +922,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # controls, nothing more.
         params = viz.get("parameters") or []
         if params:
+            param_keys = ("name", "type", "label", "source", "default", "required", "options", "options_source", "strict_options", "description")
+            if not allow_llm_see_data:
+                param_keys = tuple(k for k in param_keys if k not in _PARAM_VALUE_KEYS)
             profile["parameters"] = [
                 {
                     k: p.get(k)
-                    for k in ("name", "type", "label", "source", "default", "required", "options", "options_source", "strict_options", "description")
+                    for k in param_keys
                     if p.get(k) is not None or k in ("name", "source")
                 }
                 for p in params

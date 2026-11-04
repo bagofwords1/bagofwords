@@ -4,6 +4,7 @@ Message Context Builder - Ports proven logic from agent._build_messages_context(
 import json
 from app.ai.context.artifact_digest import ARTIFACT_DIGEST_TOOLS, digest_artifact
 from app.ai.context.hidden_data import hide_data_for_replay
+from app.ai.data_visibility import allow_llm_see_data as _allow_llm_see_data, redact_error_text
 from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
 
@@ -569,7 +570,7 @@ def _digest_generate_image(tool_execution) -> str:
     return "; ".join(parts)
 
 
-def _digest_execute_mcp(tool_execution) -> str:
+def _digest_execute_mcp(tool_execution, allow_llm_see_data: bool = True) -> str:
     """Digest for execute_mcp so the planner sees WHAT it called, not just the result.
 
     Without the input (which MCP tool + arguments) the planner can't tell which
@@ -613,6 +614,8 @@ def _digest_execute_mcp(tool_execution) -> str:
     failed = obs.get('success') is False or rj.get('success') is False
     if failed:
         err = obs.get('error_message') or rj.get('error_message') or obs.get('summary') or 'unknown error'
+        if not allow_llm_see_data:
+            err = redact_error_text(str(err))
         digest_parts.append(f"FAILED: {str(err)[:300]}")
         # Surface the tool's valid argument names so a later turn corrects the
         # call instead of re-guessing (execute_mcp attaches input_schema on
@@ -1626,15 +1629,7 @@ class MessageContextBuilder:
         from app.models.completion_block import CompletionBlock
         
         conversation = []
-                   # Check organization settings for data visibility
-        allow_llm_see_data = True
-        if self.organization_settings:
-            try:
-                # Get the config dictionary from the organization settings
-                settings_dict = self.organization_settings.config
-                allow_llm_see_data = settings_dict.get("allow_llm_see_data", {}).get("value", True)
-            except:
-                allow_llm_see_data = False  # Default to True if settings unavailable
+        allow_llm_see_data = _allow_llm_see_data(self.organization_settings)
         history_max_rows = self._history_max_rows(allow_llm_see_data)
                     
         # Fetch only the most recent window instead of ALL completions then
@@ -1890,7 +1885,7 @@ class MessageContextBuilder:
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                    digest = _digest_execute_mcp(tool_execution)
+                                    digest = _digest_execute_mcp(tool_execution, allow_llm_see_data)
                                     if digest:
                                         tool_info += " - " + digest
                                 elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
@@ -2005,7 +2000,7 @@ class MessageContextBuilder:
                             
                             elif tool_execution.status == 'error' and tool_execution.error_message:
                                 # Show condensed error
-                                error = tool_execution.error_message
+                                error = tool_execution.error_message if allow_llm_see_data else redact_error_text(tool_execution.error_message)
                                 if len(error) > 50:
                                     error = error[:50] + "..."
                                 tool_info += f" - Error: {error}"
@@ -2104,13 +2099,7 @@ class MessageContextBuilder:
         # timestamp before we flatten to `items`.
         collected: List = []
 
-        allow_llm_see_data = True
-        if self.organization_settings:
-            try:
-                settings_dict = self.organization_settings.config
-                allow_llm_see_data = settings_dict.get("allow_llm_see_data", {}).get("value", True)
-            except Exception:
-                allow_llm_see_data = False
+        allow_llm_see_data = _allow_llm_see_data(self.organization_settings)
         history_max_rows = self._history_max_rows(allow_llm_see_data)
 
         summary_text = None
@@ -2601,7 +2590,7 @@ class MessageContextBuilder:
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'execute_mcp' and tool_execution.result_json:
-                                digest = _digest_execute_mcp(tool_execution)
+                                digest = _digest_execute_mcp(tool_execution, allow_llm_see_data)
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.tool_name in ('search_instructions', 'create_instruction', 'edit_instruction') and tool_execution.result_json:
@@ -2682,7 +2671,7 @@ class MessageContextBuilder:
                                 if digest:
                                     tool_info += " - " + digest
                             elif tool_execution.status == 'error' and tool_execution.error_message:
-                                error = tool_execution.error_message
+                                error = tool_execution.error_message if allow_llm_see_data else redact_error_text(tool_execution.error_message)
                                 if len(error) > 50:
                                     error = error[:50] + "..."
                                 tool_info += f" - Error: {error}"

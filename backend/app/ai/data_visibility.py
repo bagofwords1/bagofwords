@@ -80,11 +80,21 @@ def cut_before_value(text: str) -> str:
     return f"{kept}: {HIDDEN_VALUE}" if kept else HIDDEN_VALUE
 
 
+_BOUND_PARAMETERS = re.compile(r"\s*\[parameters:", re.IGNORECASE)
+
+
+def drop_bound_parameters(text: str) -> str:
+    """``text`` without a SQLAlchemy "[parameters: ...]" section and what
+    follows it: bound values can be cells even when the error is structural."""
+    match = _BOUND_PARAMETERS.search(text)
+    return text[:match.start()] if match else text
+
+
 def redact_error_text(text: Any, type_name: Optional[str] = None) -> Any:
     """An error's text as the model may see it with data hidden: unchanged
     for a structural error type, cut before the value otherwise."""
     if not isinstance(text, str) or not text:
         return text
     if names_only_structure(type_name, text):
-        return text
+        return drop_bound_parameters(text)
     return cut_before_value(text)

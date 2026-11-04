@@ -38,6 +38,7 @@ from app.ai.tools.schemas import (
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_visibility import allow_llm_see_data as _allow_llm_see_data, redact_error_text
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -2143,12 +2144,17 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 failed_timings = [t for t in (query_timings or []) if t.get("error")]
                 if failed_timings:
                     last_failed = failed_timings[-1]
-                    error_observation["error"]["db_message"] = last_failed.get("error")
+                    # The timing keeps the driver's text (the UI shows it); the
+                    # model's copy stops where it names a value when data is hidden.
+                    db_message = last_failed.get("error")
+                    if not _allow_llm_see_data(organization_settings):
+                        db_message = redact_error_text(db_message, last_failed.get("error_class"))
+                    error_observation["error"]["db_message"] = db_message
                     if last_failed.get("terminal"):
                         error_observation["error"]["type"] = "infrastructure_failure"
                         error_observation["terminal_execution_error"] = True
                         error_observation["analysis_complete"] = True
-                        error_observation["final_answer"] = last_failed.get("error")
+                        error_observation["final_answer"] = db_message
 
                     if last_failed.get("sql"):
                         error_observation["error"]["failed_sql"] = last_failed["sql"]

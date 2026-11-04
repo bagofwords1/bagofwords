@@ -95,6 +95,12 @@ _SAFE_COLUMN_STAT_KEYS = (
 )
 
 
+def is_date_dtype(dtype: Any) -> bool:
+    """Whether a dtype is a date/datetime, whose min/max (a time range) may
+    reach the model with data hidden. Durations (timedelta) are values."""
+    return "date" in str(dtype or "").lower()
+
+
 def gate_stats_for_privacy(info: Dict[str, Any]) -> Dict[str, Any]:
     """Strip raw cell values from a ``get_df_info`` stats dict for privacy mode.
 
@@ -123,7 +129,7 @@ def gate_stats_for_privacy(info: Dict[str, Any]) -> Dict[str, Any]:
             continue
         dtype = str(ci.get("dtype", ""))
         safe_ci: Dict[str, Any] = {k: ci[k] for k in _SAFE_COLUMN_STAT_KEYS if k in ci}
-        if "datetime" in dtype or "date" in dtype:
+        if is_date_dtype(dtype):
             # Time extent (range) is an explicit allowed exception — useful for
             # reasoning about windows, low sensitivity.
             for k in ("min", "max"):

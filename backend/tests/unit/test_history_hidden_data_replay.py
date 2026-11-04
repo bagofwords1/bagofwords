@@ -203,6 +203,7 @@ async def _seed(db, *, report_type, tool_name, result_json, legacy=False):
         organization_id=str(organization.id),
         report_id=str(report.id),
         tool_execution_id=str(tool.id),
+        system_completion_id=str(system.id),
     )
 
 
@@ -408,3 +409,35 @@ async def test_text_history_hides_a_legacy_csv_log_sample(db, report_type):
     )
     assert SSN in await _text_history(db, scenario, allow_llm_see_data=True)
     assert SSN not in await _text_history(db, scenario, allow_llm_see_data=False)
+
+
+@pytest.mark.asyncio
+async def test_compaction_input_hides_what_was_captured_while_data_was_visible(db):
+    from app.ai.persisted_summary import TOOL_CONTEXT_KIND_FIELD, TOOL_CONTEXT_OBSERVATION_KIND
+
+    scenario = await _seed(db, report_type=None, tool_name="describe_entity",
+                           result_json={"summary": "Described entity."})
+    observation = {"summary": "Described entity.", "entity_id": "e1",
+                   "data_profile": {"head_rows": [{"ssn": SSN}]}}
+    await db.execute(
+        update(ToolExecution).where(ToolExecution.id == scenario.tool_execution_id).values(
+            context_summary_json={"version": 2, TOOL_CONTEXT_KIND_FIELD: TOOL_CONTEXT_OBSERVATION_KIND,
+                                  "observation": observation})
+    )
+    await db.commit()
+
+    async def compaction_input(allowed):
+        db.expunge_all()
+        organization = SimpleNamespace(
+            id=scenario.organization_id,
+            settings=SimpleNamespace(config={"allow_llm_see_data": {"value": allowed}}),
+        )
+        report = (await db.execute(select(Report).where(Report.id == scenario.report_id))).scalar_one()
+        built = await MessageContextBuilder(db, organization, report).build(
+            max_messages=20, completion_ids=[scenario.system_completion_id])
+        return built.render()
+
+    shown = await compaction_input(True)
+    assert SSN in shown, "the observation must reach the compaction input at all"
+    hidden = await compaction_input(False)
+    assert SSN not in hidden and "e1" in hidden

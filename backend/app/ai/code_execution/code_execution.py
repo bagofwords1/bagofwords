@@ -18,7 +18,7 @@ from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
-from app.ai.data_visibility import allow_llm_see_data, cut_before_value, names_only_structure, redact_error_text
+from app.ai.data_visibility import allow_llm_see_data, redact_error_text
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
 from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
@@ -182,6 +182,9 @@ def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
         exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
 
 
+_EXECUTION_ERROR_PREFIX = "Execution error: "
+
+
 def format_execution_failure(exc: BaseException, message: str, allow_llm_see_data: bool = True) -> str:
     """The error text a retry sees for a failed execution: the message, then
     the tail of what the code printed before it raised (when there is any).
@@ -196,11 +199,14 @@ def format_execution_failure(exc: BaseException, message: str, allow_llm_see_dat
         # SandboxExecutionError carrying the original type name and message.
         type_name = getattr(exc, "exc_type", None) or type(exc).__name__
         raw = getattr(exc, "message", None) if getattr(exc, "exc_type", None) else str(exc)
-        if names_only_structure(type_name, raw or ""):
-            return message
         if raw and raw in message:
-            return message.replace(raw, cut_before_value(raw))
-        return cut_before_value(message)
+            return message.replace(raw, redact_error_text(raw, type_name))
+        # Without the raw text, judge only what follows the fixed prefix, so
+        # the cut cannot land on the prefix's own ": ".
+        if message.startswith(_EXECUTION_ERROR_PREFIX):
+            rest = message[len(_EXECUTION_ERROR_PREFIX):]
+            return _EXECUTION_ERROR_PREFIX + redact_error_text(rest, type_name)
+        return redact_error_text(message, type_name)
     partial = getattr(exc, "captured_stdout", "") or ""
     if not partial:
         return message
@@ -849,12 +855,8 @@ class QueryCapturingClientWrapper:
         query_timeout_seconds: int = DEFAULT_QUERY_TIMEOUT_SECONDS,
         max_concurrent_queries: Optional[int] = None,
         captured_column_titles: Optional[Dict[str, Any]] = None,
-        hide_values_in_errors: bool = False,
     ):
         self._original = original_client
-        # With "Allow LLM to see data" off, a recorded query error stops where
-        # it names a value: the planner, history and compaction all read it.
-        self._hide_values_in_errors = hide_values_in_errors
         self._captured_queries = captured_queries
         self._captured_timings = captured_timings
         self._captured_column_titles = captured_column_titles
@@ -988,7 +990,8 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e),
+                    "error": str(e)[:200],
+                    "error_class": type(e).__name__,
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
@@ -1005,18 +1008,13 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e),
+                    "error": str(e)[:200],
+                    "error_class": type(e).__name__,
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
-
-    def _recorded_error(self, e: BaseException) -> str:
-        text = str(e)
-        if self._hide_values_in_errors:
-            text = redact_error_text(text, type(e).__name__)
-        return text[:200]
 
     def _call_with_timeout(self, query, args, kwargs):
         """Run original.execute_query in a daemon thread; abandon it on timeout.
@@ -1272,7 +1270,6 @@ def wrap_clients_for_capture(
                 query_timeout_seconds=timeout,
                 max_concurrent_queries=query_concurrency.effective_limit(client, organization_settings),
                 captured_column_titles=captured_column_titles,
-                hide_values_in_errors=not allow_llm_see_data(organization_settings),
             )
         else:
             wrapped[key] = client
@@ -1975,7 +1972,7 @@ class StreamingCodeExecutor:
                 executed_successfully = True
                 break
             except Exception as e:
-                msg = augment_db_error_hint(f"Execution error: {str(e)}")
+                msg = augment_db_error_hint(f"{_EXECUTION_ERROR_PREFIX}{str(e)}")
                 code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
@@ -2240,7 +2237,7 @@ class StreamingCodeExecutor:
                 # client wrapper), so the attempt is not safely repeatable.
                 break
             except Exception as e:
-                msg = augment_db_error_hint(f"Execution error: {str(e)}")
+                msg = augment_db_error_hint(f"{_EXECUTION_ERROR_PREFIX}{str(e)}")
                 code_and_error_messages.append((final_code, self._retry_feedback(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1

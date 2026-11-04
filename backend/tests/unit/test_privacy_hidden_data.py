@@ -18,16 +18,13 @@ import pytest
 
 from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, format_execution_failure
-from app.ai.context.builders.message_context_builder import _compaction_observation_text
-from app.ai.context.builders.query_context_builder import QueryContextBuilder
-from app.ai.context.durable_transcript import _result_content
+from app.ai.context.durable_transcript import build_durable_transcript
 from app.ai.context.hidden_data import hide_data_for_replay
 from app.ai.data_visibility import allow_llm_see_data, redact_error_text
-from app.ai.context.parts import Outcome
+from app.ai.context.parts import ToolResultPart
 from app.ai.persisted_summary import TOOL_CONTEXT_KIND_FIELD, TOOL_CONTEXT_OBSERVATION_KIND
 from app.ai.tools.implementations.create_artifact import CreateArtifactTool
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
-from app.ai.tools.implementations.write_csv import _model_data_fields
 from app.schemas.ai.planner import PlannerInput
 
 SSN = "078-05-1120"
@@ -75,8 +72,21 @@ SUMMARIES = {
 def _execution(tool_name, summary, *, envelope=False):
     body = ({"version": 2, TOOL_CONTEXT_KIND_FIELD: TOOL_CONTEXT_OBSERVATION_KIND, "observation": summary}
             if envelope else summary)
-    return SimpleNamespace(tool_name=tool_name, context_summary_json=body, result_json=None,
+    return SimpleNamespace(id=f"te-{tool_name}", completion_id="c1", status="success", tool_name=tool_name,
+                           context_summary_json=body, result_json=None,
                            result_summary=summary.get("summary"), error_message=None)
+
+
+def _replayed(execution, allow_llm_see_data):
+    """The tool result the transcript sends the model for ``execution``."""
+    transcript, _ = build_durable_transcript(
+        completions=[SimpleNamespace(id="c1", role="system")],
+        blocks_by_completion={},
+        tool_exec_by_id={execution.id: execution},
+        allow_llm_see_data=allow_llm_see_data,
+    )
+    [result] = [part for turn in transcript.turns for part in turn.parts if isinstance(part, ToolResultPart)]
+    return result.content, result.digest
 
 
 @pytest.mark.parametrize("tool_name", sorted(SUMMARIES))
@@ -111,24 +121,17 @@ def test_a_scalar_named_rows_is_structure_not_data():
 @pytest.mark.parametrize("tool_name", sorted(SUMMARIES))
 def test_transcript_replay_is_unchanged_with_data_visible_and_hidden_without(tool_name):
     execution = _execution(tool_name, SUMMARIES[tool_name])
-    visible, _ = _result_content(execution, Outcome.SUCCESS, allow_llm_see_data=True)
+    visible, _ = _replayed(execution, True)
     assert visible == json.dumps(SUMMARIES[tool_name], default=str, ensure_ascii=False, separators=(",", ":"))
-    hidden, _ = _result_content(execution, Outcome.SUCCESS, allow_llm_see_data=False)
+    hidden, _ = _replayed(execution, False)
     assert SSN not in hidden
 
 
 def test_transcript_replay_hides_inside_the_observation_envelope():
     execution = _execution("inspect_data", SUMMARIES["inspect_data"], envelope=True)
-    hidden, digest = _result_content(execution, Outcome.SUCCESS, allow_llm_see_data=False)
+    hidden, digest = _replayed(execution, False)
     assert SSN not in hidden and SSN not in (digest or "")
     assert "Inspection finished" in hidden
-
-
-def test_compaction_text_hides_what_it_captured_while_data_was_visible():
-    execution = _execution("describe_entity", SUMMARIES["describe_entity"], envelope=True)
-    assert SSN in _compaction_observation_text(execution)
-    assert SSN in _compaction_observation_text(execution, True)
-    assert SSN not in _compaction_observation_text(execution, False)
 
 
 def _planner_input(**kw) -> PlannerInput:
@@ -136,19 +139,15 @@ def _planner_input(**kw) -> PlannerInput:
                         organization_ai_analyst_name="Analyst", **kw)
 
 
-def test_the_transcript_path_says_data_is_hidden():
-    assert "<data_visibility>" in PromptBuilderV3._build_static_context(_planner_input(allow_llm_see_data=False))
-    assert "<data_visibility>" not in PromptBuilderV3._build_static_context(_planner_input())
+def _prompt_text(planner_input) -> str:
+    built = PromptBuilderV3.build(planner_input)
+    return built.system + json.dumps(built.messages, default=str)
 
 
-def test_previous_queries_context_gates_stats_when_previews_are_off():
-    builder = QueryContextBuilder.__new__(QueryContextBuilder)
-    step = {"id": "s1", "title": "People", "info": STATS, "columns": [{"field": "ssn"}]}
-    query = {"id": "q1", "title": "People"}
-    hidden = builder._build_query_observation(query, step, [], include_data_preview=False)
-    assert SSN not in json.dumps(hidden.stats) and hidden.row_count == 2
-    shown = builder._build_query_observation(query, step, [], include_data_preview=True)
-    assert SSN in json.dumps(shown.stats)
+def test_the_transcript_path_says_data_is_hidden(monkeypatch):
+    monkeypatch.delenv("BOW_PLANNER_TRANSCRIPT", raising=False)
+    assert "<data_visibility>" in _prompt_text(_planner_input(allow_llm_see_data=False))
+    assert "<data_visibility>" not in _prompt_text(_planner_input())
 
 
 def test_a_code_retry_sees_no_printed_data_and_no_quoted_cell():
@@ -172,13 +171,6 @@ def _Settings(allowed):
 
     return OrganizationSettings(config={"allow_llm_see_data": {
         "name": "Allow LLM to see data", "description": "", "value": allowed}})
-
-
-def test_write_csv_observation_hides_the_file_head_and_raw_stats():
-    head = f"   name          ssn\n0  Jane  {SSN}"
-    assert _model_data_fields(head, STATS, _Settings(True)) == (head, STATS)
-    preview, stats = _model_data_fields(head, STATS, _Settings(False))
-    assert preview == "" and SSN not in json.dumps(stats) and stats["total_rows"] == 2
 
 
 def test_visualization_profile_min_max_only_for_dates_when_hidden():
@@ -387,16 +379,19 @@ def _failed_run(settings):
 
 
 @pytest.mark.parametrize("allowed", [True, False], ids=["visible", "hidden"])
-def test_a_failed_query_records_its_error_without_the_cell_when_hidden(allowed):
+def test_a_failed_query_keeps_its_error_for_the_ui_and_hides_it_from_the_retry(allowed):
     payload = _failed_run(_Settings(allowed))
-    recorded = [t["error"] for t in payload["query_timings"] if t.get("error")]
-    retries = [text for _code, text in payload["errors"]]
-    assert recorded and retries
-    seen = json.dumps([recorded, retries])
+    failed = [t for t in payload["query_timings"] if t.get("error")]
+    retries = json.dumps([text for _code, text in payload["errors"]])
+    assert failed and retries
+    # The stored timing is what the UI shows: the driver's text, as it was.
+    assert all(CELL in t["error"] and t["error_class"] == "DataError" for t in failed)
     if allowed:
-        assert CELL in seen
+        assert CELL in retries
     else:
-        assert CELL not in seen and "invalid input syntax for type integer" in seen
+        assert CELL not in retries and "invalid input syntax for type integer" in retries
+        # The model's copy of the stored timing is cut on replay.
+        assert CELL not in json.dumps(hide_data_for_replay({"query_timings": failed}, "create_data"))
 
 
 def test_replay_cuts_error_text_recorded_while_data_was_visible():
@@ -474,3 +469,46 @@ async def test_write_csv_run_shows_the_model_cells_only_when_allowed(tmp_path, m
     assert SSN in json.dumps(end["output"], default=str)
     assert (SSN in json.dumps(end["observation"], default=str)) is allowed
     assert end["observation"]["row_count"] == 2
+
+
+def test_a_structural_driver_error_drops_its_bound_parameters():
+    import psycopg2.errors
+    import sqlalchemy.exc
+
+    missing = psycopg2.errors.UndefinedColumn('column "bad_col" does not exist')
+    exc = sqlalchemy.exc.ProgrammingError("SELECT bad_col FROM t WHERE email = %(e)s", {"e": CELL}, missing)
+    message = f"Execution error: {exc}"
+    hidden = format_execution_failure(exc, message, False)
+    assert CELL not in hidden and 'column "bad_col" does not exist' in hidden
+    assert CELL not in redact_error_text(str(exc), type(exc).__name__)
+    assert CELL in format_execution_failure(exc, message)
+
+
+def test_a_sandbox_error_without_its_message_keeps_its_type():
+    from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+
+    exc = SandboxExecutionError("ValueError", "")
+    hidden = format_execution_failure(exc, f"Execution error: {exc}", False)
+    assert "ValueError" in hidden
+
+
+def test_a_duration_is_a_value_not_a_time_range():
+    body = {"columns": [{"field": "took", "dtype": "timedelta64[ns]", "min": "0 days 00:00:01", "max": "3 days"},
+                        {"field": "day", "dtype": "datetime64[ns]", "min": "2026-01-01", "max": "2026-01-31"}]}
+    hidden = hide_data_for_replay(body, "read_artifact")["columns"]
+    assert "min" not in hidden[0] and hidden[1]["min"] == "2026-01-01"
+
+
+def test_parameter_options_and_default_filters_are_hidden_on_replay():
+    body = {"visualization_profiles": [{"id": "v1", "parameters": [
+        {"name": "customer", "type": "string", "options": [SSN], "default": SSN, "options_source": "q1"}],
+        "view_config": {"type": "bar", "default_filters": [{"field": "ssn", "value": SSN}]}}]}
+    hidden = hide_data_for_replay(body, "read_artifact")
+    assert SSN not in json.dumps(hidden)
+    param = hidden["visualization_profiles"][0]["parameters"][0]
+    assert param["name"] == "customer" and param["options_source"] == "q1"
+
+
+def test_list_receipts_keep_only_their_ids_and_actions():
+    body = {"rows": [{"row_id": "r1", "key": "k", "label": SSN, "action": "inserted"}]}
+    assert hide_data_for_replay(body, "submit_list")["rows"] == [{"row_id": "r1", "action": "inserted"}]

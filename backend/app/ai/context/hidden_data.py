@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.ai.data_preview import gate_stats_for_privacy
+from app.ai.data_preview import gate_stats_for_privacy, is_date_dtype
 from app.ai.data_visibility import redact_error_text
 
 # Keys whose list/dict values are cells (result rows, profile samples).
@@ -20,6 +20,9 @@ _ROW_KEYS = frozenset({"rows", "head_rows", "sample_rows", "sample_values"})
 # Per-column stats computed from sample rows (visualization profiles): all of
 # it is derived from cells, so it goes as a whole.
 _SAMPLE_STATS_KEYS = frozenset({"column_stats"})
+# Values a chart is filtered by, and a parameter's options/default: often cells.
+_VALUE_FILTER_KEYS = frozenset({"default_filters"})
+_PARAM_VALUE_KEYS = frozenset({"default", "options"})
 _FILE_TOOLS = frozenset({"read_file", "read_email", "read_note"})
 # Error text (a DB or conversion error can quote a cell): recorded while data
 # was visible, it is cut before the value on replay.
@@ -29,11 +32,6 @@ HIDDEN_NOTE = (
     "Hidden by organization policy (allow_llm_see_data is off): only structure "
     "and aggregate stats are available."
 )
-
-
-def _is_date(dtype: Any) -> bool:
-    value = str(dtype or "").lower()
-    return "date" in value or "time" in value
 
 
 def _scrub(value: Any) -> Any:
@@ -53,11 +51,20 @@ def _scrub(value: Any) -> Any:
         if key == "stats" and isinstance(item, dict) and isinstance(item.get("column_info"), dict):
             out[key] = gate_stats_for_privacy(item)
             continue
+        if key in _VALUE_FILTER_KEYS:
+            hidden = True
+            continue
+        if key == "parameters" and isinstance(item, list):
+            out[key] = [
+                _scrub({k: v for k, v in p.items() if k not in _PARAM_VALUE_KEYS}) if isinstance(p, dict) else p
+                for p in item
+            ]
+            continue
         if key == "columns" and isinstance(item, list):
             out[key] = [_column(col) for col in item]
             continue
         if key in _ERROR_TEXT_KEYS or (key == "error" and isinstance(item, str)):
-            out[key] = redact_error_text(item)
+            out[key] = redact_error_text(item, value.get("error_class"))
             continue
         if key == "error" and isinstance(item, dict):
             out[key] = {k: redact_error_text(v) if k in _ERROR_DICT_TEXT_KEYS else _scrub(v) for k, v in item.items()}
@@ -77,15 +84,22 @@ def _column(col: Any) -> Any:
     the one extreme ``gate_stats_for_privacy`` allows)."""
     if not isinstance(col, dict):
         return col
-    if ("min" in col or "max" in col) and not _is_date(col.get("dtype")):
+    if ("min" in col or "max" in col) and not is_date_dtype(col.get("dtype")):
         col = {key: item for key, item in col.items() if key not in ("min", "max")}
     return _scrub(col)
+
+
+# A submit_list receipt keeps only what is needed to update or delete it.
+_RECEIPT_KEYS = frozenset({"row_id", "action"})
 
 
 def _list_receipts(rows: Any) -> list | None:
     if not isinstance(rows, list):
         return None
-    return [{k: v for k, v in row.items() if k != "key"} if isinstance(row, dict) else row for row in rows]
+    return [
+        {k: v for k, v in row.items() if k in _RECEIPT_KEYS} if isinstance(row, dict) else row
+        for row in rows
+    ]
 
 
 def hide_data_for_replay(body: Any, tool_name: Any = None) -> Any:
