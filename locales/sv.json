@@ -1127,7 +1127,9 @@
         "wide": "Bred"
       },
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
-    }
+    },
+    "readMore": "Läs mer",
+    "showLess": "Visa mindre"
   },
   "tools": {
     "common": {

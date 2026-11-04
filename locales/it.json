@@ -1127,7 +1127,9 @@
         "wide": "Ampio"
       },
       "scopeHint": "Si applica alle tue conversazioni in questo browser."
-    }
+    },
+    "readMore": "Leggi di più",
+    "showLess": "Mostra meno"
   },
   "tools": {
     "common": {

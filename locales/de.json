@@ -1127,7 +1127,9 @@
         "wide": "Breit"
       },
       "scopeHint": "Gilt für Ihre Unterhaltungen in diesem Browser."
-    }
+    },
+    "readMore": "Mehr lesen",
+    "showLess": "Weniger anzeigen"
   },
   "tools": {
     "common": {
