@@ -5222,12 +5222,19 @@ class DataSourceService:
         tables = None
         count = 0
         try:
+            from app.data_sources.clients.discovery import ValidatedDiscovery
+            self._last_overlay_explicit_complete = False
             for agent in agents:
-                tables = await self._sync_user_overlay_for_connection(
+                result = await self._sync_user_overlay_for_connection(
                     db, agent, user, connection, prefetched_tables=tables,
                     progress_callback=progress_callback, force_refresh=force_refresh,
                     commit=False,
                 )
+                if tables is None:
+                    # Reuse the first discovery for the other agents, keeping
+                    # whether it explicitly confirmed an empty catalog.
+                    tables = ValidatedDiscovery(
+                        result, explicit_complete=self._last_overlay_explicit_complete)
                 count += 1
             if progress_callback:
                 progress_callback("saving", None, None, None)
@@ -5378,11 +5385,13 @@ class DataSourceService:
             ):
                 kwargs["progress_callback"] = progress_callback
             fresh = await client.aget_schemas(**kwargs)
-            from app.data_sources.clients.discovery import require_complete_discovery
-            fresh = require_complete_discovery(client, fresh)
+            # Record diagnostics first: an incomplete discovery raises below.
             self.last_discovery_diagnostics.extend(
                 getattr(client, "discovery_diagnostics", []) or []
             )
+            from app.data_sources.clients.discovery import require_complete_discovery
+            fresh = require_complete_discovery(client, fresh)
+            self._last_overlay_explicit_complete = getattr(fresh, "explicit_complete", False)
         if fresh is None:
             # No snapshot is not an authoritative empty snapshot. A successful
             # empty list must still reconcile and revoke the previous overlay.
@@ -6097,6 +6106,8 @@ class DataSourceService:
         prefetched_by_conn: dict = {}
         sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
         timeouts: list = []
+        # Connections whose refresh_schema already synced every linked agent.
+        self._published_conn_ids = set()
 
         async def _one(conn_id: str, auth_policy: str) -> None:
             async with sem:
@@ -6125,6 +6136,8 @@ class DataSourceService:
                         introspection="full",
                     )
                     await conn_db.commit()
+                    if getattr(svc, "_catalog_discovery_complete", False):
+                        self._published_conn_ids.add(conn_id)
                     fetched = getattr(svc, "last_refresh_fresh_tables", None)
                     fetched_as = getattr(svc, "last_refresh_identity_user_id", None)
                     if fetched is not None and fetched_as is not None and fetched_as == caller_id:
@@ -6235,7 +6248,11 @@ class DataSourceService:
 
                 # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
                 # any legacy unlinked orphan rows; keep existing is_active state.
+                # refresh_schema already synced this agent for connections it
+                # published; only sync the rest (failed or skipped refreshes).
                 for conn in shared_conns:
+                    if str(conn.id) in self._published_conn_ids:
+                        continue
                     await self.sync_domain_tables_from_connection(
                         db, data_source, conn, max_auto_select=None
                     )

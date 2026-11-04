@@ -75,7 +75,7 @@ async def refresh(cid):
             raise
 
 
-@pytest.mark.parametrize("signal", ["unreadable_models", "unread_prefixes", "unread_types", "exception", "cancel", "explicit_partial", "no_snapshot", "task_cancel"])
+@pytest.mark.parametrize("signal", ["unreadable_models", "exception", "cancel", "explicit_partial", "no_snapshot", "task_cancel"])
 def test_incomplete_discovery_preserves_catalog_and_all_agent_selections(
     monkeypatch, create_user, login_user, whoami, signal,
 ):
@@ -100,12 +100,8 @@ def test_incomplete_discovery_preserves_catalog_and_all_agent_selections(
 
     monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
     if signal == "unreadable_models":
-        monkeypatch.setattr(SqliteClient, "index_stats", lambda self: {
-            "unreadable_datasets": [{"datasetId": "unavailable-model", "reason": "timeout"}]})
-    if signal == "unread_prefixes":
-        monkeypatch.setattr(SqliteClient, "unindexed_table_prefixes", lambda self: ["unavailable"])
-    if signal == "unread_types":
-        monkeypatch.setattr(SqliteClient, "unindexed_entry_types", lambda self: ["routine"])
+        monkeypatch.setattr(SqliteClient, "discovery_diagnostics", [
+            {"datasetId": "unavailable-model", "reason": "timeout"}], raising=False)
     error = asyncio.CancelledError if signal == "task_cancel" else IndexingCancelled if signal == "cancel" else (
         HTTPException if signal == "exception" else IncompleteDiscoveryError)
     with pytest.raises(error):
@@ -366,3 +362,83 @@ def test_requested_auto_selection_participates_in_callers_transaction(
                 DataSourceTable.datasource_id == agent_id, DataSourceTable.is_active.is_(True)))).scalars().all()
             assert selected == []
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("signal", ["unread_prefixes", "unread_types"])
+def test_unread_parts_keep_their_entries_while_the_rest_refreshes(
+    monkeypatch, create_user, login_user, whoami, signal,
+):
+    user = create_user()
+    org = whoami(login_user(user["email"], user["password"]))["organizations"][0]["id"]
+    cid = asyncio.run(seed(org))
+
+    async def mark_unread_part():
+        # "alpha" (selected in both agents) belongs to the part this run cannot read.
+        async with async_session_maker() as db:
+            ct = (await db.execute(select(ConnectionTable).where(
+                ConnectionTable.connection_id == cid, ConnectionTable.name == "alpha"))).scalar_one()
+            if signal == "unread_prefixes":
+                ct.name = "busy_app/alpha"
+                for dst in (await db.execute(select(DataSourceTable).where(
+                        DataSourceTable.connection_table_id == ct.id))).scalars():
+                    dst.name = "busy_app/alpha"
+            else:
+                ct.metadata_json = {"type": "routine"}
+            await db.commit()
+            return ct.id
+    unread_id = asyncio.run(mark_unread_part())
+
+    async def discover(self, **kwargs):
+        return [table("beta", "changed"), table("new_table")]
+
+    monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+    if signal == "unread_prefixes":
+        monkeypatch.setattr(SqliteClient, "unindexed_table_prefixes", lambda self: ["busy_app"])
+    else:
+        monkeypatch.setattr(SqliteClient, "unindexed_entry_types", lambda self: ["routine"])
+    asyncio.run(refresh(cid))
+
+    _, tables, agents = asyncio.run(snapshot(cid))
+    assert unread_id in {t[0] for t in tables}
+    assert "new_table" in {t[1] for t in tables}
+    assert dict((t[1], t[2]) for t in tables)["beta"] == str(table("beta", "changed")["columns"])
+    kept = [a for a in agents if a[2] == unread_id]
+    assert len(kept) == 2 and all(a[4] for a in kept)
+
+
+def test_confirmed_empty_personal_catalog_revokes_every_linked_agent(
+    monkeypatch, create_user, login_user, whoami,
+):
+    from app.models.user import User
+    from app.models.user_data_source_overlay import UserDataSourceTable
+    from app.services.data_source_service import DataSourceService
+
+    account = create_user()
+    profile = whoami(login_user(account["email"], account["password"]))
+    cid = asyncio.run(seed(profile["organizations"][0]["id"]))
+    revoked = False
+
+    async def discover(self, **kwargs):
+        return DiscoveryResult([], complete=True) if revoked else [table("alpha"), table("beta")]
+
+    monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+
+    async def run():
+        async with async_session_maker() as db:
+            return await DataSourceService().refresh_user_connection_catalog(
+                db, await db.get(Connection, cid), await db.get(User, profile["id"]))
+
+    async def accessible_agents():
+        async with async_session_maker() as db:
+            rows = (await db.execute(select(UserDataSourceTable).where(
+                UserDataSourceTable.connection_id == cid,
+                UserDataSourceTable.is_accessible.is_(True)))).scalars().all()
+            return {r.data_source_id for r in rows}
+
+    asyncio.run(run())
+    assert len(asyncio.run(accessible_agents())) == 2
+    revoked = True
+    # Both linked agents publish the confirmed-empty result: no stale access.
+    _, synced = asyncio.run(run())
+    assert synced == 2
+    assert asyncio.run(accessible_agents()) == set()

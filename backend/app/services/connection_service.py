@@ -1893,6 +1893,36 @@ class ConnectionService:
             fresh_tables = require_complete_discovery(client, fresh_tables)
             if not getattr(client, "catalog_identity_available", True):
                 return []
+            # Parts of the catalog the client could not read on this run (a
+            # BI app that was busy or mid-reload) and entry types it could not
+            # read (routine discovery failed while the tables were read). Their
+            # existing entries, and the agents' selection of them, are kept
+            # below rather than pruned; everything else still refreshes.
+            try:
+                unread_prefixes = tuple(
+                    f"{str(p).rstrip('/')}/"
+                    for p in (client.unindexed_table_prefixes() or [])
+                    if p and str(p).strip("/")
+                )
+            except Exception:
+                unread_prefixes = ()
+            try:
+                unread_types = frozenset(client.unindexed_entry_types() or ())
+            except Exception:
+                unread_types = frozenset()
+            if unread_types:
+                logger.warning(
+                    "refresh_schema: connection %s could not read its %s entries on this run; "
+                    "the existing ones are kept",
+                    connection.id, ", ".join(sorted(unread_types)),
+                )
+            if unread_prefixes:
+                logger.warning(
+                    "refresh_schema: connection %s could not read %d part(s) of its catalog "
+                    "on this run; their existing tables are kept: %s",
+                    connection.id, len(unread_prefixes),
+                    ", ".join(p.rstrip("/") for p in unread_prefixes[:10]),
+                )
             # Only needed to pass to the client; release them before saving.
             # `_extra` holds the same `prior_tables` dict (Power BI /
             # incremental), and it outlives this block, so clearing it is what
@@ -2004,7 +2034,8 @@ class ConnectionService:
                 if isinstance(t, dict):
                     name = t.get("name")
                     if not name:
-                        raise ValueError("Catalog entry is missing its name")
+                        logger.warning("refresh_schema: skipping a catalog entry with no name")
+                        continue
                     incoming[name] = {
                         "columns": normalize_columns(t.get("columns", [])),
                         "pks": normalize_columns(t.get("pks", [])),
@@ -2014,7 +2045,8 @@ class ConnectionService:
                 else:
                     name = getattr(t, "name", None)
                     if not name:
-                        raise ValueError("Catalog entry is missing its name")
+                        logger.warning("refresh_schema: skipping a catalog entry with no name")
+                        continue
                     incoming[name] = {
                         "columns": normalize_columns(getattr(t, "columns", [])),
                         "pks": normalize_columns(getattr(t, "pks", [])),
@@ -2074,6 +2106,16 @@ class ConnectionService:
                         existing_tables.pop(row.name, None)
                         row.name = name
                     existing_tables[name] = row
+
+            # An unread part that already has tables keeps them, so its
+            # error/empty placeholder row (named after the part itself) is not
+            # added next to them.
+            for prefix in unread_prefixes:
+                placeholder = prefix.rstrip("/")
+                if placeholder in incoming and placeholder not in existing_tables and any(
+                    n.startswith(prefix) for n in existing_tables
+                ):
+                    incoming.pop(placeholder, None)
 
             # Upsert tables
             created_count = 0
@@ -2141,7 +2183,12 @@ class ConnectionService:
             if authoritative:
                 missing = [
                     (name, tbl) for name, tbl in existing_tables.items()
-                    if name not in incoming
+                    if name not in incoming and not name.startswith(unread_prefixes)
+                    and not (
+                        unread_types
+                        and isinstance(tbl.metadata_json, dict)
+                        and tbl.metadata_json.get("type") in unread_types
+                    )
                 ]
                 if missing:
                     user_visible_names = await self._user_visible_table_names(
@@ -2728,7 +2775,8 @@ class ConnectionService:
             for t in fresh_tools:
                 name = t.get("name") if isinstance(t, dict) else getattr(t, "name", None)
                 if not name:
-                    raise ValueError("Catalog entry is missing its name")
+                    logger.warning(f"refresh_tools: skipping a tool with no name for connection {connection.id}")
+                    continue
                 incoming[name] = {
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
@@ -2759,7 +2807,9 @@ class ConnectionService:
             )
             existing_tools = {t.name: t for t in existing_q.scalars().all()}
             from app.data_sources.clients.discovery import reject_unconfirmed_empty
-            reject_unconfirmed_empty(fresh_tools, has_existing=bool(existing_tools))
+            # Only nameless entries is not a confirmed empty catalog: never prune on it.
+            reject_unconfirmed_empty(fresh_tools if incoming or not fresh_tools else [],
+                                     has_existing=bool(existing_tools))
             logger.info(f"refresh_tools: Found {len(existing_tools)} existing ConnectionTool records")
 
             # Upsert tools

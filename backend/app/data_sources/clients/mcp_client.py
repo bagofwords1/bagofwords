@@ -233,7 +233,6 @@ class McpClient(ToolProviderClient):
                     if not cursor:
                         break
                 else:
-                    self.mark_discovery_incomplete("tools/list pagination limit")
                     logger.warning("MCP tools/list: stopped after %d pages", _MAX_TOOL_PAGES)
             return tools
         except (asyncio.CancelledError, IndexingCancelled):

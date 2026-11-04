@@ -10,27 +10,29 @@ from app.data_sources.clients.mcp_client import McpClient
 
 
 @pytest.mark.parametrize("pages", [1, 2, 4])
-def test_tool_discovery_rejects_truncated_pagination_and_allows_retry(monkeypatch, pages):
+def test_tool_discovery_publishes_the_page_capped_list(monkeypatch, pages):
+    """The page cap is a safety limit, not a failure: a server with more pages
+    still publishes the tools that were read."""
     from app.data_sources.clients import mcp_client
     monkeypatch.setattr(mcp_client, "_MAX_TOOL_PAGES", pages)
-    complete = False
+    served = []
 
     class Session:
         async def list_tools(self, **kwargs):
-            return SimpleNamespace(tools=[], nextCursor=None if complete else "next-page")
+            name = f"tool_{len(served)}"
+            served.append(name)
+            tool = SimpleNamespace(name=name, description="", inputSchema={},
+                                   outputSchema=None, annotations=None)
+            return SimpleNamespace(tools=[tool], nextCursor="next-page")
 
     @asynccontextmanager
     async def connect(self):
         yield Session()
 
-    # The session is the MCP transport boundary; client pagination and common
-    # validation both run real.
     monkeypatch.setattr(McpClient, "_connect", connect)
-    client = McpClient(server_url="http://provider.invalid")
-    with pytest.raises(IncompleteDiscoveryError):
-        asyncio.run(client.alist_tools())
-    complete = True
-    assert asyncio.run(client.alist_tools()) == []
+    tools = asyncio.run(McpClient(server_url="http://provider.invalid").alist_tools())
+    assert [t["name"] for t in tools] == served
+    assert len(served) == pages
 
 
 def test_native_tool_discovery_preserves_task_cancellation(monkeypatch):
@@ -86,16 +88,30 @@ def test_optional_document_content_failure_keeps_complete_file_listing(monkeypat
     assert {t.name for t in tables} == {"unreadable.pdf", "available.txt"}
 
 
-def test_adapter_and_service_share_one_discovery_validation(monkeypatch):
-    from app.data_sources.clients.sqlite_client import SqliteClient
+def test_validation_is_idempotent_and_consumes_recorded_failures():
+    from app.data_sources.clients.discovery import DiscoveryClient, require_complete_discovery
+    client = DiscoveryClient()
+    client.mark_discovery_incomplete("listing")
+    with pytest.raises(IncompleteDiscoveryError):
+        require_complete_discovery(client, ["a"])
+    # A failure is reported once; it never leaks into the client's next run.
+    validated = require_complete_discovery(client, ["a"])
+    assert require_complete_discovery(client, validated) is validated
+
+
+def test_unread_parts_and_entry_types_do_not_block_publication():
+    """Unread parts/types keep their existing entries during the prune; the
+    rest of the catalog still refreshes, so they are not discovery failures."""
     from app.data_sources.clients.discovery import require_complete_discovery
-    calls = []
-    def stats(self):
-        calls.append(True)
-        return {}
-    monkeypatch.setattr(SqliteClient, "get_schemas", lambda self, **kw: [])
-    monkeypatch.setattr(SqliteClient, "index_stats", stats)
-    client = SqliteClient(database=":memory:")
-    result = asyncio.run(client.aget_schemas())
-    assert require_complete_discovery(client, result) == []
-    assert len(calls) == 1
+    client = SimpleNamespace(
+        unindexed_table_prefixes=lambda: ["Space/Busy app"],
+        unindexed_entry_types=lambda: ["routine"],
+    )
+    assert require_complete_discovery(client, ["Space/Other app/t"]) == ["Space/Other app/t"]
+
+
+def test_unreadable_models_are_named_in_the_error():
+    from app.data_sources.clients.discovery import require_complete_discovery
+    client = SimpleNamespace(discovery_diagnostics=[{"datasetName": "Sales model", "reason": "no Build"}])
+    with pytest.raises(IncompleteDiscoveryError, match="Sales model"):
+        require_complete_discovery(client, ["Workspace/Other/t"])

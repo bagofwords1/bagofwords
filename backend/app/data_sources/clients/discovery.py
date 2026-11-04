@@ -58,14 +58,19 @@ class DiscoveryClient:
 def require_complete_discovery(client, result):
     """Validate before *any* catalog/overlay writes, including async overrides.
 
-    Bridge existing partial-discovery hooks into the common contract so Qlik,
-    SQL routine discovery and Power BI all fail closed. Reading status itself
-    must succeed: a broken diagnostics hook cannot establish completeness.
+    Unread parts (``unindexed_table_prefixes``) and unread entry types
+    (``unindexed_entry_types``, e.g. routines) are not fatal: the refresh keeps
+    their existing entries and selections and still refreshes the rest.
+    Unreadable Power BI models have no such scoped signal, so they still block
+    publication; their names are surfaced in the error so access can be fixed.
     """
     if isinstance(result, ValidatedDiscovery):
         return result
     explicit_complete = isinstance(result, DiscoveryResult) and result.complete
+    # Consume the failures so a reused client never carries them into a later run.
     failures = list(getattr(client, "_discovery_failures", None) or [])
+    if hasattr(client, "_discovery_failures"):
+        client._discovery_failures = []
     if isinstance(result, DiscoveryResult):
         if not result.complete or result.failures:
             failures.extend(result.failures or ["incomplete catalog"])
@@ -74,17 +79,16 @@ def require_complete_discovery(client, result):
         items = result
     if items is None:
         failures.append("no catalog snapshot returned")
-    for hook in ("unindexed_table_prefixes", "unindexed_entry_types"):
-        method = getattr(client, hook, None)
-        if method is not None and method():
-            failures.append("unread catalog entries")
-    stats_method = getattr(client, "index_stats", None)
-    stats = stats_method() if stats_method is not None else {}
-    if (stats or {}).get("unreadable_datasets") or getattr(client, "discovery_diagnostics", None):
-        failures.append("unreadable semantic models")
+    diagnostics = getattr(client, "discovery_diagnostics", None) or []
+    if diagnostics:
+        names = ", ".join(
+            str((d.get("datasetName") or d.get("name") or "?") if isinstance(d, dict) else d)
+            for d in diagnostics[:5]
+        )
+        failures.append(f"unreadable semantic models: {names}")
     if failures:
-        # Scope labels, not raw provider responses/credentials, belong in the
-        # surfaced message. Provider-specific diagnostics remain on the client.
+        # Scope labels and model names, not raw provider responses/credentials,
+        # belong in the surfaced message.
         raise IncompleteDiscoveryError(
             "Catalog discovery incomplete; previous catalog retained (" + "; ".join(failures[:5]) + ")"
         )
