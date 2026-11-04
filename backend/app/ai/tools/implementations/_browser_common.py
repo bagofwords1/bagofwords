@@ -74,18 +74,26 @@ def _proxy_from_env() -> Optional[Dict[str, str]]:
     return proxy
 
 
-def _ignore_https_errors(preview) -> bool:
-    """Whether the browser context should accept an untrusted TLS cert.
+def _preview_cert_spki_pins() -> List[str]:
+    """SPKI hashes (base64 SHA-256) whose certs the artifact-preview browser may
+    trust even when the deployment uses a private/self-signed CA.
 
-    An internal artifact preview only ever reaches the deployment's own origin
-    (ArtifactPreview.route aborts every other scheme://host), so trusting its
-    cert is safe and lets a self-hosted install with a private/self-signed CA
-    verify artifacts -- without it page.goto fails ERR_CERT_AUTHORITY_INVALID
-    and the agent can never watch its own app run. General web browsing reaches
-    arbitrary external origins, so there a cert is trusted only behind the
-    explicit dev flag (a local MITM proxy), never by default."""
-    if preview:
-        return True
+    A self-hosted install reaches its own preview origin over its network, often
+    behind a private CA Chromium does not know, so page.goto fails
+    ERR_CERT_AUTHORITY_INVALID and the agent can never watch its own app run. An
+    operator opts in by pinning the deployment CA's SPKI in
+    BOW_ARTIFACT_PREVIEW_CERT_SPKI (comma-separated for a chain/rotation). Only a
+    cert whose public key hash matches is then trusted, so a MITM presenting any
+    other cert -- or a redirect to another host -- still fails the handshake.
+    Unset (the default) keeps strict verification for every deployment."""
+    raw = os.environ.get("BOW_ARTIFACT_PREVIEW_CERT_SPKI", "")
+    return [p.strip() for p in raw.split(",") if p.strip()]
+
+
+def _ignore_https_errors_dev_flag() -> bool:
+    """General web browsing may reach arbitrary external origins; an untrusted
+    cert is accepted there only behind this explicit dev flag (a local MITM
+    debugging proxy), never by default and never for a preview."""
     return os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes")
 
 
@@ -461,6 +469,17 @@ class BrowserSessionManager:
                 exe = chromium_executable()
                 if exe:
                     launch_kwargs["executable_path"] = exe
+                # An artifact preview reaches only the deployment's own origin.
+                # On a self-hosted install with a private CA, an operator may pin
+                # that CA's SPKI so Chromium trusts exactly that cert -- not any
+                # cert, which would let a MITM forge the page the agent verifies,
+                # and unlike a blanket bypass it is off unless explicitly set.
+                if preview:
+                    pins = _preview_cert_spki_pins()
+                    if pins:
+                        launch_kwargs.setdefault("args", []).append(
+                            "--ignore-certificate-errors-spki-list=" + ",".join(pins)
+                        )
                 proxy = _proxy_from_env()
                 if proxy:
                     # The deployment's egress proxy resolves names and is the
@@ -481,10 +500,10 @@ class BrowserSessionManager:
                     "accept_downloads": allow_downloads,
                     "service_workers": "block" if preview else "allow",
                 }
-                # Preview reaches only the deployment's own origin, so trust its
-                # cert there (self-hosted private CAs); general browsing trusts a
-                # cert only behind the dev flag. See _ignore_https_errors.
-                if _ignore_https_errors(preview):
+                # General browsing may reach arbitrary external origins; trust an
+                # untrusted cert there only behind the dev flag, never for a
+                # preview (which pins its own CA above instead). See the helpers.
+                if not preview and _ignore_https_errors_dev_flag():
                     ctx_kwargs["ignore_https_errors"] = True
                 s.context = await s.browser.new_context(**ctx_kwargs)
                 await self._install_guard(s)
