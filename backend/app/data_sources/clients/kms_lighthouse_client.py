@@ -13,6 +13,8 @@ URL, a query string, a provider response body or a credential.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import functools
 import hashlib
 import hmac
@@ -26,6 +28,7 @@ import threading
 import time
 import unicodedata
 from collections import OrderedDict
+from html.entities import html5 as _HTML5_ENTITIES
 from datetime import datetime
 from urllib.parse import unquote, urlsplit
 
@@ -329,14 +332,14 @@ _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
 _BEARER_RE = re.compile(r"(?i)\b(bearer\s++)([A-Za-z0-9._~+/=-]{8,}+)")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
-# "password=...", "api_key: ...", '"password": "..."' in prose, JSON or YAML (no URL
-# separator before the name). Only blanks may follow the ':' or '=', so a heading
-# ("Password:" with the text on the next line) is not read as a name and a value.
-_PROSE_NAME_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])(?:client[_-]?|access[_-]?|auth[_-]?|private[_-]?)?"
-    r"(?:password|passwd|pwd|token|api[_-]?key|secret|sig|jwt|jsessionid|sessionid|session|ticket)"
-    r"[\"']?+[ \t]*+[:=][ \t]*+")
-_PROSE_VALUE_RE = re.compile(r"\S*+")
+# A structured key and its ':' or '=' (JSON, YAML, a config or env line): a quoted
+# key ('"newPassword":', "'api_key':") or a bare one (group 3) that starts after
+# no key character. Only blanks may follow the separator, so a heading with its
+# text on the next line has no value.
+_STRUCTURED_NAME_RE = re.compile(
+    r"(?:([\"'])([A-Za-z0-9_-]++)\1|(?<![A-Za-z0-9_-])([A-Za-z0-9_-]++))[ \t]*+[:=][ \t]*+")
+_STRUCTURED_VALUE_RE = re.compile(r"[^\s,}\]]*+")
+_CAMEL_CASE_RE = re.compile(r"[a-z][A-Z]")
 # The authority of "scheme://user:password@host": the password runs up to the
 # last '@' (it may hold a raw '@'). A scheme starts after any non-letter; it is
 # at most 32 characters long, so each start reads a bounded run.
@@ -348,13 +351,6 @@ _ESCAPED_SEPARATOR_RE = re.compile(r"(?i)&(?:amp;)*+(?:#(?:0*+(61|38)|x0*+(3d|26
 _SPACED_NAME_RE = re.compile(r"([?#;&][^\s\"'<>=?#;&]++=)(?:\s++(?![?#;&])|(?=[\"']))")
 _UNQUOTED_VALUE_RE = re.compile(r"[^\s\"'<>]*+")
 _MAX_QUOTED_CHARS = 256       # a quote not closed within this many characters on its line is no quote
-# Where a secret value was dropped, until the tail rule has run (never in the output;
-# every NUL in the input is dropped first).
-_DROPPED = "\x00"
-# A base64url run right after a redaction or a dropped value, separated only by
-# whitespace: the tail of a secret that a line break or a tag cut in two.
-_TAIL_RE = re.compile(r"(\x00|\[redacted\])(\s++)([A-Za-z0-9_-]{8,}+)")
-_CREDENTIAL_PUNCTUATION = frozenset("!@#$%^&*_+=/.~-")
 # A parameter list: from any separator up to whitespace, a quote or a tag bracket.
 _PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*+")
 _PARAM_SEPARATOR_RE = re.compile(r"([?#;&])")
@@ -376,6 +372,15 @@ _SECRET_PARAMS = frozenset(_param_key(name) for name in (
     "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid", "session", "sessionid",
     "x-amz-security-token", "x-amz-signature", "x-amz-credential",
     "client_secret", "auth_token", "private_token", "access_key", "ticket"))
+# A compound or camel-case name ending with one of these is secret too (newPassword, apiToken, secret_key).
+_SECRET_SUFFIXES = ("token", "password", "passwd", "secret", "apikey", "accesskey", "privatekey", "authkey",
+                    "secretkey", "sessionid")
+
+
+def _is_secret_name(name: str) -> bool:
+    """A parameter or structured key that names a credential: a listed name, or one ending with a secret word."""
+    key = _param_key(name)
+    return key in _SECRET_PARAMS or key.endswith(_SECRET_SUFFIXES)
 
 
 def _without_controls(text: str) -> str:
@@ -445,7 +450,7 @@ def _scrub_part(part: str, depth: int) -> str | None:
     """One ``name=value`` part: None when it is secret, else the part (scrubbed if it decodes)."""
     decoded = unquote(part)
     name, equals, _value = decoded.partition("=")
-    if equals and _param_key(name) in _SECRET_PARAMS:
+    if equals and _is_secret_name(name):
         return None
     if decoded == part:
         return part
@@ -463,26 +468,15 @@ def _scrub_part(part: str, depth: int) -> str | None:
 def _scrub_params(params: str, depth: int) -> str:
     """Drop the secret parts of a parameter list that starts with a separator."""
     pieces = _PARAM_SEPARATOR_RE.split(params)      # ["", sep, part, sep, part, ...]
-    kept, dropped_last = [], False
+    kept = []
     for separator, part in zip(pieces[1::2], pieces[2::2], strict=True):
         cleaned = _scrub_part(part, depth)
-        dropped_last = cleaned is None
-        if not dropped_last:
+        if cleaned is not None:
             kept.append(separator + cleaned)
     text = "".join(kept)
     if text and params[0] in "?#" and text[0] != params[0]:
         text = params[0] + text[1:]      # the URL keeps its "?" or "#"
-    # The list ends at whitespace: a dropped last value may go on after it (the tail rule).
-    return text + _DROPPED if dropped_last else text
-
-
-def _looks_like_credential(value: str) -> bool:
-    """8 characters or more, with a digit, one of ``!@#$%^&*_+=/.~-``, or a capital after the first letter."""
-    if len(value) < 8:
-        return False
-    if any(ch.isdigit() or ch in _CREDENTIAL_PUNCTUATION for ch in value):
-        return True
-    return any(ch.isupper() for ch in value[1:]) and any(ch.islower() for ch in value)
+    return text
 
 
 def _value_span(text: str, start: int, unquoted: re.Pattern) -> tuple[int, int, bool]:
@@ -508,7 +502,7 @@ def _drop_spaced_values(text: str) -> str:
     """
     pieces, last, pos = [], 0, 0
     while (match := _SPACED_NAME_RE.search(text, pos)) is not None:
-        if _param_key(unquote(match.group(1)[1:-1])) not in _SECRET_PARAMS:
+        if not _is_secret_name(unquote(match.group(1)[1:-1])):
             pos = match.end(1)
             continue
         _value_start, end, quoted = _value_span(text, match.end(), _UNQUOTED_VALUE_RE)
@@ -518,13 +512,27 @@ def _drop_spaced_values(text: str) -> str:
     return "".join(pieces)
 
 
-def _redact_prose_values(text: str) -> str:
-    """The value after a secret name in prose, JSON or YAML: a quoted value always, a bare one if it looks like a credential."""
+def _is_identifier_shaped(name: str) -> bool:
+    """``api_key``, ``auth-token``, ``clientSecret``: never a plain word ("Password", "PASSWORD", "token")."""
+    return "_" in name or "-" in name or _CAMEL_CASE_RE.search(name) is not None
+
+
+def _redact_structured_values(text: str) -> str:
+    """The value of a secret structured key: a quoted key, or an identifier-shaped bare one.
+
+    A quoted value closed on its line within ``_MAX_QUOTED_CHARS`` is redacted
+    whole; otherwise the run up to whitespace, ',', '}' or ']'. Every scan
+    goes on after the key (or after the redacted value), so the loop is linear.
+    """
     pieces, last, pos = [], 0, 0
-    while (match := _PROSE_NAME_RE.search(text, pos)) is not None:
-        start, end, quoted = _value_span(text, match.end(), _PROSE_VALUE_RE)
+    while (match := _STRUCTURED_NAME_RE.search(text, pos)) is not None:
         pos = match.end()
-        if quoted or _looks_like_credential(text[start:end]):
+        quoted_name, bare_name = match.group(2), match.group(3)
+        name = quoted_name if quoted_name is not None else bare_name
+        if not _is_secret_name(name) or (quoted_name is None and not _is_identifier_shaped(name)):
+            continue
+        start, end, _quoted = _value_span(text, pos, _STRUCTURED_VALUE_RE)
+        if end > start:
             pieces.append(text[last:start] + "[redacted]")
             last = pos = end
     pieces.append(text[last:])
@@ -540,61 +548,74 @@ def _redact_userinfo(match: re.Match) -> str:
     return match.group(0)[:match.start(1) - match.start()] + "[redacted]" + authority[at:]
 
 
-def _redact_tail(match: re.Match) -> str:
-    # "[redacted]" or a dropped value, then whitespace, then a run that looks like the rest of the secret.
-    return match.group(1) + match.group(2) if _looks_like_credential(match.group(3)) else match.group(0)
-
-
 def _redact_bearer(match: re.Match) -> str:
     value = match.group(2)
-    # A credential has a digit or punctuation; a plain word ("Bearer authentication") stays.
-    if any(ch.isdigit() or ch in "._~+/=-" for ch in value):
+    # A token has a digit or one of "_~+/="; a word ("Bearer authentication", "token-based") stays.
+    if any(ch.isdigit() or ch in "_~+/=" for ch in value):
         return match.group(1) + "[redacted]"
     return match.group(0)
 
 
+def _is_userpass_base64(value: str) -> bool:
+    """Base64 of printable "user:password" text, the only thing a Basic credential holds."""
+    try:
+        decoded = base64.b64decode(value, validate=True).decode("utf-8")
+    except (binascii.Error, ValueError):
+        return False
+    return ":" in decoded and decoded.isprintable()
+
+
 def _redact_basic(match: re.Match) -> str:
     value = match.group(2)
-    # Base64 has a digit, '+', '/', '=' or a capital inside; a word ("Basic troubleshooting") has none.
-    if any(ch.isdigit() or ch in "+/=" for ch in value) or any(ch.isupper() for ch in value[1:]):
+    # A digit, '+', '/' or '=' is base64; letters only must decode to "user:password"
+    # ("Basic SuccessFactors setup", "Basic troubleshooting" stay).
+    if any(ch.isdigit() or ch in "+/=" for ch in value) or _is_userpass_base64(value):
         return match.group(1) + "[redacted]"
     return match.group(0)
 
 
 def _scrub_at(text: str, depth: int) -> str:
-    text = _drop_invisible(text)          # also drops every NUL, so _DROPPED below is ours
+    text = _drop_invisible(text)
     text = _ESCAPED_SEPARATOR_RE.sub(_unescape_separator, text)
     text = _USERINFO_RE.sub(_redact_userinfo, text)
     text = _drop_spaced_values(text)
     text = _PARAMS_RE.sub(lambda m: _scrub_params(m.group(0), depth), text)
+    # Before the JWT, Bearer and Basic rules, so their "[redacted]" is never read as a value.
+    text = _redact_structured_values(text)
     text = _JWT_RE.sub("[redacted]", text)
     text = _BEARER_RE.sub(_redact_bearer, text)
-    text = _BASIC_RE.sub(_redact_basic, text)
-    text = _redact_prose_values(text)
-    return _TAIL_RE.sub(_redact_tail, text).replace(_DROPPED, "")
+    return _BASIC_RE.sub(_redact_basic, text)
 
 
+# Scope (user decision A): only machine credentials are removed. A password, key
+# or code that an author writes in plain prose ("Password: 123456", "Ticket:
+# INC0012345", "the password is X") is content for its readers and is shown as
+# written, as other BOW document connectors show it; so is a value after a
+# plain-word label ("password=X", "Token: X", "PASSWORD: X").
 # Not handled (a documented limitation; defence in depth, since the text is
 # already visible to the identity that reads it):
 #   * fullwidth or lookalike parameter names and fullwidth dots, JWTs whose
-#     header does not start with "eyJ", and a bare secret in prose with no
-#     name, separator or scheme next to it;
-#   * a prose value that does not look like a credential (under 8 characters,
-#     or letters only without an inner capital: "password: hunter2" stays), and
-#     "the password is X" or "Authorization: Token X";
-#   * a secret tail after a line break or a tag that is under 8 characters, or
-#     cut into three or more pieces;
+#     header does not start with "eyJ", and a bare secret with no name,
+#     separator or scheme next to it;
+#   * a secret cut in two by a line break or a block tag: the part after the
+#     break is shown (a JWT's payload and signature still start a JWT of their
+#     own, so only the rest of a cut header shows);
+#   * a structured key that is neither quoted nor identifier-shaped
+#     ("JSESSIONID: X", "sessionid: X"), and "Authorization: Token X";
+#   * a Bearer value with no digit and none of "_~+/=" (letters, '.' and '-' only);
 #   * a secret split by a closing then an opening inline tag ("ab</span><span>cd"
 #     reads as two words, as "Home</a><a>Contact" must);
 #   * a quoted value whose closing quote is more than 256 characters away or on
 #     another line (the run after the opening quote is taken instead);
 #   * a URL scheme longer than 32 characters.
-# Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey") and
-# the next word after "password:" when it looks like a credential ("Self-service").
-# A ZWNJ, ZWJ or variation selector kept inside a word becomes a space in a title
-# or a snippet (``_without_controls``), not in an article body.
+# Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), any
+# quoted key on the list ('"code": "X"', '"key": "X"'), and parameter names that
+# end with a secret word ("nextPageToken", "showPassword").
+# A ZWNJ or ZWJ kept inside a word (a format character) becomes a space in a title
+# or a snippet (``_without_controls``), not in an article body; a variation
+# selector is a mark (Mn), so it stays everywhere.
 def _scrub(text: str) -> str:
-    """Drop secret-named URL parameters and redact JWTs and other credentials (pure, linear time).
+    """Drop secret-named URL parameters and redact JWTs and other machine credentials (pure, linear time).
 
     Run on plain text (``_html_to_text`` output), so entity-encoded and
     plain-text URLs are caught too. Every invisible character (control,
@@ -605,16 +626,19 @@ def _scrub(text: str) -> str:
     or '&' still written as ``&#61;``/``&#38;``/``&equals;`` or as a JSON
     ``\\u003d``/``\\u0026`` escape is decoded. Query strings, fragments and ';'
     path parameters are split on '&' and ';'; each part is percent-decoded
-    before its name is compared (lower case, without '_', '-' and '[]'), a part
-    that decodes to something else (a nested URL) is scrubbed again in decoded
-    form, and one still encoded after ``_MAX_SCRUB_DEPTH`` rounds is dropped. A
-    secret name followed by '=' and whitespace or a quote loses the next run or
-    the quoted text. URL passwords (``user:...@``, up to the last '@'), Bearer
-    and Basic credentials are redacted, and so is the value after a secret name
-    in prose, JSON or YAML (``password=``, ``token:``, ``"api_key": "..."``):
-    a quoted value always, a bare one when it looks like a credential. A
-    base64url run of 8 or more characters that looks like a credential and
-    follows a redaction or a dropped value across whitespace is redacted too.
+    before its name is compared, a part that decodes to something else (a
+    nested URL) is scrubbed again in decoded form, and one still encoded after
+    ``_MAX_SCRUB_DEPTH`` rounds is dropped. A name is secret when, in lower
+    case and without '_', '-' and '[]', it is on the list or ends with a secret
+    word (``newPassword``, ``apiToken``, ``aws_secret_access_key``). A secret
+    name followed by '=' and whitespace or a quote loses the next run or the
+    quoted text. The value of a structured secret key (JSON, YAML, config or
+    env) is redacted when the key is quoted (``"password": "..."``) or
+    identifier-shaped (``api_key=``, ``clientSecret:``), never after a plain
+    word. URL passwords (``user:...@``, up to the last '@'), Bearer tokens
+    (with a digit or one of ``_~+/=``) and Basic credentials (base64 with a
+    digit, '+', '/' or '=', or letters that decode to ``user:password``) are
+    redacted too.
     """
     return _scrub_at(text, 0)
 
@@ -630,7 +654,11 @@ _OPENING_TAG_RE = re.compile(r"<(?!/)")
 _BASE64URL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
 # strip_html's rules, linear: its tag pattern backtracks on a run of '<'.
 _BREAK_TAG_RE = re.compile(r"(?i)<\s*+(?:br\s*+/?+|/p|/div|/li|/tr|/h[1-6])\s*+>")
-_TAG_RE = re.compile(r"<[^<>]++>")
+# A '<' starts a tag only before a letter, '/', '!' or '?': "x <= 5", "< 100 and > 50" are text.
+_TAG_RE = re.compile(r"<(?=[A-Za-z/!?])[^<>]++>")
+# A character reference that ends with ';'. html.unescape also decodes legacy names
+# without one ("&section=2" loses "&sect"), which mangles URLs and prose.
+_ENTITY_RE = re.compile(r"&(?:#[0-9]{1,8}+|#[xX][0-9A-Fa-f]{1,8}+|[A-Za-z][A-Za-z0-9]{0,31}+);")
 _BLANKS_RE = re.compile(r"[ \t]++")
 _BLANK_LINES_RE = re.compile(r"\n{3,}+")
 
@@ -645,12 +673,22 @@ def _join_inline_tags(match: re.Match) -> str:
     return "" if inside and not between_elements else " "
 
 
+def _unescape_entity(match: re.Match) -> str:
+    ref = match.group(0)
+    if ref[1] == "#":
+        return html.unescape(ref)
+    return _HTML5_ENTITIES.get(ref[1:], ref)      # an unknown name stays as written
+
+
 def _html_to_text(value: str) -> str:
-    """``strip_html``'s plain text (block breaks kept, tags removed, entities decoded), in linear time."""
+    """Plain text like ``strip_html``'s (block breaks kept, tags removed, entities decoded), in linear time.
+
+    Unlike it, a '<' that cannot start a tag stays, and only references that end with ';' are decoded.
+    """
     text = _INLINE_TAG_RUN_RE.sub(_join_inline_tags, value)
     text = _BREAK_TAG_RE.sub("\n", text)
     text = _TAG_RE.sub(" ", text)
-    text = html.unescape(text).replace("\xa0", " ")
+    text = _ENTITY_RE.sub(_unescape_entity, text).replace("\xa0", " ")
     lines = [_BLANKS_RE.sub(" ", line).strip() for line in text.splitlines()]
     return _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
 

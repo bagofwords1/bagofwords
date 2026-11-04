@@ -312,6 +312,8 @@ _SECRET_NAMES = ("token", "access_token", "id_token", "refresh_token", "jwt", "a
                  "pwd", "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid",
                  "session", "sessionid", "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-Credential",
                  "client_secret", "auth_token", "private_token", "access_key", "ticket")
+_COMPOUND_SECRET_NAMES = ("newPassword", "apiToken", "refreshToken", "secret_key", "auth_key", "private_key",
+                          "aws_secret_access_key", "user-passwd", "x-api-key", "AccessKey", "php_sessionid")
 
 
 def _nested(text, rounds):
@@ -359,11 +361,22 @@ _SECRET_FORMS = [
     ("url_userinfo", "https://user:{s}@kms.example.com/x"),
     ("authorization_basic", "Authorization: Basic {s}"),
     ("bare_basic", "send Basic {s} as the header"),
-    ("prose_password_equals", "password={s}"),
-    ("prose_api_key_equals", "api_key={s}"),
-    ("prose_password_colon", "Password: {s}"),
-    ("prose_token_colon", "token: {s}"),
-    ("prose_secret_spaced", "secret = {s}"),
+    # Structured key/value (config, env, YAML): an identifier-shaped secret name. Plain English
+    # labels ("Password: ...") are authored prose and are shown as written (user decision A).
+    ("structured_db_password_equals", "db_password={s}"),
+    ("structured_api_key_equals", "api_key={s}"),
+    ("structured_client_secret_colon", "clientSecret: {s}"),
+    ("structured_api_token_colon", "apiToken: {s}"),
+    ("structured_secret_key_spaced", "secret_key = {s}"),
+    ("structured_aws_secret_access_key", "aws_secret_access_key = {s}"),
+    ("structured_private_key", "private_key: {s}"),
+    ("structured_header_api_key", "X-Api-Key: {s}"),
+    ("structured_cli_flag", "run it with --auth-token={s} once"),
+    ("structured_dotted_config", "spring.datasource.db_password={s}"),
+    ("json_new_password", '{{"newPassword": "{s}"}}'),
+    ("json_quoted_plain_name", '{{"token": "{s}", "lang": "en"}}'),
+    ("json_unquoted_value", '{{"apiToken":{s},"lang":"en"}}'),
+    ("python_single_quoted", "{{'api_key': '{s}'}}"),
     # An empty name before a secret one must not swallow it.
     ("empty_value_before_token", _URL + "?q= &token= {s}"),
     ("empty_value_before_password", _URL + "?lang= &password= {s}"),
@@ -378,14 +391,16 @@ _SECRET_FORMS = [
     ("json_api_key", '"api_key":"{s}"'),
     ("json_multi_word_value", '{{"password": "{s1} {s2}"}}'),
     ("yaml_single_quoted", "'secret': '{s}'"),
-    ("prose_sessionid", "sessionid: {s}"),
-    ("prose_ticket", "ticket = {s}"),
+    ("structured_session_id", "session_id: {s}"),
     # A raw '@' inside a URL password, and a scheme right after a digit, '.' or '-'.
     ("userinfo_at_inside_password", "https://user:{s1}@{s2}@kms.example.com/x"),
     ("userinfo_after_digit", "7https://user:{s}@kms.example.com/x"),
     ("userinfo_after_dot", "1.https://user:{s}@kms.example.com/x"),
     ("userinfo_after_dash", "--https://user:{s}@kms.example.com/x"),
-] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES]
+] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES] + [
+    # Compound and camel-case names: secret when the name ends with a secret word.
+    (f"compound_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _COMPOUND_SECRET_NAMES
+] + [(f"compound_spaced_{name}", _URL + f"?q= &{name}= {{s}}") for name in _COMPOUND_SECRET_NAMES]
 
 _JWT = ("eyJhbGciOiJub25lIn0", "eyJzdWIiOiJjb3JwdXMifQ", "Y29ycHVzLXNpZ25lZA")
 _H, _P, _S = _JWT
@@ -407,7 +422,8 @@ _JWT_FORMS = [
     ("wbr_inside_segment", f"{_H[:8]}<wbr>{_H[8:]}.{_P}.{_S}"),
     ("empty_span_inside_segment", f"{_H}.{_P[:9]}<span></span>{_P[9:]}.{_S}"),
     ("empty_code_inside_segment", f"{_H}.{_P[:9]}<code></code>{_P[9:]}.{_S}"),
-    # A line break or a block tag inside a segment: the tail after it is redacted too.
+    # A line break or a block tag inside the header: the payload and the signature (which start a
+    # JWT of their own) are still redacted; the rest of the header after the break is shown.
     ("br_inside_segment", f"{_H[:10]}<br>{_H[10:]}.{_P}.{_S}"),
     ("paragraph_inside_segment", f"{_H[:10]}<p>{_H[10:]}.{_P}.{_S}"),
 ] + [
@@ -439,52 +455,57 @@ def test_search_scrubs_secret_parameters_in_every_form(kms, form, template):
 @pytest.mark.parametrize("form,text", _JWT_FORMS, ids=[f for f, _ in _JWT_FORMS])
 def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
     entry = _search_one(kms, text)
+    # The header is not secret: a line break inside it may leave its tail shown (no tail rule).
+    pieces = (_P[3:], _S) if form in ("br_inside_segment", "paragraph_inside_segment") else (
+        _H[3:], _H[8:], _H[10:], _P[3:], _S)
     for field in ("name", "path", "snippet"):
         value = entry[field]
         assert "eyJ" not in value, (form, field, value)
-        for piece in (_H[3:], _H[8:], _H[10:], _P[3:], _S):
+        for piece in pieces:
             assert piece not in value, (form, field, value)
     assert "Guide" in entry["snippet"]
 
 
-_TAIL_FORMS = [
-    ("br", _URL + "?token={a}<br>{b}"),
-    ("newline", _URL + "?token={a}\n{b}"),
-    ("paragraph_tag", _URL + "?token={a}<p>{b}"),
-    ("spaced_value_then_br", _URL + "?token= {a}<br>{b}"),
-]
-
-
-@pytest.mark.parametrize("form,template", _TAIL_FORMS, ids=[f for f, _ in _TAIL_FORMS])
-def test_search_redacts_a_secret_tail_after_a_line_break_or_tag(kms, form, template):
-    secret = "Sv" + uuid.uuid4().hex[:12] + "9Q"
-    head, tail = secret[:6], secret[6:]          # the tail is 10 characters with a digit
-    entry = _search_one(kms, template.format(a=head, b=tail))
-    for field in ("name", "snippet"):
-        assert head not in entry[field] and tail not in entry[field], (form, field, entry[field])
-    assert "Guide" in entry["snippet"] and "end" in entry["snippet"]
-
-
-@pytest.mark.parametrize("text,kept", [
-    (_URL + "?token=Sv1x9Qk2\nDocumentation overview", "Documentation overview"),
-    (_URL + "?token= Sv1x9Qk2 then the rest", "then the rest"),
-    (f"{_H}.{_P}.{_S} Overview of the steps", "Overview of the steps"),
-    ("password: Sv1x9Qk2abc\nKnowledge base", "Knowledge base"),
+# Ordinary words right after a redaction stay, including ones with digits, capitals and hyphens
+# that a secret could look like.
+@pytest.mark.parametrize("text,secret,kept", [
+    (_URL + "?token=Sv1x9Qk2\nDocumentation overview", "Sv1x9Qk2", "Documentation overview"),
+    (_URL + "?token= Sv1x9Qk2 then the rest", "Sv1x9Qk2", "then the rest"),
+    (f"{_H}.{_P}.{_S} Overview of the steps", _S, "Overview of the steps"),
+    ("db_password: Sv1x9Qk2abc\nKnowledge base", "Sv1x9Qk2abc", "Knowledge base"),
+    (_URL + "?token=Sv1x9Qk2 COVID-19 guide", "Sv1x9Qk2", "COVID-19 guide"),
+    (f"{_H}.{_P}.{_S} PowerShell steps", _S, "PowerShell steps"),
+    ("Authorization: Bearer Sv1x9Qk2 Office365 login", "Sv1x9Qk2", "Office365 login"),
+    ('"api_key": "Sv1x9Qk2" iPhone15 app', "Sv1x9Qk2", "iPhone15 app"),
+    (_URL + "?id=7&token=Sv1x9Qk2\nFollow-up steps", "Sv1x9Qk2", "Follow-up steps"),
+    ("apiToken: Sv1x9Qk2 Self-service portal", "Sv1x9Qk2", "Self-service portal"),
+    ("Authorization: Basic U3YxeDlRazI6YWJj 2026-11-04 rollout", "U3YxeDlRazI6YWJj", "2026-11-04 rollout"),
+    (_URL + "?token=Sv1x9Qk2 Follow-up", "Sv1x9Qk2", "Follow-up"),
 ])
-def test_search_keeps_ordinary_words_after_a_redaction(kms, text, kept):
+def test_search_keeps_ordinary_words_after_a_redaction(kms, text, secret, kept):
     entry = _search_one(kms, text)
-    assert kept in entry["snippet"], entry["snippet"]
-    assert "Sv1x9Qk2" not in entry["snippet"] and _S not in entry["snippet"], entry["snippet"]
+    for field in ("name", "snippet"):
+        assert kept in entry[field], (field, entry[field])
+        assert secret not in entry[field], (field, entry[field])
 
 
 @pytest.mark.parametrize("template", [_URL + "?token='{s} and the rest of the guide",
-                                      'password: "{s} and the rest of the guide',
+                                      'api_key: "{s} and the rest of the guide',
                                       '{{"password": "{s} and the rest of the guide'])
 def test_search_unclosed_quote_does_not_hide_the_rest(kms, template):
     secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
     entry = _search_one(kms, template.format(s=secret))
     assert secret not in entry["snippet"], entry["snippet"]
     assert "and the rest of the guide" in entry["snippet"], entry["snippet"]
+
+
+@pytest.mark.parametrize("credential", ["dXNlcjpwYXNz", "cmVhZGVyOmFkbWlu", "dXNlcjpMaWdodGhvdXNl"])
+def test_search_redacts_a_letters_only_basic_credential(kms, credential):
+    # Base64 of "user:password" may hold no digit, '+', '/' or '='.
+    entry = _search_one(kms, f"Authorization: Basic {credential} then Basic SuccessFactors setup")
+    for field in ("name", "snippet"):
+        assert credential not in entry[field], (field, entry[field])
+        assert "Basic SuccessFactors setup" in entry[field], (field, entry[field])
 
 
 def test_search_scrub_keeps_harmless_parameters(kms):
@@ -499,11 +520,33 @@ def test_search_scrub_keeps_harmless_parameters(kms):
                                   "The password policy and token rotation", "Use HTTP Basic authentication",
                                   "Price < 100 NIS", "Orders <100 get free shipping",
                                   "Password: reset steps", "Token: what it is", "Top secret: do not share",
-                                  "Session: Monday", "Ticket: open one with support"])
+                                  "Session: Monday", "Ticket: open one with support",
+                                  # Authored prose is shown as written, secrets included (user decision A).
+                                  "Password: 123456", "pwd: 1234", "Temporary password: abc123",
+                                  "Ticket: INC0012345", "Ticket: #12345678", "Session: 2026-11-04",
+                                  "Session: 09:30-11:00 in room B", 'Ticket: "Billing question"',
+                                  'Secret: "Do not share"', "PASSWORD: Reset-2026 steps",
+                                  "Bearer token-based authentication", "Basic SuccessFactors setup",
+                                  "Basic Authentication setup"])
 def test_search_scrub_keeps_ordinary_prose(kms, text):
     entry = _search_one(kms, text)
     assert text in entry["snippet"], entry["snippet"]
     assert text in entry["name"], entry["name"]
+
+
+@pytest.mark.parametrize("text", ["x <= 5 and y >= 3", "Orders < 100 and > 50 NIS", "5 < 6 > 4",
+                                  "Discount: <50% off> today", "?page=1&section=2&times=3",
+                                  "Q&A &notifications", "R&D &copy2026 &notin"])
+def test_search_keeps_comparisons_and_bare_ampersands(kms, text):
+    # A '<' starts a tag only before a letter, '/', '!' or '?'; an entity needs its ';'.
+    entry = _search_one(kms, text)
+    assert text in entry["snippet"], entry["snippet"]
+    assert text in entry["name"], entry["name"]
+
+
+def test_search_still_decodes_terminated_entities(kms):
+    entry = _search_one(kms, "Q&amp;A &lt;b&gt; &#169; &#xA9; &copy; &notin; &bogus;")
+    assert "Q&A <b> © © © ∉ &bogus;" in entry["snippet"], entry["snippet"]
 
 
 @pytest.mark.parametrize("text,shown", [
@@ -568,6 +611,15 @@ _ADVERSARIAL = {
     "digit_schemes": _adversarial("1a"),
     "variation_selectors": _adversarial("a\ufe0f"),
     "emoji_selectors": _adversarial("\u2764\ufe0f"),
+    # Unspaced repeats of every name form the scrub still reads.
+    "token_equals": _adversarial("token="),
+    "camel_token_equals": _adversarial("apiToken="),
+    "json_password_names": _adversarial('"password":'),
+    "structured_names": _adversarial("a_b:"),
+    "structured_secret_names": _adversarial("api_key:"),
+    "structured_unclosed_quotes": _adversarial("api_key: '" + "a" * 300),
+    "bearer_unspaced": _adversarial("Bearer"),
+    "basic_letters": _adversarial("Basic dXNlcjpwYXNz "),
 }
 
 
@@ -588,6 +640,9 @@ _HTML_ADVERSARIAL = {
     "element_boundaries": _adversarial("</a><a>"),
     "inline_tags_in_words": _adversarial("ab<wbr>"),
     "entities": _adversarial("&amp;"),
+    "comparisons": _adversarial("a <= b "),
+    "legacy_entities": _adversarial("&sect"),
+    "long_entity_names": _adversarial("&" + "a" * 40),
 }
 
 
@@ -617,7 +672,7 @@ _STRADDLE_FORMS = [
     ("url_userinfo", "https://user:{s}@kms.example.com/x"),
     ("authorization_basic", "Authorization: Basic {s}"),
     ("bearer", "Authorization: Bearer {s}"),
-    ("prose_password_colon", "Password: {s}"),
+    ("structured_client_secret", "client_secret: {s}"),
     ("query_token", _URL + "?token={s}&lang=en"),
     ("json_password", '{{"password": "{s}"}}'),
     ("jwt", "{s}"),
