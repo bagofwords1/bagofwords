@@ -7,6 +7,7 @@ Behaviour is asserted on the public methods' output only.
 # The shared fixtures are imported from the client test module, so test
 # parameters named after them look like redefinitions to the linter.
 # ruff: noqa: F811
+import logging
 import re
 import time
 import unicodedata
@@ -14,6 +15,7 @@ import uuid
 from datetime import datetime
 
 import pytest
+import requests
 
 from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS
 from app.data_sources.clients import kms_lighthouse_client as kc
@@ -47,7 +49,7 @@ def test_search_maps_results_and_strips_html(kms, make):
     found = _by_id(entries)
     for entry in entries:
         assert set(entry) == _ENTRY_KEYS
-        assert _TYPED_ID.match(entry["id"]), entry["id"]
+        assert _TYPED_ID.fullmatch(entry["id"]), entry["id"]
         assert entry["is_folder"] is False and entry["mime_type"] == "text/plain"
         assert entry["size"] == 0 and entry["web_url"] is None
         assert entry["name"].endswith(".txt") and entry["path"] == entry["name"]
@@ -120,20 +122,38 @@ def test_online_status_encodings(kms, fields, online):
 # ------------------------------------------------------------------ paging and stops
 def test_search_paging_is_bounded(kms):
     mock = kms["mock"]
-    # Mostly hidden results: the client keeps paging, but never past 20 pages.
+    # Mostly hidden results: the client keeps paging, but never past 20 pages,
+    # and says so when the last page was full (more results may exist).
     mock.STATE["extra_results"] = [_record(20000 + i, status="Offline") for i in range(3000)]
-    entries = client(kms, max_results=1000).search_files("x", limit=1000)
+    with pytest.raises(SearchStopped) as info:
+        client(kms, max_results=1000).search_files("x", limit=1000)
+    assert info.value.stop_reason == "catalog_limit"
     assert mock.STATE["search_count"] == 20
-    assert all(e["status"] != "offline" for e in entries)
-    # The limit caps the entries, and no page asks for more than is still needed.
+    assert info.value.files and all(e["status"] != "offline" for e in info.value.files)
+    # Every page asks for 50 rows; the limit trims the entries.
     mock.reset()
     mock.STATE["extra_results"] = [_record(30000 + i) for i in range(500)]
     for limit in (7, 130):
         entries = client(kms).search_files("x", limit=limit)
         assert len(entries) == limit and len({e["id"] for e in entries}) == limit
-        assert int(mock.STATE["last_search_params"]["rows"]) <= min(limit, 50)
+        assert mock.STATE["last_search_params"]["rows"] == "50"
     # The connection's max_results caps a larger limit.
     assert len(client(kms, max_results=60).search_files("x", limit=500)) == 60
+
+
+def test_search_page_bound_with_visible_results_says_catalog_limit(kms):
+    mock = kms["mock"]
+    mock.STATE["extra_results"] = [_record(50000 + i) for i in range(1200)]
+    with pytest.raises(SearchStopped) as info:
+        client(kms, max_results=2000).search_files("x", limit=2000)
+    assert info.value.stop_reason == "catalog_limit"
+    assert mock.STATE["search_count"] == 20
+    assert len(info.value.files) == 20 * 50 - 2      # the folder hit and the offline record are not listed
+    # A short last page inside the bound is a complete answer, not a stop.
+    mock.reset()
+    mock.STATE["extra_results"] = [_record(60000 + i) for i in range(120)]
+    entries = client(kms, max_results=2000).search_files("x", limit=2000)
+    assert len(entries) == 120 + 5 and mock.STATE["search_count"] == 3
 
 
 def test_search_dedupes_by_id(kms):
@@ -167,7 +187,7 @@ def test_search_honors_cancel_check(kms):
     first_page = int(mock.STATE["last_search_params"]["rows"])
     files = info.value.files
     assert files and len(files) <= first_page
-    assert all(_TYPED_ID.match(e["id"]) for e in files)
+    assert all(_TYPED_ID.fullmatch(e["id"]) for e in files)
     extras = [int(e["id"].split(":")[1]) for e in files if int(e["id"].split(":")[1]) >= 40000]
     assert extras and max(extras) < 40000 + first_page
 
@@ -226,6 +246,8 @@ def test_search_runs_as_the_identity(kms, make):
 _METHODS = {
     "search": lambda c: c.search_files("billing"),
 }
+# (method, shape) pairs where one bad record is skipped instead of failing the call.
+_SKIPS_BAD_RECORDS = {("search", "bad_id")}
 
 
 @pytest.mark.parametrize("shape", ["list", "error", "bad_id"])
@@ -234,6 +256,11 @@ _METHODS = {
 def test_odd_shapes_never_echo_provider_text(kms, make, method, shape):
     mock = kms["mock"]
     mock.STATE["odd_shapes"] = shape
+    if (method, shape) in _SKIPS_BAD_RECORDS:
+        # The bad record is skipped: not echoed and not fatal.
+        out = _METHODS[method](make(kms))
+        assert out == [] and mock.ODD_MARKER not in repr(out)
+        return
     with pytest.raises(kc.KmsError) as info:
         _METHODS[method](make(kms))
     err = info.value
@@ -249,3 +276,166 @@ _PUBLIC_METHODS = ("test_connection", "search_files")
 @pytest.mark.parametrize("name", _PUBLIC_METHODS)
 def test_public_methods_close_their_errors(name):
     assert hasattr(getattr(kc.KmsLighthouseClient, name), "__wrapped__"), name
+
+
+# ------------------------------------------------------------------ scrub: bypass corpus
+_URL = "https://kms.example.com/contents"
+# Every name the scrub treats as secret, in the spelling a page might use.
+_SECRET_NAMES = ("token", "access_token", "id_token", "refresh_token", "jwt", "auth", "password", "passwd",
+                 "pwd", "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid",
+                 "session", "sessionid", "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-Credential")
+# (form, text with {s} where the secret value goes)
+_SECRET_FORMS = [
+    ("fragment", _URL + "#access_token={s}&token_type=bearer"),
+    ("semicolon", _URL + "?id=7;token={s};lang=en"),
+    ("camel_case", _URL + "?accessToken={s}"),
+    ("kebab_case", _URL + "?access-token={s}"),
+    ("upper_case", _URL + "?TOKEN={s}"),
+    ("repeated_amp", _URL + "?id=7&amp;amp;amp;token={s}"),
+    ("nested_url", _URL + "?next=https%3A%2F%2Fkms.example.com%2Fx%3Ftoken%3D{s}"),
+    ("double_encoded_nested_url", _URL + "?next=https%253A%252F%252Fkms.example.com%252Fx%253Ftoken%253D{s}"),
+    ("array_name", _URL + "?token[]={s}"),
+    ("encoded_array_name", _URL + "?token%5B%5D={s}"),
+    ("encoded_equals", _URL + "?token%3D{s}"),
+    ("encoded_ampersand", _URL + "?id=7%26token%3D{s}"),
+    ("encoded_name", _URL + "?acc%65ss_token={s}"),
+    ("path_parameter", _URL + ";jsessionid={s}"),
+    ("bearer", "Authorization: Bearer {s}"),
+] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES]
+
+_JWT = ("eyJhbGciOiJub25lIn0", "eyJzdWIiOiJjb3JwdXMifQ", "Y29ycHVzLXNpZ25lZA")
+_H, _P, _S = _JWT
+# A JWT split by something invisible, or by a tag that strip_html turns into whitespace.
+_JWT_FORMS = [
+    ("soft_hyphen_before_dot", f"{_H}­.{_P}.{_S}"),
+    ("soft_hyphen_inside", f"{_H[:8]}­{_H[8:]}.{_P}.{_S}"),
+    ("shy_entity", f"{_H}&shy;.{_P}.{_S}"),
+    ("zero_width_space", f"{_H}.{_P}​.{_S}"),
+    ("word_joiner", f"{_H}⁠.{_P}.{_S}"),
+    ("nul", f"{_H}.{_P}\x00.{_S}"),
+    ("wbr_tag", f"{_H}<wbr>.{_P}.{_S}"),
+    ("br_tag", f"{_H}<br>.{_P}.{_S}"),
+]
+
+
+def _search_one(kms, text):
+    """Serve one record carrying `text` in its title and description; return its entry."""
+    raw_id = str(uuid.uuid4().int)[:9]
+    kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + text, description="Guide " + text + " end")]
+    return _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+
+
+@pytest.mark.parametrize("form,template", _SECRET_FORMS, ids=[f for f, _ in _SECRET_FORMS])
+def test_search_scrubs_secret_parameters_in_every_form(kms, form, template):
+    secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
+    entry = _search_one(kms, template.format(s=secret))
+    for field in ("name", "path", "snippet"):
+        assert secret.lower() not in entry[field].lower(), (form, field, entry[field])
+    assert "Guide" in entry["snippet"] and "Guide" in entry["name"]      # the readable text stays
+
+
+@pytest.mark.parametrize("form,text", _JWT_FORMS, ids=[f for f, _ in _JWT_FORMS])
+def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
+    entry = _search_one(kms, text)
+    for field in ("name", "path", "snippet"):
+        value = entry[field]
+        assert "eyJ" not in value, (form, field, value)
+        for piece in (_H[3:], _H[8:], _P[3:], _S):
+            assert piece not in value, (form, field, value)
+    assert "Guide" in entry["snippet"]
+
+
+def test_search_scrub_keeps_harmless_parameters(kms):
+    entry = _search_one(kms, _URL + "?id=7&lang=en&R&D")
+    assert "id=7" in entry["snippet"] and "lang=en" in entry["snippet"] and "R&D" in entry["snippet"]
+    # Dropping the first parameter keeps the URL's "?"; a plain word after "Bearer" stays.
+    entry = _search_one(kms, _URL + "?token=Sv1x9Qk2&lang=en uses Bearer authentication")
+    assert _URL + "?lang=en" in entry["snippet"] and "Bearer authentication" in entry["snippet"]
+
+
+def test_search_snippet_has_no_control_or_bidi_characters(kms):
+    raw_id = str(uuid.uuid4().int)[:9]
+    description = ("Step\x1b[31m one‮ two\x00 three⁦ four⁩ five‪ six\nseven\x1feight"
+                   "\tnine \ud800 ten")
+    kms["mock"].STATE["extra_results"] = [_record(raw_id, description=description)]
+    snippet = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]["snippet"]
+    assert not _has_control(snippet), repr(snippet)
+    for word in ("Step", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"):
+        assert word in snippet, (word, snippet)
+
+
+# ------------------------------------------------------------------ ids
+def test_search_skips_records_whose_id_is_not_only_digits(kms, caplog):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    base = 70000 + uuid.uuid4().int % 10000
+    bad = [f"{base}\n", f" {base + 1}", f"x-{base + 2}", f"{base + 3}.0"]
+    kms["mock"].STATE["extra_results"] = [_record(raw) for raw in bad] + [_record(base + 4)]
+    entries = client(kms).search_files("x")
+    # The good records (alice's visible Online articles and scenario, plus the new one); no bad one.
+    assert {e["id"] for e in entries} == {"item:279", "item:301", "scenario:4400", "item:4420", "item:4430",
+                                         f"item:{base + 4}"}
+    logs = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and "skipped" in r.getMessage()]
+    assert logs and str(len(bad)) in logs[-1], logs
+    assert all(f"x-{base + 2}" not in m for m in logs)
+
+
+def test_tree_record_id_must_be_only_digits(kms, monkeypatch):
+    c = token_client(kms)
+    shape = {"status": "SUCCESS", "data": [{"id": "90\n", "title": "Folder", "type": "FOLDER", "status": "2"}]}
+    monkeypatch.setattr(c, "_request", lambda op, path, **kw: shape)
+    result = c.test_connection()
+    assert result["success"] is False and result["message"] == str(kc.KmsHTTPError(0, "server"))
+
+
+# ------------------------------------------------------------------ odd search bodies
+@pytest.mark.parametrize("block", [{"query": "x"}, {"query": "x", "results": None}])
+def test_search_without_results_is_a_server_error(kms, caplog, block):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    kms["mock"].STATE["search_body"] = {"regularSearch": block}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        token_client(kms).search_files("billing")
+    assert info.value.kind == "server"
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert any(r.name == kc.__name__ and "search refused" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("block", [{"query": "x", "total": 0}, {"query": "x", "total": "0"},
+                                   {"query": "x", "results": []}])
+def test_search_with_an_explicit_empty_answer_has_no_hits(kms, block):
+    kms["mock"].STATE["search_body"] = {"regularSearch": block}
+    assert token_client(kms).search_files("billing") == []
+
+
+# ------------------------------------------------------------------ limit and timeout
+@pytest.mark.parametrize("limit", ["abc", "", [3], object()])
+def test_bad_limit_is_named_not_blamed_on_kms(kms, limit):
+    with pytest.raises(kc.KmsError) as info:
+        token_client(kms).search_files("billing", limit=limit)
+    err = info.value
+    assert "limit" in str(err).lower() and "KMS Lighthouse returned" not in str(err)
+    assert err.__context__ is None and err.__cause__ is None
+    assert kms["mock"].REQUEST_LOG == []
+
+
+def test_numeric_text_limit_is_accepted(kms):
+    assert len(token_client(kms).search_files("billing", limit="2")) == 2
+
+
+def test_search_read_timeout_follows_the_deadline(kms, monkeypatch):
+    seen = []
+    original = requests.Session.request
+
+    def spy(self, method, url, *args, **kwargs):
+        if url.endswith("/search/full"):
+            seen.append(kwargs.get("timeout"))
+        return original(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", spy)
+    c = token_client(kms)
+    c.search_files("billing")
+    assert seen[-1][1] == 60                          # no deadline: the default read timeout
+    c.search_files("billing", deadline=time.monotonic() + 30)
+    connect, read = seen[-1]
+    assert 1 <= read <= 30 and connect <= read
+    c.search_files("billing", deadline=time.monotonic() + 0.5)
+    assert seen[-1][1] == 1                           # never below one second

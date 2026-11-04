@@ -41,6 +41,8 @@ Test-only switches and routes (not part of the KMS API):
     its query, start, rows and layoutId (None when absent) are recorded in
     STATE["last_search_params"]. STATE["extra_results"] holds extra result
     records (visible to every user unless they carry a `visible` set).
+    STATE["search_body"], when not None, is sent as the whole /search/full
+    JSON body instead (an odd shape a test wants to see handled).
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -154,6 +156,7 @@ _DEFAULTS = {
     "search_count": 0,               # /search/full requests
     "last_search_params": None,      # {"query", "start", "rows", "layoutId"} of the last /search/full
     "extra_results": [],
+    "search_body": None,             # None | a JSON value sent as the whole /search/full body
     "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
 }
 _STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
@@ -385,6 +388,8 @@ class Handler(BaseHTTPRequestHandler):
             STATE["last_search_params"] = params
         if STATE["search_400"]:
             return self._send_empty(400)
+        if STATE["search_body"] is not None:
+            return self._send_json(200, STATE["search_body"])
         if odd == "list":
             return self._send_json(200, [ODD_MARKER])
         if odd == "error":

@@ -64,7 +64,7 @@ def _install_urllib3_gate() -> None:
 _install_urllib3_gate()
 
 _PREFIX_RE = re.compile(r"^(/[A-Za-z0-9._~-]+)+$")
-_DIGITS_RE = re.compile(r"^[0-9]{1,12}$")
+_DIGITS_RE = re.compile(r"[0-9]{1,12}")      # used with fullmatch only ("279\n" is not an id)
 _DEFAULT_PREFIX = "/kms/lh/api"
 _DEFAULT_MAX_RESULTS = 200
 
@@ -106,11 +106,14 @@ _SEARCH_REJECTED = (
     "KMS Lighthouse rejected the search; the query may be too long (try fewer words), "
     "or the Layout ID setting may be wrong."
 )
+_BAD_LIMIT = "The search limit must be a whole number."
 _TOP_LEVEL_HINT = (
     "Connected to KMS Lighthouse, but the top level of the folder tree came back empty. Set Root folder ID "
     "to a folder this account can open, or check the account's KMS permissions."
 )
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+_DEFAULT_TIMEOUT = (10, 60)    # (connect, read) seconds
+_MIN_TIMEOUT_S = 1
 _CHUNK_BYTES = 64 * 1024
 # Everything one HTTP exchange can raise. Several are not RequestException:
 # urllib3 errors from a broken body, OSError (e.g. a bad CA bundle path),
@@ -305,10 +308,29 @@ _SNIPPET_CHARS = 300
 _MAX_SEGMENT_CHARS = 200
 _KINDS = ("item", "scenario", "folder")
 _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
-_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
-_QUERY_STRING_RE = re.compile(r"\?([^\s#\"'<>]*)")
-_SECRET_PARAMS = frozenset({"token", "access_token", "jwt", "auth"})
+# A JWT, also when whitespace (left by a <br> or <wbr>) sits next to a dot.
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\s{0,3}\.\s{0,3}[A-Za-z0-9_-]+\s{0,3}\.(?:\s{0,3}[A-Za-z0-9_-]+)?")
+_BEARER_RE = re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9._~+/=-]{8,})")
+# A parameter list: from any separator up to whitespace, a quote or a tag bracket.
+_PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*")
+_PARAM_SEPARATOR_RE = re.compile(r"([?#;&])")
+_PARAM_NAME_NOISE_RE = re.compile(r"[-_\[\]]")
+_MAX_SCRUB_DEPTH = 4          # rounds of percent-decoding a nested value gets
 _DAY_FIRST_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{4})$")
+
+
+def _param_key(name: str) -> str:
+    """A parameter name as compared: lower case, no "amp;" left from unescaping, no '_', '-' or '[]'."""
+    key = name.strip().lower()
+    while key.startswith("amp;"):
+        key = key[len("amp;"):]
+    return _PARAM_NAME_NOISE_RE.sub("", key)
+
+
+_SECRET_PARAMS = frozenset(_param_key(name) for name in (
+    "token", "access_token", "id_token", "refresh_token", "jwt", "auth", "password", "passwd", "pwd",
+    "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid", "session", "sessionid",
+    "x-amz-security-token", "x-amz-signature", "x-amz-credential"))
 
 
 def _without_controls(text: str) -> str:
@@ -316,23 +338,70 @@ def _without_controls(text: str) -> str:
     return " ".join("".join(" " if unicodedata.category(ch)[0] == "C" else ch for ch in text).split())
 
 
-def _drop_secret_params(match: re.Match) -> str:
+def _is_invisible(ch: str) -> bool:
+    """A format character (soft hyphen, zero-width space, bidi control) or a non-whitespace control."""
+    category = unicodedata.category(ch)
+    return category == "Cf" or (category == "Cc" and not ch.isspace())
+
+
+def _scrub_part(part: str, depth: int) -> str | None:
+    """One ``name=value`` part: None when it is secret, else the part (scrubbed if it decodes)."""
+    decoded = unquote(part)
+    name, equals, _value = decoded.partition("=")
+    if equals and _param_key(name) in _SECRET_PARAMS:
+        return None
+    if decoded == part or depth >= _MAX_SCRUB_DEPTH:
+        return part
+    # It decodes to something else (an encoded '=', '&' or a nested URL): scrub
+    # the decoded form as a parameter list of its own.
+    cleaned = _scrub_at("&" + decoded, depth + 1)
+    if cleaned == "&" + decoded:
+        return part
+    cleaned = cleaned[1:] if cleaned.startswith("&") else cleaned
+    return cleaned or None
+
+
+def _scrub_params(params: str, depth: int) -> str:
+    """Drop the secret parts of a parameter list that starts with a separator."""
+    pieces = _PARAM_SEPARATOR_RE.split(params)      # ["", sep, part, sep, part, ...]
     kept = []
-    for part in match.group(1).split("&"):
-        name = unquote(part.split("=", 1)[0]).strip().lower()
-        if name.startswith("amp;"):     # a "&amp;" that survived one round of unescaping
-            name = name[len("amp;"):]
-        if name not in _SECRET_PARAMS:
-            kept.append(part)
-    return "?" + "&".join(kept) if kept else ""
+    for separator, part in zip(pieces[1::2], pieces[2::2], strict=True):
+        cleaned = _scrub_part(part, depth)
+        if cleaned is not None:
+            kept.append(separator + cleaned)
+    text = "".join(kept)
+    if text and params[0] in "?#" and text[0] != params[0]:
+        text = params[0] + text[1:]      # the URL keeps its "?" or "#"
+    return text
+
+
+def _redact_bearer(match: re.Match) -> str:
+    value = match.group(2)
+    # A credential has a digit or punctuation; a plain word ("Bearer authentication") stays.
+    if any(ch.isdigit() or ch in "._~+/=-" for ch in value):
+        return match.group(1) + "[redacted]"
+    return match.group(0)
+
+
+def _scrub_at(text: str, depth: int) -> str:
+    text = "".join(ch for ch in text if not _is_invisible(ch))
+    text = _PARAMS_RE.sub(lambda m: _scrub_params(m.group(0), depth), text)
+    text = _JWT_RE.sub("[redacted]", text)
+    return _BEARER_RE.sub(_redact_bearer, text)
 
 
 def _scrub(text: str) -> str:
-    """Drop token-like query parameters from any URL and redact bare JWTs.
+    """Drop secret-named URL parameters, redact JWTs and Bearer credentials (pure).
 
-    Run after ``strip_html``, so entity-encoded and plain-text URLs are caught too.
+    Run after ``strip_html``, so entity-encoded and plain-text URLs are caught
+    too. Format characters and non-whitespace controls are dropped first, so
+    an invisible character cannot split a secret; whitespace (newlines
+    included) is kept. Query strings, fragments and ';' path parameters are
+    split on '&' and ';'; each part is percent-decoded before its name is
+    compared (lower case, without '_', '-' and '[]'), and a part that decodes
+    to something else (a nested URL) is scrubbed again in decoded form.
     """
-    return _JWT_RE.sub("[redacted]", _QUERY_STRING_RE.sub(_drop_secret_params, text))
+    return _scrub_at(text, 0)
 
 
 def _safe_title(title) -> str:
@@ -365,7 +434,7 @@ def _is_online(record: dict) -> bool | None:
 
 def _make_id(kind: str, raw_id) -> str:
     raw = str(raw_id)
-    if kind not in _KINDS or not _DIGITS_RE.match(raw):
+    if kind not in _KINDS or not _DIGITS_RE.fullmatch(raw):
         logger.debug("kms_lighthouse %s refused: %s", "content", "record without a numeric id")
         raise KmsHTTPError(200, "server")
     return f"{kind}:{raw}"
@@ -384,6 +453,18 @@ def _normalise_date(value) -> str | None:
         return datetime.fromisoformat(text).isoformat()
     except (ValueError, OverflowError):
         return None
+
+
+_ZERO_TOTAL_KEYS = ("total", "totalResults", "numFound")   # assumed names; the PDF documents no total
+
+
+def _zero_total(block: dict) -> bool:
+    """The search block states a total of zero hits."""
+    for key in _ZERO_TOTAL_KEYS:
+        value = block.get(key)
+        if value is not None and not isinstance(value, bool) and str(value).strip() == "0":
+            return True
+    return False
 
 
 def _clean_query(query) -> str:
@@ -632,14 +713,22 @@ class KmsLighthouseClient(DataSourceClient):
             entry.generation += 1
 
     # ------------------------------------------------------------------ http
-    def _send(self, session, op, method, path, *, params=None, headers=None):
-        """One HTTP exchange. Returns (status, body bytes); never raises with a URL."""
+    def _send(self, session, op, method, path, *, params=None, headers=None, deadline=None):
+        """One HTTP exchange. Returns (status, body bytes); never raises with a URL.
+
+        With a ``deadline`` (a ``time.monotonic()`` value) the connect and read
+        timeouts are cut to the time left, but never below one second.
+        """
         url = self._base + self.api_prefix + path
         started = time.monotonic()
+        timeout = _DEFAULT_TIMEOUT
+        if deadline is not None:
+            left = max(_MIN_TIMEOUT_S, deadline - started)
+            timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
         status, body, failed, cause = 0, b"", None, None
         _IN_KMS_REQUEST.active = True   # urllib3 would log the URL with its query (ADR-2)
         try:
-            with session.request(method, url, params=params, headers=headers, timeout=(10, 60),
+            with session.request(method, url, params=params, headers=headers, timeout=timeout,
                                  allow_redirects=False, stream=True) as response:
                 status = response.status_code
                 if status == 200:
@@ -677,16 +766,20 @@ class KmsLighthouseClient(DataSourceClient):
             raise KmsHTTPError(0, "server")
         return payload
 
-    def _request(self, op, path, *, params=None, headers=None, missing="rejected"):
-        """GET ``{base}{prefix}{path}`` as this client's identity and return the JSON body."""
+    def _request(self, op, path, *, params=None, headers=None, missing="rejected", deadline=None):
+        """GET ``{base}{prefix}{path}`` as this client's identity and return the JSON body.
+
+        ``deadline`` bounds the GET's timeouts (see ``_send``); a login keeps the default ones.
+        """
         self._ensure_login()
         session = self._session()
         used_generation = self._local.generation
-        status, body = self._send(session, op, "GET", path, params=params, headers=headers)
+        status, body = self._send(session, op, "GET", path, params=params, headers=headers, deadline=deadline)
         if self.auth_method == "userpass" and _session_lost(status):
             # One re-login (shared with any thread that lost the same session), one retry.
             self._relogin(used_generation)
-            status, body = self._send(self._session(), op, "GET", path, params=params, headers=headers)
+            status, body = self._send(self._session(), op, "GET", path, params=params, headers=headers,
+                                      deadline=deadline)
             if _session_lost(status):
                 # KMS has just accepted the password, so do not blame it.
                 logger.warning("kms_lighthouse %s session refused after a fresh login", op)
@@ -712,7 +805,7 @@ class KmsLighthouseClient(DataSourceClient):
             logger.debug("kms_lighthouse %s refused: %s", "tree", "data is not a list")
             raise KmsHTTPError(200, "server")
         for record in data:
-            if not isinstance(record, dict) or not _DIGITS_RE.match(str(record.get("id", ""))):
+            if not isinstance(record, dict) or not _DIGITS_RE.fullmatch(str(record.get("id", ""))):
                 logger.debug("kms_lighthouse %s refused: %s", "tree", "record without a numeric id")
                 raise KmsHTTPError(200, "server")
         return data
@@ -768,43 +861,64 @@ class KmsLighthouseClient(DataSourceClient):
     def search_files(self, query, limit=100, deadline=None, cancel_check=None, **_):
         """Full-text search as this identity: typed, plain-text, scrubbed entries.
 
-        Pages until ``min(limit, max_results)`` entries, a short page or 20
-        pages. ``deadline`` (a ``time.monotonic()`` value) and ``cancel_check``
-        are checked before every page; a stop raises ``SearchStopped`` with the
-        entries found so far.
+        Pages of 50 until ``min(limit, max_results)`` entries or a short page.
+        Twenty full pages without reaching the cap raise
+        ``SearchStopped("catalog_limit", files)`` (more results may exist).
+        ``deadline`` (a ``time.monotonic()`` value) and ``cancel_check`` are
+        checked before every page, and the deadline also bounds each request's
+        timeouts; a stop raises ``SearchStopped`` with the entries found so
+        far. A record whose id is not plain digits is skipped (and counted in
+        a debug log).
         """
+        cap = self._search_cap(limit)
         text = _clean_query(query)
-        cap = min(int(100 if limit is None else limit), self.max_results)
         if not text or cap <= 0:
             return []
-        files, seen, start = [], set(), 0
-        for _page in range(_MAX_SEARCH_PAGES):
-            if cancel_check is not None and cancel_check():
-                raise SearchStopped("cancelled", files)
-            if deadline is not None and time.monotonic() >= deadline:
-                raise SearchStopped("deadline", files)
-            rows = min(_SEARCH_PAGE_ROWS, cap - len(files))
-            params = {"query": text, "start": str(start), "rows": str(rows)}
-            if self.layout_id is not None:
-                params["layoutId"] = str(self.layout_id)
-            results = self._search_page(params)
-            for record in results:
-                entry = self._search_entry(record)
-                if entry is None or entry["id"] in seen:
-                    continue
-                seen.add(entry["id"])
-                files.append(entry)
-                if len(files) >= cap:
+        files, seen, skipped = [], set(), 0
+        try:
+            for page in range(_MAX_SEARCH_PAGES):
+                if cancel_check is not None and cancel_check():
+                    raise SearchStopped("cancelled", files)
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise SearchStopped("deadline", files)
+                params = {"query": text, "start": str(page * _SEARCH_PAGE_ROWS), "rows": str(_SEARCH_PAGE_ROWS)}
+                if self.layout_id is not None:
+                    params["layoutId"] = str(self.layout_id)
+                results = self._search_page(params, deadline)
+                for record in results:
+                    if not _DIGITS_RE.fullmatch(str(record.get("id", ""))):
+                        skipped += 1
+                        continue
+                    entry = self._search_entry(record)
+                    if entry is None or entry["id"] in seen:
+                        continue
+                    seen.add(entry["id"])
+                    files.append(entry)
+                    if len(files) >= cap:
+                        return files
+                if len(results) < _SEARCH_PAGE_ROWS:
                     return files
-            if len(results) < rows:
-                break
-            start += rows
-        return files
+            # The page bound was hit on a full page, short of the cap.
+            raise SearchStopped("catalog_limit", files)
+        finally:
+            if skipped:
+                logger.debug("kms_lighthouse search skipped %d records without a numeric id", skipped)
 
-    def _search_page(self, params: dict) -> list:
+    def _search_cap(self, limit) -> int:
+        """``min(limit, max_results)``; a limit that is not a whole number is a fixed error."""
+        try:
+            cap = int(100 if limit is None else limit)
+        except (TypeError, ValueError, OverflowError):
+            cap = None
+        # Raised outside the except block, so no parser error rides along as context.
+        if cap is None:
+            raise KmsError(_BAD_LIMIT)
+        return min(cap, self.max_results)
+
+    def _search_page(self, params: dict, deadline=None) -> list:
         rejected = False
         try:
-            payload = self._request("search", "/search/full", params=params)
+            payload = self._request("search", "/search/full", params=params, deadline=deadline)
         except KmsHTTPError as exc:
             if exc.kind != "bad_request":
                 raise
@@ -814,8 +928,8 @@ class KmsLighthouseClient(DataSourceClient):
             raise KmsHTTPError(400, "bad_request", _SEARCH_REJECTED)
         block = payload.get("regularSearch") if isinstance(payload, dict) else None
         results = block.get("results") if isinstance(block, dict) else None
-        if isinstance(block, dict) and results is None:
-            results = []    # no hits
+        if isinstance(block, dict) and results is None and _zero_total(block):
+            results = []    # an explicit "no hits"; a missing list alone is an unexpected answer
         if not isinstance(results, list) or not all(isinstance(r, dict) for r in results):
             logger.debug("kms_lighthouse %s refused: %s", "search", "results are not a list of records")
             raise KmsHTTPError(200, "server")
@@ -834,7 +948,8 @@ class KmsLighthouseClient(DataSourceClient):
             "modified_at": _normalise_date(record.get("updateDate") or record.get("updatedDate")),
             "mime_type": "text/plain", "is_folder": False, "kind": kind,
             "status": None if online is None else ("online" if online else "offline"),
-            "snippet": _scrub(strip_html("" if description is None else str(description)))[:_SNIPPET_CHARS],
+            "snippet": _without_controls(_scrub(strip_html("" if description is None else str(description))))[
+                :_SNIPPET_CHARS],
             "web_url": None,
         }
 
