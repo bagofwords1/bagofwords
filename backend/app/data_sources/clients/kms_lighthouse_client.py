@@ -238,6 +238,19 @@ class KmsHTTPError(KmsError):
         super().__init__(message or _MESSAGES[kind])
 
 
+class _DeadlineTimeout(KmsHTTPError):
+    """A request timed out with the caller's deadline reached: "unreachable", but search keeps what it found."""
+
+    def __init__(self):
+        super().__init__(0, "unreachable")
+
+
+def _is_timeout(exc: BaseException) -> bool:
+    """A connect or read timeout, also when requests wraps urllib3's (a read timeout while streaming)."""
+    timeouts = (requests.Timeout, urllib3.exceptions.TimeoutError, TimeoutError)
+    return isinstance(exc, timeouts) or any(isinstance(arg, timeouts) for arg in exc.args)
+
+
 # Errors whose messages are already fixed and secret-free; anything else is closed.
 _OPEN_ERRORS = (KmsError, GlobScopeError, FileTooLargeError, SearchStopped)
 
@@ -308,11 +321,27 @@ _SNIPPET_CHARS = 300
 _MAX_SEGMENT_CHARS = 200
 _KINDS = ("item", "scenario", "folder")
 _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
-# A JWT, also when whitespace (left by a <br> or <wbr>) sits next to a dot.
-_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]+\s{0,3}\.\s{0,3}[A-Za-z0-9_-]+\s{0,3}\.(?:\s{0,3}[A-Za-z0-9_-]+)?")
-_BEARER_RE = re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9._~+/=-]{8,})")
+# Every pattern below is linear: possessive runs never backtrack (titles are
+# cut to _SCRUB_INPUT_CHARS, but later phases scrub whole article bodies).
+# A JWT is any base64url run that starts like a JWT header ("eyJ"), with up to
+# two dotted parts; whitespace (left by a <br>) may sit next to a dot.
+_JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
+_BEARER_RE = re.compile(r"(?i)\b(bearer\s++)([A-Za-z0-9._~+/=-]{8,}+)")
+_BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
+# "password=...", "api_key: ..." in prose (no URL separator before the name).
+_PROSE_SECRET_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])((?:client[_-]?|access[_-]?|auth[_-]?|private[_-]?)?"
+    r"(?:password|passwd|pwd|token|api[_-]?key|secret))(\s*+[:=]\s*+)(\S++)")
+# The password part of "scheme://user:password@host".
+# It starts only where a scheme run starts (not inside one), so each run is read once.
+_USERINFO_RE = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*+://[^\s/?#@:\"'<>]*+:)([^\s/?#@\"'<>]++)@")
+# A '=' or '&' still written as a character reference or a JSON escape.
+_ESCAPED_SEPARATOR_RE = re.compile(r"(?i)&(?:amp;)*+#(?:0*+(61|38)|x0*+(3d|26));|\\u00(3d|26)")
+# "name=" followed by whitespace or a quote: the value is the next run (or the quoted text).
+_SPACED_VALUE_RE = re.compile(
+    r"([?#;&][^\s\"'<>=?#;&]++=)(?:\s++|(?=[\"']))(\"[^\"]*+\"?|'[^']*+'?|[^\s\"'<>]++)")
 # A parameter list: from any separator up to whitespace, a quote or a tag bracket.
-_PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*")
+_PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*+")
 _PARAM_SEPARATOR_RE = re.compile(r"([?#;&])")
 _PARAM_NAME_NOISE_RE = re.compile(r"[-_\[\]]")
 _MAX_SCRUB_DEPTH = 4          # rounds of percent-decoding a nested value gets
@@ -330,7 +359,8 @@ def _param_key(name: str) -> str:
 _SECRET_PARAMS = frozenset(_param_key(name) for name in (
     "token", "access_token", "id_token", "refresh_token", "jwt", "auth", "password", "passwd", "pwd",
     "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid", "session", "sessionid",
-    "x-amz-security-token", "x-amz-signature", "x-amz-credential"))
+    "x-amz-security-token", "x-amz-signature", "x-amz-credential",
+    "client_secret", "auth_token", "private_token", "access_key", "ticket"))
 
 
 def _without_controls(text: str) -> str:
@@ -339,9 +369,39 @@ def _without_controls(text: str) -> str:
 
 
 def _is_invisible(ch: str) -> bool:
-    """A format character (soft hyphen, zero-width space, bidi control) or a non-whitespace control."""
-    category = unicodedata.category(ch)
-    return category == "Cf" or (category == "Cc" and not ch.isspace())
+    """Any control, format, private-use, unassigned or surrogate character except whitespace.
+
+    The same set ``_without_controls`` turns into spaces, so nothing that
+    survives the scrub can later become a space that rebuilds a split secret.
+    """
+    return unicodedata.category(ch)[0] == "C" and not ch.isspace()
+
+
+_JOINERS = frozenset("\u200c\u200d")               # ZWNJ and ZWJ
+_JOINER_RUN_RE = re.compile("[\u200c\u200d]++")
+
+
+def _joinable(ch: str) -> bool:
+    return bool(ch) and not ch.isascii() and not ch.isspace()
+
+
+def _keep_joiners(match: re.Match) -> str:
+    """A joiner run stays only between two non-ASCII characters (a Persian word, an emoji)."""
+    text, start, end = match.string, match.start(), match.end()
+    before = text[start - 1] if start else ""
+    after = text[end] if end < len(text) else ""
+    return match.group(0) if _joinable(before) and _joinable(after) else ""
+
+
+def _drop_invisible(text: str) -> str:
+    """Drop every invisible character, so none can split a secret; a joiner that shapes a word stays."""
+    text = "".join(ch for ch in text if ch in _JOINERS or not _is_invisible(ch))
+    return _JOINER_RUN_RE.sub(_keep_joiners, text)
+
+
+def _unescape_separator(match: re.Match) -> str:
+    code = (match.group(1) or match.group(2) or match.group(3)).lower()
+    return "=" if code in ("61", "3d") else "&"
 
 
 def _scrub_part(part: str, depth: int) -> str | None:
@@ -350,8 +410,10 @@ def _scrub_part(part: str, depth: int) -> str | None:
     name, equals, _value = decoded.partition("=")
     if equals and _param_key(name) in _SECRET_PARAMS:
         return None
-    if decoded == part or depth >= _MAX_SCRUB_DEPTH:
+    if decoded == part:
         return part
+    if depth >= _MAX_SCRUB_DEPTH:
+        return None      # still encoded after every decoding round: dropped, not kept unread
     # It decodes to something else (an encoded '=', '&' or a nested URL): scrub
     # the decoded form as a parameter list of its own.
     cleaned = _scrub_at("&" + decoded, depth + 1)
@@ -383,30 +445,72 @@ def _redact_bearer(match: re.Match) -> str:
     return match.group(0)
 
 
+def _redact_basic(match: re.Match) -> str:
+    value = match.group(2)
+    # Base64 has a digit, '+', '/', '=' or a capital inside; a word ("Basic troubleshooting") has none.
+    if any(ch.isdigit() or ch in "+/=" for ch in value) or any(ch.isupper() for ch in value[1:]):
+        return match.group(1) + "[redacted]"
+    return match.group(0)
+
+
+def _drop_spaced_value(match: re.Match) -> str:
+    """``?name= value`` or ``?name='value'``: a secret name loses its value (the bare part is dropped next)."""
+    name = unquote(match.group(1)[1:-1])
+    return match.group(1) if _param_key(name) in _SECRET_PARAMS else match.group(0)
+
+
 def _scrub_at(text: str, depth: int) -> str:
-    text = "".join(ch for ch in text if not _is_invisible(ch))
+    text = _drop_invisible(text)
+    text = _ESCAPED_SEPARATOR_RE.sub(_unescape_separator, text)
+    text = _USERINFO_RE.sub(lambda m: m.group(1) + "[redacted]@", text)
+    text = _SPACED_VALUE_RE.sub(_drop_spaced_value, text)
     text = _PARAMS_RE.sub(lambda m: _scrub_params(m.group(0), depth), text)
     text = _JWT_RE.sub("[redacted]", text)
-    return _BEARER_RE.sub(_redact_bearer, text)
+    text = _BEARER_RE.sub(_redact_bearer, text)
+    text = _BASIC_RE.sub(_redact_basic, text)
+    return _PROSE_SECRET_RE.sub(lambda m: m.group(1) + m.group(2) + "[redacted]", text)
 
 
+# Not handled (a documented limitation; defence in depth, since the text is
+# already visible to the identity that reads it): fullwidth or lookalike
+# parameter names and fullwidth dots, JWTs whose header does not start with
+# "eyJ", and a bare secret in prose with no name, separator or scheme next to it.
 def _scrub(text: str) -> str:
-    """Drop secret-named URL parameters, redact JWTs and Bearer credentials (pure).
+    """Drop secret-named URL parameters and redact JWTs and other credentials (pure, linear time).
 
     Run after ``strip_html``, so entity-encoded and plain-text URLs are caught
-    too. Format characters and non-whitespace controls are dropped first, so
-    an invisible character cannot split a secret; whitespace (newlines
-    included) is kept. Query strings, fragments and ';' path parameters are
+    too. Every invisible character (control, format, private-use, unassigned,
+    surrogate) is dropped first, so none can split a secret; whitespace is
+    kept, and a ZWNJ/ZWJ between two non-ASCII characters stays. A '=' or '&'
+    still written as ``&#61;``/``&#38;`` or as a JSON ``\\u003d``/``\\u0026``
+    escape is decoded. Query strings, fragments and ';' path parameters are
     split on '&' and ';'; each part is percent-decoded before its name is
-    compared (lower case, without '_', '-' and '[]'), and a part that decodes
-    to something else (a nested URL) is scrubbed again in decoded form.
+    compared (lower case, without '_', '-' and '[]'), a part that decodes to
+    something else (a nested URL) is scrubbed again in decoded form, and one
+    still encoded after ``_MAX_SCRUB_DEPTH`` rounds is dropped. A secret name
+    followed by '=' and whitespace or a quote loses the next run or the quoted
+    text. URL passwords (``user:...@``), Bearer and Basic credentials and
+    ``password=``/``token:`` style values in prose are redacted.
     """
     return _scrub_at(text, 0)
 
 
+_SCRUB_INPUT_CHARS = 4096
+# Inline tags are removed outright (not turned into a space), so one inside a
+# word or a token cannot split it; strip_html turns the other tags into spaces.
+_INLINE_TAG_RE = re.compile(r"(?i)</?(?:wbr|span|b|i|u|em|strong|font|a|small|sup|sub|mark)\b[^<>]*+>")
+_CUT_TAG_RE = re.compile(r"<[^<>]*+$")
+
+
+def _plain_text(value) -> str:
+    """A KMS title or description as plain, scrubbed text, from its first 4 KB only (cut, then scrub)."""
+    raw = _CUT_TAG_RE.sub("", ("" if value is None else str(value))[:_SCRUB_INPUT_CHARS])
+    return _scrub(strip_html(_INLINE_TAG_RE.sub("", raw)))
+
+
 def _safe_title(title) -> str:
     """A KMS title as one path segment the folder-path rules accept (Durable Decisions)."""
-    text = _without_controls(_scrub(strip_html("" if title is None else str(title))).replace("/", "-"))
+    text = _without_controls(_plain_text(title).replace("/", "-"))
     text = _KIND_PREFIX_RE.sub(lambda m: m.group(1) + " -", text)
     text = text[:_MAX_SEGMENT_CHARS].rstrip()
     if not text.strip("."):
@@ -725,7 +829,7 @@ class KmsLighthouseClient(DataSourceClient):
         if deadline is not None:
             left = max(_MIN_TIMEOUT_S, deadline - started)
             timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
-        status, body, failed, cause = 0, b"", None, None
+        status, body, failed, cause, timed_out = 0, b"", None, None, False
         _IN_KMS_REQUEST.active = True   # urllib3 would log the URL with its query (ADR-2)
         try:
             with session.request(method, url, params=params, headers=headers, timeout=timeout,
@@ -744,12 +848,15 @@ class KmsLighthouseClient(DataSourceClient):
                     body = b"".join(chunks)
         except _TRANSPORT_ERRORS as exc:
             failed, cause = "unreachable", type(exc).__name__
+            timed_out = _is_timeout(exc)
         finally:
             _IN_KMS_REQUEST.active = False
         # Raised outside the except block, so no exception chain carries the URL.
         if failed:
             # The class name tells SSL, DNS and timeouts apart; never the text (it holds the URL).
             logger.debug("kms_lighthouse %s failed: %s (%s)", op, failed, cause or "size cap")
+            if timed_out and deadline is not None and deadline - time.monotonic() < _MIN_TIMEOUT_S:
+                raise _DeadlineTimeout()    # the deadline cut this timeout: the caller's time is up
             raise KmsHTTPError(status if failed == "too_large" else 0, failed)
         logger.debug("kms_lighthouse %s -> %s in %d ms", op, status, int((time.monotonic() - started) * 1000))
         return status, body
@@ -863,18 +970,20 @@ class KmsLighthouseClient(DataSourceClient):
 
         Pages of 50 until ``min(limit, max_results)`` entries or a short page.
         Twenty full pages without reaching the cap raise
-        ``SearchStopped("catalog_limit", files)`` (more results may exist).
+        ``SearchStopped("max_results", files)`` (more results may exist).
         ``deadline`` (a ``time.monotonic()`` value) and ``cancel_check`` are
         checked before every page, and the deadline also bounds each request's
-        timeouts; a stop raises ``SearchStopped`` with the entries found so
-        far. A record whose id is not plain digits is skipped (and counted in
-        a debug log).
+        timeouts; a stop, or a request that times out at the deadline, raises
+        ``SearchStopped`` with the entries found so far. A record whose id is
+        not plain digits is skipped (and counted in a debug log); an answer
+        with records but none usable and none merely hidden is a ``server``
+        error, not "no hits".
         """
         cap = self._search_cap(limit)
         text = _clean_query(query)
         if not text or cap <= 0:
             return []
-        files, seen, skipped = [], set(), 0
+        files, seen, skipped, hidden = [], set(), 0, 0
         try:
             for page in range(_MAX_SEARCH_PAGES):
                 if cancel_check is not None and cancel_check():
@@ -884,22 +993,35 @@ class KmsLighthouseClient(DataSourceClient):
                 params = {"query": text, "start": str(page * _SEARCH_PAGE_ROWS), "rows": str(_SEARCH_PAGE_ROWS)}
                 if self.layout_id is not None:
                     params["layoutId"] = str(self.layout_id)
-                results = self._search_page(params, deadline)
+                timed_out = False
+                try:
+                    results = self._search_page(params, deadline)
+                except _DeadlineTimeout:
+                    timed_out = True
+                # Raised outside the except block, so no exception chain rides along.
+                if timed_out:
+                    raise SearchStopped("deadline", files)
                 for record in results:
                     if not _DIGITS_RE.fullmatch(str(record.get("id", ""))):
                         skipped += 1
                         continue
                     entry = self._search_entry(record)
                     if entry is None or entry["id"] in seen:
+                        hidden += 1
                         continue
                     seen.add(entry["id"])
                     files.append(entry)
                     if len(files) >= cap:
                         return files
                 if len(results) < _SEARCH_PAGE_ROWS:
-                    return files
-            # The page bound was hit on a full page, short of the cap.
-            raise SearchStopped("catalog_limit", files)
+                    break
+            else:
+                # The page bound was hit on a full page, short of the cap.
+                raise SearchStopped("max_results", files)
+            if skipped and not files and not hidden:
+                logger.warning("kms_lighthouse search refused: %d records, none with a numeric id", skipped)
+                raise KmsHTTPError(200, "server")
+            return files
         finally:
             if skipped:
                 logger.debug("kms_lighthouse search skipped %d records without a numeric id", skipped)
@@ -942,14 +1064,12 @@ class KmsLighthouseClient(DataSourceClient):
         if kind == "folder" or (online is False and not self.include_offline):
             return None   # search lists no folders (path == name); offline content is hidden
         name = _safe_title(record.get("title")) + ".txt"
-        description = record.get("description")
         return {
             "id": entry_id, "name": name, "path": name, "size": 0,
             "modified_at": _normalise_date(record.get("updateDate") or record.get("updatedDate")),
             "mime_type": "text/plain", "is_folder": False, "kind": kind,
             "status": None if online is None else ("online" if online else "offline"),
-            "snippet": _without_controls(_scrub(strip_html("" if description is None else str(description))))[
-                :_SNIPPET_CHARS],
+            "snippet": _without_controls(_plain_text(record.get("description")))[:_SNIPPET_CHARS],
             "web_url": None,
         }
 

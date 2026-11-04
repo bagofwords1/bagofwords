@@ -43,6 +43,8 @@ Test-only switches and routes (not part of the KMS API):
     records (visible to every user unless they carry a `visible` set).
     STATE["search_body"], when not None, is sent as the whole /search/full
     JSON body instead (an odd shape a test wants to see handled).
+    STATE["hold_search_after_first"] = True: a /search/full call with
+    start > 0 waits on HELD before it answers (a slow later page).
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -137,6 +139,7 @@ _SWITCHES = {
     "hold_login": (True, False),
     "hold_stale_session": (True, False),
     "search_400": (True, False),
+    "hold_search_after_first": (True, False),
 }
 # Counters and sizes: non-negative integers (bool is not an int here).
 _COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s", "search_count")
@@ -153,6 +156,7 @@ _DEFAULTS = {
     "stale_401s": 0,                 # requests that carried an expired session
     "hold_stale_session": False,     # True: a stale-session request waits on HELD before its 401/302
     "search_400": False,             # True: /search/full answers 400 with no body ("message too long")
+    "hold_search_after_first": False,  # True: a /search/full past the first page waits on HELD
     "search_count": 0,               # /search/full requests
     "last_search_params": None,      # {"query", "start", "rows", "layoutId"} of the last /search/full
     "extra_results": [],
@@ -388,6 +392,15 @@ class Handler(BaseHTTPRequestHandler):
             STATE["last_search_params"] = params
         if STATE["search_400"]:
             return self._send_empty(400)
+        if STATE["hold_search_after_first"] and params["start"] not in (None, "0"):
+            HELD["arrived"].set()
+            if not HELD["release"].wait(5):
+                return self._send_empty(500)   # never released: fail instead of hanging
+            self.close_connection = True       # the client has usually given up by now
+            try:
+                return self._send_json(200, {"regularSearch": {"query": params["query"], "results": []}})
+            except (BrokenPipeError, ConnectionResetError):
+                return None
         if STATE["search_body"] is not None:
             return self._send_json(200, STATE["search_body"])
         if odd == "list":

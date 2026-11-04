@@ -13,6 +13,7 @@ import time
 import unicodedata
 import uuid
 from datetime import datetime
+from urllib.parse import quote
 
 import pytest
 import requests
@@ -127,7 +128,8 @@ def test_search_paging_is_bounded(kms):
     mock.STATE["extra_results"] = [_record(20000 + i, status="Offline") for i in range(3000)]
     with pytest.raises(SearchStopped) as info:
         client(kms, max_results=1000).search_files("x", limit=1000)
-    assert info.value.stop_reason == "catalog_limit"
+    # The shared tool's "it reached its result limit" (not the Max files cap, which KMS has none of).
+    assert info.value.stop_reason == "max_results"
     assert mock.STATE["search_count"] == 20
     assert info.value.files and all(e["status"] != "offline" for e in info.value.files)
     # Every page asks for 50 rows; the limit trims the entries.
@@ -141,12 +143,12 @@ def test_search_paging_is_bounded(kms):
     assert len(client(kms, max_results=60).search_files("x", limit=500)) == 60
 
 
-def test_search_page_bound_with_visible_results_says_catalog_limit(kms):
+def test_search_page_bound_with_visible_results_says_max_results(kms):
     mock = kms["mock"]
     mock.STATE["extra_results"] = [_record(50000 + i) for i in range(1200)]
     with pytest.raises(SearchStopped) as info:
         client(kms, max_results=2000).search_files("x", limit=2000)
-    assert info.value.stop_reason == "catalog_limit"
+    assert info.value.stop_reason == "max_results"
     assert mock.STATE["search_count"] == 20
     assert len(info.value.files) == 20 * 50 - 2      # the folder hit and the offline record are not listed
     # A short last page inside the bound is a complete answer, not a stop.
@@ -168,6 +170,36 @@ def test_search_honors_deadline(kms):
         client(kms).search_files("billing", deadline=time.monotonic() - 1)
     assert info.value.stop_reason == "deadline" and info.value.files == []
     assert mock.STATE["search_count"] == 0
+
+
+def test_search_timeout_at_the_deadline_keeps_the_earlier_pages(kms):
+    mock = kms["mock"]
+    mock.STATE["extra_results"] = [_record(80000 + i) for i in range(120)]
+    mock.STATE["hold_search_after_first"] = True     # page 2 answers only after the client gave up
+    try:
+        with pytest.raises(SearchStopped) as info:
+            token_client(kms).search_files("x", deadline=time.monotonic() + 2)
+    finally:
+        mock.HELD["release"].set()
+    assert mock.HELD["arrived"].is_set()             # page 2 was sent and timed out at the deadline
+    assert info.value.stop_reason == "deadline"
+    # Page 1's 50 rows minus the folder hit and the offline record.
+    assert len(info.value.files) == 48 and all(_TYPED_ID.fullmatch(e["id"]) for e in info.value.files)
+
+
+def test_search_timeout_with_time_left_is_unreachable(kms, monkeypatch):
+    mock = kms["mock"]
+    mock.STATE["extra_results"] = [_record(82000 + i) for i in range(120)]
+    mock.STATE["hold_search_after_first"] = True
+    monkeypatch.setattr(kc, "_DEFAULT_TIMEOUT", (1, 1))    # KMS is slow, and the deadline is far away
+    try:
+        with pytest.raises(kc.KmsHTTPError) as info:
+            token_client(kms).search_files("x", deadline=time.monotonic() + 30)
+    finally:
+        mock.HELD["release"].set()
+    assert mock.HELD["arrived"].is_set()
+    assert info.value.kind == "unreachable" and not isinstance(info.value, SearchStopped)
+    assert info.value.__context__ is None and info.value.__cause__ is None
 
 
 def test_search_honors_cancel_check(kms):
@@ -246,8 +278,6 @@ def test_search_runs_as_the_identity(kms, make):
 _METHODS = {
     "search": lambda c: c.search_files("billing"),
 }
-# (method, shape) pairs where one bad record is skipped instead of failing the call.
-_SKIPS_BAD_RECORDS = {("search", "bad_id")}
 
 
 @pytest.mark.parametrize("shape", ["list", "error", "bad_id"])
@@ -256,11 +286,7 @@ _SKIPS_BAD_RECORDS = {("search", "bad_id")}
 def test_odd_shapes_never_echo_provider_text(kms, make, method, shape):
     mock = kms["mock"]
     mock.STATE["odd_shapes"] = shape
-    if (method, shape) in _SKIPS_BAD_RECORDS:
-        # The bad record is skipped: not echoed and not fatal.
-        out = _METHODS[method](make(kms))
-        assert out == [] and mock.ODD_MARKER not in repr(out)
-        return
+    # A search answer whose every record is bad ("bad_id") is an unexpected answer, not "no hits".
     with pytest.raises(kc.KmsError) as info:
         _METHODS[method](make(kms))
     err = info.value
@@ -283,8 +309,18 @@ _URL = "https://kms.example.com/contents"
 # Every name the scrub treats as secret, in the spelling a page might use.
 _SECRET_NAMES = ("token", "access_token", "id_token", "refresh_token", "jwt", "auth", "password", "passwd",
                  "pwd", "api_key", "apikey", "key", "secret", "sig", "signature", "code", "jsessionid",
-                 "session", "sessionid", "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-Credential")
-# (form, text with {s} where the secret value goes)
+                 "session", "sessionid", "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-Credential",
+                 "client_secret", "auth_token", "private_token", "access_key", "ticket")
+
+
+def _nested(text, rounds):
+    """`text` percent-encoded `rounds` times (the {s} placeholder stays literal)."""
+    for _ in range(rounds):
+        text = quote(text, safe="{}")
+    return text
+
+
+# (form, text with {s} where the secret value goes, or {s1} and {s2} for its two halves)
 _SECRET_FORMS = [
     ("fragment", _URL + "#access_token={s}&token_type=bearer"),
     ("semicolon", _URL + "?id=7;token={s};lang=en"),
@@ -301,6 +337,32 @@ _SECRET_FORMS = [
     ("encoded_name", _URL + "?acc%65ss_token={s}"),
     ("path_parameter", _URL + ";jsessionid={s}"),
     ("bearer", "Authorization: Bearer {s}"),
+    # A tag, a line break or a space between the name, the '=' and the value.
+    ("br_after_equals", _URL + "?token=<br>{s}"),
+    ("wbr_after_equals", _URL + "?token=<wbr>{s}"),
+    ("newline_after_equals", _URL + "?token=\n{s}"),
+    ("space_after_equals", _URL + "?token= {s}"),
+    ("tab_after_equals_other_name", _URL + "?id=7&jsessionid=\t{s}"),
+    ("span_around_value", _URL + "?token=<span>{s}</span>"),
+    ("wbr_inside_value", _URL + "?token={s1}<wbr>{s2}"),
+    ("bold_inside_value", _URL + "?token={s1}<b></b>{s2}"),
+    ("wbr_inside_name", _URL + "?id=1&acc<wbr>ess_token={s}"),
+    # Quoted, entity-escaped and JSON-escaped forms.
+    ("single_quoted_value", _URL + "?token='{s}'"),
+    ("double_quoted_value", _URL + '?token="{s}"'),
+    ("entity_equals", _URL + "?token&amp;#61;{s}"),
+    ("json_escaped_ampersand", _URL + "?id=1\\u0026token={s}"),
+    # Nested deeper than the decoding rounds: the part is dropped, not kept encoded.
+    ("nested_beyond_depth", _URL + "?next=" + _nested("https://kms.example.com/x?token={s}", 7)),
+    # Outside query syntax.
+    ("url_userinfo", "https://user:{s}@kms.example.com/x"),
+    ("authorization_basic", "Authorization: Basic {s}"),
+    ("bare_basic", "send Basic {s} as the header"),
+    ("prose_password_equals", "password={s}"),
+    ("prose_api_key_equals", "api_key={s}"),
+    ("prose_password_colon", "Password: {s}"),
+    ("prose_token_colon", "token: {s}"),
+    ("prose_secret_spaced", "secret = {s}"),
 ] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES]
 
 _JWT = ("eyJhbGciOiJub25lIn0", "eyJzdWIiOiJjb3JwdXMifQ", "Y29ycHVzLXNpZ25lZA")
@@ -315,6 +377,13 @@ _JWT_FORMS = [
     ("nul", f"{_H}.{_P}\x00.{_S}"),
     ("wbr_tag", f"{_H}<wbr>.{_P}.{_S}"),
     ("br_tag", f"{_H}<br>.{_P}.{_S}"),
+    # Private-use, unassigned and surrogate characters next to a dot, and tags inside a segment.
+    ("private_use_before_dot", f"{_H}\ue000.{_P}.{_S}"),
+    ("private_use_entity", f"{_H}&#xE000;.{_P}.{_S}"),
+    ("unassigned_after_dot", f"{_H}.\u0378{_P}.{_S}"),
+    ("surrogate_before_dot", f"{_H}.{_P}\ud800.{_S}"),
+    ("wbr_inside_segment", f"{_H[:8]}<wbr>{_H[8:]}.{_P}.{_S}"),
+    ("empty_span_inside_segment", f"{_H}.{_P[:9]}<span></span>{_P[9:]}.{_S}"),
 ]
 
 
@@ -328,9 +397,11 @@ def _search_one(kms, text):
 @pytest.mark.parametrize("form,template", _SECRET_FORMS, ids=[f for f, _ in _SECRET_FORMS])
 def test_search_scrubs_secret_parameters_in_every_form(kms, form, template):
     secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
-    entry = _search_one(kms, template.format(s=secret))
+    halves = (secret[:6], secret[6:])
+    entry = _search_one(kms, template.format(s=secret, s1=halves[0], s2=halves[1]))
     for field in ("name", "path", "snippet"):
-        assert secret.lower() not in entry[field].lower(), (form, field, entry[field])
+        for piece in (secret, *halves):
+            assert piece.lower() not in entry[field].lower(), (form, field, entry[field])
     assert "Guide" in entry["snippet"] and "Guide" in entry["name"]      # the readable text stays
 
 
@@ -351,6 +422,64 @@ def test_search_scrub_keeps_harmless_parameters(kms):
     # Dropping the first parameter keeps the URL's "?"; a plain word after "Bearer" stays.
     entry = _search_one(kms, _URL + "?token=Sv1x9Qk2&lang=en uses Bearer authentication")
     assert _URL + "?lang=en" in entry["snippet"] and "Bearer authentication" in entry["snippet"]
+
+
+@pytest.mark.parametrize("text", ["Keys, codes and sessions", "Q&A: code=red", "Basic troubleshooting steps",
+                                  "The password policy and token rotation", "Use HTTP Basic authentication"])
+def test_search_scrub_keeps_ordinary_prose(kms, text):
+    entry = _search_one(kms, text)
+    assert text in entry["snippet"], entry["snippet"]
+
+
+def test_scrub_keeps_joiners_inside_words_but_not_inside_tokens(kms):
+    # Pure: _scrub also runs on whole article bodies, where a joiner shapes a word or an emoji.
+    for word in ("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645", "\U0001F468\u200d\U0001F469\u200d\U0001F467"):
+        assert kc._scrub("see " + word + " here") == "see " + word + " here"
+    secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
+    for text in (f"{_URL}?to\u200dken={secret}", f"{_URL}?token\u200c\u200c={secret}",
+                 f"{_H[:8]}\u200d{_H[8:]}.{_P}.{_S}"):
+        entry = _search_one(kms, text)
+        for field in ("name", "snippet"):
+            assert secret not in entry[field] and _H[8:] not in entry[field], (text, entry[field])
+
+
+def _adversarial(unit, size=200_000):
+    return (unit * (size // len(unit) + 1))[:size]
+
+
+_ADVERSARIAL = {
+    "jwt_headers": _adversarial("eyJ"),
+    "jwt_dots": _adversarial("eyJa."),
+    "base64url_run": "eyJ" + _adversarial("Ab9_-"),
+    "params": _adversarial("?a=b&"),
+    "secret_params_spaced": _adversarial("?token= x "),
+    "percent_nesting": "?next=" + _adversarial("%25") + "3D",
+    "nested_ampersands": _adversarial("?a=%2526"),
+    "scheme_runs": _adversarial("a://"),
+    "bearer_words": _adversarial("Bearer "),
+    "basic_words": _adversarial("Basic "),
+    "prose_names": _adversarial("token "),
+    "userinfo": "https://" + _adversarial("a:"),
+    "joiners": _adversarial("a\u200d"),
+    "entities": _adversarial("&amp;#61;"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_ADVERSARIAL))
+def test_scrub_is_linear_on_adversarial_input(name):
+    # Later phases scrub whole article bodies with it; a quadratic pattern would hold the GIL for seconds
+    # (44 s for the JWT headers before the fix). Measured: under 0.35 s each, so 2 s is a generous bound.
+    started = time.perf_counter()
+    kc._scrub(_ADVERSARIAL[name])
+    assert time.perf_counter() - started < 2.0, name
+
+
+def test_search_scrubs_only_the_first_4_kb_of_a_title_or_description(kms):
+    filler = "<i></i>" * 700                 # 4900 characters that strip to nothing; the cut lands inside a tag
+    entry = _search_one(kms, filler + " Tail words")
+    for field in ("name", "snippet"):
+        assert "Guide" in entry[field] and "Tail" not in entry[field], (field, entry[field])
+        assert "<" not in entry[field], (field, entry[field])       # no half tag left by the cut
 
 
 def test_search_snippet_has_no_control_or_bidi_characters(kms):
@@ -377,6 +506,24 @@ def test_search_skips_records_whose_id_is_not_only_digits(kms, caplog):
     logs = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and "skipped" in r.getMessage()]
     assert logs and str(len(bad)) in logs[-1], logs
     assert all(f"x-{base + 2}" not in m for m in logs)
+
+
+def test_search_answer_with_only_bad_ids_fails_closed(kms, caplog):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    marker = "bad-id-marker-" + uuid.uuid4().hex
+    bad = [_record(f"{marker}-{i}", marker) for i in range(3)]
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x", "results": bad}}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        token_client(kms).search_files("billing")
+    assert info.value.kind == "server" and marker not in str(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    warnings = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and r.levelno == logging.WARNING]
+    assert warnings and "3" in warnings[-1], warnings
+    assert all(marker not in r.getMessage() for r in caplog.records)
+    # Bad ids next to a record that is merely hidden (offline) are a real "nothing to show".
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x", "results": bad + [
+        _record(81234, status="Offline")]}}
+    assert token_client(kms).search_files("billing") == []
 
 
 def test_tree_record_id_must_be_only_digits(kms, monkeypatch):
@@ -437,5 +584,8 @@ def test_search_read_timeout_follows_the_deadline(kms, monkeypatch):
     c.search_files("billing", deadline=time.monotonic() + 30)
     connect, read = seen[-1]
     assert 1 <= read <= 30 and connect <= read
-    c.search_files("billing", deadline=time.monotonic() + 0.5)
-    assert seen[-1][1] == 1                           # never below one second
+    c.search_files("billing", deadline=time.monotonic() + 5)
+    assert 1 <= seen[-1][1] <= 5                      # cut to the time left
+    monkeypatch.setattr(kc, "_MIN_TIMEOUT_S", 8)
+    c.search_files("billing", deadline=time.monotonic() + 5)
+    assert seen[-1] == (8, 8)                         # never below the floor
