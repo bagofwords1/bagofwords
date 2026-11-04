@@ -551,6 +551,7 @@ class Coder:
            - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
         3. **Schema and Data Model Adherence**:
+           - The active schema catalog takes precedence over table names in instructions or interpreted_prompt. Use exact enabled table names on their listed client, including cached tables; never substitute an underlying disabled table. Query different clients separately and merge their DataFrames in Python.
            - Use only columns and relationships that exist in the provided schemas.
            - If the data model suggests derived columns or aggregations, derive them from existing schema fields.
            - Do not invent columns that do not exist or cannot be derived.
@@ -953,6 +954,7 @@ class Coder:
             {reuse_section}
 
             3. **Schema Adherence**:
+               - The active schema catalog takes precedence over table names in instructions or interpreted_prompt. Use exact enabled table names on their listed client, including cached tables; never substitute an underlying disabled table. Query different clients separately and merge their DataFrames in Python.
                - Use only columns and relationships that exist in the provided schemas.
                - Do not invent columns that do not exist or cannot be derived.
                - Use metadata resources for tables/cols enrichments, code examples, etc.

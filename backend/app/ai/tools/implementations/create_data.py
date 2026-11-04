@@ -1415,6 +1415,68 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return resolved, warnings
 
     @staticmethod
+    def build_execution_failure_observation(code_errors, query_timings) -> dict:
+        """Build the planner result for a failed data query."""
+        error_observation = {
+            "summary": "Create data failed",
+            "error": {
+                "type": "execution_failure",
+                "message": "execution failed (validation or execution error)",
+            },
+        }
+        summary = CreateDataTool._summarize_errors(code_errors)
+        # Merge summary fields without clobbering error.type
+        if summary.get("retry_summary"):
+            error_observation["retry_summary"] = summary["retry_summary"]
+        if summary.get("error_message"):
+            error_observation["error"]["message"] = summary["error_message"]
+        if summary.get("error_detail"):
+            error_observation["error"]["detail"] = summary["error_detail"]
+
+        # Surface the DB-level error and failing SQL — these come from the
+        # QueryCapturingClientWrapper and are much more actionable for the
+        # planner than the Python-level "Execution error: ..." string.
+        try:
+            failed_timings = [t for t in (query_timings or []) if t.get("error")]
+            if failed_timings:
+                # A caught refusal must survive later queries in the same
+                # attempt, including a fallback that fails differently.
+                last_failed = next(
+                    (t for t in reversed(failed_timings) if t.get("terminal")),
+                    failed_timings[-1],
+                )
+                error_observation["error"]["db_message"] = (
+                    last_failed.get("error_message") or last_failed.get("error")
+                )
+                if last_failed.get("error_type") == "table_access_denied":
+                    # The code attempt is terminal, not the conversation.
+                    # Let the planner explain in the user's language and
+                    # finish independent work; never publish a raw diagnostic.
+                    error_observation["error"]["type"] = "table_access_denied"
+                    error_observation["error"]["message"] = error_observation["error"]["db_message"]
+                    error_observation["retry_guidance"] = (
+                        "This query was refused by the agent's table selection. "
+                        "Do not retry the denied table through different SQL syntax. "
+                        "Check the active catalog before choosing an enabled alternative; "
+                        "instructions mentioning a table do not enable it. "
+                        "Explain any remaining limitation in the user's language and "
+                        "continue independent permitted parts of the task."
+                    )
+                elif last_failed.get("terminal"):
+                    error_observation["error"]["type"] = "infrastructure_failure"
+                    error_observation["terminal_execution_error"] = True
+                    error_observation["analysis_complete"] = True
+                    error_observation["final_answer"] = last_failed.get("error")
+
+                if last_failed.get("sql"):
+                    error_observation["error"]["failed_sql"] = last_failed["sql"]
+        except Exception:
+            # Never let observation assembly mask the primary failure.
+            pass
+
+        return error_observation
+
+    @staticmethod
     def _summarize_errors(errors) -> dict:
         """Summarize retry errors for the planner observation.
 
@@ -2122,41 +2184,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             )
 
             current_step_id = runtime_ctx.get("current_step_id")
-            error_observation = {
-                "summary": "Create data failed",
-                "error": {
-                    "type": "execution_failure",
-                    "message": "execution failed (validation or execution error)",
-                },
-            }
-            summary = self._summarize_errors(code_errors)
-            # Merge summary fields without clobbering error.type
-            if summary.get("retry_summary"):
-                error_observation["retry_summary"] = summary["retry_summary"]
-            if summary.get("error_message"):
-                error_observation["error"]["message"] = summary["error_message"]
-            if summary.get("error_detail"):
-                error_observation["error"]["detail"] = summary["error_detail"]
-
-            # Surface the DB-level error and failing SQL — these come from the
-            # QueryCapturingClientWrapper and are much more actionable for the
-            # planner than the Python-level "Execution error: ..." string.
-            try:
-                failed_timings = [t for t in (query_timings or []) if t.get("error")]
-                if failed_timings:
-                    last_failed = failed_timings[-1]
-                    error_observation["error"]["db_message"] = last_failed.get("error")
-                    if last_failed.get("terminal"):
-                        error_observation["error"]["type"] = "infrastructure_failure"
-                        error_observation["terminal_execution_error"] = True
-                        error_observation["analysis_complete"] = True
-                        error_observation["final_answer"] = last_failed.get("error")
-
-                    if last_failed.get("sql"):
-                        error_observation["error"]["failed_sql"] = last_failed["sql"]
-            except Exception:
-                # Never let observation assembly mask the primary failure.
-                pass
+            error_observation = self.build_execution_failure_observation(code_errors, query_timings)
 
             if current_step_id:
                 error_observation["step_id"] = current_step_id
