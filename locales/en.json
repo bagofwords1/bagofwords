@@ -2046,6 +2046,18 @@
         "delivered": "Delivered to agent context",
         "undelivered": "Not delivered"
       }
+    },
+    "remoteShell": {
+      "pattern": "Command rule",
+      "exact": "Exact command",
+      "glob": "Wildcard pattern",
+      "hint": "Rules match full commands in this working directory. Prefix allows exclude shell operators and expansion.",
+      "always": "Always allow matching",
+      "session": "Allow for this session",
+      "mine": "My shell rules",
+      "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
+      "save": "Save rules",
+      "failed": "Could not load or save rules. Check the JSON and try again."
     }
   },
   "entityCreate": {
@@ -4320,6 +4332,12 @@
       "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
       "concurrencyTitle": "Concurrent Apps",
       "concurrencyDescription": "Maximum apps opened at once during indexing (1–4). Choose 1 for large apps or limited memory. Apps load on demand; preload tasks are not required."
+    },
+    "remoteOperations": {
+      "list_directory": "List directories",
+      "read_file": "Read files and logs",
+      "search_file": "Search within files",
+      "system_status": "Inspect system status"
     }
   },
   "share": {

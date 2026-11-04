@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 
+from app.schemas.data_sources.remote_server import (
+    RemoteSSHConfig, RemoteSMBConfig, SSHKeyCredentials, SSHPasswordCredentials,
+    RemoteKerberosCredentials, SMBPasswordCredentials,
+)
+
 # Import provider Config/Credentials from the provider module
 from app.schemas.data_sources.configs import (
     # Configs
@@ -2339,6 +2344,39 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         data_shape="tools",
         catalog_ownership="none",
         ui_form="browser",
+    ),
+    "remote_ssh": DataSourceRegistryEntry(
+        type="remote_ssh", title="Remote Server (SSH)", category="infra",
+        description="Inspect Linux or Windows logs through a restricted reader. Optional maintenance shell supports connection policies and saved per-user permissions.",
+        setup_guide=[
+            SetupStep(title="Prepare the remote account", body="Install the reader from tools/remote_server on the server and configure its allowed log roots. For enforced read-only access, use an unprivileged account restricted to the reader. See tools/remote_server/README.md in your deployment source."),
+            SetupStep(title="Verify the server identity", body="Obtain the SSH host public key through a trusted administrator. BOW pins this key and refuses changed or unknown keys."),
+            SetupStep(title="Separate maintenance access", body="Choose shell approval or automatic execution policies. Use a separate account/connection when the inspection account is restricted to the reader. Remote privilege limits are configured on the server."),
+        ],
+        config_schema=RemoteSSHConfig,
+        credentials_auth=AuthOptions(default="key", by_auth={
+            "key": AuthVariant(title="SSH key / certificate", schema=SSHKeyCredentials, scopes=["system", "user"]),
+            "password": AuthVariant(title="Password", schema=SSHPasswordCredentials, scopes=["system", "user"]),
+            "keyboard_interactive": AuthVariant(title="Keyboard-interactive (single password; no interactive MFA)", schema=SSHPasswordCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos keytab", schema=RemoteKerberosCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.remote_server_client.RemoteServerClient",
+        version="beta", is_connection=False, data_shape="tools", catalog_ownership="none",
+    ),
+    "remote_smb": DataSourceRegistryEntry(
+        type="remote_smb", title="Windows Logs (SMB)", category="infra",
+        description="Read and search IIS and application logs from dedicated Windows shares. Uses the account's share and NTFS permissions; no remote shell.",
+        setup_guide=[
+            SetupStep(title="Create a read-only log share", body="Share only the application and IIS log directories. Grant the account read/list access in both share and NTFS permissions, inherited by rotated logs. Avoid administrative drive shares such as d$."),
+            SetupStep(title="Allow network access", body="Allow TCP 445 from the BOW backend. No privileged container or host mount is required. SMB encryption is enabled by default; Kerberos additionally requires DNS, clock synchronization and KDC access."),
+        ],
+        config_schema=RemoteSMBConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Domain / local account (NTLMv2)", schema=SMBPasswordCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos keytab", schema=RemoteKerberosCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.remote_server_client.RemoteSMBClient",
+        version="beta", is_connection=False, data_shape="tools", catalog_ownership="none",
     ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",

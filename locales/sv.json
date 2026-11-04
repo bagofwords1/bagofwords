@@ -1857,6 +1857,18 @@
       "status": {
         "waiting": "Väntar på huvudagent"
       }
+    },
+    "remoteShell": {
+      "pattern": "Kommandoregel",
+      "exact": "Exakt kommando",
+      "glob": "Jokerteckenmönster",
+      "hint": "Regler matchar hela kommandon i denna arbetskatalog. Prefixgodkännanden utesluter skaloperatorer och expansioner.",
+      "always": "Tillåt alltid matchningar",
+      "session": "Tillåt för denna session",
+      "mine": "Mina skalregler",
+      "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
+      "save": "Spara regler",
+      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
     }
   },
   "entityCreate": {
@@ -3917,6 +3929,12 @@
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n inom valda strömmar. Tomt inkluderar alla matchande appar. Använd ID:n för namn med kommatecken.",
       "concurrencyTitle": "Samtidiga appar",
       "concurrencyDescription": "Högsta antal appar som öppnas samtidigt vid indexering (1–4). Välj 1 för stora appar eller begränsat minne. Appar laddas vid behov; förladdningsuppgifter krävs inte."
+    },
+    "remoteOperations": {
+      "list_directory": "Lista kataloger",
+      "read_file": "Läs filer och loggar",
+      "search_file": "Sök i filer",
+      "system_status": "Visa systemstatus"
     }
   },
   "share": {

@@ -16,6 +16,7 @@ media/
 # ...but keep the changelog: the backend serves it at /api/changelog and the
 # Dockerfile copies it into the image (re-included after the *.md/CHANGELOG* rules).
 !CHANGELOG.md
+!tools/remote_server/README.md
 
 # Development files
 .vscode/

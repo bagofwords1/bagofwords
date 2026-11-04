@@ -498,7 +498,7 @@ async def get_connection(
                 _NON_SECRET = (
                     "authorize_url", "token_url", "client_id", "scopes", "audience",
                     "api_key_header", "token_endpoint_auth_method", "tenant_id",
-                    "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    "user", "username", "principal", "oauth_tenant_id", "oauth_client_id",
                     # Qlik on-prem: which account the certificate acts as.
                     "user_directory", "user_id",
                     # What DCR discovery derived from the server, so the edit

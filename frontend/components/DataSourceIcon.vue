@@ -9,6 +9,8 @@
     >{{ parsedIcon.value }}</span>
     <img v-else-if="effectiveType === 'bow'" src="/assets/logo-128.png" :class="computedClass" class="w-auto object-contain" alt="" />
     <UIcon v-else-if="effectiveType === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500 dark:text-gray-400']" />
+    <UIcon v-else-if="effectiveType === 'remote_ssh'" name="heroicons-command-line" :class="[computedClass, 'text-ink-muted']" />
+    <UIcon v-else-if="effectiveType === 'remote_smb'" name="heroicons-folder-open" :class="[computedClass, 'text-ink-muted']" />
     <img v-else :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>
 

@@ -1857,6 +1857,18 @@
       "status": {
         "waiting": "Wartet auf Hauptagent"
       }
+    },
+    "remoteShell": {
+      "pattern": "Befehlsregel",
+      "exact": "Exakter Befehl",
+      "glob": "Platzhaltermuster",
+      "hint": "Regeln gelten für vollständige Befehle in diesem Arbeitsverzeichnis. Präfixfreigaben schließen Shell-Operatoren und Erweiterungen aus.",
+      "always": "Passende Befehle immer erlauben",
+      "session": "Für diese Sitzung erlauben",
+      "mine": "Meine Shell-Regeln",
+      "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
+      "save": "Regeln speichern",
+      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
     }
   },
   "entityCreate": {
@@ -3917,6 +3929,12 @@
       "appFilterDescription": "Optionale, durch Kommas getrennte App-Namen oder IDs in den ausgewählten Streams. Leer umfasst alle passenden Apps. Verwenden Sie IDs für Namen mit Kommas.",
       "concurrencyTitle": "Gleichzeitige Apps",
       "concurrencyDescription": "Maximal gleichzeitig geöffnete Apps bei der Indexierung (1–4). Wählen Sie 1 für große Apps oder wenig Arbeitsspeicher. Apps werden bei Bedarf geladen; Vorladeaufgaben sind nicht erforderlich."
+    },
+    "remoteOperations": {
+      "list_directory": "Verzeichnisse auflisten",
+      "read_file": "Dateien und Protokolle lesen",
+      "search_file": "Dateien durchsuchen",
+      "system_status": "Systemstatus prüfen"
     }
   },
   "share": {

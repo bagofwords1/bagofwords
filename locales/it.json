@@ -1857,6 +1857,18 @@
       "status": {
         "waiting": "In attesa dell’agente principale"
       }
+    },
+    "remoteShell": {
+      "pattern": "Regola del comando",
+      "exact": "Comando esatto",
+      "glob": "Schema con caratteri jolly",
+      "hint": "Le regole corrispondono a comandi completi in questa directory. I prefissi consentiti escludono operatori ed espansioni della shell.",
+      "always": "Consenti sempre le corrispondenze",
+      "session": "Consenti per questa sessione",
+      "mine": "Le mie regole shell",
+      "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
+      "save": "Salva regole",
+      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
     }
   },
   "entityCreate": {
@@ -3917,6 +3929,12 @@
       "appFilterDescription": "Nomi o ID delle applicazioni separati da virgole, nei flussi selezionati. Vuoto include tutte le applicazioni corrispondenti. Usa gli ID per i nomi con virgole.",
       "concurrencyTitle": "Applicazioni simultanee",
       "concurrencyDescription": "Numero massimo di applicazioni aperte insieme durante l’indicizzazione (1–4). Scegli 1 per applicazioni grandi o memoria limitata. Si caricano su richiesta; non servono attività di precaricamento."
+    },
+    "remoteOperations": {
+      "list_directory": "Elenca cartelle",
+      "read_file": "Leggi file e registri",
+      "search_file": "Cerca nei file",
+      "system_status": "Controlla lo stato del sistema"
     }
   },
   "share": {

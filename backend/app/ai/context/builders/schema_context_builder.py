@@ -1197,7 +1197,7 @@ class SchemaContextBuilder:
 
         mcp_conn_ids = []
         for conn in (getattr(ds, 'connections', None) or []):
-            if getattr(conn, 'type', None) in ('mcp', 'custom_api'):
+            if getattr(conn, 'type', None) in ('mcp', 'custom_api', 'remote_ssh', 'remote_smb'):
                 mcp_conn_ids.append(str(conn.id))
         if not mcp_conn_ids:
             return []
@@ -1230,7 +1230,8 @@ class SchemaContextBuilder:
                 if not is_enabled:
                     continue
                 admin_policy = overlay.policy if overlay else t.policy
-                effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
+                from app.services.remote_shell_policy import display_policy
+                effective = display_policy(t.connection, t.name, admin_policy, user_prefs.get(str(t.id)))
                 if effective == "deny":
                     continue
                 # Carry the argument schema through, minus admin-locked

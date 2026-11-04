@@ -2246,6 +2246,8 @@ class ConnectionService:
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
+        if connection.type in ("remote_ssh", "remote_smb"):
+            client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"
         await self._attach_connection_table_metadata(db, client, connection)
         return client
 
