@@ -118,13 +118,79 @@ TD_PASSWORD='Reader#2026' node teradata_ui_flow.mjs connect /tmp/shots
 node teradata_ui_flow.mjs chat /tmp/shots "Show revenue by region" revenue
 ```
 
-The funded-LLM leg was not possible here because the sandbox's Anthropic key had
-no credit. `tools/agent/stub_llm_teradata.py` drives the real planner → codegen →
-sandbox → guard → client path instead. It also fails the run if the Teradata
-guide, the relative-date hint, or the `primary_index` metadata is missing from
-the prompts.
+There are two legs:
 
-LIVE_RESULTS_PLACEHOLDER
+- **Scripted.** `tools/agent/stub_llm_teradata.py` drives the real planner →
+  codegen → sandbox → guard → client path. It fails the run if the Teradata
+  guide, the relative-date hint, or the `primary_index` metadata is missing from
+  the prompts.
+- **Real model.** Configure one with
+  `ANTHROPIC_API_KEY=… HAIKU_MODEL_ID=claude-haiku-5-5 uv run python ../tools/agent/setup_haiku_llm.py`.
+
+Sandbox notes:
+
+- `main.py` runs uvicorn with `reload=True` on `backend/app`. Editing app code
+  during a run restarts the worker, which can hang in shutdown while a browser
+  stream is open. Restart with `tools/agent/restart_backend.sh` instead.
+- Set `BOW_ENCRYPTION_KEY`, or every restart makes the stored LLM and connection
+  secrets undecryptable.
+
+### Observed — connection and discovery (UI)
+
+| Check | Result |
+|---|---|
+| Test via API: valid / wrong password / DNS failure | `Found 7 tables` / `[Teradata Database] [Error 8017] The UserId, Password or Account is invalid.` / `[Teradata SQL Driver] [Error 493] … Hostname lookup failed` — one line each |
+| Test with `logdata` in additional parameters | fails: `Unsupported additional parameters: logdata. Allowed: …` |
+| Test with sslmode `SKIP` | fails: `Unsupported SSL mode 'SKIP'. Use one of: …` |
+| Requests made by a test | 2 (`SELECT 1`, one `COUNT(*)` on `DBC.TablesVX`); no column scan |
+| UI connect → discovery | `Discovered 7 tables` — `hr.salaries` (no access) and the join index are absent |
+| Stored catalog, view `sales.v_monthly_revenue` | `month_start DATE, region CHAR(4), revenue DECIMAL(18,2)` (QVCI off → HELP COLUMN) |
+| Stored catalog, `sales.customers.name` | `VARCHAR(100) CHARACTER SET UNICODE` |
+
+Screenshots: `media/pr/teradata-connector/01-03`.
+
+### Observed — scripted agent (stub LLM, connection timeout 5s)
+
+| Prompt | Result |
+|---|---|
+| revenue by region (`LOCKING ROW FOR ACCESS SELECT …`) | AMER 410.24, EMEA 200.50, APAC 45.00. No new logon (pooled session). |
+| latest order per customer (`QUALIFY ROW_NUMBER() …`) | one row per customer, correct |
+| monthly revenue from the view | 5 rows from `sales.v_monthly_revenue` |
+| `DEL FROM sales.orders …` | `Security violation (unsafe_sql): Statement 'DEL' is not allowed.` `writes_seen: []` |
+| `CT sales.orders_backup AS (SEL …) WITH DATA` | `Statement 'CT' is not allowed.` `writes_seen: []` (this ran before the fix) |
+| full scan of `sales.slow_scan` | `Query exceeded 5s timeout …`; fake driver: `cancels: 2, active: 0` (the agent retried once; both attempts were stopped on the server) |
+
+Screenshots: `04-08`.
+
+### Observed — real LLM (Claude Haiku 5.5, `claude-haiku-5-5`)
+
+The key was supplied by the user for this run. It was passed only through the
+environment and is not stored anywhere in the repo.
+
+| Question | SQL the model sent (from the fake driver's log) | Outcome |
+|---|---|---|
+| What is total revenue by customer region? | `SELECT c.region, SUM(o.amount) … GROUP BY c.region ORDER BY …` | correct totals (655.74 overall) |
+| Show each customer's most recent order | `… QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date DESC) = 1` | correct |
+| Monthly revenue by region for the last 3 months | `… FROM sales.v_monthly_revenue WHERE month_start >= ADD_MONTHS((SELECT MAX(month_start) …), -2)` | used the typed view and Teradata date syntax |
+| How many rows are in sales.slow_scan? | `SELECT COUNT(*) …` → timeout | cancelled on the server (`cancels: 2, active: 0`). The follow-up `DBC.TableSize` was refused by the table-access guard. |
+| Delete the cancelled orders | only reads (`SELECT TOP 3 …`, `GROUP BY status`, …) | `writes_seen: []` |
+
+The real model found two prompt problems the stub could not:
+
+1. The sample queries used `sales.orders` / `order_status`. Haiku attributed
+   `order_status` to the real `sales.orders` ("not `order_status` as the schema
+   index suggested").
+2. Nothing said the connection is read-only, so Haiku offered to run the DELETE
+   "once you confirm".
+
+Fixed: the examples now use placeholder `exdb.ex_*` tables, and the prompt
+states the read-only rule. A test now requires that no discovered table name
+appears in the prompt and that "read-only" does. Rerun: Haiku answers "I can't
+run a DELETE … my query tools produce read-only result sets" and hands the user
+the statement. It no longer mentions `order_status`.
+
+Screenshots: `09-13`.
+
 
 ## The fix
 
@@ -156,6 +222,8 @@ LIVE_RESULTS_PLACEHOLDER
     mapped.
   - `count_tables()` makes the connection test a single COUNT.
 - **Prompt**:
+  - States the connection is read-only, and uses placeholder `exdb.ex_*` example
+    tables.
   - Drops `!=` and adds the TOP/QUALIFY/SAMPLE/DISTINCT rule.
   - Uses the connection's own timeout, or no number.
   - Adds errors 2616 / 6706 / 3504 / 3706 / 3523 with fixes, `LOCKING ROW FOR
@@ -167,6 +235,10 @@ LIVE_RESULTS_PLACEHOLDER
   - `additional_params`, limited to an allowlist of real driver parameters. An
     unsupported key fails the connection test with the allowed list.
   - `logmech` limited to TD2 / LDAP. Saved KRB5/TDNEGO values still pass through.
+
+- **Shared timeout message** (`code_execution.QueryTimeoutError`): "Use LIMIT"
+  is now "Limit rows with the source's own syntax (LIMIT, or TOP n on SQL
+  Server and Teradata)". LIMIT is a syntax error on both.
 
 ## What this proves / regression notes
 

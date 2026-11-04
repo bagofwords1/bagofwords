@@ -516,19 +516,24 @@ class TeradataClient(DataSourceClient):
 
         Table references: tables are provided as database.table (Teradata
         "databases" are the namespace, equivalent to schemas elsewhere). Use
-        them exactly as given, without quotes — e.g. SELECT * FROM sales.orders.
+        them exactly as given, without quotes — e.g. SELECT * FROM exdb.ex_orders.
 
-        Sample queries:
+        Read-only: this connection only runs SELECT (plus HELP / SHOW / EXPLAIN).
+        INSERT, UPDATE, DELETE, MERGE, CREATE, DROP and the like are refused before
+        they reach Teradata. Never offer to change data; say it is read-only.
+
+        Sample queries (exdb.ex_* are placeholder tables — use only the tables and
+        columns in the schema):
 
         ```python
         # Preview rows (use TOP, not LIMIT)
-        df = client.execute_query("SELECT TOP 10 * FROM sales.orders ORDER BY order_date DESC")
+        df = client.execute_query("SELECT TOP 10 * FROM exdb.ex_orders ORDER BY order_date DESC")
         ```
         ```python
         # Aggregate with a date filter; CAST before SUM so large totals do not overflow
         df = client.execute_query(
             "SELECT order_status, COUNT(*) AS cnt, SUM(CAST(amount AS DECIMAL(38,2))) AS total "
-            "FROM sales.orders "
+            "FROM exdb.ex_orders "
             "WHERE order_date BETWEEN DATE '2024-01-01' AND DATE '2024-12-31' "
             "GROUP BY order_status ORDER BY total DESC"
         )
@@ -536,7 +541,7 @@ class TeradataClient(DataSourceClient):
         ```python
         # Latest row per group using QUALIFY (Teradata-specific; no TOP in the same SELECT)
         df = client.execute_query(
-            "SELECT customer_id, order_id, order_date FROM sales.orders "
+            "SELECT customer_id, order_id, order_date FROM exdb.ex_orders "
             "QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY order_date DESC) = 1"
         )
         ```
@@ -544,22 +549,22 @@ class TeradataClient(DataSourceClient):
         # Join across databases and bucket by month
         df = client.execute_query(
             "SELECT TRUNC(o.order_date, 'MON') AS month_start, c.region, SUM(o.amount) AS revenue "
-            "FROM sales.orders o "
-            "JOIN sales.customers c ON o.customer_id = c.customer_id "
+            "FROM exdb.ex_orders o "
+            "JOIN exdb.ex_customers c ON o.customer_id = c.customer_id "
             "GROUP BY 1, 2 ORDER BY 1, 2"
         )
         ```
         ```python
         # Top-N per group with a tie-safe rank
         df = client.execute_query(
-            "SELECT product_id, region, revenue FROM finance.product_sales "
+            "SELECT product_id, region, revenue FROM exdb.ex_product_sales "
             "QUALIFY RANK() OVER (PARTITION BY region ORDER BY revenue DESC) <= 5"
         )
         ```
 
         IMPORTANT - Teradata dialect differences:
 
-        Row limits: use TOP n right after SELECT, e.g. SELECT TOP 100 * FROM sales.orders.
+        Row limits: use TOP n right after SELECT, e.g. SELECT TOP 100 * FROM exdb.ex_orders.
             LIMIT and OFFSET are NOT supported.
             TOP cannot be combined with QUALIFY, SAMPLE or DISTINCT in the same SELECT —
             use QUALIFY ROW_NUMBER() OVER (ORDER BY ...) <= n instead, or wrap the

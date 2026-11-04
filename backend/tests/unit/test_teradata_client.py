@@ -366,3 +366,15 @@ def test_relative_date_hint_uses_teradata_functions():
 
     assert "CURRENT_DATE" in TeradataClient.relative_date_hint
     assert "ADD_MONTHS" in TeradataClient.relative_date_hint
+
+
+def test_prompt_says_read_only_and_examples_cannot_be_mistaken_for_real_tables(fake):
+    # A real LLM (Haiku) attributed a sample query's `order_status` column to a
+    # real sales.orders table, and offered to run a DELETE "after confirmation".
+    client = _client()
+    text = client.description
+    real_tables = [t.name for t in client.get_schemas()]
+
+    assert "read-only" in text.lower()
+    for name in real_tables:
+        assert name not in text
