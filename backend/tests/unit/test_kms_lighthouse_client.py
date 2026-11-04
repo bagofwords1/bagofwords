@@ -851,11 +851,17 @@ def test_urllib3_gate_reopens_after_a_transport_failure(caplog):
         c._request("tree", _TREE)
     assert info.value.kind == "unreachable"
     outside = "outside-" + uuid.uuid4().hex
+
+    def matching():
+        return sum(1 for r in caplog.records if r.name.startswith("urllib3") and f"127.0.0.1:{port}" in r.getMessage())
+
+    # Counted before and after: a record of the client's own request must not satisfy the check.
+    before = matching()
     with requests.Session() as plain:
         plain.trust_env = False
         with pytest.raises(requests.ConnectionError):
             plain.get(f"http://127.0.0.1:{port}/?probe={outside}", timeout=5)
-    assert any(r.name.startswith("urllib3") and f"127.0.0.1:{port}" in r.getMessage() for r in caplog.records)
+    assert matching() > before
 
 
 # ------------------------------------------------------------------ P2: refusals are logged by reason
@@ -921,16 +927,21 @@ def test_session_is_reused_across_client_instances(kms):
     assert _tree_identities(mock.REQUEST_LOG) == ["alice", "alice"]
 
 
-@pytest.mark.parametrize("case", ["other_user", "wrong_password", "other_prefix"])
+@pytest.mark.parametrize("case", ["other_user", "wrong_password", "other_prefix", "nul_split"])
 def test_sessions_are_never_shared_across_identities(kms, monkeypatch, case):
     mock = kms["mock"]
     # The hardest case for the key: bob's password is the same text as alice's.
     monkeypatch.setitem(mock.USERS["bob"], "password", mock.USERS["alice"]["password"])
+    # nul_split: ("alice", "pw\0<tail>") and ("alice\0pw", "<tail>") join to the same text.
+    tail = uuid.uuid4().hex[:8]
+    if case == "nul_split":
+        monkeypatch.setitem(mock.USERS["alice"], "password", "pw\0" + tail)
     client(kms)._request("tree", _TREE)          # alice's session is now pooled
     second = {
         "other_user": lambda: client(kms, user="bob"),
         "wrong_password": lambda: client(kms, password="wrong-" + uuid.uuid4().hex),
         "other_prefix": lambda: client(kms, api_prefix="/other/api"),
+        "nul_split": lambda: client(kms, user="alice\0pw", password=tail),
     }[case]()
     start = len(mock.REQUEST_LOG)
     if case == "other_user":
@@ -938,7 +949,7 @@ def test_sessions_are_never_shared_across_identities(kms, monkeypatch, case):
     else:
         with pytest.raises(kc.KmsHTTPError) as info:
             second._request("tree", _TREE)
-        assert info.value.kind == {"wrong_password": "auth", "other_prefix": "not_found"}[case]
+        assert info.value.kind == {"wrong_password": "auth", "other_prefix": "not_found", "nul_split": "auth"}[case]
     gets = [row for row in mock.REQUEST_LOG[start:] if row[1] == "GET"]
     # The mock names whichever session a request carried: never alice's for another identity.
     assert all(row[0] != "alice" for row in gets), gets
@@ -954,6 +965,10 @@ def test_a_password_that_is_not_valid_utf8_still_builds_a_client(kms):
     with pytest.raises(kc.KmsHTTPError) as info:
         client(kms, password=odd)._request("tree", _TREE)
     _assert_closed(info.value, odd)
+    # Refused here, before anything is sent: not "KMS could not be reached".
+    assert (info.value.status, info.value.kind) == (0, "server")
+    assert str(info.value) != str(kc.KmsHTTPError(0, "server"))
+    assert kms["mock"].STATE["login_count"] == 0
     assert _rows(kms, _TREE) == []
 
 
@@ -1049,6 +1064,132 @@ def test_test_connection_logs_in_fresh_but_honours_hold(kms, monkeypatch):
     # Tool calls keep the session they already hold (ADR-6), without a login.
     assert client(kms, password=saved)._request("tree", _TREE)["status"] == "SUCCESS"
     assert mock.STATE["login_count"] == 3
+
+
+def test_young_session_does_not_wait_for_a_login_in_flight(kms):
+    mock = kms["mock"]
+    client(kms)._request("tree", _TREE)          # alice's session is pooled and young
+    mock.STATE["hold_login"] = True
+    probe = threading.Thread(target=lambda: client(kms).test_connection())
+    probe.start()
+    done, outcome = threading.Event(), []
+
+    def tool_call():
+        outcome.append(client(kms)._request("tree", _TREE))
+        done.set()
+
+    worker = threading.Thread(target=tool_call)
+    try:
+        assert mock.HELD["arrived"].wait(5)     # the probe's login is now parked at KMS
+        worker.start()
+        # The tool call reuses the young session; it does not queue behind the probe's login.
+        assert done.wait(3)
+        assert mock.STATE["login_count"] == 1    # the parked login has not been counted yet
+    finally:
+        mock.HELD["release"].set()
+        probe.join(10)
+        if worker.ident is not None:
+            worker.join(10)
+    assert outcome and outcome[0]["status"] == "SUCCESS"
+
+
+def test_pool_is_bounded_and_keeps_a_recently_used_hold(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    monkeypatch.setattr(kc, "_SESSION_POOL_MAX", 2)
+    wrong = "wrong-" + uuid.uuid4().hex
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, password=wrong)._request("tree", _TREE)        # alice is held
+    client(kms, user="bob")._request("tree", _TREE)                # bob has a live session
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, password=wrong)._request("tree", _TREE)        # the held entry is used again
+    assert mock.STATE["login_count"] == 2
+    client(kms, user="svc")._request("tree", _TREE)                # a third identity: one entry must go
+    assert len(kc._POOL) == 2
+    # The least recently used entry (bob) went, not the hold that was just used.
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=wrong)._request("tree", _TREE)
+    assert info.value.kind == "auth"
+    assert mock.STATE["login_count"] == 3                          # svc's login only; alice is still held
+
+
+def test_pool_evicts_an_idle_entry_before_a_held_one(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    monkeypatch.setattr(kc, "_SESSION_POOL_MAX", 2)
+    wrong = "wrong-" + uuid.uuid4().hex
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, password=wrong)._request("tree", _TREE)        # alice is held
+    client(kms, user="bob")                                        # built, never logged in
+    client(kms, user="svc")._request("tree", _TREE)                # a third identity: one entry must go
+    assert len(kc._POOL) == 2
+    with pytest.raises(kc.KmsHTTPError):
+        client(kms, password=wrong)._request("tree", _TREE)
+    assert mock.STATE["login_count"] == 2                          # alice is still held
+
+
+def test_rejected_relogin_starts_a_hold_for_other_instances(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    saved = mock.USERS["alice"]["password"]
+    client(kms)._request("tree", _TREE)          # alice's session is pooled
+    mock.expire_sessions()
+    monkeypatch.setitem(mock.USERS["alice"], "password", "changed-" + uuid.uuid4().hex)
+    before = mock.STATE["login_count"]
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=saved)._request("tree", _TREE)        # 401, re-login rejected
+    assert info.value.kind == "auth"
+    assert mock.STATE["login_count"] == before + 1
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=saved)._request("tree", _TREE)        # 401 again, re-login held
+    assert info.value.kind == "auth"
+    assert mock.STATE["login_count"] == before + 1
+
+
+def test_login_answer_without_success_starts_a_hold(raw_kms):
+    raw_kms["state"]["response"] = _http_200(json.dumps({"status": "FAIL"}).encode())
+    messages = []
+    for _ in range(2):
+        c = kc.KmsLighthouseClient(base_url=raw_kms["base_url"], allow_http=True, username="alice",
+                                   password=_SECRET_PW)
+        with pytest.raises(kc.KmsHTTPError) as info:
+            c._request("tree", _TREE)
+        assert info.value.kind == "auth"
+        _assert_closed(info.value, _SECRET_PW)
+        messages.append(str(info.value))
+    assert len(raw_kms["state"]["requests"]) == 1                  # the second login was held
+    assert messages[1] != messages[0]
+
+
+def test_login_hold_is_logged_with_fixed_text(kms, caplog):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    wrong = "wrong-" + uuid.uuid4().hex
+    for _ in range(2):
+        with pytest.raises(kc.KmsHTTPError):
+            client(kms, password=wrong)._request("tree", _TREE)
+    own = [(r.levelno, r.getMessage()) for r in caplog.records if r.name == kc.__name__]
+    assert (logging.INFO, f"kms_lighthouse login rejected; holding new logins for {kc._FAILED_LOGIN_HOLD_S} s") in own
+    assert (logging.DEBUG, "kms_lighthouse login refused: login hold") in own
+    for _, line in own:
+        assert wrong not in line and str(kms["port"]) not in line
+
+
+def test_clear_session_cache_also_resets_live_instances(kms, monkeypatch):
+    mock = kms["mock"]
+    _frozen_clock(monkeypatch)
+    c = client(kms)
+    c._request("tree", _TREE)
+    wrong = "wrong-" + uuid.uuid4().hex
+    held = client(kms, password=wrong)
+    with pytest.raises(kc.KmsHTTPError):
+        held._request("tree", _TREE)
+    assert mock.STATE["login_count"] == 2
+    kc.clear_session_cache()
+    c._request("tree", _TREE)                    # its pooled session was forgotten: a new login
+    assert mock.STATE["login_count"] == 3
+    with pytest.raises(kc.KmsHTTPError):
+        held._request("tree", _TREE)             # its hold was forgotten: the login is tried again
+    assert mock.STATE["login_count"] == 4
 
 
 @pytest.mark.parametrize("key,value,error", [

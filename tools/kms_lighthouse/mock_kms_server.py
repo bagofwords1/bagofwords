@@ -27,6 +27,8 @@ Test-only switches and routes (not part of the KMS API):
   - GET {PREFIX}/_mock/status_error/<id>  HTTP 200 {"status": "ERROR"} echoing the id
   - GET {PREFIX}/_mock/held               waits for HELD["release"] (sets HELD["arrived"] first),
                                           so a test can act while a KMS request is in flight
+  - STATE["hold_login"] = True: POST /login waits the same way on HELD, so a
+    test can act while a login is in flight.
   - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
   - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
 
@@ -87,6 +89,7 @@ _SWITCHES = {
     "odd_shapes": (False, "list", "error", "bad_id", "bad_username"),
     "ai_text_available": (True, False),
     "top_level_requires_parent": (True, False),
+    "hold_login": (True, False),
 }
 # Counters and sizes: non-negative integers (bool is not an int here).
 _COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s")
@@ -96,6 +99,7 @@ _DEFAULTS = {
     "session_expiry": "never",       # never | immediate (login sessions are dead on arrival)
     "ai_text_available": True,
     "top_level_requires_parent": False,
+    "hold_login": False,             # True: POST /login waits on HELD like /_mock/held
     "login_count": 0,                # every login attempt
     "accepted_logins": 0,            # logins that returned SUCCESS
     "hold_stale_401s": 0,            # N > 0: the first N stale-session requests meet at a barrier
@@ -234,6 +238,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_empty(404)
         username = (query.get("username") or [""])[0]
         password = (query.get("password") or [""])[0]
+        if STATE["hold_login"]:
+            HELD["arrived"].set()
+            if not HELD["release"].wait(5):
+                return self._send_empty(500)   # never released: fail instead of hanging
         with _LOCK:
             REQUEST_LOG.append((username or None, "POST", parts.path))
             STATE["login_count"] += 1

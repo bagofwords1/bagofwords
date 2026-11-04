@@ -82,6 +82,10 @@ _SESSION_REFUSED = (
     "KMS Lighthouse accepted the login but refused the session it returned. "
     "Ask the KMS administrator whether this account may use the KMS API."
 )
+_UNSENDABLE_LOGIN = (
+    "The KMS username or password contains a character that cannot be sent to KMS Lighthouse. "
+    "Re-enter the KMS username and password."
+)
 _MESSAGES = {
     "auth": _USERPASS_AUTH,
     "forbidden": "KMS Lighthouse denied access to this content for the current identity.",
@@ -128,7 +132,8 @@ class _PoolEntry:
     """Login state for one identity, shared by every client instance and thread using it.
 
     ``login_lock`` serialises logins (so one expiry causes one login);
-    ``state_lock`` guards the fields below. Lock order: login_lock, then state_lock.
+    ``state_lock`` guards the fields below. Lock order: login_lock, then state_lock
+    (the pool's own lock, when held, comes before state_lock too).
     """
 
     def __init__(self):
@@ -146,24 +151,51 @@ _POOL_LOCK = threading.Lock()
 
 
 def _pool_key(base: str, prefix: str, username: str, password: str) -> str:
+    # Length-prefixed fields, so no two identities join to the same text (a field may hold "\0" or ":").
+    message = "".join(f"{len(field)}:{field}" for field in (base, prefix, username, password))
     # surrogatepass: a lone surrogate from a JSON credential must not raise (with the password in .object).
-    message = "\0".join((base, prefix, username, password)).encode("utf-8", "surrogatepass")
-    return hmac.new(_POOL_SECRET, message, hashlib.sha256).hexdigest()
+    return hmac.new(_POOL_SECRET, message.encode("utf-8", "surrogatepass"), hashlib.sha256).hexdigest()
+
+
+def _is_idle(entry: _PoolEntry, now: float) -> bool:
+    """Neither a session young enough to reuse nor an active login hold: cheap to forget."""
+    with entry.state_lock:
+        live = entry.created_at is not None and now - entry.created_at < _SESSION_TTL_S
+        held = entry.failed_at is not None and now - entry.failed_at < _FAILED_LOGIN_HOLD_S
+    return not live and not held
 
 
 def _pool_entry(key: str) -> _PoolEntry:
     with _POOL_LOCK:
         entry = _POOL.get(key)
-        if entry is None:
-            entry = _POOL[key] = _PoolEntry()
-            while len(_POOL) > _SESSION_POOL_MAX:
-                _POOL.popitem(last=False)   # the oldest entry goes first
+        if entry is not None:
+            _POOL.move_to_end(key)          # least recently used goes first
+            return entry
+        entry = _POOL[key] = _PoolEntry()
+        while len(_POOL) > _SESSION_POOL_MAX:
+            # Forget an idle entry before a live session or a hold (forgetting a
+            # hold would let a rejected password be sent again); else the LRU one.
+            now = _clock()
+            victim = next((k for k, e in _POOL.items() if k != key and _is_idle(e, now)), None)
+            if victim is None:
+                _POOL.popitem(last=False)
+            else:
+                del _POOL[victim]
         return entry
 
 
 def clear_session_cache() -> None:
-    """Forget every pooled session and login hold in this process (tests and operations)."""
+    """Forget every pooled session and login hold in this process (tests and operations).
+
+    Live client instances keep their entry, so it is reset too: their next
+    call logs in again instead of reusing the forgotten session or hold.
+    """
     with _POOL_LOCK:
+        for entry in _POOL.values():
+            with entry.state_lock:
+                entry.cookies, entry.token = {}, None
+                entry.created_at = entry.failed_at = None
+                entry.generation += 1     # thread-local sessions drop the old cookies
         _POOL.clear()
 
 
@@ -385,15 +417,25 @@ class KmsLighthouseClient(DataSourceClient):
     def _check_hold(self, entry: _PoolEntry) -> None:
         """Refuse without contacting KMS while a rejected login of this identity is recent."""
         if entry.failed_at is not None and _clock() - entry.failed_at < _FAILED_LOGIN_HOLD_S:
+            logger.debug("kms_lighthouse %s refused: %s", "login", "login hold")
             raise KmsHTTPError(401, "auth", _HELD_AUTH)
+
+    @staticmethod
+    def _is_young(entry: _PoolEntry) -> bool:
+        with entry.state_lock:
+            return entry.created_at is not None and _clock() - entry.created_at < _SESSION_TTL_S
 
     def _ensure_login(self) -> None:
         entry = self._entry
         if entry is None:
             return
+        # A pooled session of this identity, still young enough to reuse: no
+        # login_lock, so a login in flight (e.g. a health probe) does not block it.
+        if self._is_young(entry):
+            return
         with entry.login_lock:
-            if entry.created_at is not None and _clock() - entry.created_at < _SESSION_TTL_S:
-                return   # a pooled session of this identity, still young enough to reuse
+            if self._is_young(entry):
+                return   # another caller logged in while this one waited
             self._check_hold(entry)
             self._login(self._new_session())
 
@@ -414,6 +456,7 @@ class KmsLighthouseClient(DataSourceClient):
         """KMS refused this login: hold new attempts for this identity."""
         with self._entry.state_lock:
             self._entry.failed_at = _clock()
+        logger.info("kms_lighthouse login rejected; holding new logins for %d s", _FAILED_LOGIN_HOLD_S)
         return KmsHTTPError(401, "auth", _USERPASS_AUTH)
 
     def _login(self, session: requests.Session) -> None:
@@ -421,6 +464,16 @@ class KmsLighthouseClient(DataSourceClient):
 
         Called with the pool entry's login_lock held.
         """
+        unsendable = False
+        try:
+            self._username.encode("utf-8")
+            self._password.encode("utf-8")
+        except UnicodeError:   # e.g. a lone surrogate from a JSON credential
+            unsendable = True
+        # Raised outside the except block: the UnicodeError's .object is the credential.
+        if unsendable:
+            logger.debug("kms_lighthouse %s refused: %s", "login", "credential cannot be encoded")
+            raise KmsHTTPError(0, "server", _UNSENDABLE_LOGIN)
         status, body = self._send(session, "login", "POST", "/login",
                                   params={"username": self._username, "password": self._password})
         if status in (400, 401, 403):
