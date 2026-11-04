@@ -657,6 +657,7 @@
       "start": "Ditar um pedido",
       "stop": "Parar de ditar",
       "errors": {
+    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
         "permissionDenied": "O acesso ao microfone foi bloqueado. Permita-o nas configurações do navegador para ditar.",
         "noSpeech": "Nenhuma fala foi detectada.",
         "noMicrophone": "Nenhum microfone foi encontrado.",

@@ -321,11 +321,13 @@ class SharepointOnpremClient(SharepointBoundedListing, DataSourceClient):
         except IndexingCancelled:
             raise
         except SharePointHTTPError as exc:
+            self.mark_discovery_incomplete("sharepoint_onprem catalog")
             if exc.status == 401:
                 raise
             return None
         except ValueError:
             # Transport failure or an unreadable SOAP/REST payload for one item.
+            self.mark_discovery_incomplete("sharepoint_onprem catalog")
             return None
         try:
             if ext in DOC_EXTS:

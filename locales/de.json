@@ -657,6 +657,7 @@
       "start": "Anfrage diktieren",
       "stop": "Diktat beenden",
       "errors": {
+    "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
         "permissionDenied": "Der Mikrofonzugriff wurde blockiert. Erlauben Sie ihn in den Browsereinstellungen, um zu diktieren.",
         "noSpeech": "Es wurde keine Sprache erkannt.",
         "noMicrophone": "Kein Mikrofon gefunden.",

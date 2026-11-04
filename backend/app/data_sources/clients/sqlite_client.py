@@ -11,6 +11,7 @@ from typing import Generator, List, Optional
 import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.data_sources.fk_reflection import attach_foreign_keys
@@ -133,7 +134,10 @@ class SqliteClient(DataSourceClient):
                 reporter.done()
                 self._attach_foreign_keys(tables)
                 return tables
+        except IndexingCancelled:
+            raise
         except Exception as exc:
+            self.mark_discovery_incomplete("sqlite catalog")
             print(f"Error retrieving tables: {exc}")
             return []
 

@@ -42,6 +42,7 @@ import pandas as pd
 import requests
 from simple_salesforce import Salesforce
 
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
@@ -617,9 +618,12 @@ class SalesforceClient(DataSourceClient):
         for name in names:
             try:
                 schemas.append(self.get_schema(name))
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 # A single unreadable object (field-level security, odd metadata)
                 # must not abort the whole catalog.
+                self.mark_discovery_incomplete("salesforce catalog")
                 logger.warning(
                     "Skipping Salesforce object %s: %s", name, format_salesforce_error(e)
                 )

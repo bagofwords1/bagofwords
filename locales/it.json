@@ -657,6 +657,7 @@
       "start": "Detta una richiesta",
       "stop": "Interrompi la dettatura",
       "errors": {
+    "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
         "permissionDenied": "L'accesso al microfono è stato bloccato. Consentilo nelle impostazioni del browser per dettare.",
         "noSpeech": "Nessun parlato rilevato.",
         "noMicrophone": "Nessun microfono trovato.",

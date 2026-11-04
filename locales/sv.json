@@ -657,6 +657,7 @@
       "start": "Diktera en fråga",
       "stop": "Sluta diktera",
       "errors": {
+    "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
         "permissionDenied": "Åtkomst till mikrofonen blockerades. Tillåt den i webbläsarens inställningar för att diktera.",
         "noSpeech": "Inget tal upptäcktes.",
         "noMicrophone": "Ingen mikrofon hittades.",

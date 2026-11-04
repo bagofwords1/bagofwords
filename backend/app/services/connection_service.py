@@ -2,6 +2,7 @@
 Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
+from app.errors import AppError
 import os
 import asyncio
 import importlib
@@ -1644,7 +1645,70 @@ class ConnectionService:
 
         return visible
 
-    async def refresh_schema(
+    async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
+                             progress_callback=None, introspection: str = "full",
+                             keep_fresh_tables: bool = True, diagnostics_hook=None) -> List[ConnectionTable]:
+        """Publish a complete connection catalog and all linked agents atomically.
+
+        Discovery does no catalog writes. Reconciliation and agent sync only
+        flush; this method owns the single commit. Failure/cancellation rolls
+        back even when the caller catches the exception and later commits.
+        """
+        self.last_synced_domains = 0
+        self._catalog_discovery_complete = False
+        notifications = []
+        published = False
+        try:
+            tables = await self._refresh_schema(
+                db, connection, current_user, progress_callback, introspection,
+                keep_fresh_tables, diagnostics_hook,
+            )
+            if self._catalog_discovery_complete:
+                from app.models.data_source import DataSource
+                from app.models.domain_connection import domain_connection
+                from app.services.data_source_service import DataSourceService
+                agents = (await db.execute(
+                    select(DataSource).join(domain_connection,
+                        domain_connection.c.data_source_id == DataSource.id).where(
+                        domain_connection.c.connection_id == str(connection.id),
+                        DataSource.deleted_at.is_(None),
+                    ).order_by(DataSource.id)
+                )).scalars().all()
+                for agent in agents:
+                    if progress_callback:
+                        progress_callback("syncing_agents", None, None, None)
+                    await DataSourceService().sync_domain_tables_from_connection(
+                        db, agent, connection, max_auto_select=None,
+                        commit=False, after_commit=notifications,
+                    )
+                    self.last_synced_domains += 1
+                if progress_callback:
+                    progress_callback("saving", None, None, None)
+                await db.commit()
+                published = True
+        except BaseException:
+            self.last_refresh_fresh_tables = None
+            self.last_synced_domains = 0
+            await db.rollback()
+            raise
+        if not keep_fresh_tables:
+            self.last_refresh_fresh_tables = None
+        if published:
+            try:
+                await audit_service.log(
+                    db=db, organization_id=str(connection.organization_id),
+                    action="connection.schema_refreshed",
+                    user_id=str(current_user.id) if current_user else None,
+                    resource_type="connection", resource_id=str(connection.id),
+                    details={"table_count": len(tables), **self._last_schema_refresh_counts},
+                )
+            except Exception:
+                logger.debug("schema refresh audit failed", exc_info=True)
+        for notify in notifications:
+            await notify()
+        return tables
+
+    async def _refresh_schema(
         self,
         db: AsyncSession,
         connection: Connection,
@@ -1823,38 +1887,10 @@ class ConnectionService:
                 prior_catalog=prior_catalog,
                 **_extra,
             )
-            # Parts of the catalog the client could not read on this run (a
-            # BI app that was busy or mid-reload). Their existing tables are
-            # kept below rather than pruned — see unindexed_table_prefixes.
-            try:
-                unread_prefixes = tuple(
-                    f"{str(p).rstrip('/')}/"
-                    for p in (client.unindexed_table_prefixes() or [])
-                    if p and str(p).strip("/")
-                )
-            except Exception:
-                unread_prefixes = ()
-            # Entry types the client could not read on this run (routine
-            # discovery failed while the tables were read): existing entries
-            # of these types are kept rather than pruned as dropped.
-            try:
-                unread_types = frozenset(client.unindexed_entry_types() or ())
-            except Exception:
-                unread_types = frozenset()
-            if unread_types:
-                logger.warning(
-                    "refresh_schema: connection %s could not read its %s entries on this run; "
-                    "the existing ones are kept",
-                    connection.id, ", ".join(sorted(unread_types)),
-                )
-            if unread_prefixes:
-                logger.warning(
-                    "refresh_schema: connection %s could not read %d part(s) of its catalog "
-                    "on this run; their existing tables are kept: %s",
-                    connection.id, len(unread_prefixes),
-                    ", ".join(p.rstrip("/") for p in unread_prefixes[:10]),
-                )
-
+            from app.data_sources.clients.discovery import require_complete_discovery
+            fresh_tables = require_complete_discovery(client, fresh_tables)
+            if not getattr(client, "catalog_identity_available", True):
+                return []
             # Only needed to pass to the client; release them before saving.
             # `_extra` holds the same `prior_tables` dict (Power BI /
             # incremental), and it outlives this block, so clearing it is what
@@ -1864,6 +1900,7 @@ class ConnectionService:
 
             # Stash for same-request reuse (see docstring). Recorded even when
             # empty — an empty result is still this identity's live catalog.
+            self._catalog_discovery_complete = True
             if keep_fresh_tables:
                 self.last_refresh_fresh_tables = list(fresh_tables or [])
             self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
@@ -1938,9 +1975,6 @@ class ConnectionService:
                 # Diagnostics are best-effort — never fail a refresh over them.
                 pass
 
-            if not fresh_tables:
-                logger.warning(f"refresh_schema: No tables returned from get_schemas()")
-                return []
 
             # Normalize incoming tables
             from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
@@ -1968,7 +2002,7 @@ class ConnectionService:
                 if isinstance(t, dict):
                     name = t.get("name")
                     if not name:
-                        continue
+                        raise ValueError("Catalog entry is missing its name")
                     incoming[name] = {
                         "columns": normalize_columns(t.get("columns", [])),
                         "pks": normalize_columns(t.get("pks", [])),
@@ -1978,7 +2012,7 @@ class ConnectionService:
                 else:
                     name = getattr(t, "name", None)
                     if not name:
-                        continue
+                        raise ValueError("Catalog entry is missing its name")
                     incoming[name] = {
                         "columns": normalize_columns(getattr(t, "columns", [])),
                         "pks": normalize_columns(getattr(t, "pks", [])),
@@ -2002,8 +2036,12 @@ class ConnectionService:
             # then re-read: another identity may have indexed while we crawled.
             # Normalizing (above) needs neither, and runs first so the events
             # recorded so far are written before SQLite's writer lock is held.
+            from app.services.catalog_refresh_service import lock_connection_catalog
             from app.services.powerbi_catalog_service import prepare_powerbi_catalog
-            await prepare_powerbi_catalog(db, connection)
+            if connection.type == "powerbi":
+                await prepare_powerbi_catalog(db, connection)
+            else:
+                await lock_connection_catalog(db, connection)
             existing_q = await db.execute(
                 select(ConnectionTable).where(
                     ConnectionTable.connection_id == connection_id_str,
@@ -2029,17 +2067,6 @@ class ConnectionService:
                         existing_tables.pop(row.name, None)
                         row.name = name
                     existing_tables[name] = row
-
-            # An unread part that already has tables keeps them, so its
-            # error/empty placeholder row (named after the part itself) is not
-            # added next to them.
-            if unread_prefixes:
-                for prefix in unread_prefixes:
-                    placeholder = prefix.rstrip("/")
-                    if placeholder in incoming and placeholder not in existing_tables and any(
-                        n.startswith(prefix) for n in existing_tables
-                    ):
-                        incoming.pop(placeholder, None)
 
             # Upsert tables
             created_count = 0
@@ -2107,12 +2134,7 @@ class ConnectionService:
             if authoritative:
                 missing = [
                     (name, tbl) for name, tbl in existing_tables.items()
-                    if name not in incoming and not name.startswith(unread_prefixes)
-                    and not (
-                        unread_types
-                        and isinstance(tbl.metadata_json, dict)
-                        and tbl.metadata_json.get("type") in unread_types
-                    )
+                    if name not in incoming
                 ]
                 if missing:
                     user_visible_names = await self._user_visible_table_names(
@@ -2134,6 +2156,8 @@ class ConnectionService:
             if deleted_count > 0:
                 logger.info(f"refresh_schema: Deleted {deleted_count} ConnectionTable records for tables no longer in database")
 
+            self._last_schema_refresh_counts = {"created": created_count, "updated": updated_count, "deleted": deleted_count}
+
             # Update last_synced_at
             # NOTE: our SQLAlchemy DateTime columns are stored as TIMESTAMP WITHOUT TIME ZONE,
             # so we must write naive UTC datetimes (asyncpg will error on tz-aware datetimes).
@@ -2143,8 +2167,7 @@ class ConnectionService:
             connection.next_retry_at = None
             connection.last_reindex_error = None
             logger.info(f"refresh_schema: Committing {created_count} new tables to database...")
-            await db.commit()
-            logger.info(f"refresh_schema: Commit successful")
+            await db.flush()
 
             # Return all tables
             result = await db.execute(
@@ -2154,20 +2177,6 @@ class ConnectionService:
             final_tables = result.scalars().all()
             logger.info(f"refresh_schema: Final query returned {len(final_tables)} ConnectionTable records")
 
-            # Audit log
-            try:
-                await audit_service.log(
-                    db=db,
-                    organization_id=str(connection.organization_id),
-                    action="connection.schema_refreshed",
-                    user_id=str(current_user.id) if current_user else None,
-                    resource_type="connection",
-                    resource_id=str(connection.id),
-                    details={"table_count": len(final_tables), "created": created_count, "updated": updated_count, "deleted": deleted_count},
-                )
-            except Exception:
-                pass
-
             return final_tables
 
         except IndexingCancelled:
@@ -2175,7 +2184,7 @@ class ConnectionService:
             # indexing runner so the run is finalized as `cancelled` — wrapping
             # it in the generic 500 below would mark the run failed instead.
             raise
-        except HTTPException:
+        except (HTTPException, AppError):
             # Deliberate API errors (e.g. resolve_credentials' 403 "Connect
             # required") must reach the client with their real status and
             # message — wrapping them in the generic 500 below hid the reason
@@ -2699,6 +2708,8 @@ class ConnectionService:
             logger.info(f"refresh_tools: Starting for connection {connection.id} (type={connection.type})")
             client = await self.construct_client(db, connection, current_user)
             fresh_tools = await client.alist_tools()
+            from app.data_sources.clients.discovery import require_complete_discovery
+            fresh_tools = require_complete_discovery(client, fresh_tools)
 
             logger.info(f"refresh_tools: Got {len(fresh_tools) if fresh_tools else 0} tools from provider")
 
@@ -2711,7 +2722,7 @@ class ConnectionService:
             for t in fresh_tools:
                 name = t.get("name") if isinstance(t, dict) else getattr(t, "name", None)
                 if not name:
-                    continue
+                    raise ValueError("Catalog entry is missing its name")
                 incoming[name] = {
                     "description": t.get("description", ""),
                     "input_schema": t.get("input_schema"),
@@ -2730,6 +2741,9 @@ class ConnectionService:
                     # left on "Auto" keep whatever an admin set post-connect.
                     "explicit_policy": t.get("explicit_policy") if isinstance(t, dict) else None,
                 }
+
+            from app.services.catalog_refresh_service import lock_connection_catalog
+            await lock_connection_catalog(db, connection)
 
             # Get existing tools
             connection_id_str = str(connection.id)
@@ -2785,30 +2799,18 @@ class ConnectionService:
                         .on_conflict_do_nothing(index_elements=["connection_id", "name"])
                     )
 
-            # Delete stale tools — but never on an empty discovery result. A
-            # flaky/misconfigured server returning zero tools would otherwise
-            # wipe every ConnectionTool row and cascade-delete the per-agent
-            # overlays and per-user policy preferences hanging off them.
+            # Completeness was established before any writes. A successful
+            # empty list is a genuine empty catalog; partial discovery raises.
             deleted_count = 0
-            if incoming:
-                stale = [t for n, t in existing_tools.items() if n not in incoming]
-                if stale:
-                    # Statement deletes: an overlapping run may already have
-                    # removed these rows, and an ORM delete of a vanished row
-                    # raises StaleDataError. user_connection_tools has no ON
-                    # DELETE rule, so clear it first (the ORM cascade did).
-                    stale_ids = [str(t.id) for t in stale]
-                    await db.execute(delete(UserConnectionTool).where(
-                        UserConnectionTool.connection_tool_id.in_(stale_ids)))
-                    await db.execute(delete(ConnectionTool).where(ConnectionTool.id.in_(stale_ids)))
-                    for t in stale:
-                        db.expunge(t)
-                    deleted_count = len(stale_ids)
-            elif existing_tools:
-                logger.warning(
-                    f"refresh_tools: provider returned no tools for connection {connection.id}; "
-                    f"keeping {len(existing_tools)} existing tool records (skipping delete pass)"
-                )
+            stale = [t for n, t in existing_tools.items() if n not in incoming]
+            if stale:
+                stale_ids = [str(t.id) for t in stale]
+                await db.execute(delete(UserConnectionTool).where(
+                    UserConnectionTool.connection_tool_id.in_(stale_ids)))
+                await db.execute(delete(ConnectionTool).where(ConnectionTool.id.in_(stale_ids)))
+                for t in stale:
+                    db.expunge(t)
+                deleted_count = len(stale_ids)
             if deleted_count > 0:
                 logger.info(f"refresh_tools: Deleted {deleted_count} ConnectionTool records for tools no longer available")
 
@@ -2844,9 +2846,11 @@ class ConnectionService:
 
             return final_tools
 
-        except HTTPException:
+        except (HTTPException, AppError, IndexingCancelled, asyncio.CancelledError):
+            await db.rollback()
             raise
         except Exception as e:
+            await db.rollback()
             logger.error(f"Error refreshing tools for connection {connection.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to refresh tools: {redact_error(e)}")
 

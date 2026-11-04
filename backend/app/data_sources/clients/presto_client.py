@@ -147,6 +147,7 @@ class PrestoClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
+            self.mark_discovery_incomplete("presto catalog")
             logger.error(f"Error retrieving tables: {e}")
             return []
 

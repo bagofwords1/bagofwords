@@ -1,6 +1,7 @@
 from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress
 
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
@@ -901,27 +902,42 @@ class PowerBIReportServerClient(DataSourceClient):
 
             try:
                 pbi_reports = pbi_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_powerbi_reports failed: {e}")
                 pbi_reports = []
             try:
                 rdl_reports = rdl_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_paginated_reports failed: {e}")
                 rdl_reports = []
             try:
                 shared_datasets = ds_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_shared_datasets failed: {e}")
                 shared_datasets = []
             try:
                 kpis = kpi_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_kpis failed: {e}")
                 kpis = []
             try:
                 shared_ds_sources = dsrc_f.result()
+            except IndexingCancelled:
+                raise
             except Exception as e:
+                self.mark_discovery_incomplete("powerbi_report_server catalog")
                 logger.warning(f"list_shared_data_sources failed: {e}")
                 shared_ds_sources = []
 
@@ -974,7 +990,10 @@ class PowerBIReportServerClient(DataSourceClient):
                         r = ext_futs[fut]
                         try:
                             pbix_schemas[r["Id"]] = fut.result()
+                        except IndexingCancelled:
+                            raise
                         except Exception as e:
+                            self.mark_discovery_incomplete("powerbi_report_server catalog")
                             logger.debug(f"pbix schema extract failed for {r['Id']}: {e}")
                         reporter.item(r.get("Name") or r["Id"])
 
@@ -1116,7 +1135,10 @@ class PowerBIReportServerClient(DataSourceClient):
                     try:
                         xml_bytes = fut.result()
                         parsed = self.parse_rdl_content(xml_bytes)
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.warning(f"RDL {rname} parse failed: {e}")
                         tables.append(Table(
                             name=f"rdl:{rname}",
@@ -1214,7 +1236,10 @@ class PowerBIReportServerClient(DataSourceClient):
                     d = schema_futs[fut]
                     try:
                         schemas[d["Id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.debug(f"dataset {d['Id']} schema failed: {e}")
                     reporter.item(d.get("Name") or d["Id"])
                 for fut in as_completed(content_futs):
@@ -1263,7 +1288,10 @@ class PowerBIReportServerClient(DataSourceClient):
                                             description=None,
                                             metadata={"role": "column", "data_field": fld.get("data_field")},
                                         ))
+                    except IndexingCancelled:
+                        raise
                     except Exception as e:
+                        self.mark_discovery_incomplete("powerbi_report_server catalog")
                         logger.debug(f"dataset {did} RSD parse failed: {e}")
 
                 metadata_json = {

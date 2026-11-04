@@ -695,6 +695,7 @@
       "start": "Dictate a prompt",
       "stop": "Stop dictating",
       "errors": {
+    "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
         "permissionDenied": "Microphone access was blocked. Allow it in your browser settings to dictate.",
         "noSpeech": "No speech was detected.",
         "noMicrophone": "No microphone was found.",

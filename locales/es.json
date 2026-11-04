@@ -678,6 +678,7 @@
       "start": "Dictar una solicitud",
       "stop": "Dejar de dictar",
       "errors": {
+    "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
         "permissionDenied": "Se bloqueó el acceso al micrófono. Permítelo en la configuración del navegador para dictar.",
         "noSpeech": "No se detectó voz.",
         "noMicrophone": "No se encontró ningún micrófono.",

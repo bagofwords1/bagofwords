@@ -748,6 +748,7 @@ class S3Client(DataSourceClient):
                 except IndexingCancelled:
                     raise
                 except Exception:
+                    self.mark_discovery_incomplete("s3 catalog")
                     meta["indexed"] = False
             tables.append(Table(
                 name=f["path"] or f["name"],
