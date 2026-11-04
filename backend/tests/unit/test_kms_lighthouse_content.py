@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 import pytest
 import requests
+import urllib3
 
 from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS
 from app.data_sources.clients import kms_lighthouse_client as kc
@@ -363,6 +364,27 @@ _SECRET_FORMS = [
     ("prose_password_colon", "Password: {s}"),
     ("prose_token_colon", "token: {s}"),
     ("prose_secret_spaced", "secret = {s}"),
+    # An empty name before a secret one must not swallow it.
+    ("empty_value_before_token", _URL + "?q= &token= {s}"),
+    ("empty_value_before_password", _URL + "?lang= &password= {s}"),
+    ("repeated_spaced_token", _URL + "?token= ?token= {s}"),
+    ("quote_opened_before_token", _URL + '?a="x ?token= {s} "'),
+    # More inline tags that a page may put inside a value.
+    ("code_inside_value", _URL + "?token={s1}<code></code>{s2}"),
+    ("kbd_inside_value", _URL + "?token={s1}<kbd></kbd>{s2}"),
+    ("named_entity_equals", _URL + "?token&amp;equals;{s}"),
+    # JSON or YAML quoted names, and a quoted value of several words.
+    ("json_password", '{{"password": "{s}"}}'),
+    ("json_api_key", '"api_key":"{s}"'),
+    ("json_multi_word_value", '{{"password": "{s1} {s2}"}}'),
+    ("yaml_single_quoted", "'secret': '{s}'"),
+    ("prose_sessionid", "sessionid: {s}"),
+    ("prose_ticket", "ticket = {s}"),
+    # A raw '@' inside a URL password, and a scheme right after a digit, '.' or '-'.
+    ("userinfo_at_inside_password", "https://user:{s1}@{s2}@kms.example.com/x"),
+    ("userinfo_after_digit", "7https://user:{s}@kms.example.com/x"),
+    ("userinfo_after_dot", "1.https://user:{s}@kms.example.com/x"),
+    ("userinfo_after_dash", "--https://user:{s}@kms.example.com/x"),
 ] + [(f"name_{name}", _URL + f"?id=7&{name}={{s}}&lang=en") for name in _SECRET_NAMES]
 
 _JWT = ("eyJhbGciOiJub25lIn0", "eyJzdWIiOiJjb3JwdXMifQ", "Y29ycHVzLXNpZ25lZA")
@@ -384,6 +406,15 @@ _JWT_FORMS = [
     ("surrogate_before_dot", f"{_H}.{_P}\ud800.{_S}"),
     ("wbr_inside_segment", f"{_H[:8]}<wbr>{_H[8:]}.{_P}.{_S}"),
     ("empty_span_inside_segment", f"{_H}.{_P[:9]}<span></span>{_P[9:]}.{_S}"),
+    ("empty_code_inside_segment", f"{_H}.{_P[:9]}<code></code>{_P[9:]}.{_S}"),
+    # A line break or a block tag inside a segment: the tail after it is redacted too.
+    ("br_inside_segment", f"{_H[:10]}<br>{_H[10:]}.{_P}.{_S}"),
+    ("paragraph_inside_segment", f"{_H[:10]}<p>{_H[10:]}.{_P}.{_S}"),
+] + [
+    # Default-ignorable characters that are not in a C category (invisible, yet letters or marks).
+    (f"ignorable_{cp:04X}", f"{_H[:8]}{chr(cp)}{_H[8:]}.{_P}.{_S}")
+    for cp in (0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180F, 0x3164, 0xFE00, 0xFE0F, 0xFFA0,
+               0xE0100, 0xE01EF)
 ]
 
 
@@ -411,9 +442,49 @@ def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
     for field in ("name", "path", "snippet"):
         value = entry[field]
         assert "eyJ" not in value, (form, field, value)
-        for piece in (_H[3:], _H[8:], _P[3:], _S):
+        for piece in (_H[3:], _H[8:], _H[10:], _P[3:], _S):
             assert piece not in value, (form, field, value)
     assert "Guide" in entry["snippet"]
+
+
+_TAIL_FORMS = [
+    ("br", _URL + "?token={a}<br>{b}"),
+    ("newline", _URL + "?token={a}\n{b}"),
+    ("paragraph_tag", _URL + "?token={a}<p>{b}"),
+    ("spaced_value_then_br", _URL + "?token= {a}<br>{b}"),
+]
+
+
+@pytest.mark.parametrize("form,template", _TAIL_FORMS, ids=[f for f, _ in _TAIL_FORMS])
+def test_search_redacts_a_secret_tail_after_a_line_break_or_tag(kms, form, template):
+    secret = "Sv" + uuid.uuid4().hex[:12] + "9Q"
+    head, tail = secret[:6], secret[6:]          # the tail is 10 characters with a digit
+    entry = _search_one(kms, template.format(a=head, b=tail))
+    for field in ("name", "snippet"):
+        assert head not in entry[field] and tail not in entry[field], (form, field, entry[field])
+    assert "Guide" in entry["snippet"] and "end" in entry["snippet"]
+
+
+@pytest.mark.parametrize("text,kept", [
+    (_URL + "?token=Sv1x9Qk2\nDocumentation overview", "Documentation overview"),
+    (_URL + "?token= Sv1x9Qk2 then the rest", "then the rest"),
+    (f"{_H}.{_P}.{_S} Overview of the steps", "Overview of the steps"),
+    ("password: Sv1x9Qk2abc\nKnowledge base", "Knowledge base"),
+])
+def test_search_keeps_ordinary_words_after_a_redaction(kms, text, kept):
+    entry = _search_one(kms, text)
+    assert kept in entry["snippet"], entry["snippet"]
+    assert "Sv1x9Qk2" not in entry["snippet"] and _S not in entry["snippet"], entry["snippet"]
+
+
+@pytest.mark.parametrize("template", [_URL + "?token='{s} and the rest of the guide",
+                                      'password: "{s} and the rest of the guide',
+                                      '{{"password": "{s} and the rest of the guide'])
+def test_search_unclosed_quote_does_not_hide_the_rest(kms, template):
+    secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
+    entry = _search_one(kms, template.format(s=secret))
+    assert secret not in entry["snippet"], entry["snippet"]
+    assert "and the rest of the guide" in entry["snippet"], entry["snippet"]
 
 
 def test_search_scrub_keeps_harmless_parameters(kms):
@@ -425,15 +496,37 @@ def test_search_scrub_keeps_harmless_parameters(kms):
 
 
 @pytest.mark.parametrize("text", ["Keys, codes and sessions", "Q&A: code=red", "Basic troubleshooting steps",
-                                  "The password policy and token rotation", "Use HTTP Basic authentication"])
+                                  "The password policy and token rotation", "Use HTTP Basic authentication",
+                                  "Price < 100 NIS", "Orders <100 get free shipping",
+                                  "Password: reset steps", "Token: what it is", "Top secret: do not share",
+                                  "Session: Monday", "Ticket: open one with support"])
 def test_search_scrub_keeps_ordinary_prose(kms, text):
     entry = _search_one(kms, text)
     assert text in entry["snippet"], entry["snippet"]
+    assert text in entry["name"], entry["name"]
+
+
+@pytest.mark.parametrize("text,shown", [
+    # A heading whose value is on the next line is not a credential.
+    ("Password:\nSelf-service reset steps", "Password: Self-service reset steps"),
+    ("Token:\nRe-issue it from the portal", "Token: Re-issue it from the portal"),
+    # Inline tags between two elements keep the words apart.
+    ("<a>Home</a><a>Contact</a>", "Home Contact"),
+    ("<b>Step 1</b><i>Open the app</i>", "Step 1 Open the app"),
+    ("<b>Note:</b>Use the portal", "Note: Use the portal"),
+    # Inline tags inside one word still join it.
+    ("Know<wbr>ledge base", "Knowledge base"),
+])
+def test_search_scrub_keeps_headings_and_words_apart(kms, text, shown):
+    entry = _search_one(kms, text)
+    assert shown in entry["snippet"], entry["snippet"]
 
 
 def test_scrub_keeps_joiners_inside_words_but_not_inside_tokens(kms):
     # Pure: _scrub also runs on whole article bodies, where a joiner shapes a word or an emoji.
-    for word in ("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645", "\U0001F468\u200d\U0001F469\u200d\U0001F467"):
+    # A variation selector right after an emoji or an ideograph shapes it, so it stays.
+    for word in ("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645", "\U0001F468\u200d\U0001F469\u200d\U0001F467",
+                 "\u2764\ufe0f", "\U0001F3F3\ufe0f\u200d\U0001F308", "\u845b\U000E0100"):
         assert kc._scrub("see " + word + " here") == "see " + word + " here"
     secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
     for text in (f"{_URL}?to\u200dken={secret}", f"{_URL}?token\u200c\u200c={secret}",
@@ -462,6 +555,19 @@ _ADVERSARIAL = {
     "userinfo": "https://" + _adversarial("a:"),
     "joiners": _adversarial("a\u200d"),
     "entities": _adversarial("&amp;#61;"),
+    "named_entities": _adversarial("&amp;equals;"),
+    "amp_prefixes": "?" + _adversarial("amp;") + "token=x",
+    "spaced_empty_values": _adversarial("?q= "),
+    "quoted_secret_values": _adversarial("?token='"),
+    "unclosed_quotes": _adversarial("?token='" + "a" * 300),
+    "prose_quotes": _adversarial('password: "'),
+    "json_names": _adversarial('"token":'),
+    "prose_values": _adversarial("token: Ab1 "),
+    "redaction_tails": _adversarial("eyJabcd Abcdefgh1 "),
+    "userinfo_ats": "https://a:" + _adversarial("@"),
+    "digit_schemes": _adversarial("1a"),
+    "variation_selectors": _adversarial("a\ufe0f"),
+    "emoji_selectors": _adversarial("\u2764\ufe0f"),
 }
 
 
@@ -474,12 +580,67 @@ def test_scrub_is_linear_on_adversarial_input(name):
     assert time.perf_counter() - started < 2.0, name
 
 
-def test_search_scrubs_only_the_first_4_kb_of_a_title_or_description(kms):
-    filler = "<i></i>" * 700                 # 4900 characters that strip to nothing; the cut lands inside a tag
-    entry = _search_one(kms, filler + " Tail words")
+_HTML_ADVERSARIAL = {
+    "open_brackets": _adversarial("<"),
+    "break_tag_spaces": "<br" + _adversarial(" ") + "x",
+    "unclosed_tags": _adversarial("<b"),
+    "empty_inline_tags": _adversarial("<i></i>"),
+    "element_boundaries": _adversarial("</a><a>"),
+    "inline_tags_in_words": _adversarial("ab<wbr>"),
+    "entities": _adversarial("&amp;"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_HTML_ADVERSARIAL))
+def test_search_title_and_description_are_linear_at_full_length(kms, name):
+    # Titles and descriptions are scrubbed whole (a cut before the scrub could split a secret), so the
+    # tag removal must be linear too. Measured: under 0.3 s each through the mock, so 3 s is a generous bound.
+    raw_id = str(uuid.uuid4().int)[:9]
+    text = _HTML_ADVERSARIAL[name]
+    kms["mock"].STATE["extra_results"] = [_record(raw_id, "Guide " + text, description="Guide " + text)]
+    started = time.perf_counter()
+    entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+    assert time.perf_counter() - started < 3.0, name
+    assert entry["name"].startswith("Guide") and entry["snippet"].startswith("Guide")
+
+
+def test_search_scrubs_a_title_or_description_at_full_length(kms):
+    filler = "<i></i>" * 700                 # 4900 characters that strip to nothing
+    secret = "Sv" + uuid.uuid4().hex[:8] + "9Q"
+    entry = _search_one(kms, filler + f" Tail words {_URL}?token={secret}")
     for field in ("name", "snippet"):
-        assert "Guide" in entry[field] and "Tail" not in entry[field], (field, entry[field])
-        assert "<" not in entry[field], (field, entry[field])       # no half tag left by the cut
+        assert "Guide" in entry[field] and "Tail words" in entry[field], (field, entry[field])
+        assert secret not in entry[field] and "<" not in entry[field], (field, entry[field])
+
+
+_STRADDLE_FORMS = [
+    ("url_userinfo", "https://user:{s}@kms.example.com/x"),
+    ("authorization_basic", "Authorization: Basic {s}"),
+    ("bearer", "Authorization: Bearer {s}"),
+    ("prose_password_colon", "Password: {s}"),
+    ("query_token", _URL + "?token={s}&lang=en"),
+    ("json_password", '{{"password": "{s}"}}'),
+    ("jwt", "{s}"),
+]
+
+
+@pytest.mark.parametrize("form,template", _STRADDLE_FORMS, ids=[f for f, _ in _STRADDLE_FORMS])
+@pytest.mark.parametrize("offset", [6, 8, 10])
+def test_search_secret_across_the_old_4_kb_cut_leaves_nothing(kms, form, template, offset):
+    secret = (_H + "." + _P + "." + _S) if form == "jwt" else "Sv" + uuid.uuid4().hex[:8] + "9Q"
+    text = template.format(s=secret)
+    at = text.index(secret) + offset         # this character of the secret sits at raw offset 4096
+    pad_len = 4096 - at - len("Guide ")
+    pad = "<i></i>" * (pad_len // 7) + " " * (pad_len % 7)
+    raw = "Guide " + pad + text
+    assert raw.index(secret) + offset == 4096
+    raw_id = str(uuid.uuid4().int)[:9]
+    kms["mock"].STATE["extra_results"] = [_record(raw_id, raw, description=raw + " end")]
+    entry = _by_id(client(kms).search_files("x"))[f"item:{raw_id}"]
+    for field in ("name", "snippet"):
+        for piece in (secret, secret[:offset], secret[offset:]):
+            assert piece not in entry[field], (form, offset, field, entry[field])
+    assert "Guide" in entry["snippet"]
 
 
 def test_search_snippet_has_no_control_or_bidi_characters(kms):
@@ -511,19 +672,55 @@ def test_search_skips_records_whose_id_is_not_only_digits(kms, caplog):
 def test_search_answer_with_only_bad_ids_fails_closed(kms, caplog):
     caplog.set_level(logging.DEBUG, logger=kc.__name__)
     marker = "bad-id-marker-" + uuid.uuid4().hex
-    bad = [_record(f"{marker}-{i}", marker) for i in range(3)]
+    bad = [_record(f"{marker}-{i}", marker) for i in range(7)]
     kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x", "results": bad}}
     with pytest.raises(kc.KmsHTTPError) as info:
         token_client(kms).search_files("billing")
     assert info.value.kind == "server" and marker not in str(info.value)
     assert info.value.__context__ is None and info.value.__cause__ is None
     warnings = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and r.levelno == logging.WARNING]
-    assert warnings and "3" in warnings[-1], warnings
+    assert warnings and re.findall(r"\d+", warnings[-1]) == ["7"], warnings
     assert all(marker not in r.getMessage() for r in caplog.records)
     # Bad ids next to a record that is merely hidden (offline) are a real "nothing to show".
     kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x", "results": bad + [
         _record(81234, status="Offline")]}}
     assert token_client(kms).search_files("billing") == []
+
+
+def test_search_with_only_bad_ids_on_every_page_fails_closed(kms, caplog):
+    # Twenty full pages of unusable records are an unexpected answer, not "more results may exist".
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    bad = [_record(f"x-{i}") for i in range(kc._SEARCH_PAGE_ROWS)]
+    kms["mock"].STATE["search_body"] = {"regularSearch": {"query": "x", "results": bad}}
+    with pytest.raises(kc.KmsHTTPError) as info:
+        token_client(kms).search_files("billing", limit=10_000)
+    assert not isinstance(info.value, SearchStopped) and info.value.kind == "server"
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    assert kms["mock"].STATE["search_count"] == kc._MAX_SEARCH_PAGES
+    warnings = [r.getMessage() for r in caplog.records if r.name == kc.__name__ and r.levelno == logging.WARNING]
+    assert warnings and re.findall(r"\d+", warnings[-1]) == [str(kc._SEARCH_PAGE_ROWS * kc._MAX_SEARCH_PAGES)]
+
+
+def test_search_timeout_wrapped_by_requests_at_the_deadline_is_a_stop(kms, monkeypatch):
+    # requests wraps urllib3's read timeout while streaming in a ConnectionError.
+    original = requests.Session.request
+    wrapped = {"timeout": True}
+
+    def slow(self, method, url, *args, **kwargs):
+        if url.endswith("/search/full"):
+            inner = urllib3.exceptions.ReadTimeoutError(None, None, "Read timed out.") if wrapped["timeout"] else None
+            raise requests.ConnectionError(inner) if inner else requests.ConnectionError("refused")
+        return original(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(requests.Session, "request", slow)
+    with pytest.raises(SearchStopped) as info:
+        token_client(kms).search_files("billing", deadline=time.monotonic() + 0.5)
+    assert info.value.stop_reason == "deadline" and info.value.files == []
+    # The same wrapper without a timeout inside is "unreachable", deadline or not.
+    wrapped["timeout"] = False
+    with pytest.raises(kc.KmsHTTPError) as info:
+        token_client(kms).search_files("billing", deadline=time.monotonic() + 0.5)
+    assert info.value.kind == "unreachable" and not isinstance(info.value, SearchStopped)
 
 
 def test_tree_record_id_must_be_only_digits(kms, monkeypatch):

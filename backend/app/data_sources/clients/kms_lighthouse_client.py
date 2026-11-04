@@ -16,6 +16,7 @@ from __future__ import annotations
 import functools
 import hashlib
 import hmac
+import html
 import http.client
 import json
 import logging
@@ -33,7 +34,6 @@ import urllib3
 
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
-from app.data_sources.clients.mail_common import strip_html
 from app.data_sources.clients.progress import discovery_progress
 from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE, KMS_TOKEN_RE
 
@@ -321,25 +321,40 @@ _SNIPPET_CHARS = 300
 _MAX_SEGMENT_CHARS = 200
 _KINDS = ("item", "scenario", "folder")
 _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
-# Every pattern below is linear: possessive runs never backtrack (titles are
-# cut to _SCRUB_INPUT_CHARS, but later phases scrub whole article bodies).
+# Every pattern below is linear: possessive runs never backtrack, and every
+# Python scan is bounded. Titles and descriptions are scrubbed at full length
+# (a cut before the scrub could split a secret), and so are article bodies.
 # A JWT is any base64url run that starts like a JWT header ("eyJ"), with up to
 # two dotted parts; whitespace (left by a <br>) may sit next to a dot.
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
 _BEARER_RE = re.compile(r"(?i)\b(bearer\s++)([A-Za-z0-9._~+/=-]{8,}+)")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
-# "password=...", "api_key: ..." in prose (no URL separator before the name).
-_PROSE_SECRET_RE = re.compile(
-    r"(?i)(?<![A-Za-z0-9])((?:client[_-]?|access[_-]?|auth[_-]?|private[_-]?)?"
-    r"(?:password|passwd|pwd|token|api[_-]?key|secret))(\s*+[:=]\s*+)(\S++)")
-# The password part of "scheme://user:password@host".
-# It starts only where a scheme run starts (not inside one), so each run is read once.
-_USERINFO_RE = re.compile(r"(?i)(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*+://[^\s/?#@:\"'<>]*+:)([^\s/?#@\"'<>]++)@")
-# A '=' or '&' still written as a character reference or a JSON escape.
-_ESCAPED_SEPARATOR_RE = re.compile(r"(?i)&(?:amp;)*+#(?:0*+(61|38)|x0*+(3d|26));|\\u00(3d|26)")
-# "name=" followed by whitespace or a quote: the value is the next run (or the quoted text).
-_SPACED_VALUE_RE = re.compile(
-    r"([?#;&][^\s\"'<>=?#;&]++=)(?:\s++|(?=[\"']))(\"[^\"]*+\"?|'[^']*+'?|[^\s\"'<>]++)")
+# "password=...", "api_key: ...", '"password": "..."' in prose, JSON or YAML (no URL
+# separator before the name). Only blanks may follow the ':' or '=', so a heading
+# ("Password:" with the text on the next line) is not read as a name and a value.
+_PROSE_NAME_RE = re.compile(
+    r"(?i)(?<![A-Za-z0-9])(?:client[_-]?|access[_-]?|auth[_-]?|private[_-]?)?"
+    r"(?:password|passwd|pwd|token|api[_-]?key|secret|sig|jwt|jsessionid|sessionid|session|ticket)"
+    r"[\"']?+[ \t]*+[:=][ \t]*+")
+_PROSE_VALUE_RE = re.compile(r"\S*+")
+# The authority of "scheme://user:password@host": the password runs up to the
+# last '@' (it may hold a raw '@'). A scheme starts after any non-letter; it is
+# at most 32 characters long, so each start reads a bounded run.
+_USERINFO_RE = re.compile(r"(?i)(?<![a-z])[a-z][a-z0-9+.-]{0,31}+://[^\s/?#@:\"'<>]*+:([^\s/?#\"'<>]*+)")
+# A '=' or '&' still written as a character reference, a named "&equals;" or a JSON escape.
+_ESCAPED_SEPARATOR_RE = re.compile(r"(?i)&(?:amp;)*+(?:#(?:0*+(61|38)|x0*+(3d|26))|(equals));|\\u00(3d|26)")
+# "name=" followed by whitespace or a quote. The whitespace must not lead to
+# another separator: "?q= &token= x" is an empty "q", then "token".
+_SPACED_NAME_RE = re.compile(r"([?#;&][^\s\"'<>=?#;&]++=)(?:\s++(?![?#;&])|(?=[\"']))")
+_UNQUOTED_VALUE_RE = re.compile(r"[^\s\"'<>]*+")
+_MAX_QUOTED_CHARS = 256       # a quote not closed within this many characters on its line is no quote
+# Where a secret value was dropped, until the tail rule has run (never in the output;
+# every NUL in the input is dropped first).
+_DROPPED = "\x00"
+# A base64url run right after a redaction or a dropped value, separated only by
+# whitespace: the tail of a secret that a line break or a tag cut in two.
+_TAIL_RE = re.compile(r"(\x00|\[redacted\])(\s++)([A-Za-z0-9_-]{8,}+)")
+_CREDENTIAL_PUNCTUATION = frozenset("!@#$%^&*_+=/.~-")
 # A parameter list: from any separator up to whitespace, a quote or a tag bracket.
 _PARAMS_RE = re.compile(r"[?#;&][^\s\"'<>]*+")
 _PARAM_SEPARATOR_RE = re.compile(r"([?#;&])")
@@ -393,15 +408,37 @@ def _keep_joiners(match: re.Match) -> str:
     return match.group(0) if _joinable(before) and _joinable(after) else ""
 
 
+# Default-ignorable characters outside the C categories (letters and marks that
+# render as nothing), and the variation selectors among them.
+def _char_class(*ranges: tuple[int, int]) -> str:
+    return "[" + "".join(f"{chr(low)}-{chr(high)}" for low, high in ranges) + "]"
+
+
+_IGNORABLE_RUN_RE = re.compile(_char_class(
+    (0x034F, 0x034F), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180F), (0x3164, 0x3164),
+    (0xFE00, 0xFE0F), (0xFFA0, 0xFFA0), (0xE0000, 0xE0FFF)) + "++")
+_SELECTOR_RE = re.compile(_char_class((0x180B, 0x180D), (0x180F, 0x180F), (0xFE00, 0xFE0F), (0xE0100, 0xE01EF)))
+
+
+def _keep_selectors(match: re.Match) -> str:
+    """Only variation selectors stay, and only right after a non-ASCII character (an emoji or an ideograph)."""
+    start = match.start()
+    before = match.string[start - 1] if start else ""
+    if before in _JOINERS or not _joinable(before):
+        return ""
+    return "".join(_SELECTOR_RE.findall(match.group(0)))
+
+
 def _drop_invisible(text: str) -> str:
-    """Drop every invisible character, so none can split a secret; a joiner that shapes a word stays."""
+    """Drop every invisible character, so none can split a secret; a joiner or a selector that shapes a word stays."""
     text = "".join(ch for ch in text if ch in _JOINERS or not _is_invisible(ch))
+    text = _IGNORABLE_RUN_RE.sub(_keep_selectors, text)
     return _JOINER_RUN_RE.sub(_keep_joiners, text)
 
 
 def _unescape_separator(match: re.Match) -> str:
-    code = (match.group(1) or match.group(2) or match.group(3)).lower()
-    return "=" if code in ("61", "3d") else "&"
+    code = next(group for group in match.groups() if group).lower()
+    return "=" if code in ("61", "3d", "equals") else "&"
 
 
 def _scrub_part(part: str, depth: int) -> str | None:
@@ -426,15 +463,86 @@ def _scrub_part(part: str, depth: int) -> str | None:
 def _scrub_params(params: str, depth: int) -> str:
     """Drop the secret parts of a parameter list that starts with a separator."""
     pieces = _PARAM_SEPARATOR_RE.split(params)      # ["", sep, part, sep, part, ...]
-    kept = []
+    kept, dropped_last = [], False
     for separator, part in zip(pieces[1::2], pieces[2::2], strict=True):
         cleaned = _scrub_part(part, depth)
-        if cleaned is not None:
+        dropped_last = cleaned is None
+        if not dropped_last:
             kept.append(separator + cleaned)
     text = "".join(kept)
     if text and params[0] in "?#" and text[0] != params[0]:
         text = params[0] + text[1:]      # the URL keeps its "?" or "#"
-    return text
+    # The list ends at whitespace: a dropped last value may go on after it (the tail rule).
+    return text + _DROPPED if dropped_last else text
+
+
+def _looks_like_credential(value: str) -> bool:
+    """8 characters or more, with a digit, one of ``!@#$%^&*_+=/.~-``, or a capital after the first letter."""
+    if len(value) < 8:
+        return False
+    if any(ch.isdigit() or ch in _CREDENTIAL_PUNCTUATION for ch in value):
+        return True
+    return any(ch.isupper() for ch in value[1:]) and any(ch.islower() for ch in value)
+
+
+def _value_span(text: str, start: int, unquoted: re.Pattern) -> tuple[int, int, bool]:
+    """``(value start, value end, quoted)`` for the value at ``start``.
+
+    A quote closed within ``_MAX_QUOTED_CHARS`` on the same line holds the
+    value; an unclosed one does not hide the rest of the text: the value is
+    then the run right after it.
+    """
+    if start < len(text) and text[start] in "\"'":
+        close = text.find(text[start], start + 1, start + 1 + _MAX_QUOTED_CHARS)
+        if close >= 0 and "\n" not in text[start + 1:close]:
+            return start + 1, close, True
+        start += 1
+    return start, unquoted.match(text, start).end(), False
+
+
+def _drop_spaced_values(text: str) -> str:
+    """``?name= value`` or ``?name='value'``: a secret name loses its value (the bare part is dropped next).
+
+    Any other name keeps what follows it, which is scanned again, so it cannot
+    hide a secret name behind it.
+    """
+    pieces, last, pos = [], 0, 0
+    while (match := _SPACED_NAME_RE.search(text, pos)) is not None:
+        if _param_key(unquote(match.group(1)[1:-1])) not in _SECRET_PARAMS:
+            pos = match.end(1)
+            continue
+        _value_start, end, quoted = _value_span(text, match.end(), _UNQUOTED_VALUE_RE)
+        pieces.append(text[last:match.end(1)])
+        last = pos = end + 1 if quoted else end       # a closing quote goes with the value
+    pieces.append(text[last:])
+    return "".join(pieces)
+
+
+def _redact_prose_values(text: str) -> str:
+    """The value after a secret name in prose, JSON or YAML: a quoted value always, a bare one if it looks like a credential."""
+    pieces, last, pos = [], 0, 0
+    while (match := _PROSE_NAME_RE.search(text, pos)) is not None:
+        start, end, quoted = _value_span(text, match.end(), _PROSE_VALUE_RE)
+        pos = match.end()
+        if quoted or _looks_like_credential(text[start:end]):
+            pieces.append(text[last:start] + "[redacted]")
+            last = pos = end
+    pieces.append(text[last:])
+    return "".join(pieces)
+
+
+def _redact_userinfo(match: re.Match) -> str:
+    """``scheme://user:password@host``: the password, up to the last '@' of the authority, is redacted."""
+    authority = match.group(1)
+    at = authority.rfind("@")
+    if at < 0:
+        return match.group(0)
+    return match.group(0)[:match.start(1) - match.start()] + "[redacted]" + authority[at:]
+
+
+def _redact_tail(match: re.Match) -> str:
+    # "[redacted]" or a dropped value, then whitespace, then a run that looks like the rest of the secret.
+    return match.group(1) + match.group(2) if _looks_like_credential(match.group(3)) else match.group(0)
 
 
 def _redact_bearer(match: re.Match) -> str:
@@ -453,59 +561,103 @@ def _redact_basic(match: re.Match) -> str:
     return match.group(0)
 
 
-def _drop_spaced_value(match: re.Match) -> str:
-    """``?name= value`` or ``?name='value'``: a secret name loses its value (the bare part is dropped next)."""
-    name = unquote(match.group(1)[1:-1])
-    return match.group(1) if _param_key(name) in _SECRET_PARAMS else match.group(0)
-
-
 def _scrub_at(text: str, depth: int) -> str:
-    text = _drop_invisible(text)
+    text = _drop_invisible(text)          # also drops every NUL, so _DROPPED below is ours
     text = _ESCAPED_SEPARATOR_RE.sub(_unescape_separator, text)
-    text = _USERINFO_RE.sub(lambda m: m.group(1) + "[redacted]@", text)
-    text = _SPACED_VALUE_RE.sub(_drop_spaced_value, text)
+    text = _USERINFO_RE.sub(_redact_userinfo, text)
+    text = _drop_spaced_values(text)
     text = _PARAMS_RE.sub(lambda m: _scrub_params(m.group(0), depth), text)
     text = _JWT_RE.sub("[redacted]", text)
     text = _BEARER_RE.sub(_redact_bearer, text)
     text = _BASIC_RE.sub(_redact_basic, text)
-    return _PROSE_SECRET_RE.sub(lambda m: m.group(1) + m.group(2) + "[redacted]", text)
+    text = _redact_prose_values(text)
+    return _TAIL_RE.sub(_redact_tail, text).replace(_DROPPED, "")
 
 
 # Not handled (a documented limitation; defence in depth, since the text is
-# already visible to the identity that reads it): fullwidth or lookalike
-# parameter names and fullwidth dots, JWTs whose header does not start with
-# "eyJ", and a bare secret in prose with no name, separator or scheme next to it.
+# already visible to the identity that reads it):
+#   * fullwidth or lookalike parameter names and fullwidth dots, JWTs whose
+#     header does not start with "eyJ", and a bare secret in prose with no
+#     name, separator or scheme next to it;
+#   * a prose value that does not look like a credential (under 8 characters,
+#     or letters only without an inner capital: "password: hunter2" stays), and
+#     "the password is X" or "Authorization: Token X";
+#   * a secret tail after a line break or a tag that is under 8 characters, or
+#     cut into three or more pieces;
+#   * a secret split by a closing then an opening inline tag ("ab</span><span>cd"
+#     reads as two words, as "Home</a><a>Contact" must);
+#   * a quoted value whose closing quote is more than 256 characters away or on
+#     another line (the run after the opening quote is taken instead);
+#   * a URL scheme longer than 32 characters.
+# Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey") and
+# the next word after "password:" when it looks like a credential ("Self-service").
+# A ZWNJ, ZWJ or variation selector kept inside a word becomes a space in a title
+# or a snippet (``_without_controls``), not in an article body.
 def _scrub(text: str) -> str:
     """Drop secret-named URL parameters and redact JWTs and other credentials (pure, linear time).
 
-    Run after ``strip_html``, so entity-encoded and plain-text URLs are caught
-    too. Every invisible character (control, format, private-use, unassigned,
-    surrogate) is dropped first, so none can split a secret; whitespace is
-    kept, and a ZWNJ/ZWJ between two non-ASCII characters stays. A '=' or '&'
-    still written as ``&#61;``/``&#38;`` or as a JSON ``\\u003d``/``\\u0026``
-    escape is decoded. Query strings, fragments and ';' path parameters are
-    split on '&' and ';'; each part is percent-decoded before its name is
-    compared (lower case, without '_', '-' and '[]'), a part that decodes to
-    something else (a nested URL) is scrubbed again in decoded form, and one
-    still encoded after ``_MAX_SCRUB_DEPTH`` rounds is dropped. A secret name
-    followed by '=' and whitespace or a quote loses the next run or the quoted
-    text. URL passwords (``user:...@``), Bearer and Basic credentials and
-    ``password=``/``token:`` style values in prose are redacted.
+    Run on plain text (``_html_to_text`` output), so entity-encoded and
+    plain-text URLs are caught too. Every invisible character (control,
+    format, private-use, unassigned, surrogate, and the default-ignorable
+    letters and marks such as U+3164 or U+034F) is dropped first, so none can
+    split a secret; whitespace is kept, a ZWNJ/ZWJ between two non-ASCII
+    characters stays, and so does a variation selector right after one. A '='
+    or '&' still written as ``&#61;``/``&#38;``/``&equals;`` or as a JSON
+    ``\\u003d``/``\\u0026`` escape is decoded. Query strings, fragments and ';'
+    path parameters are split on '&' and ';'; each part is percent-decoded
+    before its name is compared (lower case, without '_', '-' and '[]'), a part
+    that decodes to something else (a nested URL) is scrubbed again in decoded
+    form, and one still encoded after ``_MAX_SCRUB_DEPTH`` rounds is dropped. A
+    secret name followed by '=' and whitespace or a quote loses the next run or
+    the quoted text. URL passwords (``user:...@``, up to the last '@'), Bearer
+    and Basic credentials are redacted, and so is the value after a secret name
+    in prose, JSON or YAML (``password=``, ``token:``, ``"api_key": "..."``):
+    a quoted value always, a bare one when it looks like a credential. A
+    base64url run of 8 or more characters that looks like a credential and
+    follows a redaction or a dropped value across whitespace is redacted too.
     """
     return _scrub_at(text, 0)
 
 
-_SCRUB_INPUT_CHARS = 4096
-# Inline tags are removed outright (not turned into a space), so one inside a
-# word or a token cannot split it; strip_html turns the other tags into spaces.
-_INLINE_TAG_RE = re.compile(r"(?i)</?(?:wbr|span|b|i|u|em|strong|font|a|small|sup|sub|mark)\b[^<>]*+>")
-_CUT_TAG_RE = re.compile(r"<[^<>]*+$")
+# Inline tags never break a line. A run of them inside a token (base64url
+# characters on both sides) is removed outright, so it cannot split the token;
+# between two elements (a closing, then an opening tag) or next to anything
+# else it becomes a space, so words stay apart.
+_INLINE_TAG_RUN_RE = re.compile(
+    r"(?i)(?:</?(?:wbr|span|b|i|u|em|strong|font|a|small|sup|sub|mark|code|s|del|ins|kbd|abbr|q|cite"
+    r"|var|samp|tt)\b[^<>]*+>)++")
+_OPENING_TAG_RE = re.compile(r"<(?!/)")
+_BASE64URL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+# strip_html's rules, linear: its tag pattern backtracks on a run of '<'.
+_BREAK_TAG_RE = re.compile(r"(?i)<\s*+(?:br\s*+/?+|/p|/div|/li|/tr|/h[1-6])\s*+>")
+_TAG_RE = re.compile(r"<[^<>]++>")
+_BLANKS_RE = re.compile(r"[ \t]++")
+_BLANK_LINES_RE = re.compile(r"\n{3,}+")
+
+
+def _join_inline_tags(match: re.Match) -> str:
+    text, start, end = match.string, match.start(), match.end()
+    inside = (start > 0 and end < len(text)
+              and text[start - 1] in _BASE64URL_CHARS and text[end] in _BASE64URL_CHARS)
+    run = match.group(0)
+    first_close = run.find("</")
+    between_elements = first_close >= 0 and _OPENING_TAG_RE.search(run, first_close) is not None
+    return "" if inside and not between_elements else " "
+
+
+def _html_to_text(value: str) -> str:
+    """``strip_html``'s plain text (block breaks kept, tags removed, entities decoded), in linear time."""
+    text = _INLINE_TAG_RUN_RE.sub(_join_inline_tags, value)
+    text = _BREAK_TAG_RE.sub("\n", text)
+    text = _TAG_RE.sub(" ", text)
+    text = html.unescape(text).replace("\xa0", " ")
+    lines = [_BLANKS_RE.sub(" ", line).strip() for line in text.splitlines()]
+    return _BLANK_LINES_RE.sub("\n\n", "\n".join(lines)).strip()
 
 
 def _plain_text(value) -> str:
-    """A KMS title or description as plain, scrubbed text, from its first 4 KB only (cut, then scrub)."""
-    raw = _CUT_TAG_RE.sub("", ("" if value is None else str(value))[:_SCRUB_INPUT_CHARS])
-    return _scrub(strip_html(_INLINE_TAG_RE.sub("", raw)))
+    """A KMS title or description as plain, scrubbed text, at full length (callers cut the result)."""
+    return _scrub(_html_to_text("" if value is None else str(value)))
 
 
 def _safe_title(title) -> str:
@@ -560,6 +712,13 @@ def _normalise_date(value) -> str | None:
 
 
 _ZERO_TOTAL_KEYS = ("total", "totalResults", "numFound")   # assumed names; the PDF documents no total
+
+
+def _refuse_if_none_usable(skipped: int, files: list, hidden: int) -> None:
+    """Records came back, but none had a numeric id and none was merely hidden: an unexpected answer."""
+    if skipped and not files and not hidden:
+        logger.warning("kms_lighthouse search refused: %d records, none with a numeric id", skipped)
+        raise KmsHTTPError(200, "server")
 
 
 def _zero_total(block: dict) -> bool:
@@ -1017,10 +1176,9 @@ class KmsLighthouseClient(DataSourceClient):
                     break
             else:
                 # The page bound was hit on a full page, short of the cap.
+                _refuse_if_none_usable(skipped, files, hidden)
                 raise SearchStopped("max_results", files)
-            if skipped and not files and not hidden:
-                logger.warning("kms_lighthouse search refused: %d records, none with a numeric id", skipped)
-                raise KmsHTTPError(200, "server")
+            _refuse_if_none_usable(skipped, files, hidden)
             return files
         finally:
             if skipped:
