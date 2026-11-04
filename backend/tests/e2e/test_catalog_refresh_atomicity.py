@@ -179,7 +179,7 @@ def test_complete_discovery_publishes_to_all_agents_and_removes_genuine_deletion
     before = asyncio.run(snapshot(cid))
 
     async def discover(self, **kwargs):
-        return [] if empty else [table("alpha", "changed"), table("new_table")]
+        return DiscoveryResult([], complete=True) if empty else [table("alpha", "changed"), table("new_table")]
 
     monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
     asyncio.run(refresh(cid))
@@ -318,3 +318,51 @@ def test_background_incomplete_discovery_is_failed_and_records_connection_error(
         assert asyncio.run(connection_error())
     finally:
         event.remove(Session, "after_commit", on_commit)
+
+
+def test_unattested_empty_legacy_result_preserves_existing_catalog(
+    monkeypatch, create_user, login_user, whoami,
+):
+    account = create_user()
+    org = whoami(login_user(account["email"], account["password"]))["organizations"][0]["id"]
+    cid = asyncio.run(seed(org))
+    before = asyncio.run(snapshot(cid))
+    async def discover(self, **kwargs):
+        return []
+    monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+    with pytest.raises(IncompleteDiscoveryError):
+        asyncio.run(refresh(cid))
+    assert asyncio.run(snapshot(cid)) == before
+
+
+def test_requested_auto_selection_participates_in_callers_transaction(
+    create_user, login_user, whoami,
+):
+    from app.services.data_source_service import DataSourceService
+    from sqlalchemy import update
+    account = create_user()
+    org = whoami(login_user(account["email"], account["password"]))["organizations"][0]["id"]
+    cid = asyncio.run(seed(org))
+
+    async def run():
+        async with async_session_maker() as db:
+            # Historical baseline with no selected tables; request a positive
+            # onboarding limit through the public sync service.
+            agent = (await db.execute(select(DataSource).join(domain_connection,
+                domain_connection.c.data_source_id == DataSource.id).where(
+                domain_connection.c.connection_id == cid))).scalars().first()
+            agent_id = str(agent.id)
+            await db.execute(update(DataSourceTable).where(
+                DataSourceTable.datasource_id == agent_id).values(is_active=False))
+            await db.commit()
+            await DataSourceService().sync_domain_tables_from_connection(
+                db, agent, await db.get(Connection, cid), max_auto_select=1, commit=False)
+            selected = (await db.execute(select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == agent_id, DataSourceTable.is_active.is_(True)))).scalars().all()
+            assert len(selected) == 1
+            await db.rollback()
+        async with async_session_maker() as db:
+            selected = (await db.execute(select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == agent_id, DataSourceTable.is_active.is_(True)))).scalars().all()
+            assert selected == []
+    asyncio.run(run())

@@ -5388,6 +5388,18 @@ class DataSourceService:
             # empty list must still reconcile and revoke the previous overlay.
             raise ValueError("Schema discovery returned no snapshot")
 
+        if not fresh:
+            from app.data_sources.clients.discovery import reject_unconfirmed_empty
+            prior_overlay = (await db.execute(
+                select(UserOverlayTable.id).where(
+                    UserOverlayTable.data_source_id == str(data_source.id),
+                    UserOverlayTable.user_id == str(user.id),
+                    UserOverlayTable.connection_id == str(connection.id),
+                    UserOverlayTable.is_accessible.is_(True),
+                ).limit(1)
+            )).first()
+            reject_unconfirmed_empty(fresh, has_existing=prior_overlay is not None)
+
         # Normalize
         from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
@@ -5952,7 +5964,7 @@ class DataSourceService:
         schemas = await data_source.get_schemas(db=db, include_inactive=True)
         return schemas
 
-    async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int):
+    async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int, *, commit: bool = True):
         """
         Select top tables based on:
         1. Schema distribution (spread across schemas proportionally)
@@ -6049,7 +6061,10 @@ class DataSourceService:
                 params
             )
         
-        await db.commit()
+        if commit:
+            await db.commit()
+        else:
+            await db.flush()
         
     
     #: How many of an agent's connections a single Reload crawls at once.
@@ -6930,7 +6945,7 @@ class DataSourceService:
         Args:
             max_auto_select: Maximum tables to auto-select.
                 - None: No auto-selection, all tables start inactive (for new domains from existing connections)
-                - int: Auto-select up to this many tables (for onboarding, use ONBOARDING_MAX_TABLES=20)
+                - int: Explicit auto-selection cap; zero leaves newly discovered tables inactive.
         """
         from app.models.connection_table import ConnectionTable
 
@@ -7186,8 +7201,8 @@ class DataSourceService:
             await db.flush()
 
         # If too many tables for auto-select, use smart selection algorithm
-        if commit and needs_smart_selection and max_auto_select:
-            await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)
+        if needs_smart_selection and max_auto_select:
+            await self._select_active_tables_sql(db, str(data_source.id), max_auto_select, commit=commit)
 
         # Detect a structural change vs. the pre-refresh snapshot and fire the
         # agent-reliability loop (debounced to one schedule per sync). Skipped on

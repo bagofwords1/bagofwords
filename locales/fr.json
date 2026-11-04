@@ -657,7 +657,6 @@
       "start": "Dicter une requête",
       "stop": "Arrêter la dictée",
       "errors": {
-    "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
         "permissionDenied": "L'accès au micro a été bloqué. Autorisez-le dans les paramètres du navigateur pour dicter.",
         "noSpeech": "Aucune parole détectée.",
         "noMicrophone": "Aucun micro trouvé.",
@@ -4013,6 +4012,7 @@
     "fork": "Créer une copie"
   },
   "errors": {
+    "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
     "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",

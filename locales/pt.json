@@ -657,7 +657,6 @@
       "start": "Ditar um pedido",
       "stop": "Parar de ditar",
       "errors": {
-    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
         "permissionDenied": "O acesso ao microfone foi bloqueado. Permita-o nas configurações do navegador para ditar.",
         "noSpeech": "Nenhuma fala foi detectada.",
         "noMicrophone": "Nenhum microfone foi encontrado.",
@@ -4013,6 +4012,7 @@
     "fork": "Criar cópia"
   },
   "errors": {
+    "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",

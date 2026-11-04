@@ -621,8 +621,8 @@ class SalesforceClient(DataSourceClient):
             except IndexingCancelled:
                 raise
             except Exception as e:
-                # A single unreadable object (field-level security, odd metadata)
-                # must not abort the whole catalog.
+                # Keep collecting diagnostics, but an omitted required object
+                # makes publication incomplete; it must not be pruned as gone.
                 self.mark_discovery_incomplete("salesforce catalog")
                 logger.warning(
                     "Skipping Salesforce object %s: %s", name, format_salesforce_error(e)

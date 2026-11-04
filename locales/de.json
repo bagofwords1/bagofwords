@@ -657,7 +657,6 @@
       "start": "Anfrage diktieren",
       "stop": "Diktat beenden",
       "errors": {
-    "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
         "permissionDenied": "Der Mikrofonzugriff wurde blockiert. Erlauben Sie ihn in den Browsereinstellungen, um zu diktieren.",
         "noSpeech": "Es wurde keine Sprache erkannt.",
         "noMicrophone": "Kein Mikrofon gefunden.",
@@ -4013,6 +4012,7 @@
     "fork": "Kopie erstellen"
   },
   "errors": {
+    "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "invitation_required": "Die Registrierung ist deaktiviert. Bitten Sie Ihren Administrator um eine Einladung.",

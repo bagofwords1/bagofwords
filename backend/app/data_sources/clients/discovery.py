@@ -19,6 +19,25 @@ class DiscoveryResult:
     failures: list[str] = field(default_factory=list)
 
 
+class ValidatedDiscovery(list):
+    """A snapshot validated once by an adapter or its consuming service.
+
+    Keep explicit completeness separate from legacy successful list returns:
+    only an explicit result can authorize emptying an existing catalog.
+    """
+
+    def __init__(self, items, *, explicit_complete=False):
+        super().__init__(items)
+        self.explicit_complete = explicit_complete
+
+
+def reject_unconfirmed_empty(result, *, has_existing):
+    if has_existing and not result and not getattr(result, "explicit_complete", False):
+        raise IncompleteDiscoveryError(
+            "Empty discovery did not confirm completeness; previous catalog retained"
+        )
+
+
 class DiscoveryClient:
     """Clients may recover with a fallback, but must report any missing coverage.
 
@@ -43,6 +62,9 @@ def require_complete_discovery(client, result):
     SQL routine discovery and Power BI all fail closed. Reading status itself
     must succeed: a broken diagnostics hook cannot establish completeness.
     """
+    if isinstance(result, ValidatedDiscovery):
+        return result
+    explicit_complete = isinstance(result, DiscoveryResult) and result.complete
     failures = list(getattr(client, "_discovery_failures", None) or [])
     if isinstance(result, DiscoveryResult):
         if not result.complete or result.failures:
@@ -66,4 +88,4 @@ def require_complete_discovery(client, result):
         raise IncompleteDiscoveryError(
             "Catalog discovery incomplete; previous catalog retained (" + "; ".join(failures[:5]) + ")"
         )
-    return items
+    return ValidatedDiscovery(items, explicit_complete=explicit_complete)

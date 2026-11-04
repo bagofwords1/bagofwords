@@ -630,7 +630,6 @@ class NetworkDirClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception:
-            self.mark_discovery_incomplete("network_dir catalog")
             return ""
 
     def read_raw_bytes(
@@ -1018,7 +1017,6 @@ class NetworkDirClient(DataSourceClient):
                     except IndexingCancelled:
                         raise
                     except Exception:
-                        self.mark_discovery_incomplete("network_dir catalog")
                         meta["indexed"] = False
                 description += " Content keywords use a bounded sample."
                 if meta.get("keywords"):

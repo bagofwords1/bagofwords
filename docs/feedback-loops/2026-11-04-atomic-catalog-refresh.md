@@ -44,7 +44,7 @@ The generalized regression set now verifies:
 - A database failure on the second agent rolls back the first agent and the connection catalog, even if the caller catches the exception and tries to commit.
 - Cancellation between agent syncs and immediately before commit does the same.
 - Complete discovery propagates schema changes to every linked agent, preserves surviving selected row IDs, inserts new tables inactive, and removes genuine deletions.
-- A complete, successfully discovered empty catalog is valid; it is distinct from an incomplete empty result.
+- A complete, explicitly attested empty catalog is valid; a legacy bare empty result cannot clear an existing catalog.
 - Personal overlay discovery and database publication failures preserve every linked agent's prior tables/column-access state.
 - Background failure retains the last successful timestamp/catalog and records failed status plus the connection error.
 - Tool discovery rejects capped pagination, preserves cancellation, and permits a successful retry.
@@ -112,10 +112,26 @@ The integration uses normal client discovery/DAX metadata requests, including it
 
 The shared guard consumes existing unread-prefix/type hooks (including Qlik and SQL routines) and Power BI diagnostics. An audit of discovery methods and their client helpers also identified swallowed errors in SQL drivers, file sources, BI sources, search engines and monitoring catalogs. Exhausted discovery/fallback paths now mark the result incomplete; successful fallback paths remain usable. Optional descriptive enrichment can still fail when the authoritative listing/schema remains complete. Explicit cancellation is preserved rather than swallowed by those handlers.
 
-A source that successfully returns an empty authorized listing can still establish real removal. A source that cannot finish the listing or introspection cannot authorize removal. This deliberately means that a permission-denied/unreadable model blocks publication until access or configured discovery scope is corrected.
+A source that explicitly attests a complete empty authorized listing can still establish real removal. Legacy clients must use `DiscoveryResult([], complete=True)` to clear an existing catalog; a bare `[]` is retained conservatively as an unconfirmed empty result. A source that cannot finish the listing or introspection cannot authorize removal. This deliberately means that a permission-denied/unreadable model blocks publication until access or configured discovery scope is corrected.
 
 ## Boundaries
 
 Atomicity covers application catalog rows, linked agent-table selections, per-user overlays, and successful-index metadata **per connection**, not all connections in one global transaction. Discovery progress and failure diagnostics persist separately. External OAuth refreshes, file cache artifacts and optional post-publication cache warming are outside the catalog transaction. No source database, permissions, or upstream data is changed.
 
 This prevents future selection loss. It cannot reconstruct activation flags already deleted in the reported incident; those require a trustworthy historical snapshot or customer reselection.
+
+## Review follow-up — verified regressions and resolutions
+
+Review exposed five further failing cases, reproduced before the follow-up fix: MySQL and ClickHouse swallowing exhausted discovery errors, an error translation placed in the voice-input namespace, a legacy empty result clearing an existing catalog, and positive auto-selection being skipped under `commit=False`. The reproduction run showed **5 failed**. The focused suite after the fixes passed **25 cases**, subsequently expanded with optional-content and validation-idempotence coverage.
+
+- Added failure signals to MySQL and ClickHouse and audited required discovery helpers with Python 3.13. The follow-up also marks omitted PBIX model schemas, incomplete SAP Datasphere columns, and missing Aria dynamic metric tables incomplete.
+- Added a defensive empty-result check to shared catalogs, tool catalogs and personal overlays. Clearing a populated catalog now requires explicit complete-result attestation, protecting legacy connectors whose error handling has not adopted the failure contract.
+- Moved the translated error into the actual top-level `errors` object in all ten catalogs. The new regression resolves the returned error code against each catalog; structural drift alone had not detected the shared namespace error.
+- Optional file content-keyword extraction no longer blocks network-directory, S3 or on-premises SharePoint metadata listing. A failed CSV column describe or Salesforce object describe remains incomplete required schema discovery; silently publishing it could erase existing column or object metadata.
+- Adapter validation now returns a list-compatible validated snapshot. Services reuse it without re-running diagnostics hooks, while still validating custom async client overrides.
+- Positive requested auto-selection now runs inside the caller's transaction and flushes when `commit=False`; a regression verifies selection and rollback. Background reindex continues preserving opt-in selections. The old onboarding limit was already zero, so default new-table activation was not regressed by the switch to `None`.
+- Kept the lowercase error-code wire value: the enum already contains lowercase values such as `saml_login_failed`, `validation`, and `access.denied`. Locale lookup is tested against the actual wire value.
+
+The first broader follow-up run caught a completeness certificate being discarded when tools were normalized from an empty validated list back to a bare list. Removing that normalization retained the certificate and restored the explicit-empty tool test. No production credentials, hostnames, source identifiers, or personal information are included in these regressions or review notes.
+
+Final review verification: **78 passed on SQLite**, **78 passed on PostgreSQL**, and **361 affected-client cases passed**. No outstanding failures in those runs.

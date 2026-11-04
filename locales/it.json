@@ -657,7 +657,6 @@
       "start": "Detta una richiesta",
       "stop": "Interrompi la dettatura",
       "errors": {
-    "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
         "permissionDenied": "L'accesso al microfono è stato bloccato. Consentilo nelle impostazioni del browser per dettare.",
         "noSpeech": "Nessun parlato rilevato.",
         "noMicrophone": "Nessun microfono trovato.",
@@ -4013,6 +4012,7 @@
     "fork": "Crea copia"
   },
   "errors": {
+    "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
     "invitation_required": "La registrazione è disabilitata. Chiedi un invito al tuo amministratore.",

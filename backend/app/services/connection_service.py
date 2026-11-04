@@ -1677,6 +1677,8 @@ class ConnectionService:
                 for agent in agents:
                     if progress_callback:
                         progress_callback("syncing_agents", None, None, None)
+                    # Refresh preserves opt-in selections; onboarding selection
+                    # must not be rerun across an existing agent catalog.
                     await DataSourceService().sync_domain_tables_from_connection(
                         db, agent, connection, max_auto_select=None,
                         commit=False, after_commit=notifications,
@@ -1902,7 +1904,7 @@ class ConnectionService:
             # empty — an empty result is still this identity's live catalog.
             self._catalog_discovery_complete = True
             if keep_fresh_tables:
-                self.last_refresh_fresh_tables = list(fresh_tables or [])
+                self.last_refresh_fresh_tables = fresh_tables
             self.last_refresh_identity_user_id = str(index_user.id) if index_user is not None else None
 
             if diagnostics_hook is not None and fresh_tables:
@@ -2019,6 +2021,8 @@ class ConnectionService:
                         "fks": normalize_fks(getattr(t, "fks", []) or []),
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
+            empty_discovery = fresh_tables if not fresh_tables else None
+
             # Normalized into `incoming`: drop the fetched objects so they can
             # be freed before the ORM objects are built (unless the reuse stash
             # above still holds them).
@@ -2049,6 +2053,9 @@ class ConnectionService:
                 ).execution_options(populate_existing=True)
             )
             existing_tables = {t.name: t for t in existing_q.scalars().all()}
+            from app.data_sources.clients.discovery import reject_unconfirmed_empty
+            reject_unconfirmed_empty(empty_discovery,
+                                     has_existing=not incoming and bool(existing_tables) and authoritative)
 
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).
@@ -2714,8 +2721,7 @@ class ConnectionService:
             logger.info(f"refresh_tools: Got {len(fresh_tools) if fresh_tools else 0} tools from provider")
 
             if not fresh_tools:
-                logger.warning(f"refresh_tools: No tools returned from provider")
-                fresh_tools = []
+                logger.info(f"refresh_tools: No tools returned from provider")
 
             # Build incoming dict keyed by name
             incoming = {}
@@ -2752,6 +2758,8 @@ class ConnectionService:
                 .filter(ConnectionTool.connection_id == connection_id_str)
             )
             existing_tools = {t.name: t for t in existing_q.scalars().all()}
+            from app.data_sources.clients.discovery import reject_unconfirmed_empty
+            reject_unconfirmed_empty(fresh_tools, has_existing=bool(existing_tools))
             logger.info(f"refresh_tools: Found {len(existing_tools)} existing ConnectionTool records")
 
             # Upsert tools

@@ -657,7 +657,6 @@
       "start": "Diktera en fråga",
       "stop": "Sluta diktera",
       "errors": {
-    "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
         "permissionDenied": "Åtkomst till mikrofonen blockerades. Tillåt den i webbläsarens inställningar för att diktera.",
         "noSpeech": "Inget tal upptäcktes.",
         "noMicrophone": "Ingen mikrofon hittades.",
@@ -4013,6 +4012,7 @@
     "fork": "Skapa kopia"
   },
   "errors": {
+    "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",
