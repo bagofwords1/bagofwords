@@ -3937,6 +3937,20 @@
       "read_file": "Ler arquivos e logs",
       "search_file": "Pesquisar em arquivos",
       "system_status": "Verificar o estado do sistema"
+    },
+    "sshSetup": {
+      "title": "Verificar identidade do servidor",
+      "hint": "Compare a impressão digital com a fornecida pelo administrador ou registros SSH confiáveis. Buscar uma chave não a verifica.",
+      "saved": "Chave do servidor salva. Conexões com uma chave diferente serão rejeitadas.",
+      "fetch": "Buscar chave do servidor",
+      "fingerprint": "Impressão digital da chave do servidor",
+      "confirm": "Verifiquei esta impressão digital com uma fonte confiável.",
+      "trust": "Verificar e confiar",
+      "fetchFailed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas.",
+      "upload": "Enviar arquivo de chave privada",
+      "uploadInvalid": "Escolha uma chave SSH privada menor que 64 KB. Chaves públicas e outros arquivos não são aceitos.",
+      "keyRequired": "Verifique a chave SSH do servidor para continuar ou insira uma chave confiável nas configurações avançadas.",
+      "required": "Preencha os campos obrigatórios: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Não foi possível buscar a chave. Verifique host, porta e rede ou insira uma chave confiável nas configurações avançadas."
   },
   "email": {
     "dashboardShare": {

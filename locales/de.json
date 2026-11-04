@@ -3937,6 +3937,20 @@
       "read_file": "Dateien und Protokolle lesen",
       "search_file": "Dateien durchsuchen",
       "system_status": "Systemstatus prüfen"
+    },
+    "sshSetup": {
+      "title": "Serveridentität prüfen",
+      "hint": "Vergleichen Sie den Fingerabdruck mit Angaben des Administrators oder vertrauenswürdigen SSH-Einträgen. Das Abrufen bestätigt die Identität nicht.",
+      "saved": "Serverschlüssel gespeichert. Verbindungen mit einem anderen Schlüssel werden abgelehnt.",
+      "fetch": "Serverschlüssel abrufen",
+      "fingerprint": "Fingerabdruck des Serverschlüssels",
+      "confirm": "Ich habe diesen Fingerabdruck mit einer vertrauenswürdigen Quelle geprüft.",
+      "trust": "Prüfen und vertrauen",
+      "fetchFailed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+      "upload": "Private Schlüsseldatei hochladen",
+      "uploadInvalid": "Wählen Sie eine private SSH-Schlüsseldatei unter 64 KB. Öffentliche Schlüssel und andere Dateien werden nicht akzeptiert.",
+      "keyRequired": "Prüfen Sie den SSH-Serverschlüssel oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein.",
+      "required": "Füllen Sie die Pflichtfelder aus: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Schlüssel konnte nicht abgerufen werden. Prüfen Sie Host, Port und Netzwerk oder geben Sie unter Erweitert einen vertrauenswürdigen Schlüssel ein."
   },
   "email": {
     "dashboardShare": {

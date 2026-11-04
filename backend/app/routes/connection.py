@@ -19,6 +19,7 @@ from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
+from app.services.ssh_host_keys import SSHHostKeyRequest, discover_host_keys
 from app.core.permissions_decorator import (
     requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
 )
@@ -57,7 +58,7 @@ from app.schemas.custom_query_schema import (
     CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
-from app.errors import AppError
+from app.errors import AppError, ErrorCode
 from app.services.member_attributes import require_attribute_admin
 from app.services.member_identity import (
     member_mapped,
@@ -680,6 +681,36 @@ async def delete_connection(
         organization=organization,
         current_user=current_user,
     )
+
+
+@router.post("/ssh/host-keys")
+@requires_permission(['manage_connections', 'create_connections'])
+async def fetch_ssh_host_keys(
+    data: SSHHostKeyRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Discover candidate keys only. No login credentials are accepted or used."""
+    import asyncio
+    return await asyncio.to_thread(discover_host_keys, data)
+
+
+@router.post("/{connection_id}/ssh/host-keys")
+@requires_resource_permission('connection', 'manage_connection')
+async def fetch_existing_ssh_host_keys(
+    connection_id: str,
+    data: SSHHostKeyRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Allow a scoped connection manager to verify a replacement destination."""
+    import asyncio
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    if connection.type != 'remote_ssh':
+        raise AppError.bad_request(ErrorCode.VALIDATION, 'SSH connection required')
+    return await asyncio.to_thread(discover_host_keys, data)
 
 
 @router.post("/test-params")

@@ -3937,6 +3937,20 @@
       "read_file": "Läs filer och loggar",
       "search_file": "Sök i filer",
       "system_status": "Visa systemstatus"
+    },
+    "sshSetup": {
+      "title": "Verifiera serverns identitet",
+      "hint": "Jämför fingeravtrycket med uppgifter från administratören eller betrodda SSH-poster. Att hämta en nyckel verifierar den inte.",
+      "saved": "Servernyckeln sparad. Anslutningar med en annan nyckel nekas.",
+      "fetch": "Hämta servernyckel",
+      "fingerprint": "Servernyckelns fingeravtryck",
+      "confirm": "Jag har verifierat fingeravtrycket mot en betrodd källa.",
+      "trust": "Verifiera och lita på",
+      "fetchFailed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat.",
+      "upload": "Ladda upp privat nyckelfil",
+      "uploadInvalid": "Välj en privat SSH-nyckelfil mindre än 64 KB. Publika nycklar och andra filer godtas inte.",
+      "keyRequired": "Verifiera serverns SSH-nyckel för att fortsätta eller ange en betrodd nyckel under Avancerat.",
+      "required": "Fyll i de obligatoriska fälten: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "Kunde inte hämta nyckeln. Kontrollera värd, port och nätverk eller ange en betrodd nyckel under Avancerat."
   },
   "email": {
     "dashboardShare": {

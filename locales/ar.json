@@ -3937,6 +3937,20 @@
       "read_file": "قراءة الملفات والسجلات",
       "search_file": "البحث داخل الملفات",
       "system_status": "فحص حالة النظام"
+    },
+    "sshSetup": {
+      "title": "التحقق من هوية الخادم",
+      "hint": "قارن البصمة بما يقدمه مسؤول الخادم أو سجلات SSH الموثوقة. جلب المفتاح لا يتحقق من صحته.",
+      "saved": "تم حفظ مفتاح الخادم. ستُرفض الاتصالات التي تستخدم مفتاحًا مختلفًا.",
+      "fetch": "جلب مفتاح الخادم",
+      "fingerprint": "بصمة مفتاح الخادم",
+      "confirm": "تحققت من هذه البصمة عبر مصدر موثوق.",
+      "trust": "التحقق والثقة",
+      "fetchFailed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+      "upload": "رفع ملف المفتاح الخاص",
+      "uploadInvalid": "اختر ملف مفتاح SSH خاصًا أصغر من 64 كيلوبايت. لا تُقبل المفاتيح العامة أو الملفات الأخرى.",
+      "keyRequired": "تحقق من مفتاح SSH للخادم للمتابعة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة.",
+      "required": "أكمل الحقول المطلوبة: {fields}."
     }
   },
   "share": {
@@ -4148,7 +4162,8 @@
     "APPLICATION_AGENTS_INVALID": "Select existing agents in this organization",
     "INSTRUCTION_APPLICATIONS_INVALID": "Select existing applications in this organization",
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
-    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW"
+    "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
+    "ssh.key_discovery_failed": "تعذر جلب المفتاح. تحقق من اسم الخادم والمنفذ والشبكة، أو أدخل مفتاحًا موثوقًا في الإعدادات المتقدمة."
   },
   "email": {
     "dashboardShare": {
