@@ -570,6 +570,7 @@ dependencies = [
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "mcp" },
+    { name = "neo4j" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -703,6 +704,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=6.1.1,<6.2" },
     { name = "matplotlib", specifier = ">=3.11.0,<3.12" },
     { name = "mcp", specifier = ">=1.30.0,<1.31" },
+    { name = "neo4j", specifier = ">=6.4.1,<6.5" },
     { name = "numpy", specifier = ">=1.26.4,<1.27" },
     { name = "openai", specifier = ">=1.109.1,<1.110" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
@@ -2971,6 +2973,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/62/3c/c4ef2164a71c1a63d7f1ae411c4082c5fa872405106db60a4b7114989ad7/narwhals-2.22.1.tar.gz", hash = "sha256:d62920805a0a43b7ff8b54b0c0d3142d796f8a9301836ada37e573d6a33cbcd9", size = 647493, upload-time = "2026-06-05T12:34:34.051Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/48/ca/36339329c4604adbcc99c899b7eb1ce1a555c499b6a6860757dc9bfed36d/narwhals-2.22.1-py3-none-any.whl", hash = "sha256:60567d774edf77db53906f89d9fbd164e66e56d66d388e1e6990f17ac33cfb53", size = 454815, upload-time = "2026-06-05T12:34:32.289Z" },
+]
+
+[[package]]
+name = "neo4j"
+version = "6.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/d1/bc40a291c60b06738ce92d5f0259d348eee1f07ba10d569a881c848c8afe/neo4j-6.4.1.tar.gz", hash = "sha256:fac99b7cb9679b93ef97dc23f22a3f0e7c3feb2db223eddfd2521f27005cfeaf", size = 287897, upload-time = "2026-10-15T10:47:26.666Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/69/3036bdcacfba561c6ef4b00fe72529e0a1b6241a6b2de82572a0940a276b/neo4j-6.4.1-py3-none-any.whl", hash = "sha256:f56a281c74355522fc2642df8919bec450115431531b8f3f6fe1cc17acb57a27", size = 390684, upload-time = "2026-10-15T10:47:25.236Z" },
 ]
 
 [[package]]

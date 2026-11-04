@@ -25,7 +25,7 @@
           :show-save="false"
           :show-header="false"
           :show-stats="true"
-          :item-noun="nounFor(tableConnections.length === 1 ? shapeOf(tableConnections[0]) : 'tables')" />
+          :item-noun="tableNoun" />
       </div>
 
       <!-- Tool / MCP connections → the tools picker (per-connection internally) -->
@@ -60,6 +60,7 @@
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 import FileSourceScope from '@/components/datasources/FileSourceScope.vue'
+import { nounFor } from '@/composables/useCatalogCount'
 
 const props = withDefaults(defineProps<{
   dsId: string
@@ -86,10 +87,12 @@ const tableConnections = computed(() => (props.connections || []).filter((c) => 
   const s = shapeOf(c); return s !== 'files' && s !== 'tools'
 }))
 
-function nounFor(shape: string | undefined) {
-  if (shape === 'objects') return { sing: 'collection', plural: 'collections' }
-  return { sing: 'table', plural: 'tables' }
-}
+// One table-shaped connection keeps its own noun (Neo4j: node and
+// relationship types; MongoDB: collections); several fall back to tables.
+const tableNoun = computed(() => {
+  const only = tableConnections.value.length === 1 ? tableConnections.value[0] : null
+  return nounFor(only ? shapeOf(only) : 'tables', only ? props.registryByType[only.type]?.catalog_nouns : null)
+})
 
 const tablesRef = ref<InstanceType<typeof TablesSelector> | null>(null)
 

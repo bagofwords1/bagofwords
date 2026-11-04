@@ -52,6 +52,9 @@ from typing import List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 SPLUNK_CLIENT = "SplunkClient"
+# Captured as {"query", "params"}: judged by its own grammar (cypher_guard),
+# never by the text heuristic, which would find the value in params.
+NEO4J_CLIENT = "Neo4jClient"
 SOQL_CLIENTS = {"SalesforceClient"}
 
 
@@ -331,6 +334,10 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
     (caller falls back to the text heuristic). Cached per query string."""
     if client_type == SPLUNK_CLIENT:
         return _spl_binds(text, needles)
+    if client_type == NEO4J_CLIENT:
+        from app.data_sources.clients.cypher_guard import cypher_binds
+
+        return cypher_binds(text, needles)
     if not looks_sql:
         return None
     return _sql_binds(text, _dialect_for(client_type), needles)

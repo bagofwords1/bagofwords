@@ -22,7 +22,7 @@
                       class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
                       title="Cached locally — this read did not query the source"
                     />
-                    <span>{{ nm }}</span><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
+                    <bdi>{{ nm }}</bdi><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
                   </span>
                   <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-ink-muted">&nbsp;+{{ group.more }}</span></UTooltip>
                 </span>
@@ -47,7 +47,7 @@
                       class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
                       title="Cached locally — this read did not query the source"
                     />
-                    <span>{{ nm }}</span><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
+                    <bdi>{{ nm }}</bdi><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
                   </span>
                   <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-ink-muted">&nbsp;+{{ group.more }}</span></UTooltip>
                 </span>

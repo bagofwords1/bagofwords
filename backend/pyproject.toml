@@ -129,6 +129,7 @@ dependencies = [
     "python-oxmsg>=0.0.2,<0.1",
     "compressed-rtf>=1.0.7,<2",
     "smbprotocol>=1.17.0",
+    "neo4j>=6.4.1,<6.5",
 ]
 
 [project.optional-dependencies]

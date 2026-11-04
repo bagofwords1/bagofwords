@@ -84,6 +84,7 @@ from app.schemas.data_sources.configs import (
     DruidTokenCredentials,
     DruidBasicTokenCredentials,
     MongoDBConfig,
+    Neo4jConfig,
     OpenSearchConfig,
     OpenSearchCredentials,
     OpenSearchNoAuthCredentials,
@@ -239,6 +240,7 @@ from app.schemas.data_sources.configs import (
     MondayApiTokenCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
+    Neo4jCredentials,
     PostHogCredentials,
     # MCP
     MCPConfig,
@@ -1307,6 +1309,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
         data_shape="objects",
+    ),
+    "neo4j": DataSourceRegistryEntry(
+        type="neo4j",
+        title="Neo4j",
+        description="Graph database. Query nodes and relationships with read-only Cypher.",
+        config_schema=Neo4jConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=Neo4jCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.neo4j_client.Neo4jClient",
+        is_document_based=True,
+        data_shape="objects",
+        catalog_nouns=("node or relationship type", "node and relationship types"),
     ),
     "opensearch": DataSourceRegistryEntry(
         type="opensearch",
@@ -2712,6 +2734,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "requires_license": e.requires_license,
             "is_connection": e.is_connection,
             "data_shape": e.data_shape,
+            "catalog_nouns": list(e.catalog_nouns) if e.catalog_nouns else None,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
             "category": e.category,
@@ -2917,6 +2940,13 @@ def data_shape_for(ds_type: str) -> str:
     """Data shape for a type; 'tables' for unknown types (SQL-style default)."""
     entry = REGISTRY.get(ds_type)
     return entry.data_shape if entry is not None else "tables"
+
+
+def catalog_nouns_override(ds_type: str) -> Optional[list]:
+    """The entry's own (singular, plural) catalog noun when it sets one, for
+    the UI; None leaves the UI on its data_shape noun."""
+    entry = REGISTRY.get(ds_type)
+    return list(entry.catalog_nouns) if entry is not None and entry.catalog_nouns else None
 
 
 def catalog_nouns_for(ds_type: str) -> tuple:

@@ -28,6 +28,9 @@ interface AgentLike {
 interface RegistryEntry {
   type: string
   data_shape?: string
+  // [singular, plural] when the connector names its catalog items itself
+  // (Neo4j: node and relationship types); else the data_shape noun.
+  catalog_nouns?: string[] | null
   catalog_ownership?: string
 }
 
@@ -38,7 +41,11 @@ export interface CatalogCount {
   shouldShow: boolean
 }
 
-export function nounFor(shape: string | undefined): { sing: string; plural: string } {
+export function nounFor(
+  shape: string | undefined,
+  override?: string[] | null,
+): { sing: string; plural: string } {
+  if (override && override.length === 2) return { sing: override[0], plural: override[1] }
   if (shape === 'files') return { sing: 'file', plural: 'files' }
   if (shape === 'objects') return { sing: 'collection', plural: 'collections' }
   if (shape === 'tools') return { sing: 'tool', plural: 'tools' }
@@ -57,11 +64,12 @@ export function nounFor(shape: string | undefined): { sing: string; plural: stri
  */
 export function connectionCatalogLabel(conn: {
   data_shape?: string
+  catalog_nouns?: string[] | null
   table_count?: number
   tool_count?: number
 } | null | undefined): string {
   const shape = conn?.data_shape || 'tables'
-  const noun = nounFor(shape)
+  const noun = nounFor(shape, conn?.catalog_nouns)
   const n = (shape === 'tools' ? conn?.tool_count : conn?.table_count) || 0
   return `${n} ${n === 1 ? noun.sing : noun.plural}`
 }
@@ -91,7 +99,10 @@ export function useCatalogCount() {
         .filter(Boolean)
     )
     const shape = shapes.size === 1 ? (Array.from(shapes)[0] as string) : 'tables'
-    const noun = nounFor(shape)
+    // A connector's own noun applies only when every connection is that type.
+    const types = new Set(connections.map((c) => c.type || ''))
+    const only = types.size === 1 ? registryByType[Array.from(types)[0]] : undefined
+    const noun = nounFor(shape, only?.catalog_nouns)
 
     const count = connections.length > 0
       ? connections.reduce((sum, c) => sum + (c.table_count || 0), 0)
