@@ -70,7 +70,9 @@ console.log('PASS: the SDK tells the host an artifact is unavailable apart from 
 
 // ── start timeout and teardown: timers, DOM removal and listener removal are
 // modelled, and the frame only says what each test makes it say ───────────
-function mountWith(options = {}) {
+// `styleFor(name)` may give a node a style object of its own, such as one that
+// refuses a value the way a browser does; by default every style is a plain object.
+function mountWith(options = {}, { styleFor } = {}) {
   let onMessage = null
   let now = 0
   const timers = []
@@ -78,7 +80,7 @@ function mountWith(options = {}) {
   const contentWindow = { postMessage: (msg, origin) => sent.push({ msg, origin }) }
   const removed = []
   const node = (name) => {
-    const n = { name, style: {}, setAttribute() {}, addEventListener() {}, parentNode: null, children: [] }
+    const n = { name, style: (styleFor && styleFor(name)) || {}, setAttribute() {}, addEventListener() {}, parentNode: null, children: [] }
     n.appendChild = (child) => { child.parentNode = n; n.children.push(child) }
     n.removeChild = (child) => { child.parentNode = null; removed.push(child.name) }
     return n
@@ -292,7 +294,8 @@ console.log('PASS: the floating panel is 600 x 720 by default, sized by width/he
   // Units match in any case, and the dynamic viewport units are accepted.
   {
     const { css, warnings } = warnsFor({ width: '40PX', height: '90dvh' })
-    assert.match(css, /width:min\(40PX,calc\(100vw - 32px\)\);height:min\(90dvh,calc\(100vh - 120px\)\)/)
+    // A dynamic unit gets a plain vh line first, so a browser without dvh still sizes the panel.
+    assert.match(css, /width:min\(40PX,calc\(100vw - 32px\)\);height:min\(90vh,calc\(100vh - 120px\)\);height:min\(90dvh,calc\(100dvh - 120px\)\)/)
     assert.deepEqual(warnings, [])
   }
   assert.match(warnsFor({ height: '50svh' }).css, /height:min\(50svh,/)
@@ -315,3 +318,113 @@ console.log('PASS: the floating panel is 600 x 720 by default, sized by width/he
   assert.equal(inlineHeight(undefined), '100%')
 }
 console.log('PASS: refused sizes warn, sizes below 1 are refused, units match in any case, inline height takes pixels, z-index 0 is kept')
+
+// ── z-index strings, inline height refusals, a fallback for dynamic units,
+// warnings that cannot break a mount, accent colour ──────────────────────────
+{
+  // Spy on console.warn while fn runs, and always put it back.
+  const withWarnings = (fn) => {
+    const original = console.warn
+    const warnings = []
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      return { result: fn(), warnings }
+    } finally {
+      console.warn = original
+    }
+  }
+  const floating = (options) => {
+    const { body, embed } = mountWith({ container: undefined, mode: 'floating', ...options })
+    return { css: embed.iframe.parentNode.style.cssText, launcher: body.children.find((n) => n.name === 'launcher').style.cssText }
+  }
+
+  // z-index: an integer, as a number or as a string of digits (spaces around are fine).
+  for (const [given, shown] of [['1000', '1000'], [' 7 ', '7'], [-3, '-3'], ['-3', '-3'], [2147483647, '2147483647']]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: given }))
+    assert.match(result.css, new RegExp(`z-index:${shown}(;|$)`), `keeps zIndex ${JSON.stringify(given)}`)
+    assert.match(result.launcher, new RegExp(`z-index:${shown}(;|$)`))
+    assert.deepEqual(warnings, [])
+  }
+  // Anything else that was given is refused once, with a warning, and never reaches the style text.
+  for (const bad of [1.5, 1e21, 2147483648, '2147483648', '1.5', '1;color:red', '', 'auto', NaN, {}]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: bad }))
+    assert.match(result.css, /z-index:2147483000(;|$)/, `refuses zIndex ${String(bad)}`)
+    assert.match(result.launcher, /z-index:2147483000(;|$)/)
+    assert.doesNotMatch(result.css + result.launcher, /color:red/)
+    assert.equal(warnings.length, 1, `warns once for zIndex ${String(bad)}`)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring zIndex /)
+  }
+  assert.deepEqual(withWarnings(() => floating({ zIndex: null })).warnings, [])
+
+  // Inline height: a number follows the floating rule (finite, at least 1).
+  const inline = (height, stub) => mountWith({ height }, stub).embed.iframe.parentNode.style.height
+  assert.equal(inline(1.5), '1.5px')
+  for (const bad of [0.5, -5, 0, Infinity, NaN, Object.create(null), true]) {
+    const { result, warnings } = withWarnings(() => inline(bad))
+    assert.equal(result, '100%', `refuses inline height ${typeof bad === 'number' ? bad : typeof bad}`)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring height /)
+  }
+  // A string the browser refuses (it reads back empty) warns and falls back to 100%.
+  const refusing = (bad) => (name) => {
+    if (name !== 'wrapper') return null
+    let height = ''
+    return { get height() { return height }, set height(v) { height = bad.includes(v) ? '' : String(v) } }
+  }
+  {
+    const { result, warnings } = withWarnings(() => inline('nonsense', { styleFor: refusing(['nonsense']) }))
+    assert.equal(result, '100%')
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring height "nonsense"/)
+  }
+  {
+    const { result, warnings } = withWarnings(() => inline('calc(100vh - 80px)', { styleFor: refusing(['nonsense']) }))
+    assert.equal(result, 'calc(100vh - 80px)')
+    assert.deepEqual(warnings, [])
+  }
+
+  // Dynamic viewport units: the first line uses plain vh, the second the value as written.
+  assert.match(floating({ height: '80dvh' }).css, /height:min\(80vh,calc\(100vh - 120px\)\);height:min\(80dvh,calc\(100dvh - 120px\)\);/)
+  assert.match(floating({ height: '50SVH' }).css, /height:min\(50vh,calc\(100vh - 120px\)\);height:min\(50SVH,calc\(100dvh - 120px\)\);/)
+  assert.match(floating({ width: '50lvh' }).css, /width:min\(50vh,calc\(100vw - 32px\)\);width:min\(50lvh,calc\(100vw - 32px\)\);height:/)
+  assert.doesNotMatch(floating({ width: '40rem' }).css, /width:.*width:/, 'one width line when there is nothing to fall back from')
+
+  // A value that cannot be turned into text still warns, and the mount goes on.
+  {
+    const { result, warnings } = withWarnings(() => floating({ width: Object.create(null) }))
+    assert.match(result.css, /width:min\(600px,/)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring width /)
+  }
+  // A host console.warn that throws does not break the mount.
+  {
+    const original = console.warn
+    console.warn = () => { throw new Error('the host console is broken') }
+    try {
+      assert.match(floating({ width: 'bad', zIndex: 'bad', accentColor: 'bad;' }).css, /width:min\(600px,/)
+      assert.equal(inline(-5), '100%')
+    } finally {
+      console.warn = original
+    }
+  }
+
+  // accentColor: a hex colour, rgb()/hsl() with plain numbers, or a colour keyword.
+  for (const good of ['#abc', '#A1b2C3', '#11223344', 'rgb(1, 2, 3)', 'rgba(1,2,3,.5)', 'hsl(10 20% 30% / 50%)', 'rebeccapurple']) {
+    const { result, warnings } = withWarnings(() => floating({ accentColor: good }))
+    assert.ok(result.launcher.includes('background:' + good + ';'), `keeps accentColor ${good}`)
+    assert.deepEqual(warnings, [])
+  }
+  for (const bad of ['red;x:y', 'url(x)', '#abcd', 'rgb(1,2,3);x:y', 'var(--x)', '', 12]) {
+    const { result, warnings } = withWarnings(() => floating({ accentColor: bad }))
+    assert.match(result.launcher, /background:#2563eb;/, `refuses accentColor ${String(bad)}`)
+    assert.doesNotMatch(result.launcher, /x:y|url\(/)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring accentColor /)
+  }
+  {
+    const { result, warnings } = withWarnings(() => floating({}))
+    assert.match(result.launcher, /background:#2563eb;/)
+    assert.deepEqual(warnings, [])
+  }
+}
+console.log('PASS: z-index takes integer strings, inline height refusals warn, dynamic units fall back to vh, warnings never break a mount, accentColor is checked')

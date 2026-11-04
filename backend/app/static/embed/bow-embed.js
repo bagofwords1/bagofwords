@@ -30,13 +30,19 @@
  *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
  *
- * `height`, in both modes: a number is pixels. Floating mode: `width` and
- * `height` size the panel, as a number of pixels or one CSS length such as
- * '40rem' or '80dvh', at least 1. The default is 600 x 720 px, and the
- * viewport caps both, so the panel still fits a small window. A value that
- * is not accepted is ignored with a console warning. Inline mode: the width
- * follows the container, and `height` also takes any CSS value as given,
- * such as 'calc(100vh - 80px)' (default '100%').
+ * `height`, in both modes: a number is pixels, at least 1. Floating mode:
+ * `width` and `height` size the panel, as a number of pixels or one CSS
+ * length such as '40rem' or '80dvh', at least 1. The default is 600 x 720 px,
+ * and the viewport caps both, so the panel still fits a small window. A
+ * browser without dvh/svh/lvh uses the same size in vh. Inline mode: the
+ * width follows the container, and `height` also takes any CSS value as
+ * given, such as 'calc(100vh - 80px)' (default '100%').
+ *
+ * Floating mode also takes `zIndex` (a whole number, or a string of digits
+ * such as '1000'; default 2147483000), `accentColor` for the launcher (a hex
+ * colour, rgb()/hsl() or a colour name; default '#2563eb') and `position`
+ * ('bottom-right' or 'bottom-left'). Any size, zIndex or accentColor that is
+ * not accepted is ignored with a console warning, and the default is used.
  *
  * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
  * refuses (the artifact doesn't exist or doesn't allow this application, the
@@ -82,6 +88,20 @@
   // the panel's style), and either must be at least 1. Anything else falls
   // back to the default, with a console warning when a value was given.
   var CSS_LENGTH = /^(\d+(?:\.\d+)?)(px|rem|em|vw|vh|dvh|svh|lvh|%)$/i;
+  var LENGTH_HINT = 'use a number of pixels or one CSS length such as \'40rem\' (at least 1)';
+
+  // Tell the host an option was refused. Neither an odd value (one with no
+  // text form) nor a host console that throws may stop the mount.
+  function warnIgnored(name, value, hint, fallback) {
+    var shown;
+    try { shown = JSON.stringify(String(value)); } catch (e) { shown = '(a value with no text form)'; }
+    try {
+      if (root.console && root.console.warn) {
+        root.console.warn('[bow-embed] ignoring ' + name + ' ' + shown + ': ' + hint + '; using ' + fallback);
+      }
+    } catch (e) { /* the warning is a courtesy: a broken console must not break the embed */ }
+  }
+
   function cssLength(name, value, fallback) {
     if (value == null) return fallback;
     if (typeof value === 'number' && isFinite(value) && value >= 1) return value + 'px';
@@ -89,16 +109,38 @@
       var match = CSS_LENGTH.exec(value.trim());
       if (match && Number(match[1]) >= 1) return value.trim();
     }
-    if (root.console && root.console.warn) {
-      root.console.warn('[bow-embed] ignoring ' + name + ' ' + JSON.stringify(String(value)) +
-        ': use a number of pixels or one CSS length such as \'40rem\' (at least 1); using ' + fallback);
-    }
+    warnIgnored(name, value, LENGTH_HINT, fallback);
     return fallback;
   }
 
-  // z-index: any finite number, 0 included; anything else is the default.
+  // The same length with dvh/svh/lvh turned into plain vh, for the first of two
+  // declarations: a browser that does not know the dynamic units keeps that one.
+  function plainVh(length) {
+    return length.replace(/[dsl]vh$/i, 'vh');
+  }
+
+  // z-index: an integer in CSS's range, as a number or a string of digits;
+  // anything else given warns and is the default.
+  var Z_INDEX = '2147483000';
+  var Z_MAX = 2147483647;
   function zIndexOf(value) {
-    return typeof value === 'number' && isFinite(value) ? String(value) : '2147483000';
+    if (value == null) return Z_INDEX;
+    var text = typeof value === 'string' ? value.trim() : null;
+    var n = typeof value === 'number' ? value : (text !== null && /^-?\d+$/.test(text) ? Number(text) : NaN);
+    if (isFinite(n) && Math.floor(n) === n && Math.abs(n) <= Z_MAX) return String(n);
+    warnIgnored('zIndex', value, 'use a whole number', Z_INDEX);
+    return Z_INDEX;
+  }
+
+  // The launcher's colour: a hex colour, rgb()/hsl() with plain numbers, or a
+  // colour keyword. It goes into the style text, so nothing else is let through.
+  var ACCENT = '#2563eb';
+  var COLOR = /^(#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8}|(rgba?|hsla?)\([0-9 ,.%\/]*\)|[a-z]+)$/i;
+  function colorOf(value) {
+    if (value == null) return ACCENT;
+    if (typeof value === 'string' && COLOR.test(value.trim())) return value.trim();
+    warnIgnored('accentColor', value, 'use a hex colour, rgb(), hsl() or a colour name', ACCENT);
+    return ACCENT;
   }
 
   function element(target) {
@@ -146,20 +188,33 @@
       var container = element(options.container);
       if (!container) throw new Error('BOWEmbed.mount: inline mode needs a `container` element or selector');
       wrapper.style.width = '100%';
-      // A number is pixels; any other value is used as given (calc() works).
+      // A number is pixels, at least 1; a string is used as given (calc() works)
+      // unless the browser refuses it. A refused value warns and is 100%.
       var inlineHeight = options.height;
-      wrapper.style.height = typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight > 0
-        ? inlineHeight + 'px' : (inlineHeight || '100%');
+      if (inlineHeight == null) wrapper.style.height = '100%';
+      else if (typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight >= 1) wrapper.style.height = inlineHeight + 'px';
+      else {
+        if (typeof inlineHeight === 'string') wrapper.style.height = inlineHeight;
+        if (typeof inlineHeight !== 'string' || !wrapper.style.height) {
+          warnIgnored('height', inlineHeight, 'use a number of pixels (at least 1) or a CSS height', '100%');
+          wrapper.style.height = '100%';
+        }
+      }
       wrapper.appendChild(iframe);
       container.appendChild(wrapper);
     } else {
       var side = options.position === 'bottom-left' ? 'left' : 'right';
       var panelWidth = cssLength('width', options.width, FLOATING_WIDTH);
       var panelHeight = cssLength('height', options.height, FLOATING_HEIGHT);
-      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;width:min(' + panelWidth + ',calc(100vw - 32px));' +
-        // 100dvh follows a mobile browser's toolbar; a browser without dvh keeps the vh line.
-        'height:min(' + panelHeight + ',calc(100vh - 120px));height:min(' + panelHeight + ',calc(100dvh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
-        'background:#fff;display:none;z-index:' + zIndexOf(options.zIndex);
+      var zIndex = zIndexOf(options.zIndex);
+      // Each first line uses only vh, which every browser knows; the second
+      // (dvh, which follows a mobile browser's toolbar) replaces it where known.
+      var widthLines = 'width:min(' + plainVh(panelWidth) + ',calc(100vw - 32px));' +
+        (plainVh(panelWidth) !== panelWidth ? 'width:min(' + panelWidth + ',calc(100vw - 32px));' : '');
+      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;' + widthLines +
+        'height:min(' + plainVh(panelHeight) + ',calc(100vh - 120px));height:min(' + panelHeight + ',calc(100dvh - 120px));' +
+        'border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
+        'background:#fff;display:none;z-index:' + zIndex;
       wrapper.appendChild(iframe);
       launcher = document.createElement('button');
       launcher.type = 'button';
@@ -167,8 +222,8 @@
       launcher.setAttribute('aria-expanded', 'false');
       launcher.setAttribute('data-bow-embed-launcher', options.artifact);
       launcher.style.cssText = 'position:fixed;bottom:16px;' + side + ':16px;width:56px;height:56px;border-radius:28px;' +
-        'border:0;cursor:pointer;color:#fff;background:' + (options.accentColor || '#2563eb') + ';' +
-        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndexOf(options.zIndex);
+        'border:0;cursor:pointer;color:#fff;background:' + colorOf(options.accentColor) + ';' +
+        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndex;
       launcher.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       launcher.addEventListener('click', function () { setOpen(!state.open); });
