@@ -313,9 +313,9 @@ class TableAccessError(CodeSecurityError):
     """Raised when SQL reads a table that is not activated for the agent, or
     when the tables it reads cannot be verified (see table_scope).
 
-    Terminal: if generated code catches it and carries on, the run still
-    fails (see _raise_if_query_errors_were_swallowed) instead of answering
-    from whatever it fell back to.
+    Terminal for this code attempt: if generated code catches it and carries
+    on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
+    The planner may explain the refusal and continue other permitted work.
     """
     terminal_execution_error = True
 
@@ -998,6 +998,8 @@ class QueryCapturingClientWrapper:
                     "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": str(e)[:200],
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
+                    **({"error_type": "table_access_denied", "error_message": str(e)}
+                       if isinstance(e, TableAccessError) else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
