@@ -61,6 +61,7 @@ from app.data_sources.clients._file_source_common import (
     recover_filename,
 )
 from app.data_sources.clients._keywords import extract_file_keywords
+from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -626,6 +627,8 @@ class NetworkDirClient(DataSourceClient):
                 return "\n".join(parts)[:max_chars]
             # csv / tsv / plain text
             return path.read_text(encoding="utf-8", errors="ignore")[:max_chars]
+        except IndexingCancelled:
+            raise
         except Exception:
             return ""
 
@@ -1011,6 +1014,8 @@ class NetworkDirClient(DataSourceClient):
                         meta["indexed"] = True
                         if not text:
                             meta["content_coverage"] = "unavailable"
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         meta["indexed"] = False
                 description += " Content keywords use a bounded sample."
