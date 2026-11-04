@@ -516,6 +516,8 @@ Do not use when:
         return ExecuteMCPOutput
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+        runtime_ctx.pop("_mcp_policy_approval", None)
+        runtime_ctx.pop("_remote_shell_authorized", None)
         data = ExecuteMCPInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
 
@@ -591,7 +593,7 @@ Do not use when:
         elif report:
             for ds in (report.data_sources or []):
                 for conn in (ds.connections or []):
-                    if conn.type in ("mcp", "custom_api"):
+                    if conn.type in ("mcp", "custom_api", "remote_ssh", "remote_smb"):
                         allowed_conn_ids.add(str(conn.id))
             enforce_scope = bool(allowed_conn_ids)
 
@@ -602,7 +604,7 @@ Do not use when:
                     Connection.name == data.connection_id,
                 ),
                 Connection.organization_id == str(organization.id),
-                Connection.type.in_(["mcp", "custom_api"]),
+                Connection.type.in_(["mcp", "custom_api", "remote_ssh", "remote_smb"]),
             )
         )
         connection = conn_result.scalars().first()
@@ -619,6 +621,13 @@ Do not use when:
                 },
             )
             return
+
+        if connection.type in ("remote_ssh", "remote_smb"):
+            from app.services.remote_server_access import remote_run_access
+            remote_agent_ids = run_agent_ids if run_agent_ids is not None else [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])]
+            if not await remote_run_access(db, connection, user, remote_agent_ids):
+                yield self._policy_end_event(data.tool_name, "Remote connection is not accessible through this run's agents.", blocked_by="deny")
+                return
 
         # Emit connection name so the UI can show it during streaming
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", "connection_name": connection.name})
@@ -665,6 +674,9 @@ Do not use when:
             )
         )
         tool_record = tool_result.scalar_one_or_none()
+        if connection.type in ("remote_ssh", "remote_smb") and tool_record is None:
+            yield self._policy_end_event(data.tool_name, "Remote operation is not in the connection's discovered tool catalog.", blocked_by="deny")
+            return
         # Capture the tool's declared input schema up front so that, on any
         # downstream failure, we can hand the agent the *correct* argument shape
         # in the observation. Without this the agent only learns what was wrong
@@ -776,7 +788,14 @@ Do not use when:
                     read_only=is_read_only_tool(getattr(tool_record, "metadata_json", None)),
                 )
             else:
-                result = await client.acall_tool(data.tool_name, data.arguments)
+                from app.data_sources.clients.remote_server_client import RemoteServerClient
+                if isinstance(client, RemoteServerClient) and data.tool_name == "execute_shell":
+                    approval = runtime_ctx.get("_mcp_policy_approval") or {}
+                    if not (approval.get("approved") or runtime_ctx.pop("_remote_shell_authorized", False)):
+                        raise PermissionError("Remote shell requires policy authorization")
+                    result = await client.acall_authorized(data.tool_name, data.arguments)
+                else:
+                    result = await client.acall_tool(data.tool_name, data.arguments)
             logger.info(f"execute_mcp: Remote call returned success={result.get('success')}, error={result.get('error')}")
         except Exception as e:
             mcp_cooldown.record(cooldown_key, str(e))
@@ -1064,6 +1083,7 @@ Do not use when:
         caller proceeds to execute the tool.
         """
         import asyncio
+        import json
         from uuid import uuid4
         from app.services.tool_policy_service import (
             ToolPolicyService,
@@ -1074,6 +1094,7 @@ Do not use when:
         )
         from app.ai.tools.schemas import ToolConfirmationEvent
 
+        runtime_ctx.pop("_mcp_policy_approval", None)
         user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
         # Agents in this run that own the connection — their overlay applies.
         # The run's agents when known (an Auto report has none attached, which
@@ -1108,7 +1129,13 @@ Do not use when:
             return
 
         effective = resolution.effective
+        remote_shell = connection.type == "remote_ssh" and data.tool_name == "execute_shell"
+        if remote_shell:
+            from app.services.remote_shell_policy import effective_shell_policy
+            effective = await effective_shell_policy(db, connection, tool_record, resolution, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.is_interactive_run(runtime_ctx) else None)
         if effective == TOOL_POLICY_ALLOW:
+            if remote_shell:
+                runtime_ctx["_remote_shell_authorized"] = True
             return
 
         if effective == TOOL_POLICY_DENY:
@@ -1203,6 +1230,23 @@ Do not use when:
             )
             from app.services.tool_confirmation_service import ToolConfirmationService
 
+            from app.data_sources.clients.remote_server_client import action_digest
+            approval_snapshot = None
+            confirmation_arguments = dict(data.arguments or {})
+            if connection.type == "remote_ssh":
+                from app.services.connection_service import ConnectionService
+                remote_credentials = await ConnectionService().resolve_credentials(db, connection, user)
+                approval_snapshot = action_digest({"arguments": data.arguments, "config": connection.config, "credentials": remote_credentials})
+                remote_config = json.loads(connection.config) if isinstance(connection.config, str) else connection.config
+                confirmation_arguments["_execution_target"] = {
+                    "server": remote_config.get("host"), "port": remote_config.get("port", 22),
+                    "username": remote_credentials.get("username"),
+                    "mandatory_approval": data.tool_name == "execute_shell" and remote_config.get("shell_policy") == "strict",
+                    "shell_permissions": data.tool_name == "execute_shell",
+                    "shell": "powershell" if remote_config.get("operating_system") == "windows" else remote_config.get("linux_shell", "bash"),
+                    "session_permissions": bool(report),
+                    "timeout_seconds": remote_config.get("timeout_seconds", 30),
+                }
             confirmation_id = str(uuid4())
             head = runtime_ctx.get("head_completion")
             system = runtime_ctx.get("system_completion")
@@ -1231,7 +1275,7 @@ Do not use when:
                 connection_id=str(connection.id),
                 connection_tool_id=str(tool_record.id),
                 tool_name=data.tool_name,
-                arguments=data.arguments or {},
+                arguments=confirmation_arguments,
                 timeout_seconds=self._ASK_TIMEOUT_S,
             )
             # Release the session's transaction before blocking on the user —
@@ -1248,7 +1292,7 @@ Do not use when:
                     "connection_id": str(connection.id),
                     "connection_name": connection.name,
                     "connection_tool_id": str(tool_record.id),
-                    "arguments": data.arguments or {},
+                    "arguments": confirmation_arguments,
                     "timeout_seconds": self._ASK_TIMEOUT_S,
                 })
                 sigkill = runtime_ctx.get("sigkill_event")
@@ -1290,6 +1334,19 @@ Do not use when:
                     await confirmations.expire(db, confirmation_id)
 
             approved = bool(response and response.get("approved"))
+            if approved and approval_snapshot is not None:
+                await db.refresh(connection)
+                await db.refresh(tool_record)
+                remote_credentials = await ConnectionService().resolve_credentials(db, connection, user)
+                current = action_digest({"arguments": data.arguments, "config": connection.config, "credentials": remote_credentials})
+                latest_policy = await policy_svc.resolve_for_run(db, tool=tool_record, data_source_ids=ds_ids, user=user)
+                from app.services.remote_server_access import remote_run_access
+                still_authorized = await remote_run_access(db, connection, user, ds_ids)
+                latest_effective = latest_policy.effective
+                if remote_shell:
+                    latest_effective = await effective_shell_policy(db, connection, tool_record, latest_policy, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.is_interactive_run(runtime_ctx) else None)
+                if current != approval_snapshot or not latest_policy.is_enabled or latest_effective == TOOL_POLICY_DENY or not still_authorized:
+                    approved = False
             # Who decided. The DB-poll path only carries the resolver's id, but
             # may_respond restricts responding to the run's own user, so their
             # name is the correct display fallback whenever a decision exists.

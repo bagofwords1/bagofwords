@@ -33,10 +33,17 @@ async def _artifact_id(db, report_id: str, ref: str | None) -> str | None:
 async def _event_id(db, report_id: str, ref: str | None) -> str | None:
     if not ref or len(ref) >= 36:
         return ref
-    from app.models.artifact_activity import ArtifactActivityEvent
+    from sqlalchemy import or_
 
+    from app.models.artifact_activity import ArtifactActivityEvent
+    from app.services.artifact_activity import WITHHELD
+
+    # A short id resolves among the events the agent may read: a withheld one
+    # must not shadow a visible one with the same prefix.
+    shown = ArtifactActivityEvent.shown_in_completion_id
     return (await db.execute(select(ArtifactActivityEvent.id).where(
-        ArtifactActivityEvent.report_id == report_id, ArtifactActivityEvent.id.like(f"{ref}%")).limit(1))).scalar_one_or_none()
+        ArtifactActivityEvent.report_id == report_id, ArtifactActivityEvent.id.like(f"{ref}%"),
+        or_(shown.is_(None), shown != WITHHELD)).limit(1))).scalar_one_or_none()
 
 
 class ReadArtifactActivityTool(Tool):

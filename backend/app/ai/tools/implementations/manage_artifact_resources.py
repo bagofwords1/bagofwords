@@ -18,7 +18,7 @@ class ManageArtifactResources(Tool):
         return ToolMetadata(
             name="manage_artifact_resources",
             category="action",
-            description="Create, update or delete a collection schema, file resource or approved AI operation on an existing artifact. Permissions live on the definition and reference existing groups. This does not edit records or sharing. Read the artifact first; use expected_revision for update/delete and preserve existing data. For new artifacts declare resources in create_artifact.",
+            description="Create, update or delete a collection schema, file resource or approved AI operation on an existing artifact. Permissions live on the definition and reference existing groups. This does not edit records or sharing. Read the artifact first; use expected_revision for update/delete and preserve existing data. For new artifacts declare resources in create_artifact. A unique id field must hold a stable business key or a hash of the record's identifying fields, never an incidental value such as an uploaded file's name (same-named or re-uploaded files then collide); importers should skip or update an existing id rather than duplicate it.",
             input_schema=ManageResourceInput.model_json_schema(),
             timeout_seconds=30,
             max_retries=0,

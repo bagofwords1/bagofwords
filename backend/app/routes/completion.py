@@ -23,6 +23,7 @@ from app.dependencies import get_current_organization
 from app.models.report import Report
 from app.schemas.stream_delivery_schema import StreamDeliveryReport, StreamDeliveryVerdict
 from app.streaming.delivery import analyze_client_delivery, instrument_stream
+from app.errors import AppError, ErrorCode
 
 router = APIRouter(tags=["completions"])
 
@@ -394,7 +395,46 @@ async def respond_to_mcp_tool_confirmation(
         if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
             raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
 
-    if remember and meta.get("connection_tool_id"):
+    shell_target = (row.arguments or {}).get("_execution_target", {}) if row is not None else {}
+    shell_scope = body.get("permission_scope") or ("user" if remember else "once")
+    shell_rule = None
+    if shell_target.get("shell_permissions"):
+        from app.schemas.data_sources.remote_server import ShellRule
+        if shell_scope not in ("once", "session", "user"):
+            raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+        if shell_target.get("mandatory_approval"):
+            shell_scope = "once"
+        remember = shell_scope != "once"
+        if remember:
+            if shell_scope == "session" and not row.report_id:
+                raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "Session permissions require a report")
+            try:
+                shell_rule = ShellRule.model_validate({
+                    "pattern": body.get("command_pattern") or row.arguments.get("command"),
+                    "match": body.get("command_match", "exact"),
+                    "working_directory": row.arguments.get("working_directory"),
+                    "action": "allow" if approved else "deny",
+                }).model_dump()
+                from app.services.remote_shell_policy import rule_matches
+                if not rule_matches(shell_rule, row.arguments.get("command", ""), row.arguments.get("working_directory")):
+                    raise ValueError("Rule must match this command")
+            except ValueError:
+                raise AppError.bad_request(
+                    ErrorCode.SHELL_CONFIRMATION_RULE_MISMATCH,
+                    "Invalid command rule or pattern does not match this command",
+                )
+
+    shell_handled = bool(shell_target.get("shell_permissions"))
+    if shell_handled:
+        from app.services.remote_shell_policy import resolve_shell_confirmation
+        row = await resolve_shell_confirmation(db, row, approved=approved, remember=remember,
+            user_id=current_user.id, rule=shell_rule,
+            report_id=row.report_id if shell_scope == "session" else None)
+        if row.is_pending or row.status == ToolConfirmation.STATUS_EXPIRED:
+            raise HTTPException(status_code=410, detail="Confirmation expired")
+        approved, remember = row.approved, bool(row.remember)
+
+    if remember and meta.get("connection_tool_id") and not shell_handled:
         # Brief retry: on SQLite a concurrent agent write can hold the single
         # writer lock for a moment ("database is locked").
         last_err = None
@@ -415,7 +455,7 @@ async def respond_to_mcp_tool_confirmation(
             raise HTTPException(status_code=500, detail="Failed to save preference")
 
     # Durable decision first — the run polls this row, wherever it is running.
-    if row is not None:
+    if row is not None and not shell_handled:
         row = await confirmations.resolve(
             db,
             confirmation_id=confirmation_id,

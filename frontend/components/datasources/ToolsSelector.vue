@@ -56,7 +56,7 @@
         <div class="flex items-center justify-between px-4 py-2.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
           <div class="flex items-center gap-2">
             <span class="text-sm font-medium text-gray-900 dark:text-white">{{ conn.name }}</span>
-            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 uppercase font-medium tracking-wide">{{ conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
+            <span class="text-2xs px-1.5 py-0.5 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 uppercase font-medium tracking-wide">{{ conn.type === 'remote_ssh' ? 'SSH' : conn.type === 'remote_smb' ? 'SMB' : conn.type === 'custom_api' ? 'API' : 'MCP' }}</span>
           </div>
           <div class="flex items-center gap-1.5">
             <span class="text-2xs text-ink-muted me-1">
@@ -150,7 +150,7 @@
                 <option value="">{{ $t('toolsSelector.bulkSetPolicy') }}</option>
                 <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
                 <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                <option v-if="conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
                 <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
               </select>
               <button
@@ -174,7 +174,7 @@
               <option value="__clear__">{{ $t('toolsSelector.bulkClearMyPolicy') }}</option>
               <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
               <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-              <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+              <option v-if="conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
               <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
             </select>
             <button
@@ -252,7 +252,7 @@
                   >
                     <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
                     <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
                     <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
                   </select>
                   <span
@@ -280,13 +280,14 @@
                     <option value="">{{ $t('toolsSelector.policyInherit', { policy: policyLabel(tool.policy) }) }}</option>
                     <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
                     <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
+                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
                     <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
                   </select>
                 </div>
               </div>
             </div>
 
+            <UButton v-if="conn.type === 'remote_ssh' && tool.name === 'execute_shell'" size="xs" variant="ghost" @click="editShellRules(tool.id)">{{ t('tools.remoteShell.mine') }}</UButton>
             <!-- Expanded -->
             <div v-if="expandedTools[tool.id]" class="mt-2 ms-9 space-y-2">
               <div v-if="tool.metadata?.method" class="flex items-center gap-1.5 text-xs">
@@ -327,6 +328,15 @@
         </div>
       </div>
     </div>
+    <UModal v-model="rulesOpen">
+      <div class="p-5 space-y-3">
+        <h3 class="text-sm font-semibold text-ink">{{ t('tools.remoteShell.mine') }}</h3>
+        <p class="text-xs text-ink-muted">{{ t('tools.remoteShell.override') }}</p>
+        <UTextarea dir="ltr" v-model="rulesText" :rows="12" :aria-label="t('tools.remoteShell.mine')" class="font-mono" />
+        <p v-if="rulesError" class="text-xs text-red-600">{{ rulesError }}</p>
+        <UButton :loading="rulesSaving" @click="saveShellRules">{{ t('tools.remoteShell.save') }}</UButton>
+      </div>
+    </UModal>
   </div>
 </template>
 
@@ -346,6 +356,32 @@ defineEmits(['add-mcp', 'add-custom-api', 'edit-connection', 'delete-connection'
 
 const toast = useToast()
 const { t } = useI18n()
+
+const rulesOpen = ref(false)
+const rulesText = ref('[]')
+const rulesToolId = ref('')
+const rulesError = ref('')
+const rulesSaving = ref(false)
+async function editShellRules(toolId: string) {
+  const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${toolId}/my_shell_rules`)
+  if (response.error.value) { toast.add({ title: t('tools.remoteShell.failed'), color: 'red' }); return }
+  rulesToolId.value = toolId
+  rulesText.value = JSON.stringify(response.data.value || [], null, 2)
+  rulesError.value = ''
+  rulesOpen.value = true
+}
+async function saveShellRules() {
+  rulesSaving.value = true
+  rulesError.value = ''
+  try {
+    const rules = JSON.parse(rulesText.value)
+    if (!Array.isArray(rules)) throw new Error('array')
+    const response = await useMyFetch(`/data_sources/${props.dsId}/tools/${rulesToolId.value}/my_shell_rules`, { method: 'PUT', body: rules })
+    if (response.error.value) throw response.error.value
+    rulesOpen.value = false
+  } catch { rulesError.value = t('tools.remoteShell.failed') }
+  finally { rulesSaving.value = false }
+}
 
 const loading = ref(false)
 const refreshingConn = ref<string | null>(null)

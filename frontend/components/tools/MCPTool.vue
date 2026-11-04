@@ -40,24 +40,34 @@
         @click="showArgs = !showArgs"
       >{{ argsOneLine }}</button>
       <pre
-        v-if="showArgs"
+        v-if="showArgs || shellPermissions || mandatoryApproval"
         class="max-h-32 overflow-auto rounded bg-gray-50 dark:bg-gray-900 text-chat-2 leading-tight text-gray-600 dark:text-gray-400 p-2 m-0 whitespace-pre-wrap break-words font-mono"
       >{{ confirmationArgs }}</pre>
+      <div v-if="shellPermissions && !mandatoryApproval" class="space-y-1 text-chat-2">
+        <label class="text-ink-muted">{{ t('tools.remoteShell.pattern') }}</label>
+        <UTextarea dir="ltr" :rows="2" v-model="commandPattern" :aria-label="t('tools.remoteShell.pattern')" class="font-mono" />
+        <USelect v-model="commandMatch" :options="[{ value: 'exact', label: t('tools.remoteShell.exact') }, { value: 'glob', label: t('tools.remoteShell.glob') }]" />
+        <p class="text-ink-muted">{{ t('tools.remoteShell.hint') }}</p>
+      </div>
       <div class="flex flex-wrap items-center gap-1.5 text-chat-2">
         <button
           class="px-2 py-0.5 rounded font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(true, false)"
         >{{ t('tools.mcp.allowOnce') }}</button>
         <button
+          v-if="!mandatoryApproval"
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(true, true)"
-        >{{ t('tools.mcp.alwaysAllow') }}</button>
+        >{{ t(shellPermissions ? 'tools.remoteShell.always' : 'tools.mcp.alwaysAllow') }}</button>
+        <UButton v-if="shellPermissions && !mandatoryApproval && confirmation?.arguments?._execution_target?.session_permissions"
+          variant="ghost" size="xs" :disabled="responding" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
         <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" @click="respond(false, false)"
         >{{ t('tools.mcp.denyOnce') }}</button>
         <button
+          v-if="!mandatoryApproval"
           class="px-2 py-0.5 rounded text-ink-muted hover:bg-red-50 dark:hover:bg-red-950 hover:text-red-600 dark:hover:text-red-400 transition-colors disabled:opacity-50"
           :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(false, true)"
         >{{ t('tools.mcp.alwaysDeny') }}</button>
@@ -200,6 +210,14 @@ const status = computed(() => props.toolExecution?.status || '')
 
 // ── 'ask' policy: mid-run approval card ─────────────────────────────
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
+const shellPermissions = computed(() => !!confirmation.value?.arguments?._execution_target?.shell_permissions)
+const commandPattern = ref('')
+const commandMatch = ref('exact')
+watch(() => confirmation.value?.confirmation_id, () => {
+  commandPattern.value = confirmation.value?.arguments?.command || ''
+  commandMatch.value = 'exact'
+}, { immediate: true })
+const mandatoryApproval = computed(() => !!confirmation.value?.arguments?._execution_target?.mandatory_approval)
 const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
 const answered = ref(false)
 const responding = ref(false)
@@ -253,14 +271,14 @@ const respondError = ref('')
 
 const { markConfirmationAnswered } = useToolConfirmations()
 
-async function respond(approved: boolean, remember: boolean) {
+async function respond(approved: boolean, remember: boolean, scope = 'user') {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
   respondError.value = ''
   try {
     const res = await useMyFetch(
       `/completions/${props.systemCompletionId}/mcp_tool_confirmations/${confirmation.value.confirmation_id}`,
-      { method: 'POST', body: { approved, remember } }
+      { method: 'POST', body: { approved, remember, ...(shellPermissions.value ? { permission_scope: remember ? scope : 'once', command_pattern: commandPattern.value, command_match: commandMatch.value } : {}) } }
     )
     if (res?.error?.value) {
       const err = res.error.value as any
@@ -331,7 +349,7 @@ const isMcpFamily = computed(() =>
 const mcpConnIcon = useToolConnectionIcon(
   () => props.toolExecution,
   () => props.dataSources,
-  { connectionTypes: ['mcp', 'custom_api'] },
+  { connectionTypes: ['mcp', 'custom_api', 'remote_ssh', 'remote_smb'] },
 )
 
 // Catalog key ("monday", "notion", …) so known connectors get their brand

@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 
+from app.schemas.data_sources.remote_server import (
+    RemoteSSHConfig, RemoteSMBConfig, SSHKeyCredentials, SSHPasswordCredentials,
+    RemoteKerberosCredentials, SMBPasswordCredentials,
+)
+
 # Import provider Config/Credentials from the provider module
 from app.schemas.data_sources.configs import (
     # Configs
@@ -79,6 +84,7 @@ from app.schemas.data_sources.configs import (
     DruidTokenCredentials,
     DruidBasicTokenCredentials,
     MongoDBConfig,
+    Neo4jConfig,
     OpenSearchConfig,
     OpenSearchCredentials,
     OpenSearchNoAuthCredentials,
@@ -234,6 +240,7 @@ from app.schemas.data_sources.configs import (
     MondayApiTokenCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
+    Neo4jCredentials,
     PostHogCredentials,
     # MCP
     MCPConfig,
@@ -1303,6 +1310,26 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="objects",
     ),
+    "neo4j": DataSourceRegistryEntry(
+        type="neo4j",
+        title="Neo4j",
+        description="Graph database. Query nodes and relationships with read-only Cypher.",
+        config_schema=Neo4jConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=Neo4jCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.neo4j_client.Neo4jClient",
+        is_document_based=True,
+        data_shape="objects",
+        catalog_nouns=("node or relationship type", "node and relationship types"),
+    ),
     "opensearch": DataSourceRegistryEntry(
         type="opensearch",
         category="infra",
@@ -2340,6 +2367,39 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="none",
         ui_form="browser",
     ),
+    "remote_ssh": DataSourceRegistryEntry(
+        type="remote_ssh", title="Remote Server (SSH)", category="infra",
+        description="Inspect Linux or Windows logs through a restricted reader. Optional maintenance shell supports connection policies and saved per-user permissions.",
+        setup_guide=[
+            SetupStep(title="Prepare the remote account", body="Install the reader from tools/remote_server on the server and configure its allowed log roots. For enforced read-only access, use an unprivileged account restricted to the reader. See tools/remote_server/README.md in your deployment source."),
+            SetupStep(title="Verify the server identity", body="Obtain the SSH host public key through a trusted administrator. BOW pins this key and refuses changed or unknown keys."),
+            SetupStep(title="Separate maintenance access", body="Choose shell approval or automatic execution policies. Use a separate account/connection when the inspection account is restricted to the reader. Remote privilege limits are configured on the server."),
+        ],
+        config_schema=RemoteSSHConfig,
+        credentials_auth=AuthOptions(default="key", by_auth={
+            "key": AuthVariant(title="SSH key / certificate", schema=SSHKeyCredentials, scopes=["system", "user"]),
+            "password": AuthVariant(title="Password", schema=SSHPasswordCredentials, scopes=["system", "user"]),
+            "keyboard_interactive": AuthVariant(title="Keyboard-interactive (single password; no interactive MFA)", schema=SSHPasswordCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos keytab", schema=RemoteKerberosCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.remote_server_client.RemoteServerClient",
+        version="beta", is_connection=False, data_shape="tools", catalog_ownership="none",
+    ),
+    "remote_smb": DataSourceRegistryEntry(
+        type="remote_smb", title="Windows Logs (SMB)", category="infra",
+        description="Read and search IIS and application logs from dedicated Windows shares. Uses the account's share and NTFS permissions; no remote shell.",
+        setup_guide=[
+            SetupStep(title="Create a read-only log share", body="Share only the application and IIS log directories. Grant the account read/list access in both share and NTFS permissions, inherited by rotated logs. Avoid administrative drive shares such as d$."),
+            SetupStep(title="Allow network access", body="Allow TCP 445 from the BOW backend. No privileged container or host mount is required. SMB encryption is enabled by default; Kerberos additionally requires DNS, clock synchronization and KDC access."),
+        ],
+        config_schema=RemoteSMBConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Domain / local account (NTLMv2)", schema=SMBPasswordCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos keytab", schema=RemoteKerberosCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.remote_server_client.RemoteSMBClient",
+        version="beta", is_connection=False, data_shape="tools", catalog_ownership="none",
+    ),
     "custom_api": DataSourceRegistryEntry(
         type="custom_api",
         category="custom",
@@ -2674,6 +2734,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "requires_license": e.requires_license,
             "is_connection": e.is_connection,
             "data_shape": e.data_shape,
+            "catalog_nouns": list(e.catalog_nouns) if e.catalog_nouns else None,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
             "category": e.category,
@@ -2879,6 +2940,13 @@ def data_shape_for(ds_type: str) -> str:
     """Data shape for a type; 'tables' for unknown types (SQL-style default)."""
     entry = REGISTRY.get(ds_type)
     return entry.data_shape if entry is not None else "tables"
+
+
+def catalog_nouns_override(ds_type: str) -> Optional[list]:
+    """The entry's own (singular, plural) catalog noun when it sets one, for
+    the UI; None leaves the UI on its data_shape noun."""
+    entry = REGISTRY.get(ds_type)
+    return list(entry.catalog_nouns) if entry is not None and entry.catalog_nouns else None
 
 
 def catalog_nouns_for(ds_type: str) -> tuple:

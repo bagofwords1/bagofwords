@@ -570,6 +570,7 @@ dependencies = [
     { name = "lxml" },
     { name = "matplotlib" },
     { name = "mcp" },
+    { name = "neo4j" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openpyxl" },
@@ -623,6 +624,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "selectolax" },
     { name = "simple-salesforce" },
+    { name = "smbprotocol" },
     { name = "snowflake-connector-python" },
     { name = "snowflake-sqlalchemy" },
     { name = "sqlalchemy" },
@@ -702,6 +704,7 @@ requires-dist = [
     { name = "lxml", specifier = ">=6.1.1,<6.2" },
     { name = "matplotlib", specifier = ">=3.11.0,<3.12" },
     { name = "mcp", specifier = ">=1.30.0,<1.31" },
+    { name = "neo4j", specifier = ">=6.4.1,<6.5" },
     { name = "numpy", specifier = ">=1.26.4,<1.27" },
     { name = "openai", specifier = ">=1.109.1,<1.110" },
     { name = "openpyxl", specifier = ">=3.1.5,<3.2" },
@@ -761,6 +764,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.8.0,<1.9" },
     { name = "selectolax", specifier = ">=0.4.10,<0.5" },
     { name = "simple-salesforce", specifier = ">=1.12.9,<1.13" },
+    { name = "smbprotocol", specifier = ">=1.17.0" },
     { name = "snowflake-connector-python", specifier = ">=4.7.1,<4.8" },
     { name = "snowflake-sqlalchemy", specifier = ">=1.11.0,<1.12" },
     { name = "sqlalchemy", specifier = ">=2.0.51,<2.1" },
@@ -2972,6 +2976,18 @@ wheels = [
 ]
 
 [[package]]
+name = "neo4j"
+version = "6.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/d1/bc40a291c60b06738ce92d5f0259d348eee1f07ba10d569a881c848c8afe/neo4j-6.4.1.tar.gz", hash = "sha256:fac99b7cb9679b93ef97dc23f22a3f0e7c3feb2db223eddfd2521f27005cfeaf", size = 287897, upload-time = "2026-10-15T10:47:26.666Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/69/3036bdcacfba561c6ef4b00fe72529e0a1b6241a6b2de82572a0940a276b/neo4j-6.4.1-py3-none-any.whl", hash = "sha256:f56a281c74355522fc2642df8919bec450115431531b8f3f6fe1cc17acb57a27", size = 390684, upload-time = "2026-10-15T10:47:25.236Z" },
+]
+
+[[package]]
 name = "numpy"
 version = "1.26.4"
 source = { registry = "https://pypi.org/simple" }
@@ -5085,6 +5101,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "smbprotocol"
+version = "1.17.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyspnego" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/ff/1a86a76423210bc9558e6ea978c576b13da448644401f16ee2260d4d3316/smbprotocol-1.17.0.tar.gz", hash = "sha256:bcc27edfff7d727a7eb30424138766e1ee216ae2ffc1af03dab0448f29c4731c", size = 190845, upload-time = "2026-07-07T03:23:20.523Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/d3/250e13e7b3473a0f441f4d680d511ad30ce432d0180115dec9840d88fe89/smbprotocol-1.17.0-py3-none-any.whl", hash = "sha256:bd1abff5417f5af83ca516a64ab8e5acece3dbdcf58d4e5e23e47f5165a77349", size = 128208, upload-time = "2026-07-07T03:23:19.178Z" },
 ]
 
 [[package]]

@@ -1127,7 +1127,9 @@
         "wide": "Breit"
       },
       "scopeHint": "Gilt für Ihre Unterhaltungen in diesem Browser."
-    }
+    },
+    "readMore": "Mehr lesen",
+    "showLess": "Weniger anzeigen"
   },
   "tools": {
     "common": {
@@ -1857,6 +1859,18 @@
       "status": {
         "waiting": "Wartet auf Hauptagent"
       }
+    },
+    "remoteShell": {
+      "pattern": "Befehlsregel",
+      "exact": "Exakter Befehl",
+      "glob": "Platzhaltermuster",
+      "hint": "Regeln gelten für vollständige Befehle in diesem Arbeitsverzeichnis. Präfixfreigaben schließen Shell-Operatoren und Erweiterungen aus.",
+      "always": "Passende Befehle immer erlauben",
+      "session": "Für diese Sitzung erlauben",
+      "mine": "Meine Shell-Regeln",
+      "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
+      "save": "Regeln speichern",
+      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
     }
   },
   "entityCreate": {
@@ -3917,6 +3931,12 @@
       "appFilterDescription": "Optionale, durch Kommas getrennte App-Namen oder IDs in den ausgewählten Streams. Leer umfasst alle passenden Apps. Verwenden Sie IDs für Namen mit Kommas.",
       "concurrencyTitle": "Gleichzeitige Apps",
       "concurrencyDescription": "Maximal gleichzeitig geöffnete Apps bei der Indexierung (1–4). Wählen Sie 1 für große Apps oder wenig Arbeitsspeicher. Apps werden bei Bedarf geladen; Vorladeaufgaben sind nicht erforderlich."
+    },
+    "remoteOperations": {
+      "list_directory": "Verzeichnisse auflisten",
+      "read_file": "Dateien und Protokolle lesen",
+      "search_file": "Dateien durchsuchen",
+      "system_status": "Systemstatus prüfen"
     }
   },
   "share": {
@@ -4012,6 +4032,11 @@
     "fork": "Kopie erstellen"
   },
   "errors": {
+    "shell_rules.tool_required": "Befehlsregeln erfordern ein Remote-Shell-Werkzeug.",
+    "shell_rules.invalid": "Ungültige Befehlsregeln.",
+    "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
+    "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
+    "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
     "saml_unavailable": "Die SSO-Konfiguration ist nicht verfügbar. Wenden Sie sich an Ihren Administrator.",
     "saml_login_failed": "Die SSO-Anmeldung ist fehlgeschlagen. Versuchen Sie es erneut oder kontaktieren Sie Ihren Administrator.",
     "invitation_required": "Die Registrierung ist deaktiviert. Bitten Sie Ihren Administrator um eine Einladung.",

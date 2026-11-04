@@ -36,7 +36,7 @@
                 class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
                 title="Cached locally — this read did not query the source"
               />
-              <span class="font-medium">{{ item.full_name || item.name || 'table' }}</span>
+              <bdi class="font-medium">{{ item.full_name || item.name || 'table' }}</bdi>
               <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
             </span>
             <span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span>

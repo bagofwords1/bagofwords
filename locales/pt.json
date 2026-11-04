@@ -1127,7 +1127,9 @@
         "wide": "Largo"
       },
       "scopeHint": "Aplica-se às suas conversas neste navegador."
-    }
+    },
+    "readMore": "Ler mais",
+    "showLess": "Mostrar menos"
   },
   "tools": {
     "common": {
@@ -1857,6 +1859,18 @@
       "status": {
         "waiting": "Aguardando agente principal"
       }
+    },
+    "remoteShell": {
+      "pattern": "Regra de comando",
+      "exact": "Comando exato",
+      "glob": "Padrão com curingas",
+      "hint": "As regras correspondem a comandos completos neste diretório. Permissões por prefixo excluem operadores e expansões do shell.",
+      "always": "Sempre permitir correspondências",
+      "session": "Permitir nesta sessão",
+      "mine": "Minhas regras de shell",
+      "override": "Estas regras aplicam-se apenas a você. Sempre permitir ou Sempre negar da conexão tem prioridade.",
+      "save": "Salvar regras",
+      "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente."
     }
   },
   "entityCreate": {
@@ -3917,6 +3931,12 @@
       "appFilterDescription": "Nomes ou IDs de aplicações separados por vírgulas, nos fluxos selecionados. Vazio inclui todas as aplicações correspondentes. Use IDs para nomes com vírgulas.",
       "concurrencyTitle": "Aplicações simultâneas",
       "concurrencyDescription": "Máximo de aplicações abertas ao mesmo tempo durante a indexação (1–4). Escolha 1 para aplicações grandes ou memória limitada. São carregadas sob demanda; não são necessárias tarefas de pré-carregamento."
+    },
+    "remoteOperations": {
+      "list_directory": "Listar diretórios",
+      "read_file": "Ler arquivos e logs",
+      "search_file": "Pesquisar em arquivos",
+      "system_status": "Verificar o estado do sistema"
     }
   },
   "share": {
@@ -4012,6 +4032,11 @@
     "fork": "Criar cópia"
   },
   "errors": {
+    "shell_rules.tool_required": "As regras de comando exigem uma ferramenta de shell remoto.",
+    "shell_rules.invalid": "Regras de comando inválidas.",
+    "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
+    "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
+    "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
     "saml_unavailable": "Configuração de SSO indisponível. Contate seu administrador.",
     "saml_login_failed": "Falha no login SSO. Tente novamente ou contate seu administrador.",
     "invitation_required": "O cadastro está desativado. Peça um convite ao seu administrador.",

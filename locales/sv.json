@@ -1127,7 +1127,9 @@
         "wide": "Bred"
       },
       "scopeHint": "Gäller dina konversationer i den här webbläsaren."
-    }
+    },
+    "readMore": "Läs mer",
+    "showLess": "Visa mindre"
   },
   "tools": {
     "common": {
@@ -1857,6 +1859,18 @@
       "status": {
         "waiting": "Väntar på huvudagent"
       }
+    },
+    "remoteShell": {
+      "pattern": "Kommandoregel",
+      "exact": "Exakt kommando",
+      "glob": "Jokerteckenmönster",
+      "hint": "Regler matchar hela kommandon i denna arbetskatalog. Prefixgodkännanden utesluter skaloperatorer och expansioner.",
+      "always": "Tillåt alltid matchningar",
+      "session": "Tillåt för denna session",
+      "mine": "Mina skalregler",
+      "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
+      "save": "Spara regler",
+      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
     }
   },
   "entityCreate": {
@@ -3917,6 +3931,12 @@
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n inom valda strömmar. Tomt inkluderar alla matchande appar. Använd ID:n för namn med kommatecken.",
       "concurrencyTitle": "Samtidiga appar",
       "concurrencyDescription": "Högsta antal appar som öppnas samtidigt vid indexering (1–4). Välj 1 för stora appar eller begränsat minne. Appar laddas vid behov; förladdningsuppgifter krävs inte."
+    },
+    "remoteOperations": {
+      "list_directory": "Lista kataloger",
+      "read_file": "Läs filer och loggar",
+      "search_file": "Sök i filer",
+      "system_status": "Visa systemstatus"
     }
   },
   "share": {
@@ -4012,6 +4032,11 @@
     "fork": "Skapa kopia"
   },
   "errors": {
+    "shell_rules.tool_required": "Kommandoregler kräver ett fjärrskalverktyg.",
+    "shell_rules.invalid": "Ogiltiga kommandoregler.",
+    "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
+    "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
+    "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
     "saml_unavailable": "SSO-konfigurationen är inte tillgänglig. Kontakta administratören.",
     "saml_login_failed": "SSO-inloggningen misslyckades. Försök igen eller kontakta administratören.",
     "invitation_required": "Registrering är inaktiverad. Be din administratör om en inbjudan.",

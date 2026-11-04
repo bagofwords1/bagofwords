@@ -1127,7 +1127,9 @@
         "wide": "Large"
       },
       "scopeHint": "S'applique à vos conversations dans ce navigateur."
-    }
+    },
+    "readMore": "Lire la suite",
+    "showLess": "Réduire"
   },
   "tools": {
     "common": {
@@ -1857,6 +1859,18 @@
       "status": {
         "waiting": "En attente de l’agent principal"
       }
+    },
+    "remoteShell": {
+      "pattern": "Règle de commande",
+      "exact": "Commande exacte",
+      "glob": "Motif générique",
+      "hint": "Les règles ciblent des commandes complètes dans ce répertoire. Les préfixes autorisés excluent les opérateurs et expansions du shell.",
+      "always": "Toujours autoriser les correspondances",
+      "session": "Autoriser pour cette session",
+      "mine": "Mes règles shell",
+      "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
+      "save": "Enregistrer les règles",
+      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
     }
   },
   "entityCreate": {
@@ -3917,6 +3931,12 @@
       "appFilterDescription": "Noms ou identifiants séparés par des virgules, dans les flux sélectionnés. Vide inclut toutes les applications correspondantes. Utilisez les identifiants pour les noms contenant des virgules.",
       "concurrencyTitle": "Applications simultanées",
       "concurrencyDescription": "Nombre maximal d’applications ouvertes simultanément pendant l’indexation (1–4). Choisissez 1 pour les grandes applications ou une mémoire limitée. Chargement à la demande ; aucune tâche de préchargement requise."
+    },
+    "remoteOperations": {
+      "list_directory": "Lister les dossiers",
+      "read_file": "Lire les fichiers et journaux",
+      "search_file": "Rechercher dans les fichiers",
+      "system_status": "Consulter l’état du système"
     }
   },
   "share": {
@@ -4012,6 +4032,11 @@
     "fork": "Créer une copie"
   },
   "errors": {
+    "shell_rules.tool_required": "Les règles de commande nécessitent un outil shell distant.",
+    "shell_rules.invalid": "Règles de commande non valides.",
+    "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
+    "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
+    "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
     "saml_unavailable": "La configuration SSO est indisponible. Contactez votre administrateur.",
     "saml_login_failed": "La connexion SSO a échoué. Réessayez ou contactez votre administrateur.",
     "invitation_required": "L'inscription est désactivée. Demandez une invitation à votre administrateur.",

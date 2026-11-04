@@ -136,6 +136,8 @@ class ConnectionSchema(BaseModel):
     # Registry data_shape (tables | files | objects | tools) so the UI can pick
     # the right noun for the catalog count instead of hardcoding "Tables".
     data_shape: str = "tables"
+    # Registry catalog_nouns override ([singular, plural]), when the entry has one.
+    catalog_nouns: Optional[List[str]] = None
 
     class Config:
         from_attributes = True
@@ -192,6 +194,7 @@ class ConnectionDetailSchema(BaseModel):
     default_max_concurrent_queries: Optional[int] = None
     # Registry data_shape (tables | files | objects | tools).
     data_shape: str = "tables"
+    catalog_nouns: Optional[List[str]] = None
 
     class Config:
         from_attributes = True

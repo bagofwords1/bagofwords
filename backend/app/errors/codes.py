@@ -158,3 +158,10 @@ class ErrorCode(str, Enum):
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
     QUERY_FAILED_SILENTLY = "query.failed_silently"
+
+    # Remote shell permissions
+    SHELL_RULES_TOOL_REQUIRED = "shell_rules.tool_required"
+    SHELL_RULES_INVALID = "shell_rules.invalid"
+    SHELL_CONFIRMATION_INVALID_SCOPE = "shell_confirmation.invalid_scope"
+    SHELL_CONFIRMATION_REPORT_REQUIRED = "shell_confirmation.report_required"
+    SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"

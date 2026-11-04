@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.609 (November 4, 2026)
+- Added Neo4j as a read-only graph data source (#1579)
+- Changed connection lists and table selectors to use each connector's own noun, e.g. "forms", "lists", "messages", instead of "tables" or "files" (#1579)
+- Added SSH and SMB remote-server connectors for reading logs and running approved shell commands, with saved per-user command rules (#1585)
+- Added "Read more" to very long prompts on the report page so they no longer push the answer off-screen (#1584)
+- Fixed the agent reading a restricted check's withheld evidence through `read_artifact_activity` (#1558)
+- Changed agent guidance so app records get a stable id instead of an uploaded file's name, which made re-uploads collide (#1582)
+
 ## Version 0.0.608 (November 3, 2026)
 - Fixed embedded apps spinning forever when the frame can't load; the host now gets an `unavailable` event (#1555)
 - Fixed signing out of the host app leaving the embedded BOW session valid for up to an hour (#1555)

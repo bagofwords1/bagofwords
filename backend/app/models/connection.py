@@ -197,6 +197,8 @@ class Connection(BaseSchema):
             config = json.loads(self.config) if isinstance(self.config, str) else self.config
             credentials = self.decrypt_credentials() if self.credentials else {}
             client_params = merge_client_credentials(config, credentials)
+            if self.type in ("remote_ssh", "remote_smb") and (config or {}).get("auth_type"):
+                client_params["auth_type"] = config["auth_type"]
             client_params = filter_client_parameters(
                 ClientClass, client_params, only={"auth_type"}
             )

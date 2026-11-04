@@ -288,7 +288,7 @@ async def build_mcp_tool_catalog(
                     select(domain_connection.c.connection_id)
                     .where(domain_connection.c.data_source_id.in_(scope_ds_ids))
                 ),
-                Connection.type.in_(["mcp", "custom_api"]),
+                Connection.type.in_(["mcp", "custom_api", "remote_ssh", "remote_smb"]),
             )
         )).scalars().all()
         if not conns:
@@ -303,7 +303,7 @@ async def build_mcp_tool_catalog(
                     cfg = _json.loads(cfg)
                 except Exception:
                     cfg = {}
-            conn_by_id[str(c.id)] = {"name": c.name, "config": cfg or {}}
+            conn_by_id[str(c.id)] = {"name": c.name, "config": cfg or {}, "type": c.type}
 
         tools = (await db.execute(
             select(ConnectionTool).where(
@@ -351,7 +351,8 @@ async def build_mcp_tool_catalog(
             )
             if not is_enabled:
                 continue
-            effective = resolve_effective_policy(admin_policy, user_prefs.get(str(t.id)))
+            from app.services.remote_shell_policy import display_policy
+            effective = display_policy(conn_by_id.get(str(t.connection_id)), t.name, admin_policy, user_prefs.get(str(t.id)))
             if effective == "deny":
                 continue
             eligible.append((t, effective))

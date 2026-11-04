@@ -1676,6 +1676,46 @@ class MongoDBConfig(BaseModel):
     )
 
 
+
+# Neo4j
+class Neo4jConfig(BaseModel):
+    uri: str = Field(
+        ...,
+        title="URI",
+        description=(
+            "neo4j+s://xxxx.databases.neo4j.io for Aura, or bolt://host:7687. BOW connects directly to "
+            "this host (a neo4j:// URI is read as bolt://). No username or password here."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    database: str = Field(
+        "neo4j",
+        title="Database",
+        description="Database name (default: neo4j)",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+    @field_validator("uri")
+    @classmethod
+    def _uri_is_a_neo4j_uri(cls, v: str) -> str:
+        from app.data_sources.clients.neo4j_client import validate_uri
+
+        return validate_uri(v)
+
+
+class Neo4jCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A Neo4j user. A user with a reader role is enough.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(
+        ...,
+        title="Password",
+        json_schema_extra={"ui:type": "password"},
+    )
+
 # OpenSearch
 class OpenSearchCredentials(BaseModel):
     user: str = Field(

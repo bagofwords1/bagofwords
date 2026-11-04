@@ -102,7 +102,7 @@ class ToolPolicyService:
                 UserConnectionToolPreference.user_id == str(user_id),
                 UserConnectionToolPreference.connection_tool_id.in_(ids),
                 UserConnectionToolPreference.deleted_at.is_(None),
-            )
+            ).execution_options(populate_existing=True)
         )
         return {
             str(p.connection_tool_id): normalize_tool_policy(p.policy, default=None)

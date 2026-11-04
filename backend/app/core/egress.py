@@ -525,8 +525,9 @@ CONNECTION_URL_KEYS = (
     "cluster_url", "endpoint_url", "sts_endpoint_url",
 )
 # Keys that hold a host only in some forms (Salesforce ``domain`` is
-# "login" / "acme" or a full host).
-_TYPE_HOST_KEYS = {"salesforce": ("domain",)}
+# "login" / "acme" or a full host), or that only one connector uses (Neo4j's
+# ``uri``, neo4j+s://host:7687).
+_TYPE_HOST_KEYS = {"salesforce": ("domain",), "neo4j": ("uri",)}
 
 
 def hosts_in(value: Any) -> list[str]:

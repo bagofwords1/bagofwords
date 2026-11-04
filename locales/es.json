@@ -1152,7 +1152,9 @@
         "wide": "Ampliado"
       },
       "scopeHint": "Se aplica a tus conversaciones en este navegador."
-    }
+    },
+    "readMore": "Leer más",
+    "showLess": "Mostrar menos"
   },
   "tools": {
     "common": {
@@ -2018,6 +2020,18 @@
         "delivered": "Entregado al contexto del agente",
         "undelivered": "No entregado"
       }
+    },
+    "remoteShell": {
+      "pattern": "Regla de comando",
+      "exact": "Comando exacto",
+      "glob": "Patrón con comodines",
+      "hint": "Las reglas coinciden con comandos completos en este directorio. Los permisos por prefijo excluyen operadores y expansiones del shell.",
+      "always": "Permitir siempre coincidencias",
+      "session": "Permitir en esta sesión",
+      "mine": "Mis reglas de shell",
+      "override": "Estas reglas solo se aplican a ti. Permitir siempre o Denegar siempre de la conexión tiene prioridad.",
+      "save": "Guardar reglas",
+      "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo."
     }
   },
   "entityCreate": {
@@ -4256,6 +4270,12 @@
       "appFilterDescription": "Nombres o ID de aplicaciones separados por comas, dentro de los streams seleccionados. Vacío incluye todas las aplicaciones coincidentes. Use ID para nombres con comas.",
       "concurrencyTitle": "Aplicaciones simultáneas",
       "concurrencyDescription": "Máximo de aplicaciones abiertas a la vez durante la indexación (1–4). Elija 1 para aplicaciones grandes o memoria limitada. Se cargan bajo demanda; no se requieren tareas de precarga."
+    },
+    "remoteOperations": {
+      "list_directory": "Listar directorios",
+      "read_file": "Leer archivos y registros",
+      "search_file": "Buscar en archivos",
+      "system_status": "Consultar el estado del sistema"
     }
   },
   "share": {
@@ -4356,6 +4376,11 @@
     "fork": "Crear copia"
   },
   "errors": {
+    "shell_rules.tool_required": "Las reglas de comandos requieren una herramienta de shell remota.",
+    "shell_rules.invalid": "Reglas de comandos no válidas.",
+    "shell_confirmation.invalid_scope": "Alcance de permiso no válido.",
+    "shell_confirmation.report_required": "Los permisos de sesión requieren un informe.",
+    "shell_confirmation.rule_mismatch": "Regla de comando no válida, o el patrón no coincide con este comando.",
     "saml_unavailable": "La configuración de SSO no está disponible. Contacta con tu administrador.",
     "saml_login_failed": "Error al iniciar sesión con SSO. Inténtalo de nuevo o contacta con tu administrador.",
     "invitation_required": "El registro está deshabilitado. Pide una invitación a tu administrador.",

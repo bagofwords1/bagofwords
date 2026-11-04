@@ -2208,7 +2208,7 @@ const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: 
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
-  return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
+  return (a?.connections || []).filter((c: any) => ['mcp', 'custom_api', 'remote_ssh', 'remote_smb'].includes(c.type))
 })
 const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'lists' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
