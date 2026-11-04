@@ -111,7 +111,7 @@ def _dump(kind, text):
 
 
 def _current_turn(text, user):
-    matches = list(re.finditer(r"<user_prompt>(.*?)</user_prompt>", text, re.S))
+    matches = list(re.finditer(r"<user_prompt>([^<]*)</user_prompt>", text))
     m = matches[-1] if matches else None
     if m:
         return m.group(1).strip(), text[m.end():]
@@ -190,11 +190,12 @@ def _codegen(text):
     if not m:
         return _raise("STUB: no Teradata client_key in <connection_clients>")
     key = m.group(1)
-    user = ""
-    for um in re.finditer(r"<user_prompt>(.*?)</user_prompt>", text, re.S):
-        user = um.group(1)
-    scenario = _scenario(user) or _scenario(text)
-    body = scenario[5] if scenario else SCENARIOS[0][5]
+    # The planner's interpreted prompt is passed down verbatim; match on it,
+    # never on the whole prompt (table names like v_monthly_revenue would match).
+    scenario = next((sc for sc in SCENARIOS if sc[3] in text), None)
+    if scenario is None:
+        return _raise("STUB: no known scenario in the codegen prompt")
+    body = scenario[5]
     return ("def generate_df(ds_clients, excel_files):\n"
             f"    client = ds_clients[{key!r}]\n" + body)
 

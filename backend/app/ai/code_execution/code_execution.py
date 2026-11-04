@@ -334,7 +334,8 @@ class QueryTimeoutError(AppError):
             f"Query exceeded {timeout_seconds}s timeout. "
             f"Run multiple smaller queries instead of one large scan — "
             f"each execute_query call gets its own {timeout_seconds}s budget. "
-            "Use LIMIT, narrower filters, or aggregation."
+            "Limit rows with the source's own syntax (LIMIT, or TOP n on SQL Server "
+            "and Teradata), narrower filters, or aggregation."
         )
         super().__init__(
             ErrorCode.QUERY_TIMEOUT,
