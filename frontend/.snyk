@@ -211,3 +211,37 @@ ignore:
           forced under nuxt 3. Deferred to the Nuxt 4 upgrade; re-review on
           expiry.
         expires: 2026-12-21T00:00:00.000Z
+  # Allocation of Resources Without Limits or Throttling in flat (High,
+  # CVSS 8.2, SNYK-JS-FLAT-22148819). flat.unflatten() sizes an array from the
+  # largest numeric segment of a key, so a crafted key with a huge index (e.g.
+  # "a.1e9") forces an unbounded allocation. Introduced as a transitive of the
+  # Markdown-Components renderer:
+  #   @nuxtjs/mdc > remark-mdc > flat
+  # Unlike the other entries here, this one DOES run in the production bundle:
+  # the <MDC> component renders markdown through remark-mdc in the browser
+  # (components/report/ArtifactChatBubble.vue, the instruction/prompt panels,
+  # and the public /c/[token] shared view), so MDC-rendered content — LLM
+  # output and user-authored instruction/prompt text — reaches flat. Impact is
+  # bounded and client-side only: this is a resource-exhaustion DoS (CVSS A:H,
+  # C:N/I:N) that can hang or crash the VIEWER'S OWN browser tab — no
+  # server-side impact, no confidentiality/integrity impact, and the tab is
+  # recoverable by reload. Triggering needs a crafted pathological nested key
+  # (AC:H) and no exploit is known in the wild (exploitMaturity: none). No
+  # upgrade or patch remediates it: every flat version is flagged
+  # (fixedIn: [], semver '*'), 6.0.1 is the latest release, and the latest
+  # @nuxtjs/mdc (0.23.2) / remark-mdc (3.11.1) still depend on flat ^6.0.1, so
+  # neither an upgrade nor a yarn resolution clears it. Accepted and time-boxed;
+  # re-review when upstream flat ships a fix or remark-mdc drops/guards it.
+  SNYK-JS-FLAT-22148819:
+    - '*':
+        reason: >-
+          Runtime transitive of the MDC markdown renderer
+          (@nuxtjs/mdc > remark-mdc > flat). Client-side resource-exhaustion
+          DoS only (CVSS A:H, C:N/I:N): a crafted pathological key passed to
+          flat.unflatten can hang the viewer's own browser tab, with no
+          server-side or data-exposure impact and recovery by reload; needs
+          crafted input (AC:H) and no known exploit. No fix exists (all flat
+          versions affected, 6.0.1 is latest; latest @nuxtjs/mdc / remark-mdc
+          still pin flat ^6.0.1), so no upgrade or resolution remediates it.
+          Re-review when upstream flat ships a fix.
+        expires: 2026-12-21T00:00:00.000Z
