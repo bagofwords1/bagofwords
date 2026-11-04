@@ -17,6 +17,17 @@ Faithfulness rules enforced on purpose:
     302 to the login page when STATE["expired_response"] == "302".
   - Each user sees only the tree nodes in their `visible` set.
 
+Test-only switches and routes (not part of the KMS API):
+  - STATE["session_expiry"] = "immediate": every session /login hands out is
+    already expired when it is used (pasted API tokens stay valid).
+  - STATE["hold_stale_401s"] = N: the first N requests that carry an expired
+    session wait on one threading.Barrier(N, timeout=5) before they get their
+    401/302, and are counted in STATE["stale_401s"]; a broken barrier answers
+    500, so a test fails instead of hanging.
+  - GET {PREFIX}/_mock/status_error/<id>  HTTP 200 {"status": "ERROR"} echoing the id
+  - GET {PREFIX}/_mock/empty              HTTP 200 with an empty body
+  - GET {PREFIX}/_mock/oversized          HTTP 200 with a large JSON body (OVERSIZED_BYTES)
+
 Users: alice, bob and svc (the system account used by e2e). Pasted API
 tokens are in TOKENS.
 
@@ -63,21 +74,61 @@ TOKENS = {
     "svc-api-token-1": "svc",
 }
 
+# Size of the /_mock/oversized body (a test lowers the client's cap below it).
+OVERSIZED_BYTES = 256 * 1024
+
 # Allowed values of the switches a test sets; anything else is a typo and raises.
 _SWITCHES = {
     "login_mode": ("cookie", "token", "both", "none"),
     "expired_response": ("401", "302"),
+    "session_expiry": ("never", "immediate"),
     "odd_shapes": (False, "list", "error", "bad_id", "bad_username"),
+    "ai_text_available": (True, False),
+    "top_level_requires_parent": (True, False),
 }
+# Counters and sizes: non-negative integers (bool is not an int here).
+_COUNTERS = ("login_count", "accepted_logins", "hold_stale_401s", "stale_401s")
+_DEFAULTS = {
+    "login_mode": "cookie",          # cookie | token | both | none (SUCCESS, no session)
+    "expired_response": "401",       # 401 | 302
+    "session_expiry": "never",       # never | immediate (login sessions are dead on arrival)
+    "ai_text_available": True,
+    "top_level_requires_parent": False,
+    "login_count": 0,                # every login attempt
+    "accepted_logins": 0,            # logins that returned SUCCESS
+    "hold_stale_401s": 0,            # N > 0: the first N stale-session requests meet at a barrier
+    "stale_401s": 0,                 # requests that carried an expired session
+    "extra_results": [],
+    "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
+}
+_STALE = {"barrier": None}           # the barrier for STATE["hold_stale_401s"]
 
 
 class _State(dict):
     def __setitem__(self, key, value):
+        if key not in _DEFAULTS:
+            raise KeyError(f"STATE has no switch {key!r}")
         allowed = _SWITCHES.get(key)
         # `True == 1` would pass a plain `in` check, so compare types too.
         if allowed is not None and not any(type(value) is type(a) and value == a for a in allowed):
             raise ValueError(f"STATE[{key!r}] must be one of {allowed!r}, not {value!r}")
+        if key in _COUNTERS and (type(value) is not int or value < 0):
+            raise ValueError(f"STATE[{key!r}] must be a non-negative int, not {value!r}")
+        if key == "hold_stale_401s":
+            old = _STALE["barrier"]
+            if old is not None:
+                old.abort()  # release any thread still waiting on the old barrier
+            _STALE["barrier"] = threading.Barrier(value, timeout=5) if value else None
         super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        for key, value in dict(*args, **kwargs).items():
+            self[key] = value
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            self[key] = default
+        return self[key]
 
 
 STATE: dict = _State()
@@ -91,16 +142,7 @@ def reset():
     """Restore the default state; called before every test."""
     with _LOCK:
         STATE.clear()
-        STATE.update({
-            "login_mode": "cookie",          # cookie | token | both | none (SUCCESS, no session)
-            "expired_response": "401",       # 401 | 302
-            "ai_text_available": True,
-            "top_level_requires_parent": False,
-            "login_count": 0,                # every login attempt
-            "accepted_logins": 0,            # logins that returned SUCCESS
-            "extra_results": [],
-            "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
-        })
+        STATE.update({key: (list(value) if isinstance(value, list) else value) for key, value in _DEFAULTS.items()})
         REQUEST_LOG.clear()
         _SESSIONS.clear()
         _LOGIN_TOKENS.clear()
@@ -142,19 +184,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def _identity(self):
         auth = self.headers.get("Authorization") or ""
+        login_sessions_live = STATE["session_expiry"] == "never"
         if auth.startswith("Bearer "):
             token = auth[len("Bearer "):]
-            user = TOKENS.get(token) or _LOGIN_TOKENS.get(token)
+            user = TOKENS.get(token) or (_LOGIN_TOKENS.get(token) if login_sessions_live else None)
             if user:
                 return user
         cookie = self.headers.get("Cookie") or ""
         for part in cookie.split(";"):
             name, _, value = part.strip().partition("=")
-            if name == SESSION_COOKIE and value in _SESSIONS:
+            if name == SESSION_COOKIE and value in _SESSIONS and login_sessions_live:
                 return _SESSIONS[value]
         return None
 
+    def _carries_session(self):
+        """True when the request sends a session (cookie or Bearer) that was not accepted."""
+        cookie = self.headers.get("Cookie") or ""
+        has_cookie = any(part.strip().startswith(SESSION_COOKIE + "=") for part in cookie.split(";"))
+        return has_cookie or (self.headers.get("Authorization") or "").startswith("Bearer ")
+
     def _unauthenticated(self):
+        if self._carries_session():
+            with _LOCK:
+                index = STATE["stale_401s"]
+                STATE["stale_401s"] = index + 1
+                barrier = _STALE["barrier"] if index < STATE["hold_stale_401s"] else None
+            if barrier is not None:
+                try:
+                    barrier.wait()
+                except threading.BrokenBarrierError:
+                    return self._send_empty(500)
         if STATE["expired_response"] == "302":
             self._send_empty(302, {"Location": "/kms/lh/login"})
         else:
@@ -234,6 +293,15 @@ class Handler(BaseHTTPRequestHandler):
                 if node["parent"] == parent and node_id in visible
             ]
             return self._send_json(200, {"status": "SUCCESS", "data": data})
+        if route.startswith("/_mock/status_error/"):
+            item_id = route[len("/_mock/status_error/"):]
+            return self._send_json(200, {"status": "ERROR", "exception": f"Item {item_id} was not found",
+                                         "message": f"no item {item_id}"})
+        if route == "/_mock/empty":
+            return self._send_empty(200)
+        if route == "/_mock/oversized":
+            filler = "x" * OVERSIZED_BYTES
+            return self._send_json(200, {"status": "SUCCESS", "data": filler})
         return self._send_empty(404)
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Optional, List, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -2791,6 +2791,9 @@ class KmsLighthouseConfig(BaseModel):
 
 class KmsLighthouseUserPassCredentials(BaseModel):
     """A KMS Lighthouse login (username and password)."""
+    # A validation error must not echo the rejected input (it may be the password).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     username: str = Field(..., min_length=1, title="Username",
         description="KMS Lighthouse login name.", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
@@ -2802,9 +2805,16 @@ class KmsLighthouseUserPassCredentials(BaseModel):
             raise ValueError("Enter a value, not only spaces.")
         return value
 
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        # A copied login name may carry stray spaces; the password is kept exactly as typed.
+        return value.strip()
 
-# Visible ASCII only: a token goes into an HTTP header as-is.
-KMS_TOKEN_RE = re.compile(r"^[\x21-\x7e]+$")
+
+# Visible ASCII only: a token goes into an HTTP header as-is. Use fullmatch
+# (\Z, not $: `$` also matches before a trailing newline).
+KMS_TOKEN_RE = re.compile(r"[\x21-\x7e]+\Z")
 KMS_TOKEN_FORMAT_MESSAGE = (
     "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. "
     "Copy it again from KMS Lighthouse and paste it as plain text."
@@ -2813,6 +2823,9 @@ KMS_TOKEN_FORMAT_MESSAGE = (
 
 class KmsLighthouseTokenCredentials(BaseModel):
     """A pasted KMS Lighthouse API token, sent as a Bearer token."""
+    # A validation error must not echo the rejected token.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     api_token: str = Field(..., min_length=1, title="API token",
         description="KMS Lighthouse access token for this identity.", json_schema_extra={"ui:type": "password"})
 
@@ -2820,7 +2833,7 @@ class KmsLighthouseTokenCredentials(BaseModel):
     @classmethod
     def _plain_token(cls, value):
         value = value.strip()
-        if not KMS_TOKEN_RE.match(value):
+        if not KMS_TOKEN_RE.fullmatch(value):
             raise ValueError(KMS_TOKEN_FORMAT_MESSAGE)
         return value
 
