@@ -1329,18 +1329,63 @@ class PrestoConfig(BaseModel):
     protocol: str = Field("http", title="Protocol", description="", json_schema_extra={"ui:type": "string"})
 
 
-# Trino
+# Trino / Starburst (Galaxy and Enterprise)
 class TrinoCredentials(BaseModel):
-    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
-    password: str = Field("", title="Password", description="Required for HTTPS only", json_schema_extra={"ui:type": "password"})
+    user: str = Field(..., title="User", description="Starburst Galaxy: the service account's name (user@account.galaxy.starburst.io) or a user's email; Enterprise: the LDAP / password-file user", json_schema_extra={"ui:type": "string"})
+    password: str = Field("", title="Password", description="Required over HTTPS; leave blank only for an unauthenticated coordinator over HTTP", json_schema_extra={"ui:type": "password"})
+
+
+class TrinoTokenCredentials(BaseModel):
+    access_token: str = Field(..., title="Access token", description="A JWT or personal access token issued by the cluster (Starburst Galaxy: a user or service-account token; Enterprise: a JWT the coordinator's OAuth2 / JWT authenticator accepts)", json_schema_extra={"ui:type": "password"})
+    user: str = Field("", title="User", description="Optional session user the token acts as; leave blank to use the token's identity", json_schema_extra={"ui:type": "string"})
 
 
 class TrinoConfig(BaseModel):
-    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
-    port: int = Field(8080, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
-    catalog: str = Field(..., title="Catalog", description="", json_schema_extra={"ui:type": "string"})
-    schema: str = Field(..., title="Schema", description="", json_schema_extra={"ui:type": "string"})
-    protocol: str = Field("http", title="Protocol", description="http or https", json_schema_extra={"ui:type": "string"})
+    host: str = Field(..., title="Host", description="Coordinator hostname, without http:// (Starburst Galaxy: <account>-<cluster>.trino.galaxy.starburst.io)", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8080, ge=1, le=65535, title="Port", description="8080 for plain HTTP, 8443 for a TLS-enabled Starburst Enterprise coordinator, 443 for Starburst Galaxy", json_schema_extra={"ui:type": "number"})
+    protocol: str = Field("http", title="Protocol", description="https for any authenticated or TLS-enabled coordinator (required for Starburst)", json_schema_extra={"ui:type": "select", "ui:options": ["http", "https"]})
+    catalog: str = Field(..., title="Catalog", description="The catalog queries run in by default; its tables are listed as schema.table", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas to index; blank indexes every schema in the catalog",
+        json_schema_extra={"ui:type": "string"},
+    )
+    additional_catalogs: Optional[str] = Field(
+        None,
+        title="Additional catalogs",
+        description="Optional comma-separated list of other catalogs to index; their tables are listed as catalog.schema.table and can be joined with the primary catalog",
+        json_schema_extra={"ui:type": "string"},
+    )
+    role: Optional[str] = Field(
+        None,
+        title="Role",
+        description="Optional Starburst role to assume for the session (built-in access control); blank uses the login's default role",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the coordinator's TLS certificate. Disable only for a self-signed certificate in a lab; for an internal CA paste its certificate below instead",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_certificate: Optional[str] = Field(
+        None,
+        title="CA certificate (PEM)",
+        description="Optional PEM certificate chain of the internal CA that signed the coordinator's certificate (Starburst Enterprise on-prem)",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    timezone: Optional[str] = Field(
+        None,
+        title="Timezone",
+        description="Optional IANA timezone for the session (for example Europe/Berlin); relative dates such as current_date are computed in it. Blank uses the cluster default",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class StarburstConfig(TrinoConfig):
+    port: int = Field(443, ge=1, le=65535, title="Port", description="443 for Starburst Galaxy, 8443 for a TLS-enabled Starburst Enterprise coordinator", json_schema_extra={"ui:type": "number"})
+    protocol: str = Field("https", title="Protocol", description="Starburst requires TLS for every authentication method; keep https", json_schema_extra={"ui:type": "select", "ui:options": ["https", "http"]})
 
 
 # Google Analytics

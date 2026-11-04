@@ -27,6 +27,13 @@ DATA_SOURCES = [
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
+    # Remote mode: a Starburst Galaxy (or Enterprise) cluster configured in
+    # integrations.json with a service account; Galaxy's free tier works.
+    #   {"starburst": {"enabled": true, "host": "<account>-<cluster>.trino.galaxy.starburst.io",
+    #                  "port": 443, "protocol": "https", "catalog": "tpch", "schema": "sf1",
+    #                  "additional_catalogs": "tpcds", "role": "public",
+    #                  "user": "<service-account>@<account>.galaxy.starburst.io", "password": "..."}}
+    "starburst",
     # Temporarily skipped: the CI Snowflake trial account is suspended for lack
     # of a payment method, so every connection fails in the driver
     # (ProgrammingError 000666 / SQLSTATE 57014) before any client code runs.
