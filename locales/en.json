@@ -1178,7 +1178,9 @@
         "wide": "Wide"
       },
       "scopeHint": "Applies to your conversations in this browser."
-    }
+    },
+    "readMore": "Read more",
+    "showLess": "Show less"
   },
   "tools": {
     "common": {

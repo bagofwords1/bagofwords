@@ -163,13 +163,13 @@
 								<div class="flex items-start gap-2 max-w-[85%] w-full mb-4">
 									<div class="flex-1 flex justify-end">
 										<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :dir="promptDir(m.prompt?.content)">
-											<div v-if="m.prompt?.content" class="pt-1">
+											<CollapsiblePrompt v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
 													:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 													:prose="true"
 												/>
-											</div>
+											</CollapsiblePrompt>
 										</div>
 									</div>
 									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
@@ -272,7 +272,7 @@
 										<!-- User message bubble -->
 										<div class="flex-1 flex justify-end">
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
-												<div v-if="m.prompt?.content" class="pt-1">
+												<CollapsiblePrompt v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
 													<InstructionText
 														v-else
@@ -280,7 +280,7 @@
 														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
 													/>
-												</div>
+												</CollapsiblePrompt>
 												<!-- Attached images thumbnail -->
 												<div v-if="getAttachedImages(m).length > 0" class="mt-2 flex flex-wrap gap-1.5">
 													<div v-for="file in getAttachedImages(m)" :key="file.id" class="relative group">
@@ -344,13 +344,13 @@
 														<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 													</div>
 													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
-														<div v-if="s.prompt?.content" class="pt-1">
+														<CollapsiblePrompt v-if="s.prompt?.content" class="pt-1">
 															<InstructionText
 																:text="s.prompt.content"
 																:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 																:prose="true"
 															/>
-														</div>
+														</CollapsiblePrompt>
 													</div>
 												</div>
 											</div>
@@ -500,13 +500,13 @@
 													<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 												</div>
 												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
-													<div v-if="s.prompt?.content" class="pt-1">
+													<CollapsiblePrompt v-if="s.prompt?.content" class="pt-1">
 														<InstructionText
 															:text="s.prompt.content"
 															:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 															:prose="true"
 														/>
-													</div>
+													</CollapsiblePrompt>
 												</div>
 											</div>
 										</div>
@@ -1209,6 +1209,7 @@ import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
+import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
