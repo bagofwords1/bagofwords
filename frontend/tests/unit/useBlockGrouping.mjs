@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   computeBlockGroups,
+  isAwaitingUserInput,
   isGroupableBlock,
   MIN_GROUP_RUN,
 } from '../../composables/useBlockGrouping.ts'
@@ -361,3 +362,32 @@ for (const code of ['empty_date_result', 'partial_result']) {
   } })
   assert.equal(computeBlockGroups([block]).headerAt[block.id].issueCount, 1)
 }
+
+// A tool waiting on the user's permission never hides inside a group.
+for (const stage of ['awaiting_approval', 'awaiting_confirmation']) {
+  const a = chip('read_file')
+  const b = chip('read_file')
+  const pending = chip('mcp__ssh__exec', { te: { status: 'running', progress_stage: stage }, block: { status: 'in_progress' } })
+  const c = chip('read_file')
+  const d = chip('read_file')
+  assert.equal(isAwaitingUserInput(pending), true)
+  assert.equal(isGroupableBlock(pending), false)
+  const { groupOf, headerAt } = computeBlockGroups([a, b, pending, c, d])
+  assert.equal(groupOf[pending.id], undefined)
+  assert.deepEqual(headerAt[a.id].blockIds, [a.id, b.id])
+  assert.deepEqual(headerAt[c.id].blockIds, [c.id, d.id])
+}
+// Server-restored pending review (after reload) is held out too.
+{
+  const pending = chip('execute_mcp', { te: { status: 'running', review_state: 'pending' } })
+  const { groupOf } = computeBlockGroups([chip('read_file'), pending, chip('read_file')])
+  assert.equal(groupOf[pending.id], undefined)
+}
+// Once answered and finished, it folds like any other member.
+{
+  const done = chip('mcp__ssh__exec', { te: { progress_stage: 'awaiting_approval' } })
+  assert.equal(isAwaitingUserInput(done), false)
+  const { groupOf } = computeBlockGroups([chip('read_file'), done])
+  assert.ok(groupOf[done.id])
+}
+console.log('useBlockGrouping: pending-approval assertions passed')

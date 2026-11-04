@@ -487,7 +487,7 @@ function _groupingFor(m: any) {
     // sitting between two chip-class steps would otherwise break a run that
     // reads as continuous on screen.
     const blocks = timelineBlocks(m)
-    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}`
+    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}:${b.tool_execution?.progress_stage}`).join(",")}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
     const grouping = computeBlockGroups(blocks, { executionStatus: m.status })

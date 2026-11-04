@@ -118,6 +118,20 @@ export function classifyBlockError(block: any, isLast: boolean): 'handled' | 'ac
   return isLast ? 'fatal' : 'handled'
 }
 
+const AWAITING_INPUT_STAGES = new Set(['awaiting_confirmation', 'awaiting_approval'])
+
+/** Whether a block is paused on the user: a permission/approval card they
+    have not answered yet. Such a block must never hide inside a collapsed
+    group, whatever the tool (SSH, MCP, ...) — the user would not see the
+    prompt the run is waiting on. Once answered, the stage moves on and the
+    block may fold like any other member. */
+export function isAwaitingUserInput(block: any): boolean {
+  const te = block?.tool_execution
+  if (!te) return false
+  if (['success', 'error', 'failed', 'stopped'].includes(String(te.status || ''))) return false
+  return AWAITING_INPUT_STAGES.has(String(te.progress_stage || '')) || te.review_state === 'pending'
+}
+
 /** Whether a block may fold into a group.
 
     In-flight blocks of groupable tools fold too — the group header is the
@@ -128,6 +142,7 @@ export function classifyBlockError(block: any, isLast: boolean): 'handled' | 'ac
 export function isGroupableBlock(block: any): boolean {
   const te = block?.tool_execution
   if (!te || !isGroupableTool(te.tool_name)) return false
+  if (isAwaitingUserInput(block)) return false
   if (FAILED_STATUSES.has(String(te.status || ''))) return false
   if (FAILED_STATUSES.has(String(block?.status || ''))) return false
   // A block that carries a user-facing message is content, never a chip.
@@ -403,6 +418,8 @@ export function computeBlockGroups(
   for (let i = 0; i < list.length; i++) {
     const b = list[i]
     if (opts?.breakBefore?.(b)) flush()
+    // A pending permission prompt always renders on its own row.
+    if (isAwaitingUserInput(b)) { flush(); continue }
     const verification = verificationKey(b)
     const previousVerification = run.length ? verificationKey(run[0]) : ''
     if (verification) {
