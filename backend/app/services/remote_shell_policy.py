@@ -147,7 +147,7 @@ async def save_shell_rule(db, user_id, tool_id, rule, *, report_id=None):
 async def effective_shell_policy(db, connection, tool, resolution, user, arguments, report_id=None):
     if not tool.is_enabled or not resolution.is_enabled or resolution.admin_policy == "deny":
         return "deny"
-    if not config_dict(connection.config).get("enable_shell"):
+    if not config_dict(connection.config).get("enable_shell", True):
         return "deny"
     rules = await user_shell_rules(db, user.id, tool.id, report_id) if user else []
     return resolve_shell_policy(
@@ -165,7 +165,7 @@ def display_policy(connection, tool_name, admin, personal):
     kind = connection.get("type") if isinstance(connection, dict) else getattr(connection, "type", None)
     config = connection.get("config") if isinstance(connection, dict) else getattr(connection, "config", None)
     if kind == "remote_ssh" and tool_name == "execute_shell":
-        if admin == "deny" or not config_dict(config).get("enable_shell"):
+        if admin == "deny" or not config_dict(config).get("enable_shell", True):
             return "deny"
         return resolve_shell_policy(config, "", personal=personal)
     return resolve_effective_policy(admin, personal)

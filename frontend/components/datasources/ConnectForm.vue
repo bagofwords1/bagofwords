@@ -38,11 +38,13 @@
           </ol>
         </div>
 
+        <template v-for="group in configGroups" :key="group.name">
         <div v-if="fields.config" class="connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <div v-if="!embedded" class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('data.configuration') }}</div>
+          <UButton v-if="group.name === 'advanced'" color="gray" variant="ghost" :aria-expanded="advancedOpen" :icon="advancedOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" @click="advancedOpen = !advancedOpen">{{ $t('data.advancedSettings') }}</UButton>
+          <div v-else-if="!embedded" class="text-sm font-medium text-ink mb-2">{{ $t('data.configuration') }}</div>
 
-          <div class="connection-config-grid">
-          <div v-for="field in configFields" :key="field.field_name" class="mb-2" :class="{ 'connection-field-port': field.field_name === 'port', 'connection-field-host': field.field_name === 'host' }" @input="clearTestResult()">
+          <div v-show="group.name !== 'advanced' || advancedOpen" class="connection-config-grid" :class="{ 'mt-3': group.name === 'advanced' }">
+          <div v-for="field in group.fields" :key="field.field_name" class="mb-2" :class="{ 'connection-field-port': field.field_name === 'port', 'connection-field-host': field.field_name === 'host' }" @input="clearTestResult()">
             <div class="mb-1">
               <label :for="field.field_name" class="text-xs text-gray-700 dark:text-gray-300">{{ field.title || field.field_name }}</label>
               <span v-if="field.description" class="text-xs text-ink-muted ms-3">{{ field.description }}</span>
@@ -91,7 +93,7 @@
 
 
         </div>
-        <div v-if="!embedded || coreCredentialFields.length || authOptions.length > 1 || showRequireUserAuth" class="connection-credentials connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+        <div v-if="group.name === 'main' && (!embedded || coreCredentialFields.length || authOptions.length > 1 || showRequireUserAuth)" class="connection-credentials connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
           <div v-if="!embedded || hasExistingCredentials" class="flex items-center justify-between mb-2">
             <div class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.systemCredentials') }}</div>
             <div class="flex items-center gap-2">
@@ -179,6 +181,8 @@
           </template>
 
         </div>
+
+        </template>
 
         <div v-if="!embedded" class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
@@ -469,6 +473,17 @@ const configFields = computed(() => {
     // Hide fields explicitly marked ui:hidden (e.g. deprecated/back-compat).
     .filter((f: any) => !(f['ui:hidden'] === true))
     .sort((a: any, b: any) => (a['ui:order'] ?? 0) - (b['ui:order'] ?? 0))
+})
+
+const advancedOpen = ref(false)
+const configGroups = computed(() => {
+  if (!fields.value?.config) return [{ name: 'main', fields: [] }]
+  if (!['remote_ssh', 'remote_smb'].includes(selectedType.value)) return [{ name: 'main', fields: configFields.value }]
+  const main = ['host', 'port', 'operating_system', 'share', 'host_public_key']
+  return [
+    { name: 'main', fields: main.flatMap(name => configFields.value.filter(f => f.field_name === name)) },
+    { name: 'advanced', fields: configFields.value.filter(f => !main.includes(f.field_name) && (f.field_name !== 'reader_path' || formData.config.inspection_mode === 'restricted_reader')) },
+  ]
 })
 
 const authOptions = computed(() => {

@@ -2369,9 +2369,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "remote_ssh": DataSourceRegistryEntry(
         type="remote_ssh", title="Remote Server (SSH)", category="infra",
-        description="Inspect Linux or Windows logs through a restricted reader. Optional maintenance shell supports connection policies and saved per-user permissions.",
+        description="Inspect Linux or Windows logs over SSH without installing an agent. Maintenance follows connection policies and saved per-user permissions.",
         setup_guide=[
-            SetupStep(title="Prepare the remote account", body="Install the reader from tools/remote_server on the server and configure its allowed log roots. For enforced read-only access, use an unprivileged account restricted to the reader. See tools/remote_server/README.md in your deployment source."),
+            SetupStep(title="Prepare the remote account", body="Use an SSH account with access to the intended logs. Agentless inspection uses existing Python 3 on Linux or PowerShell on Windows. No agent installation is needed. Configure allowed paths under Advanced settings; * allows all account-readable paths. The installed restricted reader is optional."),
             SetupStep(title="Verify the server identity", body="Obtain the SSH host public key through a trusted administrator. BOW pins this key and refuses changed or unknown keys."),
             SetupStep(title="Separate maintenance access", body="Choose shell approval or automatic execution policies. Use a separate account/connection when the inspection account is restricted to the reader. Remote privilege limits are configured on the server."),
         ],

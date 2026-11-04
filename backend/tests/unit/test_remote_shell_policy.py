@@ -43,3 +43,9 @@ def test_personal_choice_can_restrict_administrator_command_allow(personal):
 def test_admin_deny_rules_apply_in_every_mode(mode):
     cfg = {"shell_policy": mode, "shell_rules": [{"pattern": "rm -rf*", "action": "deny", "match": "glob"}]}
     assert resolve_shell_policy(cfg, "rm -rf /srv/data", personal="allow") == "deny"
+
+
+def test_shell_display_uses_enabled_default_but_honors_explicit_disable():
+    from app.services.remote_shell_policy import display_policy
+    assert display_policy({"type": "remote_ssh", "config": {}}, "execute_shell", "ask", None) == "ask"
+    assert display_policy({"type": "remote_ssh", "config": {"enable_shell": False, "shell_policy": "allow"}}, "execute_shell", "ask", None) == "deny"
