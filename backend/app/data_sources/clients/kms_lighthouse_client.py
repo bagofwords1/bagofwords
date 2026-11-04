@@ -332,20 +332,40 @@ _KIND_PREFIX_RE = re.compile(r"^(item|scenario|folder):", re.IGNORECASE)
 _JWT_RE = re.compile(r"eyJ[A-Za-z0-9_-]{4,}+(?:\s{0,3}\.\s{0,3}[A-Za-z0-9_-]++){0,2}")
 _BEARER_RE = re.compile(r"(?i)\b(bearer\s++)([A-Za-z0-9._~+/=-]{8,}+)")
 _BASIC_RE = re.compile(r"(?i)\b(basic\s++)([A-Za-z0-9+/]{12,}+=*+)")
+# Each opening quote of a structured key or value and its closing quote: ASCII
+# quotes and the matched smart pairs (built with chr() so the source stays ASCII).
+_QUOTE_CLOSERS = {'"': '"', "'": "'", chr(0x201C): chr(0x201D), chr(0x2018): chr(0x2019)}
+_ASCII_QUOTE_CLOSERS = {'"': '"', "'": "'"}
 # A structured key and its ':' or '=' (JSON, YAML, a config or env line): a quoted
-# key ('"newPassword":', "'api_key':") or a bare one (group 3) that starts after
-# no key character. Only blanks may follow the separator, so a heading with its
-# text on the next line has no value.
+# key (groups 1-3: opening quote, name, closing quote; '"newPassword":',
+# "'api_key':") or a bare one (group 4) that starts after no key character. Only
+# blanks may follow the separator, so a heading with its text on the next line has no value.
 _STRUCTURED_NAME_RE = re.compile(
-    r"(?:([\"'])([A-Za-z0-9_-]++)\1|(?<![A-Za-z0-9_-])([A-Za-z0-9_-]++))[ \t]*+[:=][ \t]*+")
-_STRUCTURED_VALUE_RE = re.compile(r"[^\s,}\]]*+")
-_CAMEL_CASE_RE = re.compile(r"[a-z][A-Z]")
+    "(?:([" + re.escape("".join(_QUOTE_CLOSERS)) + "])([A-Za-z0-9_-]++)(["
+    + re.escape("".join(dict.fromkeys(_QUOTE_CLOSERS.values()))) + "])"
+    r"|(?<![A-Za-z0-9_-])([A-Za-z0-9_-]++))[ \t]*+[:=][ \t]*+")
+# An unquoted structured value: a bracketed run ("[abc]", "[redacted]") or the run
+# up to whitespace, ',', '}', ']', '&' or ';'.
+_STRUCTURED_VALUE_RE = re.compile(r"\[[^\s,}\]&;]*+\]|[^\s,}\]&;]*+")
+_BLANKS_RE = re.compile(r"[ \t]*+")
+_SCHEME_WORDS = frozenset(("bearer", "basic", "token"))
+_REDACTED = "[redacted]"
+# Identifier shapes: two lower-case letters before an inner capital (apiToken,
+# clientSecret), an acronym before a capitalised word (APIKey, APIToken), and a
+# dotted config prefix of two or more characters right before the name
+# (db.password, spring.datasource.password; not "e.g.password").
+_CAMEL_CASE_RE = re.compile(r"[a-z]{2}[A-Z]")
+_ACRONYM_CAMEL_RE = re.compile(r"[A-Z]{3}[a-z]")
+_DOTTED_PREFIX_RE = re.compile(r"[A-Za-z0-9_]{2}\.")
 # The authority of "scheme://user:password@host": the password runs up to the
 # last '@' (it may hold a raw '@'). A scheme starts after any non-letter; it is
 # at most 32 characters long, so each start reads a bounded run.
 _USERINFO_RE = re.compile(r"(?i)(?<![a-z])[a-z][a-z0-9+.-]{0,31}+://[^\s/?#@:\"'<>]*+:([^\s/?#\"'<>]*+)")
-# A '=' or '&' still written as a character reference, a named "&equals;" or a JSON escape.
-_ESCAPED_SEPARATOR_RE = re.compile(r"(?i)&(?:amp;)*+(?:#(?:0*+(61|38)|x0*+(3d|26))|(equals));|\\u00(3d|26)")
+# A '=' or '&' still written as a character reference, a named "&equals;" or a JSON
+# escape. A numeric reference may lack its ';' when no digit (or hex digit) follows;
+# a named one needs it, so "&section=2" and "&notifications" stay.
+_ESCAPED_SEPARATOR_RE = re.compile(
+    r"(?i)&(?:amp;)*+(?:#(?:0*+(61|38)(?![0-9])|x0*+(3d|26)(?![0-9a-f]));?|(equals);)|\\u00(3d|26)")
 # "name=" followed by whitespace or a quote. The whitespace must not lead to
 # another separator: "?q= &token= x" is an empty "q", then "token".
 _SPACED_NAME_RE = re.compile(r"([?#;&][^\s\"'<>=?#;&]++=)(?:\s++(?![?#;&])|(?=[\"']))")
@@ -373,14 +393,37 @@ _SECRET_PARAMS = frozenset(_param_key(name) for name in (
     "x-amz-security-token", "x-amz-signature", "x-amz-credential",
     "client_secret", "auth_token", "private_token", "access_key", "ticket"))
 # A compound or camel-case name ending with one of these is secret too (newPassword, apiToken, secret_key).
-_SECRET_SUFFIXES = ("token", "password", "passwd", "secret", "apikey", "accesskey", "privatekey", "authkey",
-                    "secretkey", "sessionid")
+_SECRET_SUFFIXES = ("token", "password", "passwd", "pwd", "secret", "apikey", "accesskey", "privatekey",
+                    "authkey", "secretkey", "sessionid")
+# Structured keys (JSON, YAML, config, env) have their own, shorter list: "code",
+# "key", "auth", "sig", "signature", "session" and "ticket" name a secret only as
+# URL parameters ('{"code": "E1001"}', '{"key": "Enter"}' are content).
+_SECRET_KEYS = frozenset(_param_key(name) for name in (
+    "token", "access_token", "id_token", "refresh_token", "auth_token", "private_token", "jwt", "password",
+    "passwd", "pwd", "api_key", "secret", "client_secret", "access_key", "jsessionid", "sessionid",
+    "x-amz-security-token", "x-amz-signature", "x-amz-credential"))
+# Two words a hyphen may join into a secret key name (auth-token, client-secret, api-key).
+_COMPOUND_SECRET_KEYS = frozenset(key for key in _SECRET_KEYS | set(_SECRET_SUFFIXES) if key not in (
+    "token", "password", "passwd", "pwd", "secret", "jwt", "jsessionid"))
+
+
+def _is_listed(key: str, names: frozenset[str]) -> bool:
+    return key in names or key.endswith(_SECRET_SUFFIXES)
 
 
 def _is_secret_name(name: str) -> bool:
-    """A parameter or structured key that names a credential: a listed name, or one ending with a secret word."""
+    """A URL parameter that names a credential: a listed name, or one ending with a secret word.
+
+    A name may still carry the "amp" of an "&amp" written without its ';'
+    ("?id=1&ampsig=X"); it is secret when the rest is ("&amplitude=5" stays).
+    """
     key = _param_key(name)
-    return key in _SECRET_PARAMS or key.endswith(_SECRET_SUFFIXES)
+    return _is_listed(key, _SECRET_PARAMS) or (key.startswith("amp") and _is_listed(key[3:], _SECRET_PARAMS))
+
+
+def _is_secret_key(name: str) -> bool:
+    """A structured key that names a credential: a listed key, or one ending with a secret word."""
+    return _is_listed(_param_key(name), _SECRET_KEYS)
 
 
 def _without_controls(text: str) -> str:
@@ -479,15 +522,16 @@ def _scrub_params(params: str, depth: int) -> str:
     return text
 
 
-def _value_span(text: str, start: int, unquoted: re.Pattern) -> tuple[int, int, bool]:
+def _value_span(text: str, start: int, unquoted: re.Pattern,
+                closers: dict[str, str] = _ASCII_QUOTE_CLOSERS) -> tuple[int, int, bool]:
     """``(value start, value end, quoted)`` for the value at ``start``.
 
-    A quote closed within ``_MAX_QUOTED_CHARS`` on the same line holds the
-    value; an unclosed one does not hide the rest of the text: the value is
-    then the run right after it.
+    A quote (a key of ``closers``) closed within ``_MAX_QUOTED_CHARS`` on the
+    same line holds the value; an unclosed one does not hide the rest of the
+    text: the value is then the run right after it.
     """
-    if start < len(text) and text[start] in "\"'":
-        close = text.find(text[start], start + 1, start + 1 + _MAX_QUOTED_CHARS)
+    if start < len(text) and text[start] in closers:
+        close = text.find(closers[text[start]], start + 1, start + 1 + _MAX_QUOTED_CHARS)
         if close >= 0 and "\n" not in text[start + 1:close]:
             return start + 1, close, True
         start += 1
@@ -512,28 +556,80 @@ def _drop_spaced_values(text: str) -> str:
     return "".join(pieces)
 
 
-def _is_identifier_shaped(name: str) -> bool:
-    """``api_key``, ``auth-token``, ``clientSecret``: never a plain word ("Password", "PASSWORD", "token")."""
-    return "_" in name or "-" in name or _CAMEL_CASE_RE.search(name) is not None
+def _is_identifier_shaped(text: str, start: int, name: str) -> bool:
+    """The name at ``text[start:]`` is a machine key, never a plain word or a label.
+
+    ``api_key``, ``clientSecret``, ``APIKey``, ``db.password``, ``--password``,
+    ``x-api-key`` and ``auth-token`` are; "Password", "PASSWORD", "eToken",
+    "e.g.password", "Top-Secret" and "One-Time-Password" are not. A hyphen
+    makes a key only after "x-" or "--", or when it joins two words into a
+    compound secret name.
+    """
+    if "_" in name or _CAMEL_CASE_RE.search(name) or _ACRONYM_CAMEL_RE.search(name):
+        return True
+    if start >= 3 and _DOTTED_PREFIX_RE.match(text, start - 3):
+        return True
+    if "-" not in name:
+        return False
+    lower = name.lower()
+    if lower.startswith(("x-", "--")):
+        return True
+    words = [word for word in lower.split("-") if word]
+    return len(words) >= 2 and words[-2] + words[-1] in _COMPOUND_SECRET_KEYS
+
+
+def _at_key_start(text: str, start: int) -> bool:
+    """A quoted key at ``start`` begins a line (after blanks) or follows '{', ',' or '['."""
+    i = start - 1
+    while i >= 0 and text[i] in " \t":
+        i -= 1
+    return i < 0 or text[i] in "\n\r{,["
+
+
+def _unquoted_value_end(text: str, start: int) -> int:
+    """The end of the unquoted value at ``start``; a "[redacted]" inside it does not cut it short."""
+    end = _STRUCTURED_VALUE_RE.match(text, start).end()
+    tail = len(_REDACTED) - 1                 # "[redacted" before the ']' that stopped the run
+    while text.startswith("]", end) and end - start >= tail and text.startswith(_REDACTED[:-1], end - tail):
+        end = _STRUCTURED_VALUE_RE.match(text, end + 1).end()
+    return end
 
 
 def _redact_structured_values(text: str) -> str:
-    """The value of a secret structured key: a quoted key, or an identifier-shaped bare one.
+    """The value of a secret structured key.
 
-    A quoted value closed on its line within ``_MAX_QUOTED_CHARS`` is redacted
-    whole; otherwise the run up to whitespace, ',', '}' or ']'. Every scan
-    goes on after the key (or after the redacted value), so the loop is linear.
+    The key is identifier-shaped (bare, or quoted anywhere), or a quoted plain
+    word where a key starts (a line start, '{', ',' or '['); a plain word's
+    value goes only when it is quoted. A quoted value (ASCII or smart quotes)
+    closed on its line within ``_MAX_QUOTED_CHARS`` is redacted whole;
+    otherwise the run up to whitespace, ',', '}', ']', '&' or ';' (a bracketed
+    run and an earlier "[redacted]" inside the run are taken whole, so no
+    bracket is left over); a scheme word ("Bearer", "Basic", "Token") goes
+    with the run after it. Every scan goes on after the
+    key (or after the redacted value), so the loop is linear.
     """
     pieces, last, pos = [], 0, 0
     while (match := _STRUCTURED_NAME_RE.search(text, pos)) is not None:
         pos = match.end()
-        quoted_name, bare_name = match.group(2), match.group(3)
+        opener, quoted_name, closer, bare_name = match.group(1, 2, 3, 4)
         name = quoted_name if quoted_name is not None else bare_name
-        if not _is_secret_name(name) or (quoted_name is None and not _is_identifier_shaped(name)):
+        if not _is_secret_key(name):
             continue
-        start, end, _quoted = _value_span(text, pos, _STRUCTURED_VALUE_RE)
+        shaped = _is_identifier_shaped(text, match.start(2 if quoted_name is not None else 4), name)
+        if quoted_name is None and not shaped:
+            continue
+        if quoted_name is not None and (closer != _QUOTE_CLOSERS[opener]
+                                        or not (shaped or _at_key_start(text, match.start()))):
+            continue
+        if not shaped and not text.startswith(tuple(_QUOTE_CLOSERS), pos):
+            continue                  # a plain word's unquoted value is prose ('"Password": your PIN')
+        start, end, quoted = _value_span(text, pos, _STRUCTURED_VALUE_RE, _QUOTE_CLOSERS)
+        if not quoted:
+            end = _unquoted_value_end(text, start)
+            if text[start:end].lower() in _SCHEME_WORDS:
+                end = max(end, _unquoted_value_end(text, _BLANKS_RE.match(text, end).end()))
         if end > start:
-            pieces.append(text[last:start] + "[redacted]")
+            pieces.append(text[last:start] + _REDACTED)
             last = pos = end
     pieces.append(text[last:])
     return "".join(pieces)
@@ -580,37 +676,47 @@ def _scrub_at(text: str, depth: int) -> str:
     text = _USERINFO_RE.sub(_redact_userinfo, text)
     text = _drop_spaced_values(text)
     text = _PARAMS_RE.sub(lambda m: _scrub_params(m.group(0), depth), text)
-    # Before the JWT, Bearer and Basic rules, so their "[redacted]" is never read as a value.
-    text = _redact_structured_values(text)
     text = _JWT_RE.sub("[redacted]", text)
     text = _BEARER_RE.sub(_redact_bearer, text)
-    return _BASIC_RE.sub(_redact_basic, text)
+    text = _BASIC_RE.sub(_redact_basic, text)
+    # After the JWT, Bearer and Basic rules, so a scheme word is never taken as the
+    # whole value ("X-Auth-Token: Bearer X"); their "[redacted]" is not redacted again.
+    return _redact_structured_values(text)
 
 
 # Scope (user decision A): only machine credentials are removed. A password, key
 # or code that an author writes in plain prose ("Password: 123456", "Ticket:
 # INC0012345", "the password is X") is content for its readers and is shown as
 # written, as other BOW document connectors show it; so is a value after a
-# plain-word label ("password=X", "Token: X", "PASSWORD: X").
+# plain-word label ("password=X", "Token: X", "PASSWORD: X", '"Password": your PIN',
+# "Top-Secret: X", "One-Time-Password: X", "e.g.password: X").
 # Not handled (a documented limitation; defence in depth, since the text is
-# already visible to the identity that reads it):
-#   * fullwidth or lookalike parameter names and fullwidth dots, JWTs whose
-#     header does not start with "eyJ", and a bare secret with no name,
-#     separator or scheme next to it;
+# already visible to the identity that reads it; P10 docs repeat this list):
+#   * XML forms ('<add key="ApiKey" value="X"/>', "<password>X</password>");
+#   * a non-ASCII space (no-break, ideographic) between a separator and its value;
+#   * an all-caps single-word key ("PGPASSWORD=X", "JSESSIONID: X"), a plain
+#     lower-case one ("sessionid: X"), and "Authorization: Token X";
+#   * a Bearer value of letters, '.' and '-' only, unless a structured secret
+#     key comes before the scheme word ("X-Auth-Token: Bearer X" is redacted);
 #   * a secret cut in two by a line break or a block tag: the part after the
 #     break is shown (a JWT's payload and signature still start a JWT of their
-#     own, so only the rest of a cut header shows);
-#   * a structured key that is neither quoted nor identifier-shaped
-#     ("JSESSIONID: X", "sessionid: X"), and "Authorization: Token X";
-#   * a Bearer value with no digit and none of "_~+/=" (letters, '.' and '-' only);
-#   * a secret split by a closing then an opening inline tag ("ab</span><span>cd"
-#     reads as two words, as "Home</a><a>Contact" must);
-#   * a quoted value whose closing quote is more than 256 characters away or on
-#     another line (the run after the opening quote is taken instead);
+#     own, so only the rest of a cut header shows); also a secret split by a
+#     closing then an opening inline tag ("ab</span><span>cd" reads as two
+#     words, as "Home</a><a>Contact" must);
+#   * fullwidth or lookalike names and fullwidth dots, and a bare secret with no
+#     name, separator or scheme next to it;
+#   * JWTs whose header does not start with "eyJ";
+#   * authored prose secrets, by design (user decision A, above);
+#   * an unquoted structured value that holds whitespace, ',', ';', '&', '}' or
+#     ']' (only the run before it goes), and a quoted value whose closing quote
+#     is more than 256 characters away or on another line (the run after the
+#     opening quote is taken instead);
+#   * a numeric '=' or '&' reference without ';' that a digit (or a hex digit)
+#     follows ("&#x3dab12": HTML reads it as another character);
 #   * a URL scheme longer than 32 characters.
-# Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), any
-# quoted key on the list ('"code": "X"', '"key": "X"'), and parameter names that
-# end with a secret word ("nextPageToken", "showPassword").
+# Over-redaction accepted: a camel-case word starting "eyJ" ("eyJumpsMonkey"), an
+# identifier-shaped quoted key in prose ('the "api_key": field'), and parameter
+# names that end with a secret word ("nextPageToken", "showPassword").
 # A ZWNJ or ZWJ kept inside a word (a format character) becomes a space in a title
 # or a snippet (``_without_controls``), not in an article body; a variation
 # selector is a mark (Mn), so it stays everywhere.
@@ -623,22 +729,26 @@ def _scrub(text: str) -> str:
     letters and marks such as U+3164 or U+034F) is dropped first, so none can
     split a secret; whitespace is kept, a ZWNJ/ZWJ between two non-ASCII
     characters stays, and so does a variation selector right after one. A '='
-    or '&' still written as ``&#61;``/``&#38;``/``&equals;`` or as a JSON
-    ``\\u003d``/``\\u0026`` escape is decoded. Query strings, fragments and ';'
-    path parameters are split on '&' and ';'; each part is percent-decoded
-    before its name is compared, a part that decodes to something else (a
-    nested URL) is scrubbed again in decoded form, and one still encoded after
-    ``_MAX_SCRUB_DEPTH`` rounds is dropped. A name is secret when, in lower
-    case and without '_', '-' and '[]', it is on the list or ends with a secret
-    word (``newPassword``, ``apiToken``, ``aws_secret_access_key``). A secret
-    name followed by '=' and whitespace or a quote loses the next run or the
-    quoted text. The value of a structured secret key (JSON, YAML, config or
-    env) is redacted when the key is quoted (``"password": "..."``) or
-    identifier-shaped (``api_key=``, ``clientSecret:``), never after a plain
-    word. URL passwords (``user:...@``, up to the last '@'), Bearer tokens
-    (with a digit or one of ``_~+/=``) and Basic credentials (base64 with a
-    digit, '+', '/' or '=', or letters that decode to ``user:password``) are
-    redacted too.
+    or '&' still written as ``&#61;``/``&#38;``/``&equals;`` (a numeric one
+    also without its ';') or as a JSON ``\\u003d``/``\\u0026`` escape is
+    decoded. Query strings, fragments and ';' path parameters are split on '&'
+    and ';'; each part is percent-decoded before its name is compared, a part
+    that decodes to something else (a nested URL) is scrubbed again in decoded
+    form, and one still encoded after ``_MAX_SCRUB_DEPTH`` rounds is dropped.
+    A parameter name is secret when, in lower case and without '_', '-', '[]'
+    and a leading "amp;" (or a bare "amp"), it is on the list or ends with a
+    secret word (``newPassword``, ``apiToken``, ``aws_secret_access_key``). A
+    secret name followed by '=' and whitespace or a quote loses the next run
+    or the quoted text. URL passwords (``user:...@``, up to the last '@'),
+    Bearer tokens (with a digit or one of ``_~+/=``) and Basic credentials
+    (base64 with a digit, '+', '/' or '=', or letters that decode to
+    ``user:password``) are redacted next. Last, the value of a structured
+    secret key (JSON, YAML, config or env; its own, shorter name list) is
+    redacted when the key is identifier-shaped (``api_key=``,
+    ``clientSecret:``, ``APIKey:``, ``db.password=``, ``x-api-key:``), or a
+    quoted plain word where a key starts with a quoted value
+    (``{"password": "..."}``); a scheme word as the value goes with its
+    credential, and an earlier "[redacted]" is not redacted again.
     """
     return _scrub_at(text, 0)
 

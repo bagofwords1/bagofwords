@@ -390,7 +390,34 @@ _SECRET_FORMS = [
     ("json_password", '{{"password": "{s}"}}'),
     ("json_api_key", '"api_key":"{s}"'),
     ("json_multi_word_value", '{{"password": "{s1} {s2}"}}'),
-    ("yaml_single_quoted", "'secret': '{s}'"),
+    ("yaml_single_quoted", "config:\n  'secret': '{s}'"),
+    ("dict_single_quoted_plain_name", "{{'secret': '{s}'}}"),
+    ("json_braced_api_key", '{{"api_key":"{s}"}}'),
+    ("json_after_comma", '{{"lang": "en", "password": "{s}"}}'),
+    # A scheme word taken as a structured value: the credential after it goes too.
+    ("structured_bearer_value", "X-Auth-Token: Bearer {s}"),
+    ("structured_basic_value", "x-api-key: Basic {s}"),
+    ("structured_token_scheme_value", "private_token: Token {s}"),
+    # Smart quotes around the key and the value.
+    ("smart_double_quoted", "“api_key”: “{s}”"),
+    ("smart_single_quoted", "{{‘password’: ‘{s}’}}"),
+    # Acronym camel case, dotted config keys, CLI flags and x- headers.
+    ("structured_acronym_api_key", "APIKey: {s}"),
+    ("structured_acronym_api_token", "APIToken: {s}"),
+    ("structured_acronym_api_secret", "APISecret: {s}"),
+    ("structured_dotted_password", "spring.datasource.password={s}"),
+    ("structured_short_dotted_password", "db.password={s}"),
+    ("structured_cli_password", "run it with --password={s} once"),
+    ("structured_lower_x_api_key", "x-api-key: {s}"),
+    ("structured_x_auth_token", "X-Auth-Token: {s}"),
+    ("structured_x_amz_header", "X-Amz-Security-Token: {s}"),
+    ("structured_mysql_pwd", "MYSQL_PWD={s}"),
+    ("structured_hyphen_compound", "client-secret: {s}"),
+    # Numeric references without their ';', and a bare "&amp" before a name.
+    ("entity_equals_unterminated", _URL + "?token&#61{s}"),
+    ("hex_entity_equals_unterminated", _URL + "?token&#x3d{s}"),
+    ("bare_amp_before_name", _URL + "?id=1&ampsig={s}"),
+    ("entity_ampersand_unterminated", _URL + "?id=1&#38sig={s}"),
     ("structured_session_id", "session_id: {s}"),
     # A raw '@' inside a URL password, and a scheme right after a digit, '.' or '-'.
     ("userinfo_at_inside_password", "https://user:{s1}@{s2}@kms.example.com/x"),
@@ -481,6 +508,13 @@ def test_search_redacts_jwts_split_by_invisible_characters(kms, form, text):
     ("apiToken: Sv1x9Qk2 Self-service portal", "Sv1x9Qk2", "Self-service portal"),
     ("Authorization: Basic U3YxeDlRazI6YWJj 2026-11-04 rollout", "U3YxeDlRazI6YWJj", "2026-11-04 rollout"),
     (_URL + "?token=Sv1x9Qk2 Follow-up", "Sv1x9Qk2", "Follow-up"),
+    # The scheme word is read with its credential, so the credential goes and the next word stays.
+    ("X-Auth-Token: Bearer Sv1x9Qk2abc next", "Sv1x9Qk2abc", "next"),
+    ("x-api-key: Basic U3YxeDlRazI6YWJj next", "U3YxeDlRazI6YWJj", "next"),
+    ("X-Auth-Token: Bearer AbcdefghijklMnop next", "AbcdefghijklMnop", "next"),
+    # An unquoted structured value stops at '&' and ';': the parameters after it stay.
+    ("client_secret=Sv1x9Qk2&lang=en done", "Sv1x9Qk2", "&lang=en done"),
+    ("api_key: Sv1x9Qk2;lang=en", "Sv1x9Qk2", ";lang=en"),
 ])
 def test_search_keeps_ordinary_words_after_a_redaction(kms, text, secret, kept):
     entry = _search_one(kms, text)
@@ -527,16 +561,49 @@ def test_search_scrub_keeps_harmless_parameters(kms):
                                   "Session: 09:30-11:00 in room B", 'Ticket: "Billing question"',
                                   'Secret: "Do not share"', "PASSWORD: Reset-2026 steps",
                                   "Bearer token-based authentication", "Basic SuccessFactors setup",
-                                  "Basic Authentication setup"])
+                                  "Basic Authentication setup",
+                                  # JSON keys that are not credential names (only URL parameters use them).
+                                  '{"code": "E1001", "message": "Card declined"}', '{"error": {"code": 404}}',
+                                  '{"key": "Enter"}', '{"auth": "oauth2"}', '{"signature": "John Smith"}',
+                                  '{"ticket": "INC0012345"}',
+                                  # A quoted plain word is a key only where a key starts, and then only
+                                  # a quoted value goes.
+                                  'Fields: "Username": your ID, "Password": your PIN',
+                                  'Open the "Token": section of the portal', "Label 'Session': Monday 09:30",
+                                  '"code": 1234 is the store code', 'In the field "Password": type the PIN',
+                                  'Click "Password": "Reset" to start',
+                                  # Labels that are not identifier-shaped.
+                                  "Top-Secret: internal use only", "One-Time-Password: sent by SMS",
+                                  "One-time-password: sent by SMS", "Forgot-password: click the link",
+                                  "Reset-Password: Open Settings", "Change-password: Go to Settings",
+                                  "SafeNet eToken: insert the device", "ws-security-token: see section 3",
+                                  "Re-token: COVID-19", "e.g.password: 1234",
+                                  # Documented limitation: an all-caps single-word key is shown as written.
+                                  "PGPASSWORD=Sv1x9Qk2"])
 def test_search_scrub_keeps_ordinary_prose(kms, text):
     entry = _search_one(kms, text)
     assert text in entry["snippet"], entry["snippet"]
     assert text in entry["name"], entry["name"]
 
 
+@pytest.mark.parametrize("text,shown", [
+    (f"api_key: {_H}.{_P}.{_S} next", "api_key: [redacted] next"),
+    (f'{{"apiToken": {_H}.{_P}.{_S}, "lang": "en"}}', '{"apiToken": [redacted], "lang": "en"}'),
+    ("db_password=https://u:Sv1x9Qk2@db.example.com/x next", "db_password=[redacted] next"),
+    ("X-Auth-Token: Bearer Sv1x9Qk2abc next", "X-Auth-Token: [redacted] next"),
+    ("api_key: [Sv1x9Qk2] next", "api_key: [redacted] next"),
+])
+def test_search_redaction_leaves_no_debris(kms, text, shown):
+    # A value already redacted by an earlier rule is not redacted again, and no bracket is left over.
+    entry = _search_one(kms, text)
+    for field in ("name", "snippet"):
+        assert shown in entry[field], (field, entry[field])
+        assert "]]" not in entry[field] and "Sv1x9Qk2" not in entry[field], (field, entry[field])
+
+
 @pytest.mark.parametrize("text", ["x <= 5 and y >= 3", "Orders < 100 and > 50 NIS", "5 < 6 > 4",
                                   "Discount: <50% off> today", "?page=1&section=2&times=3",
-                                  "Q&A &notifications", "R&D &copy2026 &notin"])
+                                  "?page=1&amplitude=5", "Q&A &notifications", "R&D &copy2026 &notin"])
 def test_search_keeps_comparisons_and_bare_ampersands(kms, text):
     # A '<' starts a tag only before a letter, '/', '!' or '?'; an entity needs its ';'.
     entry = _search_one(kms, text)
@@ -594,7 +661,7 @@ _ADVERSARIAL = {
     "scheme_runs": _adversarial("a://"),
     "bearer_words": _adversarial("Bearer "),
     "basic_words": _adversarial("Basic "),
-    "prose_names": _adversarial("token "),
+    "plain_words": _adversarial("token "),
     "userinfo": "https://" + _adversarial("a:"),
     "joiners": _adversarial("a\u200d"),
     "entities": _adversarial("&amp;#61;"),
@@ -603,9 +670,9 @@ _ADVERSARIAL = {
     "spaced_empty_values": _adversarial("?q= "),
     "quoted_secret_values": _adversarial("?token='"),
     "unclosed_quotes": _adversarial("?token='" + "a" * 300),
-    "prose_quotes": _adversarial('password: "'),
+    "plain_label_quotes": _adversarial('password: "'),
     "json_names": _adversarial('"token":'),
-    "prose_values": _adversarial("token: Ab1 "),
+    "plain_label_values": _adversarial("token: Ab1 "),
     "redaction_tails": _adversarial("eyJabcd Abcdefgh1 "),
     "userinfo_ats": "https://a:" + _adversarial("@"),
     "digit_schemes": _adversarial("1a"),
@@ -618,8 +685,24 @@ _ADVERSARIAL = {
     "structured_names": _adversarial("a_b:"),
     "structured_secret_names": _adversarial("api_key:"),
     "structured_unclosed_quotes": _adversarial("api_key: '" + "a" * 300),
-    "bearer_unspaced": _adversarial("Bearer"),
     "basic_letters": _adversarial("Basic dXNlcjpwYXNz "),
+    # The forms added in fix round 5.
+    "structured_scheme_values": _adversarial("x_token: Bearer "),
+    "structured_redacted_values": _adversarial("api_key: eyJabcdef, "),
+    "structured_bracket_values": _adversarial("api_key: [a"),
+    "smart_quoted_names": _adversarial("\u201capi_key\u201d:"),
+    "smart_unclosed_quotes": _adversarial("\u201capi_key\u201d: \u201c" + "a" * 300),
+    "smart_mismatched_quotes": _adversarial("\u201cpassword\u2019: "),
+    "quoted_keys_after_blanks": _adversarial(",      \"password\": x "),
+    "acronym_camel_names": _adversarial("APIKey:"),
+    "dotted_names": _adversarial("db.password="),
+    "dotted_runs": _adversarial("a.") + "password=x",
+    "hyphen_runs": _adversarial("a-") + "token: x",
+    "cli_flags": _adversarial("--password="),
+    "unterminated_entities": _adversarial("&#61"),
+    "unterminated_entity_names": _adversarial("?token&#61"),
+    "bare_amp_names": "?" + _adversarial("amp") + "sig=x",
+    "bare_amp_params": _adversarial("&ampsig=x"),
 }
 
 
