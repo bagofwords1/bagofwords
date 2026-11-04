@@ -143,7 +143,9 @@ const snippet = computed(() => {
     const host = selectedHost.value
     if (!host) return ''
     if (variant.value === 'backend') return backendSnippet(host)
-    const placement = variant.value === 'inline' ? `    container: '#bow-${artifactRef.value}',` : `    mode: 'floating',`
+    const placement = variant.value === 'inline'
+        ? `    container: '#bow-${artifactRef.value}',`
+        : `    mode: 'floating',\n    width: 600,   // panel size in px; the viewport caps it\n    height: 720,`
     const holder = variant.value === 'inline' ? `<div id="bow-${artifactRef.value}" style="height: 640px"></div>\n` : ''
     return `${holder}<script src="${origin}/api/embed/sdk/v1/bow-embed.js"><\/script>
 <script>

@@ -30,6 +30,10 @@
  *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
  *
+ * Floating mode: `width` and `height` size the panel, as a number of pixels
+ * or a CSS length such as '40rem'. The default is 600 x 720 px, and the
+ * viewport caps both, so the panel still fits a small window.
+ *
  * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
  * refuses (the artifact doesn't exist or doesn't allow this application, the
  * application is disabled, this origin isn't listed) never runs, so it can't
@@ -63,6 +67,19 @@
   function plain(obj) {
     if (!obj || typeof obj !== 'object') return null;
     try { return JSON.parse(JSON.stringify(obj)); } catch (e) { return null; }
+  }
+
+  // The floating panel's size. Wide enough that a chat looks as it does in
+  // BOW's artifact preview; the viewport still caps both sides.
+  var FLOATING_WIDTH = '600px';
+  var FLOATING_HEIGHT = '720px';
+
+  // A number is pixels; a string must be one plain CSS length (it goes into
+  // the panel's style). Anything else falls back to the default.
+  function cssLength(value, fallback) {
+    if (typeof value === 'number' && isFinite(value) && value > 0) return value + 'px';
+    if (typeof value === 'string' && /^\d+(\.\d+)?(px|rem|em|vw|vh|%)$/.test(value.trim())) return value.trim();
+    return fallback;
   }
 
   function element(target) {
@@ -115,8 +132,10 @@
       container.appendChild(wrapper);
     } else {
       var side = options.position === 'bottom-left' ? 'left' : 'right';
-      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;width:min(420px,calc(100vw - 32px));' +
-        'height:min(640px,calc(100vh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
+      var panelWidth = cssLength(options.width, FLOATING_WIDTH);
+      var panelHeight = cssLength(options.height, FLOATING_HEIGHT);
+      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;width:min(' + panelWidth + ',calc(100vw - 32px));' +
+        'height:min(' + panelHeight + ',calc(100vh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
         'background:#fff;display:none;z-index:' + String(options.zIndex || 2147483000);
       wrapper.appendChild(iframe);
       launcher = document.createElement('button');

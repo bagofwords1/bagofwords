@@ -225,3 +225,23 @@ console.log('PASS: a frame that never answers with the nonce is reported as unav
   assert.equal(late, 0)
 }
 console.log('PASS: destroy after logout waits for the frame to sign out (6 s at most), and the embed is inert after destroy')
+
+// ── floating panel size ──────────────────────────────────────────────────────
+{
+  const panel = (options) => mountWith({ container: undefined, mode: 'floating', ...options }).embed.iframe.parentNode.style.cssText
+  // The default is wide enough to show a chat as BOW's artifact preview does.
+  assert.match(panel(), /width:min\(600px,calc\(100vw - 32px\)\);height:min\(720px,calc\(100vh - 120px\)\)/)
+  // A number is pixels, a string is one CSS length; the viewport still caps both.
+  assert.match(panel({ width: 480, height: 560 }), /width:min\(480px,calc\(100vw - 32px\)\);height:min\(560px,calc\(100vh - 120px\)\)/)
+  assert.match(panel({ width: '40rem', height: '80vh' }), /width:min\(40rem,calc\(100vw - 32px\)\);height:min\(80vh,calc\(100vh - 120px\)\)/)
+  // Anything else falls back to the default; it never reaches the style text.
+  for (const bad of ['600px;background:url(x)', 'calc(1px)', '', -5, 0, NaN, Infinity, {}, '10']) {
+    const css = panel({ width: bad, height: bad })
+    assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(bad)}`)
+    assert.doesNotMatch(css, /url\(/)
+  }
+  // Inline mode is sized by its container, as before.
+  const inline = mountWith({ width: 300 }).embed.iframe.parentNode.style
+  assert.equal(inline.width, '100%')
+}
+console.log('PASS: the floating panel is 600 x 720 by default, sized by width/height when given, capped by the viewport')
