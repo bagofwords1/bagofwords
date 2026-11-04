@@ -26,6 +26,9 @@ So on timeout we also ask the source to stop. What "ask" means is per driver:
     outcome string so it is visible rather than surprising. The SPID is read
     once per physical connection and cached on it, so the cost is per pooled
     connection and not per query.
+  * **Teradata** (teradatasql) — `connection.cancel()`, documented as callable
+    from another thread while the owning thread blocks in execute(). The
+    request aborts, the session survives.
   * Everything else (Trino, Presto, Snowflake, …) — reported as unsupported.
     We deliberately do NOT close the connection out from under the driver: for
     the C-extension drivers that is a segfault risk, and the orphan thread ends
@@ -126,6 +129,12 @@ def _cancel(sa_conn: Any, client: Any = None) -> str:
         # the owning thread blocks in execute().
         raw.cancel()
         return f"cancelled ({dialect} cancel)"
+
+    if dialect == "teradata":
+        # teradatasql documents cancel() as callable from a thread other than
+        # the one blocked in execute(); the request aborts, the session stays.
+        raw.cancel()
+        return "cancelled (teradata cancel)"
 
     if dialect in ("mysql", "mariadb"):
         thread_id = _pymysql_thread_id(raw)

@@ -83,6 +83,51 @@ _SPL_WRITE_COMMANDS = re.compile(
 )
 
 
+# Teradata lets a read start with lock clauses: LOCKING [DATABASE|TABLE|VIEW|ROW]
+# [name] FOR|IN ACCESS|READ|SHARE [MODE] [NOWAIT]. ACCESS (dirty read) is the
+# usual reporting idiom. WRITE / EXCLUSIVE locks would block the source's own
+# loads, so a read-only agent never takes them.
+_TERADATA_LOCK_PREFIX = re.compile(
+    r"^\s*LOCK(?:ING)?\s+(?:(?:DATABASE|TABLE|VIEW|ROW)\s+)?(?:[\w.\"$#]+\s+)?(?:FOR|IN)\s+"
+    r"(?P<mode>\w+)(?:\s+MODE)?(?:\s+NOWAIT)?\s*",
+    re.IGNORECASE,
+)
+_TERADATA_READ_LOCKS = {"ACCESS", "READ", "SHARE"}
+_TERADATA_CHARSET_CLAUSE = re.compile(r"\bCHARACTER\s+SET\s+\w+", re.IGNORECASE)
+# First word of a statement Teradata runs without changing anything.
+_TERADATA_READ_VERBS = {"SELECT", "SEL", "WITH", "HELP", "SHOW", "EXPLAIN", "("}
+
+
+def _check_teradata(sql: str) -> str:
+    """Teradata-only pre-check: the leading verb must be a read.
+
+    An allowlist on purpose. Teradata has short forms and statements sqlglot
+    cannot parse (CT = CREATE TABLE, CV = CREATE VIEW, MODIFY USER, GIVE,
+    COMMENT ON ... AS), and unparsed text only gets the generic keyword check,
+    which does not know them. None of them starts with a read verb.
+    Returns the statement with its lock clauses removed.
+    """
+    text = _LITERALS_AND_COMMENTS.sub(lambda m: m.group() if m.group().startswith(("'", '"')) else " ", sql)
+    body = text
+    while True:
+        m = _TERADATA_LOCK_PREFIX.match(body)
+        if not m:
+            break
+        mode = m.group("mode").upper()
+        if mode not in _TERADATA_READ_LOCKS:
+            raise ReadOnlyViolation(
+                f"LOCKING ... FOR {mode} is not allowed. Use LOCKING ROW FOR ACCESS for reads."
+            )
+        body = body[m.end():]
+    stripped = body.lstrip()
+    verb = "(" if stripped.startswith("(") else (stripped.split(None, 1)[0].upper() if stripped else "")
+    if verb not in _TERADATA_READ_VERBS:
+        raise ReadOnlyViolation(
+            f"Statement '{verb or '(empty)'}' is not allowed. Only SELECT queries are allowed."
+        )
+    return body
+
+
 def dialect_for_client(client) -> Optional[str]:
     return CLIENT_DIALECTS.get(type(client).__name__)
 
@@ -115,6 +160,10 @@ def check_sql(sql: str, dialect: str) -> None:
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
+    teradata = dialect == "teradata"
+    if teradata:
+        _check_teradata(sql)
+
     try:
         # A comment after the final `;` parses as a bare Semicolon node holding
         # only that comment; it runs nothing, so it is not a second statement.
@@ -123,7 +172,15 @@ def check_sql(sql: str, dialect: str) -> None:
     except SqlglotError as e:
         logger.warning("sql_guard: %s parser could not read query, using keyword check: %s",
                        dialect, str(e)[:200])
-        _keyword_check(sql)
+        if teradata:
+            # `CHARACTER SET UNICODE` in a CAST is a read; without this the
+            # keyword check would see SET. The leading-verb allowlist above
+            # already ran; what is left is a second statement smuggled after a
+            # `;` (Teradata multi-statement requests).
+            _keyword_check(_TERADATA_CHARSET_CLAUSE.sub(" ", sql))
+            _single_statement_check(sql)
+        else:
+            _keyword_check(sql)
         return
 
     if len(statements) != 1:
@@ -132,8 +189,22 @@ def check_sql(sql: str, dialect: str) -> None:
         )
     stmt = statements[0]
 
+    if teradata and type(stmt).__name__ == "LockingStatement":
+        # The lock mode was checked by _check_teradata; what it wraps must
+        # itself be a read.
+        lock = stmt.this
+        mode = str(lock.args.get("lock_type") or "").upper() if lock is not None else ""
+        if mode not in _TERADATA_READ_LOCKS:
+            raise ReadOnlyViolation(f"LOCKING ... FOR {mode or '?'} is not allowed.")
+        stmt = stmt.expression
+        if stmt is None:
+            raise ReadOnlyViolation("LOCKING must be followed by a SELECT statement.")
+
     if isinstance(stmt, exp.Command):
         verb = (stmt.this or "").strip().split(" ")[0].upper()
+        if teradata and verb == "HELP":
+            # HELP TABLE / COLUMN / VIEW / SESSION only report metadata.
+            return
         if verb not in _READ_COMMANDS or (verb == "PRAGMA" and "=" in sql):
             raise ReadOnlyViolation(f"Statement '{verb}' is not allowed. Only SELECT queries are allowed.")
         if verb == "EXPLAIN":
@@ -173,6 +244,13 @@ def _keyword_check(sql: str) -> None:
         raise ReadOnlyViolation(
             f"Query contains forbidden operation '{match.group().upper()}'. Only SELECT queries are allowed."
         )
+
+
+def _single_statement_check(sql: str) -> None:
+    """Unparsed text: refuse anything after a `;` other than whitespace."""
+    parts = _LITERALS_AND_COMMENTS.sub(" ", sql).split(";")
+    if any(p.strip() for p in parts[1:]):
+        raise ReadOnlyViolation("Only a single read-only statement is allowed.")
 
 
 def _check_spl(spl: str) -> None:

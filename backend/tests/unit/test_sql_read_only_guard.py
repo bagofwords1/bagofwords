@@ -25,7 +25,7 @@ from app.data_sources.fast import extractor
 
 
 DIALECTS = ["postgres", "mysql", "tsql", "oracle", "sqlite", "snowflake",
-            "bigquery", "redshift", "trino", "clickhouse", "databricks", "duckdb"]
+            "bigquery", "redshift", "trino", "clickhouse", "databricks", "duckdb", "teradata"]
 
 WRITES = [
     "DELETE FROM orders",
@@ -102,6 +102,77 @@ def test_dialect_specific_writes_are_refused(sql, dialect):
 ])
 def test_dialect_specific_reads_pass(sql, dialect):
     check_sql(sql, dialect)
+
+
+# Teradata has short forms (CT, CV, INS, DEL) and statements sqlglot cannot
+# parse (MODIFY USER, GIVE, COMMENT ON ... AS). Unparsed text used to fall back
+# to a keyword list that did not know them, so they ran as "reads".
+TERADATA_WRITES = [
+    "CT orders_copy AS (SEL * FROM orders) WITH DATA",
+    "CV v_orders AS SEL * FROM orders",
+    "REPLACE MACRO m AS (DEL FROM orders;)",
+    "REPLACE VIEW v AS SELECT 1 AS a",
+    "COMMENT ON TABLE orders AS 'changed'",
+    "MODIFY USER analyst AS PASSWORD = secret",
+    "MODIFY DATABASE sales AS PERM = 0",
+    "GIVE sales TO analyst",
+    "INS orders (1, 2)",
+    "UPD orders SET amount = 0 ALL",
+    "DEL FROM orders ALL",
+    "DELETE DATABASE sales",
+    "EXEC monthly_close",
+    "BT; DELETE FROM orders; ET;",
+    "DATABASE other_db",
+    "SET QUERY_BAND = 'a=b;' FOR SESSION",
+    "COLLECT STATISTICS ON orders COLUMN amount",
+    "/* looks harmless */ INS orders (1, 2)",
+    # A read lock prefix must not launder the statement it wraps.
+    "LOCKING ROW FOR ACCESS DEL FROM orders",
+    "LOCKING orders FOR WRITE DELETE FROM orders",
+    # Write/exclusive locks would block the warehouse's own loads.
+    "LOCKING ROW FOR WRITE SELECT * FROM orders",
+    "LOCKING TABLE orders FOR EXCLUSIVE SELECT * FROM orders",
+    "LOCKING ROW FOR ACCESS LOCKING TABLE orders FOR WRITE SELECT 1",
+    # A second statement after an unparsable first one.
+    "SEL a FROM t QUALIFY x; CT y AS (SEL 1) WITH DATA",
+    "HELP SESSION; DEL FROM orders",
+    "SELECT CAST(a AS VARCHAR(10) CHARACTER SET UNICODE) FROM t; SET QUERY_BAND = 'x=y;' FOR SESSION",
+]
+
+TERADATA_READS = [
+    "SEL * FROM orders",
+    "SELECT TOP 10 * FROM sales.orders ORDER BY order_date DESC",
+    "LOCKING ROW FOR ACCESS SELECT amount FROM orders",
+    "LOCK ROW FOR ACCESS SEL amount FROM orders",
+    "LOCKING TABLE sales.orders FOR ACCESS SELECT * FROM sales.orders",
+    "LOCKING ROW FOR ACCESS WITH c AS (SELECT 1 AS a) SELECT * FROM c",
+    "LOCKING ROW FOR ACCESS SELECT * FROM orders SAMPLE 10",
+    "HELP COLUMN sales.orders.*",
+    "HELP TABLE sales.orders",
+    "SHOW TABLE sales.orders",
+    "SELECT customer_id FROM orders QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY d DESC) = 1",
+    "(SELECT a FROM t) UNION (SELECT a FROM u)",
+    "SELECT a FROM t MINUS SELECT a FROM u",
+    # Identifiers and literals that look like Teradata abbreviations.
+    "SELECT COUNT(*) AS ct, CASE WHEN a = 1 THEN 'del' END AS et FROM orders",
+    "SELECT * FROM orders WHERE note = 'DEL FROM orders; x'",
+    "SELECT amount (FORMAT 'Z9') FROM orders;",
+    # The fixes the connector's prompt suggests for error 6706 must run;
+    # sqlglot cannot parse the first, and its SET is not a write.
+    "SELECT CAST(name AS VARCHAR(100) CHARACTER SET UNICODE) FROM customers",
+    "SELECT TRANSLATE(region USING LATIN_TO_UNICODE) FROM customers",
+]
+
+
+@pytest.mark.parametrize("sql", TERADATA_WRITES)
+def test_teradata_writes_are_refused(sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "teradata")
+
+
+@pytest.mark.parametrize("sql", TERADATA_READS)
+def test_teradata_reads_pass(sql):
+    check_sql(sql, "teradata")
 
 
 def test_non_sql_clients_are_not_checked():
