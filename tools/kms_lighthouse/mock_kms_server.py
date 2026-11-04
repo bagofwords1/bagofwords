@@ -45,13 +45,15 @@ TREE = {
     "301": {"parent": "90", "title": "Billing dispute", "type": "ITEM", "status": "2"},
 }
 
+# "session_username" is what sessionInfo reports; it differs from the login
+# name on purpose, so a test can tell a reported identity from the typed one.
 USERS = {
     "alice": {"password": "alice-kms-pass", "user_id": 11, "full_name": "Alice Agent",
-              "visible": {"78", "90", "95", "279", "301"}},
+              "session_username": "alice.agent", "visible": {"78", "90", "95", "279", "301"}},
     "bob": {"password": "bob-kms-pass", "user_id": 12, "full_name": "Bob Billing",
-            "visible": {"90", "301"}},
+            "session_username": "bob.billing", "visible": {"90", "301"}},
     "svc": {"password": "svc-kms-pass", "user_id": 13, "full_name": "BOW Service",
-            "visible": {"78", "90", "95", "279", "301"}},
+            "session_username": "bow.service", "visible": {"78", "90", "95", "279", "301"}},
 }
 
 # Pasted API tokens (the "token" auth variant) -> user.
@@ -61,7 +63,24 @@ TOKENS = {
     "svc-api-token-1": "svc",
 }
 
-STATE: dict = {}
+# Allowed values of the switches a test sets; anything else is a typo and raises.
+_SWITCHES = {
+    "login_mode": ("cookie", "token", "both", "none"),
+    "expired_response": ("401", "302"),
+    "odd_shapes": (False, "list", "error", "bad_id", "bad_username"),
+}
+
+
+class _State(dict):
+    def __setitem__(self, key, value):
+        allowed = _SWITCHES.get(key)
+        # `True == 1` would pass a plain `in` check, so compare types too.
+        if allowed is not None and not any(type(value) is type(a) and value == a for a in allowed):
+            raise ValueError(f"STATE[{key!r}] must be one of {allowed!r}, not {value!r}")
+        super().__setitem__(key, value)
+
+
+STATE: dict = _State()
 REQUEST_LOG: list = []
 _SESSIONS: dict = {}        # session cookie value -> user
 _LOGIN_TOKENS: dict = {}    # token issued by /login -> user
@@ -73,14 +92,14 @@ def reset():
     with _LOCK:
         STATE.clear()
         STATE.update({
-            "login_mode": "cookie",          # cookie | token | both
+            "login_mode": "cookie",          # cookie | token | both | none (SUCCESS, no session)
             "expired_response": "401",       # 401 | 302
             "ai_text_available": True,
             "top_level_requires_parent": False,
             "login_count": 0,                # every login attempt
             "accepted_logins": 0,            # logins that returned SUCCESS
             "extra_results": [],
-            "odd_shapes": False,             # False | "list" | "error" | "bad_id"
+            "odd_shapes": False,             # False | "list" | "error" | "bad_id" | "bad_username"
         })
         REQUEST_LOG.clear()
         _SESSIONS.clear()
@@ -192,8 +211,9 @@ class Handler(BaseHTTPRequestHandler):
             if odd == "bad_id":
                 return self._send_json(200, {"status": "SUCCESS", "data": [ODD_MARKER]})
             record = USERS[user]
+            username = {"name": ODD_MARKER} if odd == "bad_username" else record["session_username"]
             return self._send_json(200, {"status": "SUCCESS", "data": {
-                "userId": record["user_id"], "userFullName": record["full_name"], "username": user}})
+                "userId": record["user_id"], "userFullName": record["full_name"], "username": username}})
         if route == "/cm/tree/branch/view":
             if odd == "list":
                 return self._send_json(200, [ODD_MARKER])

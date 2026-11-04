@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Optional, List, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -2794,11 +2795,34 @@ class KmsLighthouseUserPassCredentials(BaseModel):
         description="KMS Lighthouse login name.", json_schema_extra={"ui:type": "string"})
     password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
 
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+
+# Visible ASCII only: a token goes into an HTTP header as-is.
+KMS_TOKEN_RE = re.compile(r"^[\x21-\x7e]+$")
+KMS_TOKEN_FORMAT_MESSAGE = (
+    "The KMS API token can contain only plain letters, digits and punctuation, with no spaces. "
+    "Copy it again from KMS Lighthouse and paste it as plain text."
+)
+
 
 class KmsLighthouseTokenCredentials(BaseModel):
     """A pasted KMS Lighthouse API token, sent as a Bearer token."""
     api_token: str = Field(..., min_length=1, title="API token",
         description="KMS Lighthouse access token for this identity.", json_schema_extra={"ui:type": "password"})
+
+    @field_validator("api_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not KMS_TOKEN_RE.match(value):
+            raise ValueError(KMS_TOKEN_FORMAT_MESSAGE)
+        return value
 
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces

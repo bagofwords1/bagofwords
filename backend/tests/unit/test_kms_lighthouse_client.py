@@ -7,15 +7,18 @@ tokens. Everything on our side (client, schemas, registry) runs for real.
 """
 import importlib
 import importlib.util
+import json
+import logging
+import socket
 import sys
 import threading
-from pathlib import Path
-
 import uuid
+from pathlib import Path
 
 import pydantic
 import pytest
 
+from app.ai.tools.implementations._file_tool_common import _AUTH_ERROR_MARKERS
 from app.data_sources.clients import kms_lighthouse_client as kc
 from app.schemas.data_source_registry import REGISTRY, is_overlay_auth
 
@@ -75,6 +78,72 @@ def _rows(kms, path_suffix):
     return [row for row in mock.REQUEST_LOG if row[2] == mock.PREFIX + path_suffix]
 
 
+def _no_marker(text):
+    low = text.lower()
+    return [m for m in _AUTH_ERROR_MARKERS if m in low]
+
+
+@pytest.fixture
+def raw_kms():
+    """A real socket that answers every request with one canned (possibly broken) HTTP response.
+
+    Some transport failures (a cut-off body, a bad gzip stream, duplicate
+    cookies) cannot come out of http.server, so this boundary writes the bytes.
+    """
+    state = {"response": b"", "requests": []}
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(8)
+    listener.settimeout(0.1)
+    stop = threading.Event()
+
+    def serve():
+        while not stop.is_set():
+            try:
+                conn, _ = listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            with conn:
+                conn.settimeout(5)
+                data = b""
+                try:
+                    while b"\r\n\r\n" not in data:
+                        chunk = conn.recv(65536)
+                        if not chunk:
+                            break
+                        data += chunk
+                    state["requests"].append(data.decode("latin-1"))
+                    conn.sendall(state["response"])
+                except OSError:
+                    pass
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    yield {"base_url": f"http://127.0.0.1:{listener.getsockname()[1]}", "state": state}
+    stop.set()
+    thread.join(2)
+    listener.close()
+
+
+def _http_200(body: bytes, *headers: str, length: int | None = None) -> bytes:
+    head = ["HTTP/1.1 200 OK", "Content-Type: application/json",
+            f"Content-Length: {len(body) if length is None else length}", "Connection: close", *headers]
+    return ("\r\n".join(head) + "\r\n\r\n").encode("latin-1") + body
+
+
+_RAW_MARKER = "raw-marker-" + uuid.uuid4().hex
+_RAW_BODIES = {
+    # Content-Length promises more than arrives before the socket closes.
+    "truncated_body": lambda: _http_200(b'{"status": "SUCCESS", "data": ', length=4096),
+    "bad_gzip": lambda: _http_200(b"this is not a gzip stream " + _RAW_MARKER.encode(), "Content-Encoding: gzip"),
+    # The login hands back a token that cannot go into an HTTP header.
+    "non_latin1_session_token": lambda: _http_200(json.dumps(
+        {"status": "SUCCESS", "data": {"token": "lt-☃-" + _RAW_MARKER}}).encode()),
+}
+
+
 def test_registry_contract():
     entry = REGISTRY["kms_lighthouse"]
     assert entry.type == "kms_lighthouse"
@@ -89,15 +158,37 @@ def test_registry_contract():
         assert variant.scopes == ["system", "user"]
         assert not is_overlay_auth("kms_lighthouse", name)
     module_path, cls_name = entry.client_path.rsplit(".", 1)
-    assert getattr(importlib.import_module(module_path), cls_name).__name__ == "KmsLighthouseClient"
+    assert getattr(importlib.import_module(module_path), cls_name) is kc.KmsLighthouseClient
 
     valid = {"userpass": {"username": "alice", "password": "pw"}, "token": {"api_token": "tok"}}
     for name, variant in variants.items():
         for field in valid[name]:
-            with pytest.raises(pydantic.ValidationError):
-                variant.schema(**{**valid[name], field: ""})
+            for blank in ("", "   "):
+                with pytest.raises(pydantic.ValidationError):
+                    variant.schema(**{**valid[name], field: blank})
         dumped = variant.schema(**valid[name], base_url="http://169.254.169.254", allow_http=True).model_dump()
         assert dumped == valid[name]
+
+
+def test_pasted_token_is_trimmed_and_must_be_plain_text():
+    schema = REGISTRY["kms_lighthouse"].credentials_auth.by_auth["token"].schema
+    # A copied token often carries a trailing newline or spaces: they are trimmed.
+    assert schema(api_token="  alice-api-token-1\n").model_dump() == {"api_token": "alice-api-token-1"}
+    for bad in ("two words", "tok​zero-width", "“smart-quoted”", "tab\tinside", "café"):
+        with pytest.raises(pydantic.ValidationError):
+            schema(api_token=bad)
+
+
+def test_pasted_token_is_checked_before_any_request(kms):
+    # Trimmed, the pasted token works.
+    assert token_client(kms, api_token="alice-api-token-1\n").test_connection()["success"] is True
+    kms["mock"].reset()
+    for bad in ("alice-api-token-1​", "“alice-api-token-1”", "alice api-token-1"):
+        with pytest.raises(kc.KmsError) as info:
+            token_client(kms, api_token=bad)
+        assert bad not in str(info.value) and not _no_marker(str(info.value))
+        assert info.value.__context__ is None and info.value.__cause__ is None
+    assert kms["mock"].REQUEST_LOG == []
 
 
 _SECRET_PW = "s3cret-" + uuid.uuid4().hex
@@ -106,6 +197,8 @@ _SECRET_PW = "s3cret-" + uuid.uuid4().hex
 @pytest.mark.parametrize("case", [
     "no_credentials", "username_without_password", "http_without_allow_http", "userinfo",
     "query", "fragment", "prefix_with_dotdot", "prefix_with_bad_chars", "base_path_not_prefix",
+    "whitespace_username", "whitespace_password", "allow_http_as_text_false", "empty_userinfo",
+    "colon_only_userinfo", "port_out_of_range", "port_not_a_number", "space_in_host", "unclosed_ipv6",
 ])
 def test_invalid_configuration_is_rejected(kms, case):
     base, port = kms["base_url"], kms["port"]
@@ -114,10 +207,29 @@ def test_invalid_configuration_is_rejected(kms, case):
         kwargs.pop("username"), kwargs.pop("password")
     elif case == "username_without_password":
         kwargs["password"] = ""
+    elif case == "whitespace_username":
+        kwargs["username"] = "   "
+    elif case == "whitespace_password":
+        kwargs["password"] = " \t "
     elif case == "http_without_allow_http":
         kwargs["allow_http"] = False
+    elif case == "allow_http_as_text_false":
+        # An unvalidated config dict may carry the text "false".
+        kwargs["allow_http"] = "false"
     elif case == "userinfo":
         kwargs["base_url"] = f"http://alice:{_SECRET_PW}@127.0.0.1:{port}"
+    elif case == "empty_userinfo":
+        kwargs["base_url"] = f"http://@127.0.0.1:{port}"
+    elif case == "colon_only_userinfo":
+        kwargs["base_url"] = f"http://:@127.0.0.1:{port}"
+    elif case == "port_out_of_range":
+        kwargs["base_url"] = "http://127.0.0.1:99999"
+    elif case == "port_not_a_number":
+        kwargs["base_url"] = "http://127.0.0.1:80a"
+    elif case == "space_in_host":
+        kwargs["base_url"] = "http://kms example.com"
+    elif case == "unclosed_ipv6":
+        kwargs["base_url"] = "http://[::1"
     elif case == "query":
         kwargs["base_url"] = base + "/?tenant=1"
     elif case == "fragment":
@@ -130,8 +242,17 @@ def test_invalid_configuration_is_rejected(kms, case):
         kwargs["base_url"] = base + "/somewhere/else"
     with pytest.raises(kc.KmsError) as info:
         kc.KmsLighthouseClient(**kwargs)
-    assert _SECRET_PW not in str(info.value)
+    assert _SECRET_PW not in str(info.value) and _SECRET_PW not in repr(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+    # The tool layer turns any message with an auth marker into "sign in again".
+    assert _no_marker(str(info.value)) == []
     assert kms["mock"].REQUEST_LOG == []
+
+
+def test_text_flags_from_an_unvalidated_config_are_read_as_text(kms):
+    shown = client(kms, include_offline="false").description
+    assert "Only Online content is shown" in shown
+    assert "Online and offline content is shown" in client(kms, include_offline="true").description
 
 
 @pytest.mark.parametrize("suffix,api_prefix,expected_prefix", [
@@ -176,6 +297,7 @@ def test_token_variant_never_logs_in(kms):
     ("userpass_named_but_only_a_token_row", "token", 0),
     ("no_auth_type_with_userpass", "userpass", 1),
     ("no_auth_type_with_token", "token", 0),
+    ("no_auth_type_with_both_kinds", "token", 0),
 ])
 def test_auth_variant_follows_auth_type_when_its_fields_are_present(kms, case, expected_method, expected_logins):
     mock = kms["mock"]
@@ -187,6 +309,8 @@ def test_auth_variant_follows_auth_type_when_its_fields_are_present(kms, case, e
         "userpass_named_but_only_a_token_row": {"auth_type": "userpass", "api_token": "alice-api-token-1"},
         "no_auth_type_with_userpass": dict(alice),
         "no_auth_type_with_token": {"api_token": "alice-api-token-1"},
+        # Both kinds present and no auth_type: the token wins (bob's login is never used).
+        "no_auth_type_with_both_kinds": {**bob, "api_token": "alice-api-token-1"},
     }[case]
     c = kc.KmsLighthouseClient(base_url=kms["base_url"], allow_http=True, **kwargs)
     assert c.auth_method == expected_method
@@ -206,6 +330,30 @@ def test_failed_login_message_has_no_secret(kms):
         assert leaked not in message
     assert kms["mock"].STATE["login_count"] == 1
     assert _rows(kms, "/cm/tree/branch/view") == []
+    with pytest.raises(kc.KmsHTTPError) as info:
+        client(kms, password=wrong)._request("tree", "/cm/tree/branch/view")
+    assert info.value.kind == "auth"
+    assert wrong not in repr(info.value)
+    assert info.value.__context__ is None and info.value.__cause__ is None
+
+
+def test_login_without_a_session_is_not_treated_as_logged_in(kms):
+    mock = kms["mock"]
+    mock.STATE["login_mode"] = "none"   # SUCCESS, but no cookie and no token
+    c = client(kms)
+    result = c.test_connection()
+    assert result["success"] is False
+    assert "returned no session" in result["message"]
+    assert _no_marker(result["message"]) == []
+    for _ in range(2):
+        with pytest.raises(kc.KmsHTTPError) as info:
+            c._request("tree", "/cm/tree/branch/view")
+        assert (info.value.status, info.value.kind) == (200, "server")
+        assert "returned no session" in str(info.value)
+    # Every call tried to log in again; none went out without a session.
+    assert mock.STATE["accepted_logins"] == 3
+    assert _rows(kms, "/cm/tree/branch/view") == []
+    assert _rows(kms, "/sessionInfo") == []
 
 
 @pytest.mark.parametrize("make,user,method", [
@@ -213,14 +361,102 @@ def test_failed_login_message_has_no_secret(kms):
     (token_client, "alice", "token"), (token_client, "bob", "token"),
 ])
 def test_test_connection_reports_identity(kms, make, user, method):
+    # KMS reports its own user name, which differs from the login name typed in.
+    reported = kms["mock"].USERS[user]["session_username"]
+    assert reported != user
     result = make(kms, user=user).test_connection()
     assert result["success"] is True, result
     details = result["details"]
-    assert details["identity"] == user
+    assert details["identity"] == reported
     assert details["auth_method"] == method
     assert details["host"] == f"127.0.0.1:{kms['port']}"
     assert details["root_folder_id"] is None
-    assert user in result["message"]
+    assert reported in result["message"]
+
+
+def test_identity_ignores_a_non_text_user_name(kms):
+    kms["mock"].STATE["odd_shapes"] = "bad_username"
+    result = client(kms).test_connection()
+    assert result["success"] is True, result
+    assert kms["mock"].ODD_MARKER not in repr(result)
+    assert result["details"]["identity"] == kms["mock"].USERS["alice"]["full_name"]
+
+
+def test_dropped_session_info_error_is_logged_by_kind_only(kms, caplog):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    kms["mock"].STATE["odd_shapes"] = "error"
+    assert token_client(kms).test_connection()["success"] is False
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "session_info" in text and "rejected" in text
+    assert kms["mock"].ODD_MARKER not in text
+
+
+def test_unexpected_failure_is_logged_by_class_name_only(kms, caplog, monkeypatch):
+    marker = "unexpected-" + uuid.uuid4().hex
+
+    def explode(self, *args, **kwargs):
+        raise RuntimeError(marker)
+
+    monkeypatch.setattr(kc.requests.Session, "request", explode)
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    result = token_client(kms).test_connection()
+    assert result == {"success": False, "message": "KMS connection test failed."}
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings and "RuntimeError" in warnings[0].getMessage()
+    assert all(marker not in r.getMessage() and not r.exc_info for r in caplog.records)
+
+
+def test_error_kinds_have_fixed_messages_without_auth_markers():
+    assert str(kc.KmsHTTPError(401, "auth")) == kc._USERPASS_AUTH
+    with pytest.raises(ValueError):
+        kc.KmsHTTPError(500, "no-such-kind")
+    fixed = [*kc._MESSAGES.values(), kc._USERPASS_AUTH, kc._TOKEN_AUTH, kc._TOP_LEVEL_HINT]
+    for message in fixed:
+        assert _no_marker(message) == [], message
+
+
+def test_description_names_one_identity_for_both_variants(kms):
+    userpass, token = client(kms).description, token_client(kms).description
+    assert userpass == token
+    assert "this connection's KMS identity" in userpass
+    assert _no_marker(userpass) == []
+
+
+@pytest.mark.parametrize("case,variant", [
+    ("truncated_body", "userpass"), ("truncated_body", "token"), ("bad_gzip", "userpass"),
+    ("bad_gzip", "token"), ("non_latin1_session_token", "userpass"),  # only a login hands out a session token
+])
+def test_broken_responses_are_unreachable_without_chains(raw_kms, caplog, case, variant):
+    caplog.set_level(logging.DEBUG, logger=kc.__name__)
+    raw_kms["state"]["response"] = _RAW_BODIES[case]()
+    creds = ({"username": "alice", "password": _SECRET_PW} if variant == "userpass"
+             else {"api_token": "raw-api-token"})
+    c = kc.KmsLighthouseClient(base_url=raw_kms["base_url"], allow_http=True, **creds)
+    with pytest.raises(kc.KmsHTTPError) as info:
+        c._request("tree", "/cm/tree/branch/view")
+    err = info.value
+    assert (err.status, err.kind) == (0, "unreachable")
+    assert err.__context__ is None and err.__cause__ is None
+    for leaked in (_RAW_MARKER, _SECRET_PW, raw_kms["base_url"].split("//")[1]):
+        assert leaked not in str(err) and leaked not in repr(err)
+    # This module's own records (the urllib3 request log is gated in P2, ADR-2).
+    own = [r.getMessage() for r in caplog.records if r.name == kc.__name__]
+    failures = [m for m in own if " failed: " in m]
+    assert failures and failures[-1].startswith("kms_lighthouse ") and failures[-1].endswith("Error)")
+    assert all(_RAW_MARKER not in m and _SECRET_PW not in m for m in own)
+    # test_connection reports the same fixed message.
+    assert c.test_connection() == {"success": False, "message": kc._MESSAGES["unreachable"]}
+
+
+def test_duplicate_session_cookies_still_log_in(raw_kms):
+    body = json.dumps({"status": "SUCCESS", "data": {"userId": 11}}).encode()
+    raw_kms["state"]["response"] = _http_200(
+        body, "Set-Cookie: JSESSIONID=first; Path=/", "Set-Cookie: JSESSIONID=second; Path=/kms")
+    c = kc.KmsLighthouseClient(base_url=raw_kms["base_url"], allow_http=True, username="alice", password="pw")
+    assert c._request("session_info", "/sessionInfo") == {"status": "SUCCESS", "data": {"userId": 11}}
+    login, follow_up = raw_kms["state"]["requests"][:2]
+    assert login.startswith("POST ")
+    assert "\r\nCookie: JSESSIONID=" in follow_up
 
 
 def test_execute_query_is_unavailable_until_read_exists(kms):
@@ -268,6 +504,13 @@ def test_unexpected_response_shapes_never_echo_provider_text(kms, shape, make):
     assert _rows(kms, "/cm/tree/branch/view"), "the tree call was not exercised"
 
 
+@pytest.mark.parametrize("key,value", [("odd_shapes", True), ("odd_shapes", "lists"), ("login_mode", "cookies")])
+def test_mock_refuses_unknown_switch_values(kms, key, value):
+    # A typo in a test switch must fail loudly, not silently test the happy path.
+    with pytest.raises(ValueError):
+        kms["mock"].STATE[key] = value
+
+
 def test_top_level_rejection_hints_root_folder(kms):
     kms["mock"].STATE["top_level_requires_parent"] = True
     result = client(kms).test_connection()
@@ -277,3 +520,5 @@ def test_top_level_rejection_hints_root_folder(kms):
     rooted = client(kms, root_folder_id=95).test_connection()
     assert rooted["success"] is True, rooted
     assert rooted["details"]["root_folder_id"] == 95
+    assert "root folder came back empty" in rooted["message"]
+    assert "empty" not in client(kms, root_folder_id=78).test_connection()["message"]

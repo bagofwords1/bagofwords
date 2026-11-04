@@ -13,6 +13,7 @@ URL, a query string, a provider response body or a credential.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import logging
 import os
@@ -22,10 +23,12 @@ import time
 from urllib.parse import unquote, urlsplit
 
 import requests
+import urllib3
 
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.clients._file_source_common import GlobScopeError
 from app.data_sources.clients.progress import discovery_progress
+from app.schemas.data_sources.configs import KMS_TOKEN_FORMAT_MESSAGE, KMS_TOKEN_RE
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,12 @@ _TOKEN_AUTH = (
     "KMS Lighthouse did not accept the API token; it may be wrong or no longer valid. "
     "If this connection uses each person's own KMS account, that person should reconnect it."
 )
+_NO_SESSION = (
+    "KMS Lighthouse accepted the login but returned no session, so it cannot be used. "
+    "Ask the KMS administrator whether this account may use the KMS API."
+)
 _MESSAGES = {
+    "auth": _USERPASS_AUTH,
     "forbidden": "KMS Lighthouse denied access to this content for the current identity.",
     "not_found": "Not found in KMS Lighthouse, or not available to this identity.",
     "throttled": "KMS Lighthouse is limiting requests right now; try again shortly.",
@@ -59,6 +67,15 @@ _TOP_LEVEL_HINT = (
     "to a folder this account can open, or check the account's KMS permissions."
 )
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+_CHUNK_BYTES = 64 * 1024
+# Everything one HTTP exchange can raise. Several are not RequestException:
+# urllib3 errors from a broken body, OSError (e.g. a bad CA bundle path),
+# UnicodeError (a header value that is not Latin-1; its .object holds the
+# value) and CookieConflictError (a RuntimeError).
+_TRANSPORT_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, http.client.HTTPException,
+                     OSError, UnicodeError, requests.cookies.CookieConflictError)
+_URL_MESSAGE = ("KMS Lighthouse URL must be an HTTP(S) URL such as https://example.lighthouse-cloud.com, "
+                "without a user name or password in the URL, a query, or a fragment.")
 
 
 class KmsError(ValueError):
@@ -67,9 +84,23 @@ class KmsError(ValueError):
 
 class KmsHTTPError(KmsError):
     def __init__(self, status: int, kind: str, message: str | None = None):
+        if kind not in _MESSAGES:
+            raise ValueError(f"unknown KMS error kind {kind!r}")
         self.status = status
         self.kind = kind
-        super().__init__(message or _MESSAGES.get(kind) or _MESSAGES["server"])
+        super().__init__(message or _MESSAGES[kind])
+
+
+def _flag(value) -> bool:
+    """A boolean setting; an unvalidated config may carry it as text."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def _text(value) -> str | None:
+    """A non-blank string setting, or None."""
+    return value if isinstance(value, str) and value.strip() else None
 
 
 def _kind_for_status(status: int) -> str:
@@ -123,12 +154,19 @@ class KmsLighthouseClient(DataSourceClient):
         prefix = (api_prefix or _DEFAULT_PREFIX).strip().rstrip("/") or _DEFAULT_PREFIX
         if not _PREFIX_RE.match(prefix) or any(seg in (".", "..") for seg in prefix.split("/")):
             raise KmsError("API path prefix must be a plain path such as /kms/lh/api.")
-        parsed = urlsplit((base_url or "").strip())
-        if (parsed.scheme not in ("http", "https") or not parsed.hostname
-                or parsed.username or parsed.password or parsed.query or parsed.fragment
-                or "#" in (base_url or "") or "?" in (base_url or "")):
-            raise KmsError("KMS Lighthouse URL must be an HTTP(S) URL such as https://example.lighthouse-cloud.com, "
-                           "without credentials, query, or fragment.")
+        raw_url = (base_url or "").strip() if isinstance(base_url, str) else ""
+        parsed, bad_url = None, False
+        try:
+            parsed = urlsplit(raw_url)
+            _ = parsed.port  # raises ValueError for a port that is not a number in 0-65535
+        except ValueError:
+            bad_url = True
+        # Raised outside the except block so no parser error rides along as context.
+        if (bad_url or parsed.scheme not in ("http", "https") or not parsed.hostname
+                or "@" in parsed.netloc or any(ch.isspace() for ch in parsed.netloc)
+                or parsed.query or parsed.fragment or "#" in raw_url or "?" in raw_url):
+            raise KmsError(_URL_MESSAGE)
+        allow_http = _flag(allow_http)
         if parsed.scheme == "http" and not allow_http:
             raise KmsError("HTTPS is required. Enable Allow HTTP only for an isolated test lab.")
         # The URL may carry the API prefix (it is stripped) but no other path,
@@ -141,10 +179,13 @@ class KmsLighthouseClient(DataSourceClient):
         self.api_prefix = prefix
         self.layout_id = int(layout_id) if layout_id not in (None, "") else None
         self.root_folder_id = int(root_folder_id) if root_folder_id not in (None, "") else None
-        self.include_offline = bool(include_offline)
+        self.include_offline = _flag(include_offline)
         self.max_results = int(max_results or _DEFAULT_MAX_RESULTS)
         self.index_mode = "none"
 
+        username, password = _text(username), _text(password)
+        api_token = _text(api_token)
+        api_token = api_token.strip() if api_token else None
         has_userpass = bool(username) and bool(password)
         has_token = bool(api_token)
         if auth_type == "userpass" and has_userpass:
@@ -157,6 +198,8 @@ class KmsLighthouseClient(DataSourceClient):
             self.auth_method = "userpass"
         else:
             raise KmsError("Provide a KMS username and password or an API token.")
+        if self.auth_method == "token" and not KMS_TOKEN_RE.match(api_token):
+            raise KmsError(KMS_TOKEN_FORMAT_MESSAGE)
         self._username = username if self.auth_method == "userpass" else None
         self._password = password if self.auth_method == "userpass" else None
         self._api_token = api_token if self.auth_method == "token" else None
@@ -172,8 +215,10 @@ class KmsLighthouseClient(DataSourceClient):
     # ------------------------------------------------------------------ meta
     @property
     def description(self):
-        who = ("the configured account" if self.auth_method == "userpass"
-               else "the signed-in user's own KMS login or token")
+        # One phrase for both variants: either may be a system or a per-user
+        # connection, and the client is never told which (no auth_policy here).
+        who = ("this connection's KMS identity (the configured account, or each person's own KMS login "
+               "or token on per-user connections)")
         origin = "root folder" if self.root_folder_id is not None else "top level"
         shown = "Online and offline content is shown" if self.include_offline else "Only Online content is shown"
         layout = f" in layout {self.layout_id}" if self.layout_id is not None else ""
@@ -242,8 +287,15 @@ class KmsLighthouseClient(DataSourceClient):
             token = data
         elif isinstance(payload.get("token"), str):
             token = payload["token"]
+        # By name and value: dict(jar) raises CookieConflictError when the
+        # server sets one name twice (for example on two paths).
+        cookies = {cookie.name: cookie.value for cookie in session.cookies}
+        if not cookies and not token:
+            # Nothing to authenticate the next call with: do not count this as
+            # a login, or the next 401 would wrongly blame the password.
+            raise KmsHTTPError(200, "server", _NO_SESSION)
         with self._auth_lock:
-            self._cookies = dict(session.cookies)
+            self._cookies = cookies
             self._session_token = token or None
             self._generation += 1
 
@@ -252,16 +304,29 @@ class KmsLighthouseClient(DataSourceClient):
         """One HTTP exchange. Returns (status, body bytes); never raises with a URL."""
         url = self._base + self.api_prefix + path
         started = time.monotonic()
-        failed = None
+        status, body, failed, cause = 0, b"", None, None
         try:
             with session.request(method, url, params=params, headers=headers, timeout=(10, 60),
                                  allow_redirects=False, stream=True) as response:
                 status = response.status_code
-                body = response.raw.read(_MAX_RESPONSE_BYTES + 1, decode_content=True) if status == 200 else b""
-        except requests.RequestException:
-            failed = "unreachable"
+                if status == 200:
+                    # iter_content maps urllib3 body errors to requests errors
+                    # (raw.read does not) and decodes gzip; the cap counts decoded bytes.
+                    chunks, size = [], 0
+                    for chunk in response.iter_content(_CHUNK_BYTES):
+                        size += len(chunk)
+                        if size > _MAX_RESPONSE_BYTES:
+                            failed = "too_large"
+                            break
+                        chunks.append(chunk)
+                    body = b"".join(chunks)
+        except _TRANSPORT_ERRORS as exc:
+            failed, cause = "unreachable", type(exc).__name__
+        # Raised outside the except block, so no exception chain carries the URL.
         if failed:
-            raise KmsHTTPError(0, failed)
+            # The class name tells SSL, DNS and timeouts apart; never the text (it holds the URL).
+            logger.debug("kms_lighthouse %s failed: %s (%s)", op, failed, cause or "size cap")
+            raise KmsHTTPError(status if failed == "too_large" else 0, failed)
         logger.debug("kms_lighthouse %s -> %s in %d ms", op, status, int((time.monotonic() - started) * 1000))
         return status, body
 
@@ -311,10 +376,13 @@ class KmsLighthouseClient(DataSourceClient):
                 info = self._request("session_info", "/sessionInfo")
                 data = info.get("data") if isinstance(info, dict) else None
                 if isinstance(data, dict):
-                    identity = _clean_text(data.get("username") or data.get("userFullName") or "") or None
+                    names = [data.get(key) for key in ("username", "userFullName")]
+                    identity = next((_clean_text(n) for n in names if isinstance(n, str) and _clean_text(n)), None)
             except KmsHTTPError as exc:
                 if exc.kind == "auth":
                     raise
+                # The identity is optional; the tree call below decides the result.
+                logger.debug("kms_lighthouse session_info ignored: %s", exc.kind)
             try:
                 children = self._tree_children(self.root_folder_id)
             except KmsHTTPError as exc:
@@ -324,15 +392,18 @@ class KmsLighthouseClient(DataSourceClient):
             if self.root_folder_id is None and not children:
                 return {"success": False, "message": _TOP_LEVEL_HINT}
             identity = identity or (self._username if self.auth_method == "userpass" else "the API token's account")
+            note = " The root folder came back empty." if not children else ""
             return {
                 "success": True,
-                "message": f"Connected to KMS Lighthouse at {self.host} as {identity}.",
+                "message": f"Connected to KMS Lighthouse at {self.host} as {identity}.{note}",
                 "details": {"host": self.host, "identity": identity, "auth_method": self.auth_method,
                             "root_folder_id": self.root_folder_id},
             }
         except (KmsError, GlobScopeError) as exc:
             return {"success": False, "message": str(exc)}
-        except Exception:
+        except Exception as exc:
+            # The class name only: the exception text may hold a URL or a secret.
+            logger.warning("kms_lighthouse test_connection failed unexpectedly: %s", type(exc).__name__)
             return {"success": False, "message": "KMS connection test failed."}
 
     @discovery_progress
