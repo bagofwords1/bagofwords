@@ -39,6 +39,9 @@ READS = [
     "RETURN date.truncate('month', date()) AS m, duration.between(date(), date()) AS d",
     "MATCH (n) CALL { WITH n MATCH (n)--(m) RETURN count(m) AS c } RETURN n.name, c",
     "MATCH (n) WHERE n.age IN $ages RETURN n.name",
+    "MATCH (e:Event) RETURN e.start AS start, e.stop AS stop",  # aliases named like clauses
+    "MATCH (set:Event) RETURN set.name AS show",  # a variable named like a clause
+    "RETURN `date.truncate`('month', date()) AS m",
 ]
 
 REFUSED = [
@@ -78,6 +81,9 @@ REFUSED = [
     "MATCH (n:L {p: apoc.text.join(['a'], ',')}) RETURN n",
     "MATCH (n) WHERE n.x = 'unterminated RETURN n",
     "MATCH (n) /* never closed RETURN n",
+    "RETURN `apoc.text.join`(['a'], ',')",  # one backticked name holding a namespace
+    "MATCH (n) RETURN n // x\u2028LOAD CSV FROM 'http://x' AS r RETURN r",  # unusual line breaks are refused
+    "MATCH (n) RETURN n // x\u0085USE system MATCH (m) RETURN m",
 ]
 
 
@@ -218,6 +224,16 @@ def test_a_routing_uri_connects_directly_to_the_host_the_admin_entered(server):
     assert fake.uris == ["bolt+s://abc.databases.neo4j.io", "bolt://db.internal:7687"]
 
 
+def test_one_driver_serves_every_query_of_a_client(server):
+    """The driver pools connections; a new one per query would pay a full
+    TCP + TLS + auth handshake each time."""
+    fake = server()
+    client = _client()
+    for _ in range(3):
+        client.execute_query("MATCH (n) RETURN n.name AS name")
+    assert len(fake.uris) == 1 and len(fake.sessions) == 3
+
+
 def test_the_executor_guard_refuses_writes_for_neo4j():
     with pytest.raises(ReadOnlyViolation):
         ensure_read_only(_client(), "MATCH (n) DETACH DELETE n")
@@ -258,6 +274,8 @@ def _identity_check(query, params, value):
     "MATCH (o:Order)-[r:OWNS {by: $owner}]->(c) RETURN c.name AS t",
     "MATCH (o:Order) WHERE o.total > 0 AND (o.owner = $owner) RETURN o.total AS t",
     "MATCH (o:Order) WITH o WHERE o.owner IN $owner RETURN o.total AS t",
+    "MATCH (o:Order) WHERE $owner = o.owner RETURN o.total AS t",
+    "MATCH (o:Order {owner: $owner}) RETURN o.total AS t UNION MATCH (o:Order) WHERE o.owner = $owner RETURN o.total AS t",
 ])
 def test_an_identity_value_filtering_the_query_passes_the_check(server, query, value):
     server()
@@ -273,6 +291,12 @@ def test_an_identity_value_filtering_the_query_passes_the_check(server, query, v
     "MATCH (o:Order) RETURN [x IN o.tags WHERE x = $owner] AS t",  # filters list elements, not rows
     "MATCH (o:Order) RETURN o.total AS t, [(o)-->(x {k: $owner}) | x] AS r",  # a pattern in a projection
     "MATCH (o:Order) OPTIONAL MATCH (o)-->(x) WHERE x.k = $owner RETURN o.total AS t",  # optional: keeps every o
+    "MATCH (o:Order) WHERE true OR (o.owner = $owner) RETURN o.total AS t",  # OR around a parenthesised operand
+    "MATCH (o:Order) WHERE NOT (o.owner = $owner) RETURN o.total AS t",
+    "MATCH (o:Order {owner: $owner}) RETURN o.total AS t UNION MATCH (o:Order) RETURN o.total AS t",  # an unfiltered branch
+    "MATCH (a:Order {owner: $owner}) MATCH (o:Order) RETURN o.total AS t",  # the filter is on another MATCH
+    "MATCH (o:Order) WHERE o.owner <> $owner RETURN o.total AS t",  # everyone but the viewer
+    "MATCH (o:Order) WHERE $owner = $owner RETURN o.total AS t",  # always true
 ])
 def test_an_identity_value_that_does_not_filter_fails_the_check(server, query):
     server()
