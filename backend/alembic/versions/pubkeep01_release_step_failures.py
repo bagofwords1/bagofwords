@@ -33,5 +33,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Idempotent too: the dashboard corpus also undoes it unstamped.
+    columns = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("artifact_releases")}
+    if "step_failures" not in columns:
+        return
     with op.batch_alter_table("artifact_releases") as batch:
         batch.drop_column("step_failures")
