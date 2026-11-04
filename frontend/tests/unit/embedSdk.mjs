@@ -72,7 +72,8 @@ console.log('PASS: the SDK tells the host an artifact is unavailable apart from 
 // modelled, and the frame only says what each test makes it say ───────────
 // `styleFor(name)` may give a node a style object of its own, such as one that
 // refuses a value the way a browser does; by default every style is a plain object.
-function mountWith(options = {}, { styleFor } = {}) {
+// `computed(color)` stands in for getComputedStyle's background-color.
+function mountWith(options = {}, { styleFor, computed } = {}) {
   let onMessage = null
   let now = 0
   const timers = []
@@ -100,6 +101,7 @@ function mountWith(options = {}, { styleFor } = {}) {
     clearTimeout: (t) => { if (t) t.done = true },
     addEventListener: (type, fn) => { if (type === 'message') onMessage = fn },
     removeEventListener: (type, fn) => { if (type === 'message' && onMessage === fn) onMessage = null },
+    getComputedStyle: computed ? (el) => ({ backgroundColor: computed(el.style.backgroundColor) }) : undefined,
   }
   const tick = (ms) => {
     now += ms
@@ -228,99 +230,7 @@ console.log('PASS: a frame that never answers with the nonce is reported as unav
 }
 console.log('PASS: destroy after logout waits for the frame to sign out (6 s at most), and the embed is inert after destroy')
 
-// ── floating panel size ──────────────────────────────────────────────────────
-{
-  const panel = (options) => mountWith({ container: undefined, mode: 'floating', ...options }).embed.iframe.parentNode.style.cssText
-  // The default is wide enough to show a chat as BOW's artifact preview does.
-  assert.match(panel(), /width:min\(600px,calc\(100vw - 32px\)\);height:min\(720px,calc\(100vh - 120px\)\)/)
-  // A number is pixels, a string is one CSS length; the viewport still caps both.
-  assert.match(panel({ width: 480, height: 560 }), /width:min\(480px,calc\(100vw - 32px\)\);height:min\(560px,calc\(100vh - 120px\)\)/)
-  assert.match(panel({ width: '40rem', height: '80vh' }), /width:min\(40rem,calc\(100vw - 32px\)\);height:min\(80vh,calc\(100vh - 120px\)\)/)
-  // Anything else falls back to the default; it never reaches the style text.
-  // (Each refusal also warns; the warning is tested below, and kept quiet here.)
-  const warn = console.warn
-  console.warn = () => {}
-  try {
-    for (const bad of ['600px;background:url(x)', 'calc(1px)', '', -5, 0, NaN, Infinity, {}, '10']) {
-      const css = panel({ width: bad, height: bad })
-      assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(bad)}`)
-      assert.doesNotMatch(css, /url\(/)
-    }
-  } finally {
-    console.warn = warn
-  }
-  // Inline mode is sized by its container, as before.
-  const inline = mountWith({ width: 300 }).embed.iframe.parentNode.style
-  assert.equal(inline.width, '100%')
-}
-console.log('PASS: the floating panel is 600 x 720 by default, sized by width/height when given, capped by the viewport')
-
-// ── size options: warnings, tiny sizes, units, inline height, z-index ───────
-{
-  // Spy on console.warn for one mount, and always put it back.
-  const warnsFor = (options) => {
-    const original = console.warn
-    const warnings = []
-    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
-    try {
-      const css = mountWith({ container: undefined, mode: 'floating', ...options }).embed.iframe.parentNode.style.cssText
-      return { css, warnings }
-    } finally {
-      console.warn = original
-    }
-  }
-  // A value that was given but refused is reported, naming the option and the value.
-  {
-    const { css, warnings } = warnsFor({ width: '600px;background:url(x)' })
-    assert.match(css, /width:min\(600px,/)
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] .*width.*600px;background:url\(x\)/)
-  }
-  {
-    const { warnings } = warnsFor({ height: 'calc(1px)' })
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] .*height.*calc\(1px\)/)
-  }
-  // Valid or absent values say nothing.
-  assert.deepEqual(warnsFor({}).warnings, [])
-  assert.deepEqual(warnsFor({ width: 480, height: '80vh', zIndex: 5 }).warnings, [])
-  assert.deepEqual(warnsFor({ width: null, height: undefined }).warnings, [])
-  // Sizes below 1, in any unit, would give an invisible panel: refused, with a warning.
-  for (const tiny of ['0px', '0%', '0.0rem', '0.5px', 1e-7, 0.5]) {
-    const { css, warnings } = warnsFor({ width: tiny, height: tiny })
-    assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(tiny)}`)
-    assert.equal(warnings.length, 2, `warns for ${String(tiny)}`)
-  }
-  // Units match in any case, and the dynamic viewport units are accepted.
-  {
-    const { css, warnings } = warnsFor({ width: '40PX', height: '90dvh' })
-    // A dynamic unit gets a plain vh line first, so a browser without dvh still sizes the panel.
-    assert.match(css, /width:min\(40PX,calc\(100vw - 32px\)\);height:min\(90vh,calc\(100vh - 120px\)\);height:min\(90dvh,calc\(100dvh - 120px\)\)/)
-    assert.deepEqual(warnings, [])
-  }
-  assert.match(warnsFor({ height: '50svh' }).css, /height:min\(50svh,/)
-  assert.match(warnsFor({ height: '50lvh' }).css, /height:min\(50lvh,/)
-  // The height cap follows the mobile toolbar where the browser knows dvh; the vh one stays first for older browsers.
-  assert.match(warnsFor({}).css, /height:min\(720px,calc\(100vh - 120px\)\);height:min\(720px,calc\(100dvh - 120px\)\);/)
-  // z-index 0 is a real value; anything that is not a finite number keeps the default.
-  assert.match(warnsFor({ zIndex: 0 }).css, /z-index:0(;|$)/)
-  assert.match(warnsFor({}).css, /z-index:2147483000(;|$)/)
-  assert.match(warnsFor({ zIndex: '1;color:red' }).css, /z-index:2147483000(;|$)/)
-  const launcher = mountWith({ container: undefined, mode: 'floating', zIndex: 0 }).body.children.find((n) => n.name === 'launcher')
-  assert.match(launcher.style.cssText, /z-index:0(;|$)/)
-}
-{
-  // Inline height: a number is pixels; any other value is used as given, default 100%.
-  const inlineHeight = (height) => mountWith({ height }).embed.iframe.parentNode.style.height
-  assert.equal(inlineHeight(720), '720px')
-  assert.equal(inlineHeight('calc(100vh - 80px)'), 'calc(100vh - 80px)')
-  assert.equal(inlineHeight('clamp(300px, 50vh, 800px)'), 'clamp(300px, 50vh, 800px)')
-  assert.equal(inlineHeight(undefined), '100%')
-}
-console.log('PASS: refused sizes warn, sizes below 1 are refused, units match in any case, inline height takes pixels, z-index 0 is kept')
-
-// ── z-index strings, inline height refusals, a fallback for dynamic units,
-// warnings that cannot break a mount, accent colour ──────────────────────────
+// ── sizes, z-index and launcher colour ──────────────────────────────────────
 {
   // Spy on console.warn while fn runs, and always put it back.
   const withWarnings = (fn) => {
@@ -333,100 +243,90 @@ console.log('PASS: refused sizes warn, sizes below 1 are refused, units match in
       console.warn = original
     }
   }
-  const floating = (options) => {
-    const { body, embed } = mountWith({ container: undefined, mode: 'floating', ...options })
-    return { css: embed.iframe.parentNode.style.cssText, launcher: body.children.find((n) => n.name === 'launcher').style.cssText }
-  }
-
-  // z-index: an integer, as a number or as a string of digits (spaces around are fine).
-  for (const [given, shown] of [['1000', '1000'], [' 7 ', '7'], [-3, '-3'], ['-3', '-3'], [2147483647, '2147483647']]) {
-    const { result, warnings } = withWarnings(() => floating({ zIndex: given }))
-    assert.match(result.css, new RegExp(`z-index:${shown}(;|$)`), `keeps zIndex ${JSON.stringify(given)}`)
-    assert.match(result.launcher, new RegExp(`z-index:${shown}(;|$)`))
-    assert.deepEqual(warnings, [])
-  }
-  // Anything else that was given is refused once, with a warning, and never reaches the style text.
-  for (const bad of [1.5, 1e21, 2147483648, '2147483648', '1.5', '1;color:red', '', 'auto', NaN, {}]) {
-    const { result, warnings } = withWarnings(() => floating({ zIndex: bad }))
-    assert.match(result.css, /z-index:2147483000(;|$)/, `refuses zIndex ${String(bad)}`)
-    assert.match(result.launcher, /z-index:2147483000(;|$)/)
-    assert.doesNotMatch(result.css + result.launcher, /color:red/)
-    assert.equal(warnings.length, 1, `warns once for zIndex ${String(bad)}`)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring zIndex /)
-  }
-  assert.deepEqual(withWarnings(() => floating({ zIndex: null })).warnings, [])
-
-  // Inline height: a number follows the floating rule (finite, at least 1).
-  const inline = (height, stub) => mountWith({ height }, stub).embed.iframe.parentNode.style.height
-  assert.equal(inline(1.5), '1.5px')
-  for (const bad of [0.5, -5, 0, Infinity, NaN, Object.create(null), true]) {
-    const { result, warnings } = withWarnings(() => inline(bad))
-    assert.equal(result, '100%', `refuses inline height ${typeof bad === 'number' ? bad : typeof bad}`)
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring height /)
-  }
-  // A string the browser refuses (it reads back empty) warns and falls back to 100%.
-  const refusing = (bad) => (name) => {
+  // A wrapper style that acts as a browser's for width and height: a value it
+  // can't parse is dropped and the old one stays. `dvh: false` is an older
+  // browser without the dynamic viewport units. (A real browser is checked in
+  // embedSdkBrowser.mjs.)
+  const browserStyle = ({ dvh = true } = {}) => (name) => {
     if (name !== 'wrapper') return null
-    let height = ''
-    return { get height() { return height }, set height(v) { height = bad.includes(v) ? '' : String(v) } }
+    const kept = { width: '', height: '' }
+    const valid = (v) => v === '' || !(/;|nonsense|url\(/.test(v) || /(^|min\()[1-9][\d.]*(,|$)/.test(v) || (!dvh && /[dsl]vh/i.test(v)))
+    const style = { cssText: '' }
+    for (const prop of ['width', 'height']) {
+      Object.defineProperty(style, prop, { get: () => kept[prop], set: (v) => { if (valid(String(v))) kept[prop] = String(v) } })
+    }
+    return style
   }
+  const panelOf = (options, stub = { styleFor: browserStyle() }) =>
+    mountWith({ container: undefined, mode: 'floating', ...options }, stub).embed.iframe.parentNode.style
+  const panel = (options, stub) => withWarnings(() => panelOf(options, stub))
+
+  // Floating default: 600 x 720, capped by the viewport (dvh where known).
   {
-    const { result, warnings } = withWarnings(() => inline('nonsense', { styleFor: refusing(['nonsense']) }))
-    assert.equal(result, '100%')
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring height "nonsense"/)
-  }
-  {
-    const { result, warnings } = withWarnings(() => inline('calc(100vh - 80px)', { styleFor: refusing(['nonsense']) }))
-    assert.equal(result, 'calc(100vh - 80px)')
+    const { result, warnings } = panel({})
+    assert.equal(result.width, 'min(600px, calc(100vw - 32px))')
+    assert.equal(result.height, 'min(720px, calc(100dvh - 120px))')
     assert.deepEqual(warnings, [])
   }
-
-  // Dynamic viewport units: the first line uses plain vh, the second the value as written.
-  assert.match(floating({ height: '80dvh' }).css, /height:min\(80vh,calc\(100vh - 120px\)\);height:min\(80dvh,calc\(100dvh - 120px\)\);/)
-  assert.match(floating({ height: '50SVH' }).css, /height:min\(50vh,calc\(100vh - 120px\)\);height:min\(50SVH,calc\(100dvh - 120px\)\);/)
-  assert.match(floating({ width: '50lvh' }).css, /width:min\(50vh,calc\(100vw - 32px\)\);width:min\(50lvh,calc\(100vw - 32px\)\);height:/)
-  assert.doesNotMatch(floating({ width: '40rem' }).css, /width:.*width:/, 'one width line when there is nothing to fall back from')
-
-  // A value that cannot be turned into text still warns, and the mount goes on.
-  {
-    const { result, warnings } = withWarnings(() => floating({ width: Object.create(null) }))
-    assert.match(result.css, /width:min\(600px,/)
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring width /)
+  // A browser without dvh keeps the vh line.
+  assert.equal(panel({ height: '80dvh' }, { styleFor: browserStyle({ dvh: false }) }).result.height, 'min(80vh, calc(100vh - 120px))')
+  // A number is pixels; any CSS length the browser keeps is used, in both modes, including calc() and small values.
+  for (const [given, shown] of [[480, '480px'], ['40rem', '40rem'], ['0.9em', '0.9em'], ['calc(100vh - 80px)', 'calc(100vh - 80px)'], [' 50% ', '50%']]) {
+    const { result, warnings } = panel({ width: given, height: given })
+    assert.equal(result.width, `min(${shown}, calc(100vw - 32px))`, `floating width ${given}`)
+    assert.equal(result.height, `min(${shown}, calc(100dvh - 120px))`, `floating height ${given}`)
+    assert.deepEqual(warnings, [])
+    assert.equal(mountWith({ height: given }, { styleFor: browserStyle() }).embed.iframe.parentNode.style.height, shown, `inline height ${given}`)
   }
+  // A value the browser refuses, a number below 1, or a non-string warns once per option and is the default.
+  for (const bad of ['600px;background:url(x)', 'nonsense', '10', '', '  ', -5, 0, 0.5, NaN, Infinity, {}, true, Object.create(null)]) {
+    const { result, warnings } = panel({ width: bad, height: bad })
+    assert.equal(result.width, 'min(600px, calc(100vw - 32px))', `refuses width ${typeof bad === 'object' ? 'object' : String(bad)}`)
+    assert.equal(result.height, 'min(720px, calc(100dvh - 120px))')
+    assert.equal(warnings.length, 2)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring width /)
+    const inline = withWarnings(() => mountWith({ height: bad }, { styleFor: browserStyle() }).embed.iframe.parentNode.style.height)
+    assert.equal(inline.result, '100%')
+    assert.equal(inline.warnings.length, 1)
+  }
+  // Absent: the default, without a word. Inline mode fills its container.
+  assert.deepEqual(panel({ width: null, height: undefined }).warnings, [])
+  assert.equal(mountWith({}).embed.iframe.parentNode.style.height, '100%')
+  assert.equal(mountWith({ width: 300 }).embed.iframe.parentNode.style.width, '100%')
   // A host console.warn that throws does not break the mount.
   {
     const original = console.warn
     console.warn = () => { throw new Error('the host console is broken') }
     try {
-      assert.match(floating({ width: 'bad', zIndex: 'bad', accentColor: 'bad;' }).css, /width:min\(600px,/)
-      assert.equal(inline(-5), '100%')
+      assert.equal(panelOf({ width: 'nonsense', zIndex: 'bad', accentColor: 12 }).width, 'min(600px, calc(100vw - 32px))')
     } finally {
       console.warn = original
     }
   }
 
-}
-console.log('PASS: z-index takes integer strings, inline height refusals warn, dynamic units fall back to vh, warnings never break a mount')
-
-// ── accentColor is whatever colour the browser accepts, inline heights below
-// 1px are refused, and z-index takes CSS's whole range ─────────────────────
-{
-  const withWarnings = (fn) => {
-    const original = console.warn
-    const warnings = []
-    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
-    try {
-      return { result: fn(), warnings }
-    } finally {
-      console.warn = original
-    }
+  // z-index: 'auto' or an integer in CSS's range, as a number or a digit string; the launcher gets the same.
+  const floating = (options, stub) => {
+    const { body, embed } = mountWith({ container: undefined, mode: 'floating', ...options }, stub)
+    return { css: embed.iframe.parentNode.style.cssText, launcher: body.children.find((n) => n.name === 'launcher').style }
   }
-  // The launcher's style acts as a browser's does for background-color: a value
-  // it cannot read as a colour is dropped and the old value stays.
-  const INVALID = ['blu', 'rgb()', 'rgb(,,,)', 'red;x:y', 'url(x)', 'rgb(1,2,3);x:y']
+  for (const [given, shown] of [[0, '0'], ['1000', '1000'], [' 7 ', '7'], [-3, '-3'], ['auto', 'auto'], ['AUTO', 'auto'],
+    [-2147483648, '-2147483648'], [2147483647, '2147483647']]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: given }))
+    assert.match(result.css, new RegExp(`z-index:${shown}(;|$)`), `keeps zIndex ${JSON.stringify(given)}`)
+    assert.match(result.launcher.cssText, new RegExp(`z-index:${shown}(;|$)`))
+    assert.deepEqual(warnings, [])
+  }
+  for (const bad of [1.5, 1e21, 2147483648, '-2147483649', '1.5', '1;color:red', '', 'inherit', NaN, {}]) {
+    const { result, warnings } = withWarnings(() => floating({ zIndex: bad }))
+    assert.match(result.css, /z-index:2147483000(;|$)/, `refuses zIndex ${String(bad)}`)
+    assert.doesNotMatch(result.css + result.launcher.cssText, /color:red/)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring zIndex /)
+  }
+  assert.match(floating({}).css, /z-index:2147483000(;|$)/)
+
+  // accentColor: any colour the browser keeps, set through background-color only.
+  const INVALID = ['blu', 'rgb()', 'red;x:y', 'url(x)']
   const browserLauncher = (name) => {
     if (name !== 'launcher') return null
     let color = ''
@@ -436,82 +336,39 @@ console.log('PASS: z-index takes integer strings, inline height refusals warn, d
       set backgroundColor(v) { if (!INVALID.includes(v)) color = String(v) },
     }
   }
-  const launcherOf = (options) => {
-    const { body } = mountWith({ container: undefined, mode: 'floating', ...options }, { styleFor: browserLauncher })
-    return body.children.find((n) => n.name === 'launcher').style
-  }
-
-  // Any colour the browser accepts is kept, including the forms a shape check missed.
-  for (const good of ['#abc', '#abcd', '#A1b2C3', '#11223344', 'rgb(1, 2, 3)', 'hsl(220deg 80% 50%)',
-    'oklch(60% 0.2 250)', 'var(--brand)', 'rebeccapurple', 'transparent']) {
-    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: good }))
+  // What getComputedStyle gives: see-through for transparent or an undefined var(), white for currentcolor (the icon is white).
+  const computed = (color) => ({ 'transparent': 'rgba(0, 0, 0, 0)', 'var(--missing)': 'rgba(0, 0, 0, 0)', 'currentcolor': 'rgb(255, 255, 255)',
+    '#fff': 'rgb(255, 255, 255)', '#2563eb': 'rgb(37, 99, 235)' })[color] || 'rgb(1, 2, 3)'
+  const accent = (accentColor) => withWarnings(() => floating({ accentColor }, { styleFor: browserLauncher, computed }).launcher)
+  for (const good of ['#abc', '#abcd', 'hsl(220deg 80% 50%)', 'oklch(60% 0.2 250)', 'var(--brand)', 'rgba(37, 99, 235, 0.5)']) {
+    const { result, warnings } = accent(good)
     assert.equal(result.backgroundColor, good, `keeps accentColor ${good}`)
-    assert.deepEqual(warnings, [], `no warning for accentColor ${good}`)
+    assert.deepEqual(warnings, [])
   }
-  assert.equal(withWarnings(() => launcherOf({ accentColor: '  #abc ' })).result.backgroundColor, '#abc', 'spaces around are trimmed')
-  // A colour the browser drops, an empty string, or a value that is not a string warns once and is the default.
+  assert.equal(accent('  #abc ').result.backgroundColor, '#abc')
   for (const bad of [...INVALID, '', 12, {}]) {
-    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: bad }))
+    const { result, warnings } = accent(bad)
     assert.equal(result.backgroundColor, '#2563eb', `refuses accentColor ${String(bad)}`)
-    assert.doesNotMatch(result.cssText, /x:y|url\(|blu|rgb\(/, 'the value never reaches the style text')
-    assert.equal(warnings.length, 1, `warns once for accentColor ${String(bad)}`)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring accentColor /)
+    assert.doesNotMatch(result.cssText, /x:y|url\(|blu/)
+    assert.equal(warnings.length, 1)
   }
-  // Absent: the default, without a word.
+  // A colour that would hide the launcher (see-through, or white like the icon) warns and is the default.
+  for (const hidden of ['transparent', 'var(--missing)', 'currentcolor', '#fff']) {
+    const { result, warnings } = accent(hidden)
+    assert.equal(result.backgroundColor, '#2563eb', `refuses hidden accentColor ${hidden}`)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /hide the launcher/)
+  }
   for (const absent of [undefined, null]) {
-    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: absent }))
+    const { result, warnings } = accent(absent)
     assert.equal(result.backgroundColor, '#2563eb')
     assert.deepEqual(warnings, [])
   }
-  // The style text never sets background-color or the background shorthand, so it
-  // can never override the colour set above, but it resets the other background
-  // longhands so a host rule such as button{background-image:...} cannot paint over it.
+  // The launcher's style text resets the background longhands but never sets the colour or the shorthand.
   {
-    const css = launcherOf({ accentColor: '#abc' }).cssText
-    assert.doesNotMatch(css, /background-color/)
-    assert.doesNotMatch(css, /background:/)
-    for (const reset of ['background-image:none;', 'background-clip:border-box;', 'background-origin:padding-box;']) {
-      assert.ok(css.includes(reset), `launcher style text resets ${reset}`)
-    }
-  }
-
-  // Inline height: a string the browser reads back as less than 1px gives an
-  // invisible frame, so it is refused like the number 0.
-  const inline = (height) => mountWith({ height }).embed.iframe.parentNode.style.height
-  for (const tiny of ['0px', '0.5px', '0PX', ' 0px ', '1e-05px', '1E-5px']) {
-    const { result, warnings } = withWarnings(() => inline(tiny))
-    assert.equal(result, '100%', `refuses inline height ${JSON.stringify(tiny)}`)
-    assert.equal(warnings.length, 1)
-    assert.match(warnings[0], /^\[bow-embed\] ignoring height /)
-  }
-  // A browser reads '0' back as '0px': that is refused too.
-  {
-    const zeroAsPx = (name) => {
-      if (name !== 'wrapper') return null
-      let height = ''
-      return { get height() { return height }, set height(v) { height = v === '0' ? '0px' : String(v) } }
-    }
-    const { result, warnings } = withWarnings(() => mountWith({ height: '0' }, { styleFor: zeroAsPx }).embed.iframe.parentNode.style.height)
-    assert.equal(result, '100%')
-    assert.equal(warnings.length, 1)
-  }
-  for (const kept of ['1px', '240px', 'calc(100vh - 80px)', 'clamp(0px, 50vh, 800px)', 'var(--h)', '50%']) {
-    const { result, warnings } = withWarnings(() => inline(kept))
-    assert.equal(result, kept, `keeps inline height ${kept}`)
-    assert.deepEqual(warnings, [])
-  }
-
-  // z-index: CSS's whole integer range, from -2147483648 to 2147483647.
-  const zOf = (zIndex) => mountWith({ container: undefined, mode: 'floating', zIndex }).embed.iframe.parentNode.style.cssText
-  for (const edge of [-2147483648, '-2147483648', 2147483647]) {
-    const { result, warnings } = withWarnings(() => zOf(edge))
-    assert.match(result, new RegExp(`z-index:${String(edge).trim()}(;|$)`), `keeps zIndex ${edge}`)
-    assert.deepEqual(warnings, [])
-  }
-  for (const out of [-2147483649, '-2147483649']) {
-    const { result, warnings } = withWarnings(() => zOf(out))
-    assert.match(result, /z-index:2147483000(;|$)/, `refuses zIndex ${out}`)
-    assert.equal(warnings.length, 1)
+    const css = accent('#abc').result.cssText
+    assert.doesNotMatch(css, /background-color|background:/)
+    for (const reset of ['background-image:none;', 'background-clip:border-box;', 'background-origin:padding-box;']) assert.ok(css.includes(reset))
   }
 }
-console.log('PASS: accentColor is any colour the browser accepts (else a warning and the default), inline heights below 1px are refused, z-index takes its full range')
+console.log('PASS: sizes take pixels or any CSS length the browser keeps (else a warning and the default), z-index takes integers or auto, the launcher colour stays visible')

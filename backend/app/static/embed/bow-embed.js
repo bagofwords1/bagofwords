@@ -30,23 +30,15 @@
  *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
  *
- * `height`, in both modes: a number is pixels, at least 1. Floating mode:
- * `width` and `height` size the panel, as a number of pixels or one CSS
- * length such as '40rem' or '80dvh', at least 1. The default is 600 x 720 px,
- * and the viewport caps both, so the panel still fits a small window. A
- * browser without dvh/svh/lvh uses the same size in vh. Inline mode: the
- * width follows the container, and `height` also takes any CSS value as
- * given, such as 'calc(100vh - 80px)' (default '100%'), except a height
- * the browser reads back as a px length below 1px (such as '0', '0px' or
- * '0.5px'), which is refused. Other zero heights ('0%', '0rem', 'calc(0px)')
- * are the host's choice.
- *
- * Floating mode also takes `zIndex` (a whole number from -2147483648 to
- * 2147483647, or a string of digits such as '1000'; default 2147483000),
- * `accentColor` for the launcher (any CSS colour the browser accepts, such as
- * '#2563eb', 'hsl(220deg 80% 50%)' or 'var(--brand)'; default '#2563eb') and `position`
- * ('bottom-right' or 'bottom-left'). Any size, zIndex or accentColor that is
- * not accepted is ignored with a console warning, and the default is used.
+ * Sizes: `height` (both modes) and `width` (floating) are a number of
+ * pixels (at least 1) or any CSS length the browser accepts ('40rem',
+ * '80dvh', 'calc(100vh - 80px)'). Floating defaults to 600 x 720 px, capped
+ * by the viewport; inline fills the container width, height '100%'.
+ * Floating also takes `zIndex` (an integer or 'auto'; default 2147483000),
+ * `accentColor` for the launcher (any CSS colour; default '#2563eb') and
+ * `position` ('bottom-right' or 'bottom-left'). A value the browser refuses,
+ * or a colour that would hide the launcher, warns in the console and the
+ * default is used.
  *
  * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
  * refuses (the artifact doesn't exist or doesn't allow this application, the
@@ -88,12 +80,6 @@
   var FLOATING_WIDTH = '600px';
   var FLOATING_HEIGHT = '720px';
 
-  // A number is pixels; a string must be one plain CSS length (it goes into
-  // the panel's style), and either must be at least 1. Anything else falls
-  // back to the default, with a console warning when a value was given.
-  var CSS_LENGTH = /^(\d+(?:\.\d+)?)(px|rem|em|vw|vh|dvh|svh|lvh|%)$/i;
-  var LENGTH_HINT = 'use a number of pixels or one CSS length such as \'40rem\' (at least 1)';
-
   // Tell the host an option was refused. Neither an odd value (one with no
   // text form) nor a host console that throws may stop the mount.
   function warnIgnored(name, value, hint, fallback) {
@@ -106,34 +92,50 @@
     } catch (e) { /* the warning is a courtesy: a broken console must not break the embed */ }
   }
 
-  function cssLength(name, value, fallback) {
-    if (value == null) return fallback;
-    if (typeof value === 'number' && isFinite(value) && value >= 1) return value + 'px';
-    if (typeof value === 'string') {
-      var match = CSS_LENGTH.exec(value.trim());
-      if (match && Number(match[1]) >= 1) return value.trim();
-    }
-    warnIgnored(name, value, LENGTH_HINT, fallback);
-    return fallback;
-  }
-
-  // The same length with dvh/svh/lvh turned into plain vh, for the first of two
-  // declarations: a browser that does not know the dynamic units keeps that one.
+  // The same value with dvh/svh/lvh turned into plain vh, for browsers that
+  // do not know the dynamic units.
   function plainVh(length) {
-    return length.replace(/[dsl]vh$/i, 'vh');
+    return length.replace(/(\d)[dsl]vh\b/gi, '$1vh');
   }
 
-  // z-index: an integer in CSS's range, as a number or a string of digits;
-  // anything else given warns and is the default.
+  // Set one size property (width or height), optionally capped by `cap`. It is
+  // set through the single style property, so it cannot add other
+  // declarations, and the browser decides what is valid. The vh form goes
+  // first; the dvh form replaces it where the browser knows dvh.
+  function setLength(el, prop, value, cap) {
+    var wrap = function (v, c) { return c ? 'min(' + v + ', ' + c + ')' : v; };
+    el.style[prop] = '';
+    el.style[prop] = wrap(plainVh(value), cap && plainVh(cap));
+    el.style[prop] = wrap(value, cap);
+  }
+
+  // A size option: a number is pixels (at least 1), a string is any CSS length
+  // the browser keeps. Anything else warns and is the default.
+  var SIZE_HINT = 'use a number of pixels (at least 1) or a CSS length';
+  function applySize(el, prop, value, fallback, cap) {
+    var given = null;
+    if (typeof value === 'number' && isFinite(value) && value >= 1) given = value + 'px';
+    else if (typeof value === 'string' && value.trim()) given = value.trim();
+    if (given) {
+      setLength(el, prop, given, cap);
+      if (el.style[prop]) return;
+    }
+    if (value != null) warnIgnored(prop, value, SIZE_HINT, fallback);
+    setLength(el, prop, fallback, cap);
+  }
+
+  // z-index: 'auto', or an integer in CSS's range, as a number or a string of
+  // digits; anything else given warns and is the default.
   var Z_INDEX = '2147483000';
   var Z_MIN = -2147483648;
   var Z_MAX = 2147483647;
   function zIndexOf(value) {
     if (value == null) return Z_INDEX;
     var text = typeof value === 'string' ? value.trim() : null;
+    if (text !== null && text.toLowerCase() === 'auto') return 'auto';
     var n = typeof value === 'number' ? value : (text !== null && /^-?\d+$/.test(text) ? Number(text) : NaN);
     if (isFinite(n) && Math.floor(n) === n && n >= Z_MIN && n <= Z_MAX) return String(n);
-    warnIgnored('zIndex', value, 'use a whole number', Z_INDEX);
+    warnIgnored('zIndex', value, 'use a whole number or \'auto\'', Z_INDEX);
     return Z_INDEX;
   }
 
@@ -149,6 +151,19 @@
       if (launcher.style.backgroundColor) return;
     }
     warnIgnored('accentColor', value, 'use a CSS colour such as \'#2563eb\'', ACCENT);
+    launcher.style.backgroundColor = ACCENT;
+  }
+
+  // Once the launcher is on the page: a colour that computes to see-through or
+  // to white (the icon's colour), such as 'transparent', 'currentcolor' or an
+  // undefined var(--brand), would hide the launcher, so it warns and is the default.
+  var HIDDEN_COLOR = /^(transparent|rgba\(.*,\s*0(\.0*)?\)|rgba?\(\s*255,\s*255,\s*255(,\s*1(\.0*)?)?\s*\))$/i;
+  function checkAccentShows(launcher, value) {
+    if (value == null) return;
+    var shown;
+    try { shown = root.getComputedStyle ? root.getComputedStyle(launcher).backgroundColor : ''; } catch (e) { return; }
+    if (!shown || !HIDDEN_COLOR.test(String(shown).trim())) return;
+    warnIgnored('accentColor', value, 'it would hide the launcher', ACCENT);
     launcher.style.backgroundColor = ACCENT;
   }
 
@@ -197,39 +212,17 @@
       var container = element(options.container);
       if (!container) throw new Error('BOWEmbed.mount: inline mode needs a `container` element or selector');
       wrapper.style.width = '100%';
-      // A number is pixels, at least 1; a string is used as given (calc() works)
-      // unless the browser refuses it. A refused value warns and is 100%.
-      var inlineHeight = options.height;
-      if (inlineHeight == null) wrapper.style.height = '100%';
-      else if (typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight >= 1) wrapper.style.height = inlineHeight + 'px';
-      else {
-        if (typeof inlineHeight === 'string') wrapper.style.height = inlineHeight;
-        // A height the browser reads back as a px length below 1px ('0' reads
-        // back as '0px', a tiny one as '1e-05px') would leave an invisible
-        // frame, as the number 0 would. Other zero heights ('0%', '0rem',
-        // 'calc(0px)') are the host's choice.
-        var shown = typeof inlineHeight === 'string' ? String(wrapper.style.height || '') : '';
-        var px = /^\s*([\d.e+-]+)px\s*$/i.exec(shown);
-        if (typeof inlineHeight !== 'string' || !shown || (px && Number(px[1]) < 1)) {
-          warnIgnored('height', inlineHeight, 'use a number of pixels (at least 1) or a CSS height', '100%');
-          wrapper.style.height = '100%';
-        }
-      }
+      applySize(wrapper, 'height', options.height, '100%', null);
       wrapper.appendChild(iframe);
       container.appendChild(wrapper);
     } else {
       var side = options.position === 'bottom-left' ? 'left' : 'right';
-      var panelWidth = cssLength('width', options.width, FLOATING_WIDTH);
-      var panelHeight = cssLength('height', options.height, FLOATING_HEIGHT);
       var zIndex = zIndexOf(options.zIndex);
-      // Each first line uses only vh, which every browser knows; the second
-      // (dvh, which follows a mobile browser's toolbar) replaces it where known.
-      var widthLines = 'width:min(' + plainVh(panelWidth) + ',calc(100vw - 32px));' +
-        (plainVh(panelWidth) !== panelWidth ? 'width:min(' + panelWidth + ',calc(100vw - 32px));' : '');
-      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;' + widthLines +
-        'height:min(' + plainVh(panelHeight) + ',calc(100vh - 120px));height:min(' + panelHeight + ',calc(100dvh - 120px));' +
+      wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;' +
         'border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
         'background:#fff;display:none;z-index:' + zIndex;
+      applySize(wrapper, 'width', options.width, FLOATING_WIDTH, 'calc(100vw - 32px)');
+      applySize(wrapper, 'height', options.height, FLOATING_HEIGHT, 'calc(100dvh - 120px)');
       wrapper.appendChild(iframe);
       launcher = document.createElement('button');
       launcher.type = 'button';
@@ -252,6 +245,7 @@
       launcher.addEventListener('click', function () { setOpen(!state.open); });
       document.body.appendChild(wrapper);
       document.body.appendChild(launcher);
+      checkAccentShows(launcher, options.accentColor);
     }
 
     function setOpen(open) {
