@@ -12,6 +12,7 @@ connects (``(:Person)-[:ACTED_IN]->(:Movie)``).
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from typing import Any
@@ -130,6 +131,8 @@ class Neo4jClient(DataSourceClient):
         self.username = username
         self.password = password
         self._query_budget = DEFAULT_TIMEOUT_SECONDS
+        self._driver = None
+        self._driver_lock = threading.Lock()
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -147,27 +150,37 @@ class Neo4jClient(DataSourceClient):
     def _auth(self):
         return (self.username, self.password or "") if self.username else None
 
-    @contextmanager
-    def connect(self) -> Generator:
+    def _get_driver(self):
+        """One driver per client: it pools connections and is thread-safe, so
+        queries skip the TCP + TLS + auth handshake after the first."""
         from neo4j import GraphDatabase
 
-        driver = GraphDatabase.driver(direct_uri(self.uri), auth=self._auth(), connection_timeout=15,
-                                      max_connection_lifetime=300)
-        try:
-            # One session per call: sessions are not thread-safe, and the
-            # executor may run several queries at once.
-            with driver.session(database=self.database, default_access_mode="READ",
-                                fetch_size=1000) as session:
-                yield session
-        finally:
-            driver.close()
+        with self._driver_lock:
+            if self._driver is None:
+                self._driver = GraphDatabase.driver(direct_uri(self.uri), auth=self._auth(),
+                                                    connection_timeout=15, max_connection_lifetime=300)
+            return self._driver
+
+    def close(self) -> None:
+        with self._driver_lock:
+            if self._driver is not None:
+                self._driver.close()
+                self._driver = None
+
+    @contextmanager
+    def connect(self) -> Generator:
+        # One session per call: sessions are not thread-safe, and the
+        # executor may run several queries at once.
+        with self._get_driver().session(database=self.database, default_access_mode="READ",
+                                        fetch_size=1000) as session:
+            yield session
 
     def _read(self, cypher: str, params: dict | None = None, *, limit: int | None = None,
               timeout: float | None = None):
         """(columns, rows, truncated) for a read transaction."""
         from neo4j import unit_of_work
 
-        limit = MAX_ROWS if limit is None else limit
+        limit = _max_rows() if limit is None else limit
 
         @unit_of_work(timeout=timeout or self._query_budget)
         def work(tx):
@@ -272,7 +285,7 @@ class Neo4jClient(DataSourceClient):
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
             nodes[label] = [TableColumn(name=k, dtype="object") for (k,) in keys]
         rels: dict[str, list[TableColumn]] = {}
-        for (rel,) in types:
+        for (rel,) in discovery_items(types, "relationship types", label=lambda r: r[0]):
             q = f"MATCH ()-[r:`{rel.replace('`', '``')}`]->() WITH r LIMIT {SAMPLE_SIZE} UNWIND keys(r) AS k RETURN DISTINCT k"
             _, keys, _ = self._read(q, timeout=DEFAULT_TIMEOUT_SECONDS)
             rels[rel] = [TableColumn(name=k, dtype="object") for (k,) in keys]
