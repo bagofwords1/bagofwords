@@ -246,6 +246,9 @@ class DashboardListItem(BaseModel):
     owner: DashboardListOwner | None = None
     thumbnail_url: str | None = None
     updated_at: datetime | None = None
+    created_at: datetime | None = None
+    # When its content last changed (dashlist01); never a data refresh.
+    edited_at: datetime | None = None
 
 
 class DashboardListMeta(BaseModel):

@@ -89,6 +89,7 @@ async def _card(db, artifact: Artifact, user) -> dict:
         "role": "owner" if is_owner(artifact, user) else ("edit" if editor else "view"),
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,
         "thumbnail_url": _thumbnail_url(thumbnail), "updated_at": artifact.updated_at,
+        "created_at": artifact.created_at, "edited_at": artifact.content_updated_at or artifact.created_at,
     }
 
 
