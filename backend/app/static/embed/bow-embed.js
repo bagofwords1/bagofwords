@@ -30,9 +30,13 @@
  *     embed.destroy()     // after logout(): removes the frame once it has signed out (at most 6 s)
  *   </script>
  *
- * Floating mode: `width` and `height` size the panel, as a number of pixels
- * or a CSS length such as '40rem'. The default is 600 x 720 px, and the
- * viewport caps both, so the panel still fits a small window.
+ * `height`, in both modes: a number is pixels. Floating mode: `width` and
+ * `height` size the panel, as a number of pixels or one CSS length such as
+ * '40rem' or '80dvh', at least 1. The default is 600 x 720 px, and the
+ * viewport caps both, so the panel still fits a small window. A value that
+ * is not accepted is ignored with a console warning. Inline mode: the width
+ * follows the container, and `height` also takes any CSS value as given,
+ * such as 'calc(100vh - 80px)' (default '100%').
  *
  * startTimeout (ms, default 15000, 0 turns it off): a frame the browser
  * refuses (the artifact doesn't exist or doesn't allow this application, the
@@ -75,11 +79,26 @@
   var FLOATING_HEIGHT = '720px';
 
   // A number is pixels; a string must be one plain CSS length (it goes into
-  // the panel's style). Anything else falls back to the default.
-  function cssLength(value, fallback) {
-    if (typeof value === 'number' && isFinite(value) && value > 0) return value + 'px';
-    if (typeof value === 'string' && /^\d+(\.\d+)?(px|rem|em|vw|vh|%)$/.test(value.trim())) return value.trim();
+  // the panel's style), and either must be at least 1. Anything else falls
+  // back to the default, with a console warning when a value was given.
+  var CSS_LENGTH = /^(\d+(?:\.\d+)?)(px|rem|em|vw|vh|dvh|svh|lvh|%)$/i;
+  function cssLength(name, value, fallback) {
+    if (value == null) return fallback;
+    if (typeof value === 'number' && isFinite(value) && value >= 1) return value + 'px';
+    if (typeof value === 'string') {
+      var match = CSS_LENGTH.exec(value.trim());
+      if (match && Number(match[1]) >= 1) return value.trim();
+    }
+    if (root.console && root.console.warn) {
+      root.console.warn('[bow-embed] ignoring ' + name + ' ' + JSON.stringify(String(value)) +
+        ': use a number of pixels or one CSS length such as \'40rem\' (at least 1); using ' + fallback);
+    }
     return fallback;
+  }
+
+  // z-index: any finite number, 0 included; anything else is the default.
+  function zIndexOf(value) {
+    return typeof value === 'number' && isFinite(value) ? String(value) : '2147483000';
   }
 
   function element(target) {
@@ -127,16 +146,20 @@
       var container = element(options.container);
       if (!container) throw new Error('BOWEmbed.mount: inline mode needs a `container` element or selector');
       wrapper.style.width = '100%';
-      wrapper.style.height = options.height || '100%';
+      // A number is pixels; any other value is used as given (calc() works).
+      var inlineHeight = options.height;
+      wrapper.style.height = typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight > 0
+        ? inlineHeight + 'px' : (inlineHeight || '100%');
       wrapper.appendChild(iframe);
       container.appendChild(wrapper);
     } else {
       var side = options.position === 'bottom-left' ? 'left' : 'right';
-      var panelWidth = cssLength(options.width, FLOATING_WIDTH);
-      var panelHeight = cssLength(options.height, FLOATING_HEIGHT);
+      var panelWidth = cssLength('width', options.width, FLOATING_WIDTH);
+      var panelHeight = cssLength('height', options.height, FLOATING_HEIGHT);
       wrapper.style.cssText = 'position:fixed;bottom:88px;' + side + ':16px;width:min(' + panelWidth + ',calc(100vw - 32px));' +
-        'height:min(' + panelHeight + ',calc(100vh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
-        'background:#fff;display:none;z-index:' + String(options.zIndex || 2147483000);
+        // 100dvh follows a mobile browser's toolbar; a browser without dvh keeps the vh line.
+        'height:min(' + panelHeight + ',calc(100vh - 120px));height:min(' + panelHeight + ',calc(100dvh - 120px));border-radius:12px;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.18);' +
+        'background:#fff;display:none;z-index:' + zIndexOf(options.zIndex);
       wrapper.appendChild(iframe);
       launcher = document.createElement('button');
       launcher.type = 'button';
@@ -145,7 +168,7 @@
       launcher.setAttribute('data-bow-embed-launcher', options.artifact);
       launcher.style.cssText = 'position:fixed;bottom:16px;' + side + ':16px;width:56px;height:56px;border-radius:28px;' +
         'border:0;cursor:pointer;color:#fff;background:' + (options.accentColor || '#2563eb') + ';' +
-        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + String(options.zIndex || 2147483000);
+        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndexOf(options.zIndex);
       launcher.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       launcher.addEventListener('click', function () { setOpen(!state.open); });

@@ -208,6 +208,9 @@ BOWEmbed.mount({
   artifact: 'b51c4d89-…',             // dashboard / data app / chat assistant
   mode: 'floating' | 'inline' | 'page',
   container: '#assistant',            // inline
+  width: 600, height: 720,            // floating: a number of px or one CSS length ('40rem', '80dvh'), at least 1;
+                                      //   default 600 x 720, capped by the viewport; a refused value warns in the console
+                                      // inline: height only, a number of px or any CSS value; default '100%'
   identity: { getAssertion }          // §4.1 — or { exchangeToken } §4.2, or { sso: 'popup' } §4.3
   context: { recordId: 'INC-1042' },  // → bow.context.host inside the artifact
   theme, locale,

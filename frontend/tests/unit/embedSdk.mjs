@@ -109,7 +109,7 @@ function mountWith(options = {}) {
   for (const name of ['unavailable', 'authRequired', 'authenticated', 'error']) embed.on(name, (detail) => events.push({ name, detail }))
   const deliver = (data, from = {}) => onMessage && onMessage({ source: contentWindow, origin: BOW, data, ...from })
   const hello = () => { deliver({ type: 'bow:hello' }); return sent.filter((s) => s.msg.type === 'bow:init').at(-1)?.msg.nonce }
-  return { embed, events, deliver, hello, tick, sent, removed, listening: () => onMessage !== null }
+  return { embed, events, deliver, hello, tick, sent, removed, body: document.body, listening: () => onMessage !== null }
 }
 
 {
@@ -235,13 +235,83 @@ console.log('PASS: destroy after logout waits for the frame to sign out (6 s at 
   assert.match(panel({ width: 480, height: 560 }), /width:min\(480px,calc\(100vw - 32px\)\);height:min\(560px,calc\(100vh - 120px\)\)/)
   assert.match(panel({ width: '40rem', height: '80vh' }), /width:min\(40rem,calc\(100vw - 32px\)\);height:min\(80vh,calc\(100vh - 120px\)\)/)
   // Anything else falls back to the default; it never reaches the style text.
-  for (const bad of ['600px;background:url(x)', 'calc(1px)', '', -5, 0, NaN, Infinity, {}, '10']) {
-    const css = panel({ width: bad, height: bad })
-    assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(bad)}`)
-    assert.doesNotMatch(css, /url\(/)
+  // (Each refusal also warns; the warning is tested below, and kept quiet here.)
+  const warn = console.warn
+  console.warn = () => {}
+  try {
+    for (const bad of ['600px;background:url(x)', 'calc(1px)', '', -5, 0, NaN, Infinity, {}, '10']) {
+      const css = panel({ width: bad, height: bad })
+      assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(bad)}`)
+      assert.doesNotMatch(css, /url\(/)
+    }
+  } finally {
+    console.warn = warn
   }
   // Inline mode is sized by its container, as before.
   const inline = mountWith({ width: 300 }).embed.iframe.parentNode.style
   assert.equal(inline.width, '100%')
 }
 console.log('PASS: the floating panel is 600 x 720 by default, sized by width/height when given, capped by the viewport')
+
+// ── size options: warnings, tiny sizes, units, inline height, z-index ───────
+{
+  // Spy on console.warn for one mount, and always put it back.
+  const warnsFor = (options) => {
+    const original = console.warn
+    const warnings = []
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      const css = mountWith({ container: undefined, mode: 'floating', ...options }).embed.iframe.parentNode.style.cssText
+      return { css, warnings }
+    } finally {
+      console.warn = original
+    }
+  }
+  // A value that was given but refused is reported, naming the option and the value.
+  {
+    const { css, warnings } = warnsFor({ width: '600px;background:url(x)' })
+    assert.match(css, /width:min\(600px,/)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] .*width.*600px;background:url\(x\)/)
+  }
+  {
+    const { warnings } = warnsFor({ height: 'calc(1px)' })
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] .*height.*calc\(1px\)/)
+  }
+  // Valid or absent values say nothing.
+  assert.deepEqual(warnsFor({}).warnings, [])
+  assert.deepEqual(warnsFor({ width: 480, height: '80vh', zIndex: 5 }).warnings, [])
+  assert.deepEqual(warnsFor({ width: null, height: undefined }).warnings, [])
+  // Sizes below 1, in any unit, would give an invisible panel: refused, with a warning.
+  for (const tiny of ['0px', '0%', '0.0rem', '0.5px', 1e-7, 0.5]) {
+    const { css, warnings } = warnsFor({ width: tiny, height: tiny })
+    assert.match(css, /width:min\(600px,.*height:min\(720px,/, `rejects ${String(tiny)}`)
+    assert.equal(warnings.length, 2, `warns for ${String(tiny)}`)
+  }
+  // Units match in any case, and the dynamic viewport units are accepted.
+  {
+    const { css, warnings } = warnsFor({ width: '40PX', height: '90dvh' })
+    assert.match(css, /width:min\(40PX,calc\(100vw - 32px\)\);height:min\(90dvh,calc\(100vh - 120px\)\)/)
+    assert.deepEqual(warnings, [])
+  }
+  assert.match(warnsFor({ height: '50svh' }).css, /height:min\(50svh,/)
+  assert.match(warnsFor({ height: '50lvh' }).css, /height:min\(50lvh,/)
+  // The height cap follows the mobile toolbar where the browser knows dvh; the vh one stays first for older browsers.
+  assert.match(warnsFor({}).css, /height:min\(720px,calc\(100vh - 120px\)\);height:min\(720px,calc\(100dvh - 120px\)\);/)
+  // z-index 0 is a real value; anything that is not a finite number keeps the default.
+  assert.match(warnsFor({ zIndex: 0 }).css, /z-index:0(;|$)/)
+  assert.match(warnsFor({}).css, /z-index:2147483000(;|$)/)
+  assert.match(warnsFor({ zIndex: '1;color:red' }).css, /z-index:2147483000(;|$)/)
+  const launcher = mountWith({ container: undefined, mode: 'floating', zIndex: 0 }).body.children.find((n) => n.name === 'launcher')
+  assert.match(launcher.style.cssText, /z-index:0(;|$)/)
+}
+{
+  // Inline height: a number is pixels; any other value is used as given, default 100%.
+  const inlineHeight = (height) => mountWith({ height }).embed.iframe.parentNode.style.height
+  assert.equal(inlineHeight(720), '720px')
+  assert.equal(inlineHeight('calc(100vh - 80px)'), 'calc(100vh - 80px)')
+  assert.equal(inlineHeight('clamp(300px, 50vh, 800px)'), 'clamp(300px, 50vh, 800px)')
+  assert.equal(inlineHeight(undefined), '100%')
+}
+console.log('PASS: refused sizes warn, sizes below 1 are refused, units match in any case, inline height takes pixels, z-index 0 is kept')
