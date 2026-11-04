@@ -769,6 +769,35 @@ _DB_ERROR_HINTS: List[Tuple[str, str]] = [
         "database charset — e.g. SELECT TO_CHAR(a) ... UNION ALL SELECT TO_CHAR(b) ... "
         "Apply the conversion to EVERY branch of the offending expression, then retry."
     ),
+    (
+        # Trino / Starburst: the catalog or schema was not resolved. Almost
+        # always a name the agent shortened or qualified with the wrong
+        # catalog; the listing shows the exact form to use.
+        "CATALOG_NOT_FOUND",
+        "Hint: Trino could not find that catalog. Use the table names exactly as "
+        "listed in the schema: schema.table for the session catalog, "
+        "catalog.schema.table for any other indexed catalog."
+    ),
+    (
+        "SCHEMA_NOT_FOUND",
+        "Hint: Trino could not find that schema. Qualify the table as schema.table "
+        "(or catalog.schema.table for another catalog) exactly as listed in the schema."
+    ),
+    (
+        "TABLE_NOT_FOUND",
+        "Hint: Trino could not find that table. Use the qualified name exactly as "
+        "listed in the schema (schema.table, or catalog.schema.table for another "
+        "catalog); identifiers are case-insensitive but the catalog and schema must match."
+    ),
+    (
+        # Starburst built-in access control: the login's active role lacks a
+        # grant. The agent cannot fix that, so say so instead of letting it
+        # re-roll the query.
+        "PERMISSION_DENIED",
+        "Hint: the Trino / Starburst role this connection uses has no grant on that "
+        "table. Choose another table from the listing; a missing grant or role must "
+        "be fixed on the connection by an admin, not by rewriting the query."
+    ),
 ]
 
 

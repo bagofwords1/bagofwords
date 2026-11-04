@@ -775,7 +775,7 @@ requires-dist = [
     { name = "teradatasql", specifier = ">=20.0.0.61,<20.1" },
     { name = "testcontainers", extras = ["postgres", "mysql", "mssql"], marker = "extra == 'dev'", specifier = ">=4.14.2,<4.15" },
     { name = "tiktoken", specifier = ">=0.13.0,<0.14" },
-    { name = "trino", specifier = ">=0.337.0,<0.338" },
+    { name = "trino", specifier = ">=0.340.0,<0.341" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.51,<0.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.31.1,<0.32" },
     { name = "vertica-python", specifier = ">=1.4.0,<1.5" },
@@ -5500,7 +5500,7 @@ wheels = [
 
 [[package]]
 name = "trino"
-version = "0.337.0"
+version = "0.340.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lz4" },
@@ -5511,9 +5511,9 @@ dependencies = [
     { name = "tzlocal" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7f/b6/73315c36902ecd87d061fe045a1df4611f5b7ff714498864896b4d454ab1/trino-0.337.0.tar.gz", hash = "sha256:3a0bd03a09b7ea5dccd41ca6e58abfb127c6303f3a48a258ff794d411dd83a3c", size = 55995, upload-time = "2026-03-06T13:24:01.495Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cd/81/052f28bb45e90c2344187ee472ef67ffb56ec565fe2e05c3e94a96bde3c2/trino-0.340.0.tar.gz", hash = "sha256:181cf0df1177c54699fe138df09932a95bbb249062375938f2c45c8db0ab39f2", size = 62008, upload-time = "2026-09-23T10:18:30.206Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/99/c39eca8b3fca72d39fe507f9e7598174acb0a5845ecdd20630790e268cb2/trino-0.337.0-py3-none-any.whl", hash = "sha256:868f2b8137d4d1baa84c9bc341f2cdf29039462aa69d7c089a0b821b5a91f29c", size = 58558, upload-time = "2026-03-06T13:23:59.662Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/de/5c2f5b12816c4c88ba4f41299a2cedbc4b3a2f1375ecc8f2229b07afe75d/trino-0.340.0-py3-none-any.whl", hash = "sha256:908aa292d7216e79370581f1fb089e8052d08a5f48e839c6f6713a4fa2998e1c", size = 63877, upload-time = "2026-09-23T10:18:29.111Z" },
 ]
 
 [[package]]

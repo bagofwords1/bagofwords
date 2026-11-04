@@ -26,7 +26,9 @@ So on timeout we also ask the source to stop. What "ask" means is per driver:
     outcome string so it is visible rather than surprising. The SPID is read
     once per physical connection and cached on it, so the cost is per pooled
     connection and not per query.
-  * Everything else (Trino, Presto, Snowflake, …) — reported as unsupported.
+  * Trino / Starburst — the client keeps its driver cursor on the connection
+    and `cursor.cancel()` is a cross-thread-safe HTTP DELETE.
+  * Everything else (Snowflake, …) — reported as unsupported.
     We deliberately do NOT close the connection out from under the driver: for
     the C-extension drivers that is a segfault risk, and the orphan thread ends
     up returning the connection to the pool by itself anyway.
@@ -143,7 +145,27 @@ def _cancel(sa_conn: Any, client: Any = None) -> str:
             sa_conn, f"KILL {int(spid)}", f"session killed (spid {spid})", client=client
         )
 
+    if dialect == "trino":
+        # The Trino client parks its live driver cursor on the pooled
+        # connection's `info` for the duration of a statement (see
+        # TrinoClient.execute_query). cursor.cancel() is a DELETE on the
+        # query's nextUri — a separate HTTP request, safe from another
+        # thread — and the coordinator then kills the query instead of
+        # running it to completion for a client that stopped polling.
+        cur = _trino_cursor(sa_conn)
+        if cur is None:
+            return "unsupported: no trino cursor"
+        cur.cancel()
+        return "cancelled (trino cursor cancel)"
+
     return f"unsupported: {dialect or 'unknown'}"
+
+
+def _trino_cursor(sa_conn: Any):
+    try:
+        return sa_conn.info.get("bow_trino_cursor")
+    except Exception:
+        return None
 
 
 def _pymysql_thread_id(raw: Any) -> Optional[int]:

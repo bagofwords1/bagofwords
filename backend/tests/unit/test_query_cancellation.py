@@ -161,9 +161,16 @@ def test_sql_server_without_a_captured_spid_reports_unsupported():
 
 
 def test_unknown_dialect_reports_unsupported_rather_than_guessing():
-    """Trino/Snowflake/etc. have no safe cross-thread cancel here. Reporting it
+    """Snowflake/etc. have no safe cross-thread cancel here. Reporting it
     is correct; closing the connection under a C driver is not."""
-    assert _cancel_in_place(FakeConn("trino")) == "unsupported: trino"
+    assert _cancel_in_place(FakeConn("snowflake")) == "unsupported: snowflake"
+
+
+def test_trino_without_a_parked_cursor_reports_unsupported_rather_than_guessing():
+    """The Trino cancel path needs the cursor the client parks on the
+    connection; a connection without one (a statement that did not go through
+    execute_query) must not fall back to anything destructive."""
+    assert _cancel_in_place(FakeConn("trino")).startswith("unsupported")
 
 
 def test_a_driver_that_raises_during_cancel_does_not_propagate():
