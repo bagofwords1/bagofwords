@@ -212,9 +212,12 @@ BOWEmbed.mount({
                                       //   default 600 x 720, capped by the viewport; without dvh/svh/lvh support the
                                       //   same size applies in vh; a refused value warns in the console
                                       // inline: height only, a number of px (at least 1) or any CSS value the browser
-                                      //   accepts; default '100%', also used (with a warning) for a refused value
-  zIndex: 1000,                       // floating: a whole number or a string of digits ('1000'); default 2147483000
-  accentColor: '#2563eb',             // floating launcher: hex, rgb()/hsl() or a colour name; default '#2563eb'
+                                      //   accepts other than a plain length below 1px ('0px'); default '100%', also
+                                      //   used (with a warning) for a refused value
+  zIndex: 1000,                       // floating: a whole number (-2147483648 to 2147483647) or a string of digits
+                                      //   ('1000'); default 2147483000
+  accentColor: '#2563eb',             // floating launcher: any CSS colour the browser accepts ('#abcd', 'hsl(…)',
+                                      //   'var(--brand)'); default '#2563eb'
                                       //   a refused zIndex or accentColor warns and uses the default
   identity: { getAssertion }          // §4.1 — or { exchangeToken } §4.2, or { sso: 'popup' } §4.3
   context: { recordId: 'INC-1042' },  // → bow.context.host inside the artifact

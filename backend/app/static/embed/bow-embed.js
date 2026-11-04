@@ -36,11 +36,13 @@
  * and the viewport caps both, so the panel still fits a small window. A
  * browser without dvh/svh/lvh uses the same size in vh. Inline mode: the
  * width follows the container, and `height` also takes any CSS value as
- * given, such as 'calc(100vh - 80px)' (default '100%').
+ * given, such as 'calc(100vh - 80px)' (default '100%'), except a plain
+ * length below 1px such as '0px'.
  *
- * Floating mode also takes `zIndex` (a whole number, or a string of digits
- * such as '1000'; default 2147483000), `accentColor` for the launcher (a hex
- * colour, rgb()/hsl() or a colour name; default '#2563eb') and `position`
+ * Floating mode also takes `zIndex` (a whole number from -2147483648 to
+ * 2147483647, or a string of digits such as '1000'; default 2147483000),
+ * `accentColor` for the launcher (any CSS colour the browser accepts, such as
+ * '#2563eb', 'hsl(220deg 80% 50%)' or 'var(--brand)'; default '#2563eb') and `position`
  * ('bottom-right' or 'bottom-left'). Any size, zIndex or accentColor that is
  * not accepted is ignored with a console warning, and the default is used.
  *
@@ -122,25 +124,30 @@
   // z-index: an integer in CSS's range, as a number or a string of digits;
   // anything else given warns and is the default.
   var Z_INDEX = '2147483000';
+  var Z_MIN = -2147483648;
   var Z_MAX = 2147483647;
   function zIndexOf(value) {
     if (value == null) return Z_INDEX;
     var text = typeof value === 'string' ? value.trim() : null;
     var n = typeof value === 'number' ? value : (text !== null && /^-?\d+$/.test(text) ? Number(text) : NaN);
-    if (isFinite(n) && Math.floor(n) === n && Math.abs(n) <= Z_MAX) return String(n);
+    if (isFinite(n) && Math.floor(n) === n && n >= Z_MIN && n <= Z_MAX) return String(n);
     warnIgnored('zIndex', value, 'use a whole number', Z_INDEX);
     return Z_INDEX;
   }
 
-  // The launcher's colour: a hex colour, rgb()/hsl() with plain numbers, or a
-  // colour keyword. It goes into the style text, so nothing else is let through.
+  // The launcher's colour: any colour the browser accepts. It is set through
+  // the one style property, so it cannot add other declarations, and read back:
+  // a value the browser dropped (or one that is not a string) warns and is the
+  // default.
   var ACCENT = '#2563eb';
-  var COLOR = /^(#[0-9a-f]{3}|#[0-9a-f]{6}|#[0-9a-f]{8}|(rgba?|hsla?)\([0-9 ,.%\/]*\)|[a-z]+)$/i;
-  function colorOf(value) {
-    if (value == null) return ACCENT;
-    if (typeof value === 'string' && COLOR.test(value.trim())) return value.trim();
-    warnIgnored('accentColor', value, 'use a hex colour, rgb(), hsl() or a colour name', ACCENT);
-    return ACCENT;
+  function setAccent(launcher, value) {
+    if (value == null) { launcher.style.backgroundColor = ACCENT; return; }
+    if (typeof value === 'string') {
+      launcher.style.backgroundColor = value.trim();
+      if (launcher.style.backgroundColor) return;
+    }
+    warnIgnored('accentColor', value, 'use a CSS colour such as \'#2563eb\'', ACCENT);
+    launcher.style.backgroundColor = ACCENT;
   }
 
   function element(target) {
@@ -195,7 +202,11 @@
       else if (typeof inlineHeight === 'number' && isFinite(inlineHeight) && inlineHeight >= 1) wrapper.style.height = inlineHeight + 'px';
       else {
         if (typeof inlineHeight === 'string') wrapper.style.height = inlineHeight;
-        if (typeof inlineHeight !== 'string' || !wrapper.style.height) {
+        // A plain length below 1px (the browser reads '0' back as '0px') would
+        // leave an invisible frame, as the number 0 would.
+        var shown = typeof inlineHeight === 'string' ? String(wrapper.style.height || '') : '';
+        var px = /^\s*(\d*\.?\d+)px\s*$/i.exec(shown);
+        if (typeof inlineHeight !== 'string' || !shown || (px && Number(px[1]) < 1)) {
           warnIgnored('height', inlineHeight, 'use a number of pixels (at least 1) or a CSS height', '100%');
           wrapper.style.height = '100%';
         }
@@ -222,8 +233,8 @@
       launcher.setAttribute('aria-expanded', 'false');
       launcher.setAttribute('data-bow-embed-launcher', options.artifact);
       launcher.style.cssText = 'position:fixed;bottom:16px;' + side + ':16px;width:56px;height:56px;border-radius:28px;' +
-        'border:0;cursor:pointer;color:#fff;background:' + colorOf(options.accentColor) + ';' +
-        'box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndex;
+        'border:0;cursor:pointer;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.2);z-index:' + zIndex;
+      setAccent(launcher, options.accentColor);
       launcher.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
         'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
       launcher.addEventListener('click', function () { setOpen(!state.open); });

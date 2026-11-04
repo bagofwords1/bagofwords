@@ -408,23 +408,101 @@ console.log('PASS: refused sizes warn, sizes below 1 are refused, units match in
     }
   }
 
-  // accentColor: a hex colour, rgb()/hsl() with plain numbers, or a colour keyword.
-  for (const good of ['#abc', '#A1b2C3', '#11223344', 'rgb(1, 2, 3)', 'rgba(1,2,3,.5)', 'hsl(10 20% 30% / 50%)', 'rebeccapurple']) {
-    const { result, warnings } = withWarnings(() => floating({ accentColor: good }))
-    assert.ok(result.launcher.includes('background:' + good + ';'), `keeps accentColor ${good}`)
-    assert.deepEqual(warnings, [])
+}
+console.log('PASS: z-index takes integer strings, inline height refusals warn, dynamic units fall back to vh, warnings never break a mount')
+
+// ── accentColor is whatever colour the browser accepts, inline heights below
+// 1px are refused, and z-index takes CSS's whole range ─────────────────────
+{
+  const withWarnings = (fn) => {
+    const original = console.warn
+    const warnings = []
+    console.warn = (...args) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      return { result: fn(), warnings }
+    } finally {
+      console.warn = original
+    }
   }
-  for (const bad of ['red;x:y', 'url(x)', '#abcd', 'rgb(1,2,3);x:y', 'var(--x)', '', 12]) {
-    const { result, warnings } = withWarnings(() => floating({ accentColor: bad }))
-    assert.match(result.launcher, /background:#2563eb;/, `refuses accentColor ${String(bad)}`)
-    assert.doesNotMatch(result.launcher, /x:y|url\(/)
-    assert.equal(warnings.length, 1)
+  // The launcher's style acts as a browser's does for background-color: a value
+  // it cannot read as a colour is dropped and the old value stays.
+  const INVALID = ['blu', 'rgb()', 'rgb(,,,)', 'red;x:y', 'url(x)', 'rgb(1,2,3);x:y']
+  const browserLauncher = (name) => {
+    if (name !== 'launcher') return null
+    let color = ''
+    return {
+      cssText: '',
+      get backgroundColor() { return color },
+      set backgroundColor(v) { if (!INVALID.includes(v)) color = String(v) },
+    }
+  }
+  const launcherOf = (options) => {
+    const { body } = mountWith({ container: undefined, mode: 'floating', ...options }, { styleFor: browserLauncher })
+    return body.children.find((n) => n.name === 'launcher').style
+  }
+
+  // Any colour the browser accepts is kept, including the forms a shape check missed.
+  for (const good of ['#abc', '#abcd', '#A1b2C3', '#11223344', 'rgb(1, 2, 3)', 'hsl(220deg 80% 50%)',
+    'oklch(60% 0.2 250)', 'var(--brand)', 'rebeccapurple', 'transparent']) {
+    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: good }))
+    assert.equal(result.backgroundColor, good, `keeps accentColor ${good}`)
+    assert.deepEqual(warnings, [], `no warning for accentColor ${good}`)
+  }
+  assert.equal(withWarnings(() => launcherOf({ accentColor: '  #abc ' })).result.backgroundColor, '#abc', 'spaces around are trimmed')
+  // A colour the browser drops, an empty string, or a value that is not a string warns once and is the default.
+  for (const bad of [...INVALID, '', 12, {}]) {
+    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: bad }))
+    assert.equal(result.backgroundColor, '#2563eb', `refuses accentColor ${String(bad)}`)
+    assert.doesNotMatch(result.cssText, /x:y|url\(|blu|rgb\(/, 'the value never reaches the style text')
+    assert.equal(warnings.length, 1, `warns once for accentColor ${String(bad)}`)
     assert.match(warnings[0], /^\[bow-embed\] ignoring accentColor /)
   }
-  {
-    const { result, warnings } = withWarnings(() => floating({}))
-    assert.match(result.launcher, /background:#2563eb;/)
+  // Absent: the default, without a word.
+  for (const absent of [undefined, null]) {
+    const { result, warnings } = withWarnings(() => launcherOf({ accentColor: absent }))
+    assert.equal(result.backgroundColor, '#2563eb')
     assert.deepEqual(warnings, [])
   }
+  // The style text sets no background, so it can never override the colour set above.
+  assert.doesNotMatch(launcherOf({ accentColor: '#abc' }).cssText, /background/)
+
+  // Inline height: a string the browser reads back as less than 1px gives an
+  // invisible frame, so it is refused like the number 0.
+  const inline = (height) => mountWith({ height }).embed.iframe.parentNode.style.height
+  for (const tiny of ['0px', '0.5px', '0PX', ' 0px ']) {
+    const { result, warnings } = withWarnings(() => inline(tiny))
+    assert.equal(result, '100%', `refuses inline height ${JSON.stringify(tiny)}`)
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /^\[bow-embed\] ignoring height /)
+  }
+  // A browser reads '0' back as '0px': that is refused too.
+  {
+    const zeroAsPx = (name) => {
+      if (name !== 'wrapper') return null
+      let height = ''
+      return { get height() { return height }, set height(v) { height = v === '0' ? '0px' : String(v) } }
+    }
+    const { result, warnings } = withWarnings(() => mountWith({ height: '0' }, { styleFor: zeroAsPx }).embed.iframe.parentNode.style.height)
+    assert.equal(result, '100%')
+    assert.equal(warnings.length, 1)
+  }
+  for (const kept of ['1px', '240px', 'calc(100vh - 80px)', 'clamp(0px, 50vh, 800px)', 'var(--h)', '50%']) {
+    const { result, warnings } = withWarnings(() => inline(kept))
+    assert.equal(result, kept, `keeps inline height ${kept}`)
+    assert.deepEqual(warnings, [])
+  }
+
+  // z-index: CSS's whole integer range, from -2147483648 to 2147483647.
+  const zOf = (zIndex) => mountWith({ container: undefined, mode: 'floating', zIndex }).embed.iframe.parentNode.style.cssText
+  for (const edge of [-2147483648, '-2147483648', 2147483647]) {
+    const { result, warnings } = withWarnings(() => zOf(edge))
+    assert.match(result, new RegExp(`z-index:${String(edge).trim()}(;|$)`), `keeps zIndex ${edge}`)
+    assert.deepEqual(warnings, [])
+  }
+  for (const out of [-2147483649, '-2147483649']) {
+    const { result, warnings } = withWarnings(() => zOf(out))
+    assert.match(result, /z-index:2147483000(;|$)/, `refuses zIndex ${out}`)
+    assert.equal(warnings.length, 1)
+  }
 }
-console.log('PASS: z-index takes integer strings, inline height refusals warn, dynamic units fall back to vh, warnings never break a mount, accentColor is checked')
+console.log('PASS: accentColor is any colour the browser accepts (else a warning and the default), inline heights below 1px are refused, z-index takes its full range')
