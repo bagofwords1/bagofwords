@@ -174,3 +174,39 @@ on `82b20abe6`, containing only this connector change, passed **147 tests**, wit
 **2 credential-gated skips**, in 47.09 seconds. Ruff on new remote modules and
 `git diff --check` passed. The initial invocation needed an explicit disposable
 `BOW_DATABASE_URL`; no tests ran until that environment setting was supplied.
+
+## Agentless default, wildcard paths, and advanced form
+
+The initial connector required an installed reader. Agentless inspection now runs
+bounded code in memory using existing Python 3 on Linux or PowerShell on Windows;
+it does not write reader/config files remotely. The installed-reader mode remains
+an explicit connection option. The shell defaults to enabled with policy-controlled
+Ask for unmatched commands. The form presents host/port, OS, verified host key and
+authentication before a collapsed Advanced settings section.
+
+Allowed paths accepts wildcard patterns, including `*` for any account-readable
+path (within the selected share for SMB). Requests still name a concrete file;
+patterns do not expand into unbounded multi-file searches. Traversal and special
+file checks remain active. A server-owned restricted-reader policy can narrow but
+cannot be widened by the client configuration.
+
+Reproduction: the three `test_agentless_reads_without_installing_reader` cases
+fail against commit `908c9964d` because it invokes an installed reader. With this
+change the selected full regression command passes **156 tests, 2 skips**, in
+44.53 seconds. Live SSH verification passes **17/17**, now covering a nonexistent
+installed-reader path in agentless mode, explicit restricted mode, `*`, and a log
+pattern. Fixtures are removed afterward. Windows inline-script dispatch is unit
+tested; real Windows execution remains unverified. The inline PowerShell bootstrap
+reads its script/config on stdin to avoid Windows command-line length limits.
+
+The live component harness verified the collapsed main fields, Advanced toggle,
+agentless default, `*` entry, reader-path visibility only in restricted mode, and
+Hebrew rendering. Before/after screenshots and flow GIF are in
+`media/pr/remote-policy/agentless-*`. API responses in this form-only harness were
+synthetic schemas; remote execution was checked separately against SSH. Generic
+credential-only connectors retain their form even without a config schema.
+
+Integration with the concurrent review-fix commit retains its policy/pool fixes.
+The shell policy service now uses the same enabled-by-default value as the new
+connection schema, while explicit disable still denies execution. A regression
+test covers default display and explicit disable.

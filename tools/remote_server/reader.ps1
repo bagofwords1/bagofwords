@@ -27,6 +27,11 @@ try {
         $path = [IO.Path]::GetFullPath($path)
         $allowed = $false
         foreach ($root in $config.allowed_paths) {
+            if ($root -eq '*') { $allowed=$true; continue }
+            if ($root -match '[*?\[]') {
+                if ($path -like $root.Replace('/', '\')) { $allowed=$true }
+                continue
+            }
             $root = [IO.Path]::GetFullPath($root).TrimEnd('\')
             if ($path.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or $path.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { $allowed=$true }
         }

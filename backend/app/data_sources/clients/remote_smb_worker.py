@@ -57,6 +57,14 @@ def execute(payload, connection_cache=None):
 
         if operation == "capabilities":
             for folder in c["allowed_paths"]:
+                # A wildcard is an authorization pattern, not a literal directory.
+                folder = folder.replace("/", "\\")
+                prefix = []
+                for part in folder.split("\\"):
+                    if any(c in part for c in "*?["):
+                        break
+                    prefix.append(part)
+                folder = "\\".join(prefix) or "."
                 path = scoped(folder)
                 with smbclient.scandir(path, **kwargs) as entries:
                     next(iter(entries), None)

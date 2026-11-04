@@ -26,7 +26,7 @@ class RemoteLimits(BaseModel):
     allowed_paths: list[str] = Field(
         default_factory=list,
         title="Allowed log/file roots",
-        description="Absolute SSH paths, or share-relative SMB folders. Empty means no file access.",
+        description="Folders or wildcard patterns, e.g. /var/log/*.log or SERVERLOGS/*.log. * allows all paths this account can read; empty denies file access.",
     )
     allowed_operations: list[Literal["list_directory", "read_file", "search_file", "system_status"]] = Field(
         default=["list_directory", "read_file", "search_file"],
@@ -48,6 +48,17 @@ class RemoteLimits(BaseModel):
 
 
 class RemoteSSHConfig(RemoteLimits):
+    inspection_mode: Literal["agentless", "restricted_reader"] = Field(
+        "agentless",
+        title="Inspection mode",
+        description="Agentless runs in memory using existing Python 3 on Linux or PowerShell on Windows. Restricted reader requires an administrator-installed helper.",
+        json_schema_extra={
+            "ui:enumLabels": {
+                "agentless": "Agentless (no installation)",
+                "restricted_reader": "Installed restricted reader",
+            }
+        },
+    )
     port: int = Field(22, ge=1, le=65535)
     shell_policy: Literal["policy", "strict", "allow", "deny"] = Field(
         "policy",
@@ -94,7 +105,7 @@ class RemoteSSHConfig(RemoteLimits):
         description="Default: /usr/local/lib/bow/reader.py on Linux; C:\\ProgramData\\BOW\\reader.ps1 on Windows. Install the administrator-owned reader first.",
     )
     enable_shell: bool = Field(
-        False,
+        True,
         title="Enable maintenance shell",
         description="Arbitrary Bash/PowerShell with this account's privileges. Execution follows the shell permissions and saved user choices.",
     )
